@@ -7,6 +7,7 @@ import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
 import { Video, Activity } from 'lucide-react';
+import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import clsx from 'clsx';
 
 const MultimodalEngine = () => {
@@ -16,11 +17,14 @@ const MultimodalEngine = () => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
+  const [metrics, setMetrics] = useState({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
 
   const onResults = useCallback((results) => {
+    if (!webcamRef.current || !webcamRef.current.video) return;
+
     const videoWidth = webcamRef.current.video.videoWidth;
     const videoHeight = webcamRef.current.video.videoHeight;
 
@@ -34,8 +38,17 @@ const MultimodalEngine = () => {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-    if (results.multiFaceLandmarks && showMesh) {
-      for (const landmarks of results.multiFaceLandmarks) {
+    if (results.multiFaceLandmarks) {
+      const landmarks = results.multiFaceLandmarks[0];
+      
+      // Calculate heuristics
+      const ear = calculateEAR(landmarks);
+      const mar = calculateMAR(landmarks);
+      const pose = estimateHeadPose(landmarks);
+      
+      setMetrics({ ear, mar, pose });
+
+      if (showMesh) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
           color: "#06B6D4",
           lineWidth: 0.5,
@@ -249,6 +262,64 @@ const MultimodalEngine = () => {
                    </div>
                 )}
               </div>
+
+              {/* Behavioral Metrics Dashboard */}
+              {isCameraActive && (
+                <div className="w-full mt-8 pt-8 border-t border-border/50 grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                  {/* Eye Contact (EAR) */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Attention (EAR)</span>
+                      <span className={clsx("text-[10px] font-black", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
+                        {metrics.ear < 0.2 ? "BLINKING/CLOSED" : "FOCUSED"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-primary transition-all duration-300" 
+                        style={{ width: `${Math.min(100, metrics.ear * 300)}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Eye Aspect Ratio: {metrics.ear.toFixed(3)}</p>
+                  </div>
+
+                  {/* Smile/Speech (MAR) */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Engagement (MAR)</span>
+                      <span className={clsx("text-[10px] font-black", metrics.mar > 0.5 ? "text-primary" : "text-card-foreground")}>
+                        {metrics.mar > 0.5 ? "SMILING/OPEN" : "NEUTRAL"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-secondary transition-all duration-300" 
+                        style={{ width: `${Math.min(100, metrics.mar * 150)}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Mouth Aspect Ratio: {metrics.mar.toFixed(3)}</p>
+                  </div>
+
+                  {/* Head Pose */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Posturing (POSE)</span>
+                      <span className="text-[10px] font-black text-card-foreground">
+                        Y:{metrics.pose.yaw.toFixed(1)} P:{metrics.pose.pitch.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 h-1.5 w-full">
+                       <div className="flex-1 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-warning transition-all duration-300" style={{ width: `${50 + metrics.pose.yaw * 50}%` }}></div>
+                       </div>
+                       <div className="flex-1 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-warning transition-all duration-300" style={{ width: `${50 + metrics.pose.pitch * 50}%` }}></div>
+                       </div>
+                    </div>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Yaw / Pitch Relative Delta</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
