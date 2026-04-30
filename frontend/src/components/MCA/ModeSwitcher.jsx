@@ -8,7 +8,9 @@ const ModeSwitcher = () => {
   const activeMode = searchParams.get('mode') || 'live';
 
   const onModeChange = (mode) => {
-    setSearchParams({ mode });
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('mode', mode);
+    setSearchParams(newParams);
   };
 
   return (
