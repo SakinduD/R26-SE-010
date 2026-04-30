@@ -3,13 +3,12 @@ import { Mic, Bot, User, Volume2 } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = () => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission }) => {
   // Mock messages for UI demonstration
   const [messages, setMessages] = useState([
-    { id: 1, type: 'bot', text: "Hello! I'm your AI soft skills coach. Today we'll practice handling tough questions in a workplace setting.", timestamp: '12:00' },
+    { id: 1, type: 'bot', text: "Hey! I'm really looking forward to our conversation today. I've been thinking about how much workplace culture is changing—how's your week been going so far?", timestamp: '12:00' },
   ]);
 
-  const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
@@ -22,6 +21,19 @@ const AIChatbot = () => {
   }, [messages, isLoading]);
 
   const toggleListening = async () => {
+    if (!hasPermission) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // We just need to check if we can get the stream. 
+        // We'll close it immediately for now as we're just checking permission.
+        stream.getTracks().forEach(track => track.stop());
+        setHasPermission(true);
+      } catch (err) {
+        alert("Microphone access is required for voice interaction.");
+        return;
+      }
+    }
+
     if (isListening) {
       setIsListening(false);
       // Simulate stopping listening and sending what was "heard"
