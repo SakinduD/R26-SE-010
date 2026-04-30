@@ -1,18 +1,99 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ModeSwitcher from '../../components/MCA/ModeSwitcher';
 import AIChatbot from '../../components/MCA/AIChatbot';
 import { useSearchParams } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import { Camera, CameraOff, Video } from 'lucide-react';
+import * as faceMesh from '@mediapipe/face_mesh';
+import * as cam from '@mediapipe/camera_utils';
+import * as draw from '@mediapipe/drawing_utils';
+import { Video, Activity } from 'lucide-react';
 import clsx from 'clsx';
 
 const MultimodalEngine = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const activeMode = searchParams.get('mode') || 'live';
+  const showMesh = searchParams.get('mesh') !== 'false';
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
   const webcamRef = useRef(null);
+  const canvasRef = useRef(null);
+  const cameraRef = useRef(null);
+
+  const onResults = useCallback((results) => {
+    const videoWidth = webcamRef.current.video.videoWidth;
+    const videoHeight = webcamRef.current.video.videoHeight;
+
+    canvasRef.current.width = videoWidth;
+    canvasRef.current.height = videoHeight;
+
+    const canvasElement = canvasRef.current;
+    const canvasCtx = canvasElement.getContext("2d");
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiFaceLandmarks && showMesh) {
+      for (const landmarks of results.multiFaceLandmarks) {
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
+          color: "#06B6D4",
+          lineWidth: 0.5,
+        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, {
+          color: "#7C3AED",
+        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, {
+          color: "#7C3AED",
+        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, {
+          color: "#EC4899",
+        });
+      }
+    }
+    canvasCtx.restore();
+  }, [showMesh]);
+
+  const toggleMesh = () => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('mesh', (!showMesh).toString());
+    setSearchParams(newParams);
+  };
+
+  useEffect(() => {
+    const faceMeshModel = new faceMesh.FaceMesh({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+      },
+    });
+
+    faceMeshModel.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    faceMeshModel.onResults(onResults);
+
+    if (isCameraActive && webcamRef.current && webcamRef.current.video) {
+      cameraRef.current = new cam.Camera(webcamRef.current.video, {
+        onFrame: async () => {
+          await faceMeshModel.send({ image: webcamRef.current.video });
+        },
+        width: 1280,
+        height: 720,
+      });
+      cameraRef.current.start();
+    }
+
+    return () => {
+      if (cameraRef.current) {
+        cameraRef.current.stop();
+      }
+      faceMeshModel.close();
+    };
+  }, [isCameraActive, onResults]);
 
   const toggleCamera = () => {
     setIsCameraActive(prev => !prev);
@@ -63,16 +144,22 @@ const MultimodalEngine = () => {
               )}>
                 
                 {isCameraActive ? (
-                  <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    className="absolute inset-0 w-full h-full object-cover rounded-xl"
-                    videoConstraints={{
-                      facingMode: "user",
-                      aspectRatio: 1.777777778
-                    }}
-                  />
+                  <>
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      className="hidden"
+                      videoConstraints={{
+                        facingMode: "user",
+                        aspectRatio: 1.777777778
+                      }}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute inset-0 w-full h-full object-cover rounded-xl"
+                    />
+                  </>
                 ) : (
                   <>
                     <div className={clsx(
@@ -102,29 +189,43 @@ const MultimodalEngine = () => {
                         className="pointer-events-auto bg-primary text-white px-6 py-3 rounded-full font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
                       >
                         <Video size={18} />
-                        Enable Camera
+                        Enable Sensing Module
                       </button>
                    )}
                 </div>
 
                 {/* Status Indicators */}
-                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-5 py-2.5 bg-card/90 backdrop-blur-md border border-border rounded-xl opacity-0 group-hover/window:opacity-100 transition-opacity shadow-lg">
+                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-5 py-2.5 bg-card/90 backdrop-blur-md border border-border rounded-xl opacity-0 group-hover/window:opacity-100 transition-opacity shadow-lg z-10">
                   <div className="flex gap-5">
                     <div className="flex items-center gap-2.5 text-[10px] text-card-foreground font-bold">
                       <div className={clsx("w-2 h-2 rounded-full animate-pulse", isCameraActive ? "bg-success" : "bg-border")}></div>
-                      WEB: {isCameraActive ? "ON" : "OFF"}
+                      SENSING: {isCameraActive ? "ACTIVE" : "IDLE"}
                     </div>
                     <div className="flex items-center gap-2.5 text-[10px] text-card-foreground font-bold">
                       <div className={clsx("w-2 h-2 rounded-full animate-pulse", isMicActive ? "bg-primary" : "bg-border")}></div>
-                      MIC: {isMicActive ? "ON" : "OFF"}
+                      AUDIO: {isMicActive ? "CAPTURE" : "OFF"}
                     </div>
                   </div>
-                  <button 
-                    onClick={toggleCamera}
-                    className="pointer-events-auto text-[10px] font-black text-primary hover:underline"
-                  >
-                    {isCameraActive ? "STOP_CAPTURE" : "START_CAPTURE"}
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {isCameraActive && (
+                      <button 
+                        onClick={toggleMesh}
+                        className={clsx(
+                          "flex items-center gap-2 text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all pointer-events-auto",
+                          showMesh ? "bg-primary/20 text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"
+                        )}
+                      >
+                        <Activity size={12} className={clsx(showMesh && "animate-pulse")} />
+                        {showMesh ? "MESH_VISIBLE" : "MESH_HIDDEN"}
+                      </button>
+                    )}
+                    <button 
+                      onClick={toggleCamera}
+                      className="pointer-events-auto text-[10px] font-black text-primary hover:underline"
+                    >
+                      {isCameraActive ? "STOP_SENSING" : "START_SENSING"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -142,6 +243,11 @@ const MultimodalEngine = () => {
                 )}>
                   Module: {activeMode === 'live' ? 'Multimodal_Sensing' : 'Intelligence_Core'}
                 </div>
+                {isCameraActive && (
+                   <div className="flex items-center gap-2.5 text-[10px] font-black text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                      Tracking: {showMesh ? "Visual" : "Background"}
+                   </div>
+                )}
               </div>
             </div>
           </div>
