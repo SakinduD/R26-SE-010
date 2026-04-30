@@ -21,92 +21,102 @@ const MultimodalEngine = () => {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
+  const showMeshRef = useRef(showMesh);
+
+  // Update ref when showMesh changes
+  useEffect(() => {
+    showMeshRef.current = showMesh;
+  }, [showMesh]);
 
   const onResults = useCallback((results) => {
-    if (!webcamRef.current || !webcamRef.current.video) return;
+    if (!webcamRef.current || !webcamRef.current.video || !canvasRef.current) return;
 
     const videoWidth = webcamRef.current.video.videoWidth;
     const videoHeight = webcamRef.current.video.videoHeight;
 
-    canvasRef.current.width = videoWidth;
-    canvasRef.current.height = videoHeight;
+    // Only update canvas dimensions if they changed to prevent flickering
+    if (canvasRef.current.width !== videoWidth) canvasRef.current.width = videoWidth;
+    if (canvasRef.current.height !== videoHeight) canvasRef.current.height = videoHeight;
 
     const canvasElement = canvasRef.current;
     const canvasCtx = canvasElement.getContext("2d");
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    
+    // Always draw the raw camera feed first
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-    if (results.multiFaceLandmarks) {
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
       const landmarks = results.multiFaceLandmarks[0];
       
-      // Calculate heuristics
+      // Calculate heuristics in background
       const ear = calculateEAR(landmarks);
       const mar = calculateMAR(landmarks);
       const pose = estimateHeadPose(landmarks);
-      
       setMetrics({ ear, mar, pose });
 
-      if (showMesh) {
+      // Only draw the mesh overlay if enabled
+      if (showMeshRef.current) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
           color: "#06B6D4",
           lineWidth: 0.5,
         });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, {
-          color: "#7C3AED",
-        });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, {
-          color: "#7C3AED",
-        });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, {
-          color: "#EC4899",
-        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: "#EC4899" });
       }
     }
     canvasCtx.restore();
-  }, [showMesh]);
+  }, []);
+
+  useEffect(() => {
+    let faceMeshModel = null;
+
+    if (isCameraActive) {
+      faceMeshModel = new faceMesh.FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+      });
+
+      faceMeshModel.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      faceMeshModel.onResults(onResults);
+
+      if (webcamRef.current && webcamRef.current.video) {
+        cameraRef.current = new cam.Camera(webcamRef.current.video, {
+          onFrame: async () => {
+            if (faceMeshModel) {
+              await faceMeshModel.send({ image: webcamRef.current.video });
+            }
+          },
+          width: 1280,
+          height: 720,
+        });
+        cameraRef.current.start();
+      }
+    }
+
+    return () => {
+      if (cameraRef.current) {
+        cameraRef.current.stop();
+        cameraRef.current = null;
+      }
+      if (faceMeshModel) {
+        faceMeshModel.close();
+      }
+    };
+  }, [isCameraActive, onResults]);
 
   const toggleMesh = () => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('mesh', (!showMesh).toString());
     setSearchParams(newParams);
   };
-
-  useEffect(() => {
-    const faceMeshModel = new faceMesh.FaceMesh({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-      },
-    });
-
-    faceMeshModel.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    faceMeshModel.onResults(onResults);
-
-    if (isCameraActive && webcamRef.current && webcamRef.current.video) {
-      cameraRef.current = new cam.Camera(webcamRef.current.video, {
-        onFrame: async () => {
-          await faceMeshModel.send({ image: webcamRef.current.video });
-        },
-        width: 1280,
-        height: 720,
-      });
-      cameraRef.current.start();
-    }
-
-    return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-      }
-      faceMeshModel.close();
-    };
-  }, [isCameraActive, onResults]);
 
   const toggleCamera = () => {
     setIsCameraActive(prev => !prev);
