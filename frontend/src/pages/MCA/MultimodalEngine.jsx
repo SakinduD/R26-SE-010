@@ -75,7 +75,10 @@ const MultimodalEngine = () => {
 
     if (isCameraActive) {
       faceMeshModel = new faceMesh.FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        locateFile: (file) => {
+          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
+          return `${baseUrl}/${file}`;
+        },
       });
 
       faceMeshModel.setOptions({

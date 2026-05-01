@@ -11,6 +11,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const socketRef = useRef(null);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -20,26 +22,69 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const toggleListening = async () => {
-    if (!hasPermission) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // We just need to check if we can get the stream. 
-        // We'll close it immediately for now as we're just checking permission.
-        stream.getTracks().forEach(track => track.stop());
-        setHasPermission(true);
-      } catch (err) {
-        alert("Microphone access is required for voice interaction.");
-        return;
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      if (socketRef.current) socketRef.current.close();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
       }
-    }
+    };
+  }, []);
 
+  const toggleListening = async () => {
     if (isListening) {
+      // STOP LISTENING
       setIsListening(false);
+      
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+      }
+      
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+
       // Simulate stopping listening and sending what was "heard"
       await handleBotResponse("How can I improve my professional communication skills?");
     } else {
-      setIsListening(true);
+      // START LISTENING
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setHasPermission(true);
+        
+        // Initialize WebSocket
+        const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+        const socket = new WebSocket(`${wsUrl}/api/v1/mca/audio/stream`);
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+          console.log("Audio WebSocket connected");
+          
+          // Initialize MediaRecorder
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+              socket.send(event.data);
+            }
+          };
+
+          // Capture in 500ms chunks
+          mediaRecorder.start(500);
+          setIsListening(true);
+        };
+
+        socket.onclose = () => console.log("Audio WebSocket closed");
+        socket.onerror = (err) => console.error("WebSocket Error:", err);
+
+      } catch (err) {
+        alert("Microphone access is required for voice interaction.");
+        console.error(err);
+      }
     }
   };
 
