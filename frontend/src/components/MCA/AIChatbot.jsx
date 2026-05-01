@@ -6,13 +6,24 @@ import clsx from 'clsx';
 const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission }) => {
   // Mock messages for UI demonstration
   const [messages, setMessages] = useState([
-    { id: 1, type: 'bot', text: "Hey! I'm really looking forward to our conversation today. I've been thinking about how much workplace culture is changing—how's your week been going so far?", timestamp: '12:00' },
+    { 
+      id: 1, 
+      type: 'bot', 
+      text: "Hey! I'm really looking forward to our conversation today. I've been thinking about how much workplace culture is changing—how's your week been going so far?", 
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+    },
   ]);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false); // New state for talking animation
+  const [transcript, setTranscript] = useState("");
+  const isContinuousRef = useRef(false); // Use Ref to avoid closure staleness
+  const [stableVoice, setStableVoice] = useState(null); // Keep voice consistent
   const chatEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const socketRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const silenceTimerRef = useRef(null);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -23,68 +34,136 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   }, [messages, isLoading]);
 
   useEffect(() => {
-    // Cleanup on unmount
+    // Load and lock in a high-quality voice
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) || 
+                        voices.find(v => v.lang.startsWith('en')) || 
+                        voices[0];
+      if (preferred) setStableVoice(preferred);
+    };
+
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
     return () => {
-      if (socketRef.current) socketRef.current.close();
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
+      cleanup();
     };
   }, []);
 
-  const toggleListening = async () => {
-    if (isListening) {
-      // STOP LISTENING
-      setIsListening(false);
+  const cleanup = () => {
+    if (socketRef.current) socketRef.current.close();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+    window.speechSynthesis.cancel();
+  };
+
+  const startListening = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setHasPermission(true);
+      setTranscript("");
+      isContinuousRef.current = true; // User started a loop
       
-      if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current = null;
-      }
-      
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
+      const socket = new WebSocket(mcaService.getAudioStreamUrl());
+      socketRef.current = socket;
 
-      // Simulate stopping listening and sending what was "heard"
-      await handleBotResponse("How can I improve my professional communication skills?");
-    } else {
-      // START LISTENING
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setHasPermission(true);
-        
-        // Initialize WebSocket
-        const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
-        const socket = new WebSocket(`${wsUrl}/api/v1/mca/audio/stream`);
-        socketRef.current = socket;
+      socket.onopen = () => {
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+            socket.send(event.data);
+          }
+        };
+        mediaRecorder.start(500);
+        setIsListening(true);
+      };
 
-        socket.onopen = () => {
-          console.log("Audio WebSocket connected");
-          
-          // Initialize MediaRecorder
-          const mediaRecorder = new MediaRecorder(stream);
-          mediaRecorderRef.current = mediaRecorder;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
 
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              socket.send(event.data);
-            }
-          };
+        recognition.onresult = (event) => {
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            stopListening(true); // Auto-submit
+          }, 2000);
 
-          // Capture in 500ms chunks
-          mediaRecorder.start(500);
-          setIsListening(true);
+          let interimTranscript = "";
+          let finalTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+            else interimTranscript += event.results[i][0].transcript;
+          }
+          setTranscript(finalTranscript + interimTranscript);
         };
 
-        socket.onclose = () => console.log("Audio WebSocket closed");
-        socket.onerror = (err) => console.error("WebSocket Error:", err);
-
-      } catch (err) {
-        alert("Microphone access is required for voice interaction.");
-        console.error(err);
+        recognition.onerror = (e) => {
+          console.error(e);
+          stopListening(false);
+        };
+        
+        recognition.start();
+        recognitionRef.current = recognition;
       }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const stopListening = (shouldSubmit = true) => {
+    setIsListening(false);
+    if (!shouldSubmit) isContinuousRef.current = false; // Manual stop or error
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+
+    if (shouldSubmit) {
+      setTranscript(current => {
+        if (current.trim()) {
+          handleBotResponse(current);
+        }
+        return "";
+      });
+    }
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      isContinuousRef.current = false; // Manual break of the loop
+      stopListening(false);
+    } else {
+      startListening();
     }
   };
 
@@ -96,17 +175,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    // Create an updated history array that includes the new user message
     const updatedHistory = [...messages, newUserMsg];
     setMessages(updatedHistory);
-
     setIsLoading(true);
+
     try {
       const data = await mcaService.chat(userMessage, updatedHistory);
-      
-      if (!data.isSuccessful) {
-        throw new Error(data.message);
-      }
+      if (!data.isSuccessful) throw new Error(data.message);
       
       const botMsg = {
         id: Date.now() + 1,
@@ -115,11 +190,21 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, botMsg]);
+
+      // Speak the response and restart listening if in continuous mode
+      speak(data.data, () => {
+        if (isContinuousRef.current) {
+          console.log("Auto-restarting listening loop...");
+          setTimeout(() => {
+            startListening();
+          }, 300); // Small natural delay
+        }
+      });
     } catch (error) {
       const errorMsg = {
         id: Date.now() + 1,
         type: 'bot',
-        text: `I'm sorry, there was a problem: ${error.message || "Connection failed."}`,
+        text: `Error: ${error.message}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -128,68 +213,108 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   };
 
+  const speak = (text, onEnd) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    if (stableVoice) {
+      utterance.voice = stableVoice;
+    }
+    
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      if (onEnd) onEnd();
+    };
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   return (
-    <div className="flex flex-col h-[600px] w-full bg-card border border-border overflow-hidden shadow-sm rounded-2xl transition-all duration-500">
+    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500">
       {/* Chat Header */}
-      <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-            <Bot size={20} className="text-primary" />
+      <div className="px-8 py-4 border-b border-border flex items-center justify-between bg-muted/30 backdrop-blur-md z-10">
+        <div className="flex items-center gap-4">
+          <div className={clsx(
+            "w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner relative transition-all duration-500",
+            isSpeaking && "ring-4 ring-primary/20 scale-110"
+          )}>
+            <Bot size={22} className={clsx("text-primary transition-all", isSpeaking && "animate-bounce")} />
+            {isSpeaking && (
+              <span className="absolute -inset-1 rounded-xl bg-primary/20 animate-ping opacity-30"></span>
+            )}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-foreground tracking-tight">Intelligence Core</h3>
-            <div className="flex items-center gap-1.5">
-              <div className={clsx("w-2 h-2 rounded-full", isLoading ? "bg-amber-500 animate-pulse" : "bg-success")}></div>
-              <span className="text-[10px] text-card-foreground uppercase tracking-widest font-bold">
-                {isLoading ? "Processing..." : "Bot_Ready"}
+            <div className="flex items-center gap-2">
+              <h3 className="text-[11px] font-black text-foreground tracking-tight uppercase">Intelligence Core</h3>
+              {isSpeaking && (
+                <div className="flex gap-0.5 h-3 items-end mb-0.5">
+                  <div className="w-0.5 h-full bg-primary animate-[pulse_1s_infinite]"></div>
+                  <div className="w-0.5 h-2/3 bg-primary animate-[pulse_1.2s_infinite]"></div>
+                  <div className="w-0.5 h-full bg-primary animate-[pulse_0.8s_infinite]"></div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={clsx(
+                "w-1.5 h-1.5 rounded-full", 
+                isSpeaking ? "bg-primary animate-pulse" : (isLoading ? "bg-amber-500 animate-pulse" : "bg-success")
+              )}></div>
+              <span className="text-[9px] text-card-foreground uppercase tracking-widest font-black opacity-60">
+                {isSpeaking ? "Speaking_Response" : (isLoading ? "Analyzing_Voice" : "Core_Ready")}
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-black text-primary bg-primary/5 px-3 py-1.5 rounded-lg border border-primary/10 uppercase tracking-widest">
+        <div className="flex items-center gap-2.5 text-[9px] font-black text-primary bg-primary/5 px-3 py-1.5 rounded-lg border border-primary/10 uppercase tracking-[0.2em]">
           <Volume2 size={12} />
-          Voice_Interface
+          Voice_Link
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide min-h-[300px]">
+      {/* Messages Area - Now with much more space */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide bg-gradient-to-b from-transparent to-muted/5">
         {messages.map((msg) => (
           <div
             key={msg.id}
             className={clsx(
-              "flex gap-3 max-w-[90%] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2",
+              "flex gap-3 max-w-[85%] transition-all duration-500 animate-in fade-in slide-in-from-bottom-4",
               msg.type === 'user' ? "ml-auto flex-row-reverse" : ""
             )}
           >
             <div className={clsx(
-              "w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center border transition-all duration-300 shadow-sm font-bold",
+              "w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border transition-all duration-500 shadow-sm font-bold",
               msg.type === 'user'
                 ? "bg-secondary/10 border-secondary/20 text-secondary"
                 : "bg-primary/10 border-primary/20 text-primary"
             )}>
-              {msg.type === 'user' ? <User size={16} /> : <Bot size={16} />}
+              {msg.type === 'user' ? <User size={14} /> : <Bot size={14} />}
             </div>
             <div className={clsx(
-              "px-5 py-3.5 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border",
+              "px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border",
               msg.type === 'user'
                 ? "bg-secondary text-white border-secondary/20 rounded-tr-none"
                 : "bg-primary text-white border-primary/20 rounded-tl-none"
             )}>
               {msg.text}
+              <div className="mt-1 text-[8px] opacity-40 font-black uppercase tracking-widest">
+                {msg.timestamp}
+              </div>
             </div>
           </div>
         ))}
         {isLoading && (
           <div className="flex gap-3 animate-pulse">
-            <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Bot size={16} className="text-primary/40" />
+            <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Bot size={14} className="text-primary/40" />
             </div>
-            <div className="bg-muted px-5 py-3.5 rounded-2xl rounded-tl-none border border-border/50 text-[13px]">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce"></span>
+            <div className="bg-muted/50 px-5 py-3 rounded-2xl rounded-tl-none border border-border/50 text-[13px]">
+              <div className="flex gap-1.5 py-1">
+                <span className="w-1 h-1 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                <span className="w-1 h-1 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                <span className="w-1 h-1 bg-primary/40 rounded-full animate-bounce"></span>
               </div>
             </div>
           </div>
@@ -197,59 +322,82 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         <div ref={chatEndRef} />
       </div>
 
-      {/* Voice Capture Section */}
-      <div className="p-6 bg-muted/20 border-t border-border">
-        <div className="flex flex-col items-center gap-6">
+      {/* COMPACT Voice Capture Section */}
+      <div className="px-6 py-5 bg-muted/40 border-t border-border backdrop-blur-md relative overflow-hidden">
+        {/* Subtle Background Glow when listening */}
+        {isListening && (
+          <div className="absolute inset-0 bg-primary/5 animate-pulse pointer-events-none"></div>
+        )}
 
-          {/* Waveform Visualization */}
-          <div className="flex items-center gap-2 h-10">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((i) => (
-              <div
-                key={i}
-                className={clsx(
-                  "w-1 rounded-full transition-all duration-300",
-                  isListening ? "animate-[bounce_1s_infinite] bg-primary/80" : "h-1 opacity-20 bg-muted-foreground"
-                )}
-                style={{
-                  animationDelay: `${i * 0.05}s`,
-                  height: isListening ? `${8 + Math.sin(i) * 15 + Math.random() * 10}px` : '4px'
-                }}
-              ></div>
-            ))}
-          </div>
-
-          {/* Voice Button */}
-          <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-6 relative z-10">
+          {/* Main Control */}
+          <div className="flex flex-col items-center gap-2 flex-shrink-0">
             <button
               onClick={toggleListening}
+              disabled={isLoading}
               className={clsx(
-                "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500 group relative border shadow-sm",
+                "w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 relative group border shadow-xl",
                 isListening
-                  ? "bg-destructive/10 border-destructive/30 text-destructive scale-105"
-                  : "bg-primary text-white border-primary/30 shadow-primary/20 hover:scale-105 active:scale-95"
+                  ? "bg-destructive/10 border-destructive/30 text-destructive"
+                  : "bg-primary text-white border-primary/30 shadow-primary/30 hover:scale-105 active:scale-95 disabled:opacity-50"
               )}
             >
-              {isListening && (
-                <div className="absolute inset-0 rounded-full bg-destructive/20 animate-ping"></div>
+              {isListening ? (
+                <div className="w-5 h-5 bg-destructive rounded-md animate-pulse shadow-sm"></div>
+              ) : (
+                <Mic size={24} className="relative z-10 drop-shadow-md" />
               )}
-              <Mic size={32} className={clsx("relative z-10 transition-transform duration-300", isListening && "scale-110")} />
             </button>
-            <div className="flex flex-col items-center">
-              <span className={clsx(
-                "text-[10px] font-black uppercase tracking-widest transition-colors duration-300",
-                isListening ? "text-destructive" : "text-card-foreground"
-              )}>
-                {isListening ? "Listening_Active" : "Click_To_Speak"}
-              </span>
-            </div>
+            <span className="text-[8px] font-black text-card-foreground/60 uppercase tracking-[0.2em]">
+              {isListening ? "STOP" : "TALK"}
+            </span>
           </div>
 
-          <div className="text-[9px] text-card-foreground font-black bg-muted/50 px-5 py-2.5 rounded-lg border border-border uppercase tracking-[0.2em] opacity-80">
-            Voice_Locked • No_Text_Input
+          {/* Transcript & Visualization Area */}
+          <div className="flex-1 flex flex-col gap-3 min-w-0">
+            {/* Status & Waveform Row */}
+            <div className="flex items-center justify-between">
+              <div className={clsx(
+                "flex items-center gap-2 px-2.5 py-1 rounded-md border transition-all duration-300",
+                isListening ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-muted/80 border-border text-muted-foreground"
+              )}>
+                <div className={clsx("w-1.5 h-1.5 rounded-full", isListening ? "bg-destructive animate-ping" : "bg-muted-foreground/30")}></div>
+                <span className="text-[8px] font-black uppercase tracking-widest">
+                  {isListening ? "Listening" : "Idle"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 h-5 overflow-hidden">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((i) => (
+                  <div
+                    key={i}
+                    className={clsx(
+                      "w-0.5 rounded-full transition-all duration-500",
+                      isListening ? "bg-primary/50" : "bg-muted-foreground/10 h-0.5"
+                    )}
+                    style={{ 
+                      height: isListening ? `${Math.random() * 100}%` : '2px',
+                      transitionDelay: `${i * 20}ms`
+                    }}
+                  ></div>
+                ))}
+              </div>
+            </div>
+
+            {/* Compact Transcript Preview */}
+            <div className="bg-background/40 p-3 rounded-xl border border-border/50 min-h-[50px] flex items-center">
+              <p className={clsx(
+                "text-[13px] font-medium leading-relaxed italic transition-all duration-300 line-clamp-2",
+                isListening ? "text-foreground opacity-100" : "text-muted-foreground opacity-50"
+              )}>
+                {isListening ? (transcript || "I'm listening...") : "Awaiting input..."}
+              </p>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
   );
 };
 

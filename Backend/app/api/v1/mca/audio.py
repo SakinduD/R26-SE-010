@@ -17,16 +17,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@router.websocket("/stream")
-async def websocket_endpoint(websocket: WebSocket):
+@router.websocket("/audio-analysis")
+async def websocket_endpoint(websocket: WebSocket, token: str = None):
+    # Basic security check - in production this would verify against a DB or JWT
+    if not token:
+        logger.warning("WebSocket connection rejected: Missing security token")
+        await websocket.accept() # Must accept before closing with custom code in some cases
+        await websocket.close(code=4003) # Custom 'Not Authorized' code
+        return
+
     await manager.connect(websocket)
     try:
         while True:
             # Receive audio chunks from the frontend
             data = await websocket.receive_bytes()
             
-            # For now, we just log the size of the received chunk
-            # In MCA-09, we will process this with an ASR model
             logger.info(f"Received audio chunk: {len(data)} bytes")
             
             # Send an acknowledgment back to the frontend
