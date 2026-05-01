@@ -6,7 +6,7 @@ import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity, Mic } from 'lucide-react';
+import { Video, Activity, Mic, X } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
@@ -18,16 +18,32 @@ const MultimodalEngine = () => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
+  const [nudges, setNudges] = useState([]); // State for coaching nudges stack
   const [metrics, setMetrics] = useState({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
   const showMeshRef = useRef(showMesh);
-  
+
   // Audio Streaming Refs
   const mediaRecorderRef = useRef(null);
   const socketRef = useRef(null);
   const audioStreamRef = useRef(null);
+
+  const handleNudge = useCallback((text) => {
+    const id = Date.now();
+    const newNudge = {
+      id,
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setNudges(prev => [newNudge, ...prev].slice(0, 5));
+    
+    // Auto-disappear after 8 seconds
+    setTimeout(() => {
+      setNudges(prev => prev.filter(n => n.id !== id));
+    }, 8000);
+  }, []);
 
   // Update ref when showMesh changes
   useEffect(() => {
@@ -49,13 +65,13 @@ const MultimodalEngine = () => {
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    
+
     // Always draw the raw camera feed first
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
       const landmarks = results.multiFaceLandmarks[0];
-      
+
       // Calculate heuristics in background
       const ear = calculateEAR(landmarks);
       const mar = calculateMAR(landmarks);
@@ -87,20 +103,47 @@ const MultimodalEngine = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
       setHasMicPermission(true);
-      
+
       const socket = new WebSocket(mcaService.getAudioStreamUrl());
       socketRef.current = socket;
 
       socket.onopen = () => {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-            socket.send(event.data);
-          }
+        const startRecordingChunk = () => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+              socket.send(event.data);
+            }
+          };
+
+          mediaRecorder.start();
+
+          // Stop and restart every 1 second to create standalone chunks with headers
+          setTimeout(() => {
+            if (mediaRecorder.state === 'recording') {
+              mediaRecorder.stop();
+              startRecordingChunk();
+            }
+          }, 1000);
         };
-        mediaRecorder.start(500);
+
+        startRecordingChunk();
         setIsMicActive(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.metrics?.nudge) {
+            handleNudge(data.metrics.nudge);
+          }
+        } catch (err) {
+          console.error("Error parsing socket message:", err);
+        }
       };
     } catch (err) {
       console.error("Audio capture error:", err);
@@ -184,7 +227,33 @@ const MultimodalEngine = () => {
   };
 
   return (
-    <div className="h-screen w-full bg-background text-foreground flex flex-col items-center px-4 md:px-8 font-sans antialiased overflow-hidden">
+    <div className="h-screen w-full bg-background text-foreground flex flex-col items-center px-4 md:px-8 font-sans antialiased overflow-hidden relative">
+      {/* Global Nudge Stack (Floating - Page Top Right) */}
+      <div className="fixed top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
+        {nudges.map((nudge, index) => (
+          <div
+            key={nudge.id}
+            className={clsx(
+              "bg-primary/95 backdrop-blur-2xl border border-white/20 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
+              index > 0 && "scale-90 opacity-40 hover:opacity-100"
+            )}
+          >
+            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+              <Activity size={20} />
+            </div>
+            <div className="flex flex-col min-w-[120px]">
+              <p className="text-[11px] font-black tracking-widest uppercase leading-none">{nudge.text}</p>
+              <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
+            </div>
+            <button
+              onClick={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+              className="ml-2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center opacity-0 group-hover/nudge:opacity-100 transition-opacity"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
       <div className={clsx(
         "w-full h-full flex flex-col gap-6 py-6 transition-all duration-700 ease-in-out",
         activeMode === 'ai' ? "max-w-[1600px]" : "max-w-6xl"
@@ -209,20 +278,20 @@ const MultimodalEngine = () => {
           "flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0",
           activeMode === 'ai' ? "lg:grid-cols-3" : "grid-cols-1"
         )}>
-          
+
           {/* Capturing Window Section */}
           <div className={clsx(
             "relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0",
             activeMode === 'ai' ? "lg:col-span-2" : "col-span-1"
           )}>
-            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-3xl flex flex-col items-center h-full overflow-hidden">
-              
+            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-3xl flex flex-col items-center h-full overflow-y-auto custom-scrollbar">
+
               {/* Capturing Window (Webcam Area) */}
               <div className={clsx(
                 "w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500",
                 activeMode === 'live' ? "border-secondary/20 hover:border-secondary/40" : "border-primary/20 hover:border-primary/40"
               )}>
-                
+
                 {isCameraActive ? (
                   <>
                     <Webcam
@@ -246,15 +315,15 @@ const MultimodalEngine = () => {
                       "absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30",
                       activeMode === 'live' ? "from-secondary/10" : "from-primary/10"
                     )}></div>
-                    
+
                     <div className="relative flex flex-col items-center gap-4">
                       <div className={clsx(
                         "p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold",
-                        activeMode === 'live' 
-                          ? "border-secondary/20 text-secondary group-hover/window:border-secondary/40" 
+                        activeMode === 'live'
+                          ? "border-secondary/20 text-secondary group-hover/window:border-secondary/40"
                           : "border-primary/20 text-primary group-hover/window:border-primary/40"
                       )}>
-                        [ {activeMode === 'live' ? 'SENSING_MODULE' : 'INTELLIGENCE_CORE'} READY ]<br/>
+                        [ {activeMode === 'live' ? 'SENSING_MODULE' : 'INTELLIGENCE_CORE'} READY ]<br />
                         <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
                       </div>
                     </div>
@@ -263,26 +332,28 @@ const MultimodalEngine = () => {
 
                 {/* Overlay UI */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <div className="flex flex-col gap-4 pointer-events-auto">
-                      {!isCameraActive && (
-                        <button 
-                          onClick={toggleCamera}
-                          className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                        >
-                          <Video size={18} />
-                          Enable Video Sensing
-                        </button>
-                      )}
-                      {!isMicActive && activeMode === 'live' && (
-                        <button 
-                          onClick={toggleMic}
-                          className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                        >
-                          <Mic size={18} />
-                          Enable Audio Sensing
-                        </button>
-                      )}
-                    </div>
+
+
+                  <div className="flex flex-col gap-4 pointer-events-auto">
+                    {!isCameraActive && (
+                      <button
+                        onClick={toggleCamera}
+                        className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <Video size={18} />
+                        Enable Video Sensing
+                      </button>
+                    )}
+                    {!isMicActive && activeMode === 'live' && (
+                      <button
+                        onClick={toggleMic}
+                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <Mic size={18} />
+                        Enable Audio Sensing
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Status Indicators */}
@@ -299,7 +370,7 @@ const MultimodalEngine = () => {
                   </div>
                   <div className="flex items-center gap-4">
                     {isCameraActive && (
-                      <button 
+                      <button
                         onClick={toggleMesh}
                         className={clsx(
                           "flex items-center gap-2 text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all pointer-events-auto",
@@ -310,7 +381,7 @@ const MultimodalEngine = () => {
                         {showMesh ? "MESH_VISIBLE" : "MESH_HIDDEN"}
                       </button>
                     )}
-                    <button 
+                    <button
                       onClick={toggleMic}
                       className={clsx(
                         "flex items-center gap-2 text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all pointer-events-auto",
@@ -320,7 +391,7 @@ const MultimodalEngine = () => {
                       <Mic size={12} className={clsx(isMicActive && "animate-pulse")} />
                       {isMicActive ? "MIC_ACTIVE" : "MIC_OFF"}
                     </button>
-                    <button 
+                    <button
                       onClick={toggleCamera}
                       className="pointer-events-auto text-[10px] font-black text-primary hover:underline"
                     >
@@ -338,16 +409,16 @@ const MultimodalEngine = () => {
                 </div>
                 <div className={clsx(
                   "flex items-center gap-2.5 text-[10px] font-black px-4 py-2 rounded-lg border uppercase tracking-widest",
-                  activeMode === 'live' 
-                    ? "bg-secondary/10 text-secondary border-secondary/20" 
+                  activeMode === 'live'
+                    ? "bg-secondary/10 text-secondary border-secondary/20"
                     : "bg-primary/10 text-primary border-primary/20"
                 )}>
                   Module: {activeMode === 'live' ? 'Multimodal_Sensing' : 'Intelligence_Core'}
                 </div>
                 {isCameraActive && (
-                   <div className="flex items-center gap-2.5 text-[10px] font-black text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
-                      Tracking: {showMesh ? "Visual" : "Background"}
-                   </div>
+                  <div className="flex items-center gap-2.5 text-[10px] font-black text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                    Tracking: {showMesh ? "Visual" : "Background"}
+                  </div>
                 )}
               </div>
 
@@ -357,54 +428,59 @@ const MultimodalEngine = () => {
                   {/* Eye Contact (EAR) */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Attention (EAR)</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Eye Contact</span>
                       <span className={clsx("text-[10px] font-black", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "BLINKING/CLOSED" : "FOCUSED"}
+                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-primary transition-all duration-300" 
-                        style={{ width: `${Math.min(100, metrics.ear * 300)}%` }}
+                      <div
+                        className={clsx("h-full transition-all duration-300", metrics.ear < 0.2 ? "bg-destructive" : "bg-primary")}
+                        style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Eye Aspect Ratio: {metrics.ear.toFixed(3)}</p>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Maintaining steady gaze with the camera.</p>
                   </div>
 
                   {/* Smile/Speech (MAR) */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Engagement (MAR)</span>
-                      <span className={clsx("text-[10px] font-black", metrics.mar > 0.5 ? "text-primary" : "text-card-foreground")}>
-                        {metrics.mar > 0.5 ? "SMILING/OPEN" : "NEUTRAL"}
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Facial Expression</span>
+                      <span className={clsx("text-[10px] font-black", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
+                        {metrics.mar > 0.3 ? "ACTIVE / SPEAKING" : "NEUTRAL"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-secondary transition-all duration-300" 
-                        style={{ width: `${Math.min(100, metrics.mar * 150)}%` }}
+                      <div
+                        className="h-full bg-secondary transition-all duration-300"
+                        style={{ width: `${Math.min(100, (metrics.mar / 0.6) * 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Mouth Aspect Ratio: {metrics.mar.toFixed(3)}</p>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Detecting speaking, smiling, or facial energy.</p>
                   </div>
 
                   {/* Head Pose */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Posturing (POSE)</span>
-                      <span className="text-[10px] font-black text-card-foreground">
-                        Y:{metrics.pose.yaw.toFixed(1)} P:{metrics.pose.pitch.toFixed(1)}
+                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Head Alignment</span>
+                      <span className={clsx(
+                        "text-[10px] font-black",
+                        (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
+                      )}>
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
                       </span>
                     </div>
-                    <div className="flex gap-1 h-1.5 w-full">
-                       <div className="flex-1 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-warning transition-all duration-300" style={{ width: `${50 + metrics.pose.yaw * 50}%` }}></div>
-                       </div>
-                       <div className="flex-1 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-warning transition-all duration-300" style={{ width: `${50 + metrics.pose.pitch * 50}%` }}></div>
-                       </div>
+                    <div className="flex gap-1 h-1.5 w-full relative">
+                      {/* A visual center-zone indicator */}
+                      <div className="absolute left-1/2 -translate-x-1/2 w-4 h-full bg-foreground/10 z-10 rounded"></div>
+                      <div className="flex-1 bg-muted rounded-full overflow-hidden">
+                        <div className={clsx(
+                          "h-full transition-all duration-300",
+                          Math.abs(metrics.pose.yaw) > 0.15 ? "bg-warning" : "bg-success"
+                        )} style={{ width: `${50 + metrics.pose.yaw * 100}%` }}></div>
+                      </div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Yaw / Pitch Relative Delta</p>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">Keeping your head level and facing forward.</p>
                   </div>
                 </div>
               )}
@@ -413,13 +489,14 @@ const MultimodalEngine = () => {
 
           {/* AI Chatbot Section (Only in AI mode) */}
           {activeMode === 'ai' && (
-            <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full">
-               <AIChatbot 
-                 isListening={isMicActive} 
-                 setIsListening={setIsMicActive}
-                 hasPermission={hasMicPermission}
-                 setHasPermission={setHasMicPermission}
-               />
+            <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full max-h-[calc(100vh-160px)]">
+              <AIChatbot
+                isListening={isMicActive}
+                setIsListening={setIsMicActive}
+                hasPermission={hasMicPermission}
+                setHasPermission={setHasMicPermission}
+                onNudge={handleNudge}
+              />
             </div>
           )}
 

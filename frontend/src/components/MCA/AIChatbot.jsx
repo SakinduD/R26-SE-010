@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Bot, User, Volume2 } from 'lucide-react';
+import { Mic, Bot, User, Volume2, Activity, X } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge }) => {
   // Mock messages for UI demonstration
   const [messages, setMessages] = useState([
-    { 
-      id: 1, 
-      type: 'bot', 
-      text: "Hey! I'm really looking forward to our conversation today. I've been thinking about how much workplace culture is changing—how's your week been going so far?", 
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+    {
+      id: 1,
+      type: 'bot',
+      text: "Hello! I am EmpowerZ, your conversation partner. This isn't just for practice or roleplay—it's a space for genuine dialogue where you can build your confidence and see real-time behavioral insights. How would you like to start our conversation today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     },
   ]);
 
@@ -24,6 +24,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
   const silenceTimerRef = useRef(null);
+  const transcriptRef = useRef("");
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,9 +38,9 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     // Load and lock in a high-quality voice
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) || 
-                        voices.find(v => v.lang.startsWith('en')) || 
-                        voices[0];
+      const preferred = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||
+        voices.find(v => v.lang.startsWith('en')) ||
+        voices[0];
       if (preferred) setStableVoice(preferred);
     };
 
@@ -70,23 +71,51 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const startListening = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       setHasPermission(true);
       setTranscript("");
       isContinuousRef.current = true; // User started a loop
-      
+
       const socket = new WebSocket(mcaService.getAudioStreamUrl());
       socketRef.current = socket;
 
       socket.onopen = () => {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-            socket.send(event.data);
-          }
+        const startRecordingChunk = () => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+              socket.send(event.data);
+            }
+          };
+
+          mediaRecorder.start();
+
+          // Stop and restart every 1 second to create standalone chunks with headers
+          setTimeout(() => {
+            if (mediaRecorder.state === 'recording') {
+              mediaRecorder.stop();
+              startRecordingChunk();
+            }
+          }, 1000);
         };
-        mediaRecorder.start(500);
+
+        startRecordingChunk();
         setIsListening(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.metrics?.nudge) {
+            onNudge(data.metrics.nudge);
+          }
+        } catch (err) {
+          console.error("Error parsing socket message:", err);
+        }
       };
 
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -108,14 +137,16 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
             else interimTranscript += event.results[i][0].transcript;
           }
-          setTranscript(finalTranscript + interimTranscript);
+          const currentTranscript = finalTranscript + interimTranscript;
+          transcriptRef.current = currentTranscript;
+          setTranscript(currentTranscript);
         };
 
         recognition.onerror = (e) => {
           console.error(e);
           stopListening(false);
         };
-        
+
         recognition.start();
         recognitionRef.current = recognition;
       }
@@ -123,6 +154,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       console.error(err);
     }
   };
+
+  const streamRef = useRef(null);
 
   const stopListening = (shouldSubmit = true) => {
     setIsListening(false);
@@ -133,11 +166,16 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       silenceTimerRef.current = null;
     }
 
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
     }
-    
+
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;
@@ -149,12 +187,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
 
     if (shouldSubmit) {
-      setTranscript(current => {
-        if (current.trim()) {
-          handleBotResponse(current);
-        }
-        return "";
-      });
+      const finalVal = transcriptRef.current;
+      if (finalVal.trim()) {
+        handleBotResponse(finalVal);
+      }
+      setTranscript("");
+      transcriptRef.current = "";
     }
   };
 
@@ -182,7 +220,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     try {
       const data = await mcaService.chat(userMessage, updatedHistory);
       if (!data.isSuccessful) throw new Error(data.message);
-      
+
       const botMsg = {
         id: Date.now() + 1,
         type: 'bot',
@@ -217,11 +255,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    
+
     if (stableVoice) {
       utterance.voice = stableVoice;
     }
-    
+
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => {
       setIsSpeaking(false);
@@ -233,7 +271,9 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500">
+    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative">
+
+
       {/* Chat Header */}
       <div className="px-8 py-4 border-b border-border flex items-center justify-between bg-muted/30 backdrop-blur-md z-10">
         <div className="flex items-center gap-4">
@@ -259,7 +299,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             </div>
             <div className="flex items-center gap-2">
               <div className={clsx(
-                "w-1.5 h-1.5 rounded-full", 
+                "w-1.5 h-1.5 rounded-full",
                 isSpeaking ? "bg-primary animate-pulse" : (isLoading ? "bg-amber-500 animate-pulse" : "bg-success")
               )}></div>
               <span className="text-[9px] text-card-foreground uppercase tracking-widest font-black opacity-60">
@@ -275,12 +315,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       </div>
 
       {/* Messages Area - Now with much more space */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide bg-gradient-to-b from-transparent to-muted/5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
         {messages.map((msg) => (
           <div
             key={msg.id}
             className={clsx(
-              "flex gap-3 max-w-[85%] transition-all duration-500 animate-in fade-in slide-in-from-bottom-4",
+              "flex gap-3 max-w-[90%] transition-all duration-500 animate-in fade-in slide-in-from-bottom-4",
               msg.type === 'user' ? "ml-auto flex-row-reverse" : ""
             )}
           >
@@ -293,7 +333,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               {msg.type === 'user' ? <User size={14} /> : <Bot size={14} />}
             </div>
             <div className={clsx(
-              "px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border",
+              "px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border break-words overflow-hidden min-w-0",
               msg.type === 'user'
                 ? "bg-secondary text-white border-secondary/20 rounded-tr-none"
                 : "bg-primary text-white border-primary/20 rounded-tl-none"
@@ -375,7 +415,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                       "w-0.5 rounded-full transition-all duration-500",
                       isListening ? "bg-primary/50" : "bg-muted-foreground/10 h-0.5"
                     )}
-                    style={{ 
+                    style={{
                       height: isListening ? `${Math.random() * 100}%` : '2px',
                       transitionDelay: `${i * 20}ms`
                     }}
