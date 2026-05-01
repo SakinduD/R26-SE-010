@@ -6,8 +6,9 @@ import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity } from 'lucide-react';
+import { Video, Activity, Mic } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
+import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
 const MultimodalEngine = () => {
@@ -22,6 +23,11 @@ const MultimodalEngine = () => {
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
   const showMeshRef = useRef(showMesh);
+  
+  // Audio Streaming Refs
+  const mediaRecorderRef = useRef(null);
+  const socketRef = useRef(null);
+  const audioStreamRef = useRef(null);
 
   // Update ref when showMesh changes
   useEffect(() => {
@@ -71,11 +77,66 @@ const MultimodalEngine = () => {
   }, []);
 
   useEffect(() => {
+    return () => {
+      stopAudioCapture();
+    };
+  }, []);
+
+  const startAudioCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      setHasMicPermission(true);
+      
+      const socket = new WebSocket(mcaService.getAudioStreamUrl());
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+            socket.send(event.data);
+          }
+        };
+        mediaRecorder.start(500);
+        setIsMicActive(true);
+      };
+    } catch (err) {
+      console.error("Audio capture error:", err);
+    }
+  };
+
+  const stopAudioCapture = () => {
+    setIsMicActive(false);
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
+    }
+  };
+
+  const toggleMic = () => {
+    if (isMicActive) stopAudioCapture();
+    else startAudioCapture();
+  };
+
+  useEffect(() => {
     let faceMeshModel = null;
 
     if (isCameraActive) {
       faceMeshModel = new faceMesh.FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        locateFile: (file) => {
+          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
+          return `${baseUrl}/${file}`;
+        },
       });
 
       faceMeshModel.setOptions({
@@ -123,42 +184,38 @@ const MultimodalEngine = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col items-center pt-8 md:pt-12 pb-20 px-4 md:px-8 font-sans antialiased">
+    <div className="h-screen w-full bg-background text-foreground flex flex-col items-center px-4 md:px-8 font-sans antialiased overflow-hidden">
       <div className={clsx(
-        "w-full space-y-8 transition-all duration-700 ease-in-out",
-        activeMode === 'ai' ? "max-w-7xl" : "max-w-6xl"
+        "w-full h-full flex flex-col gap-6 py-6 transition-all duration-700 ease-in-out",
+        activeMode === 'ai' ? "max-w-[1600px]" : "max-w-6xl"
       )}>
-        {/* Header Section */}
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl md:text-5xl font-extrabold text-foreground tracking-tight">
-            Multimodal Communication Engine
+        {/* Header Section - Compact */}
+        <div className="text-center space-y-1">
+          <h1 className="text-2xl md:text-4xl font-extrabold text-foreground tracking-tight">
+            EmpowerZ <span className="text-primary font-black">MCA</span>
           </h1>
-          <p className="text-card-foreground text-sm max-w-xl mx-auto font-medium opacity-90">
-            Real-time behavioral analysis and emotional intelligence fusion.
+          <p className="text-card-foreground text-[10px] md:text-xs font-bold opacity-60 uppercase tracking-[0.3em]">
+            Behavioral Intelligence • Real-time Fusion
           </p>
         </div>
 
         {/* Mode Switcher Section */}
-        <div className="py-2">
+        <div className="flex justify-center">
           <ModeSwitcher />
         </div>
 
-        {/* Dynamic Content Layout */}
+        {/* Dynamic Content Layout - Stretches to fill screen */}
         <div className={clsx(
-          "grid gap-6 md:gap-8 transition-all duration-700 ease-in-out",
+          "flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0",
           activeMode === 'ai' ? "lg:grid-cols-3" : "grid-cols-1"
         )}>
           
           {/* Capturing Window Section */}
           <div className={clsx(
-            "relative group transition-all duration-700 ease-in-out order-1",
+            "relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0",
             activeMode === 'ai' ? "lg:col-span-2" : "col-span-1"
           )}>
-            <div className={clsx(
-              "absolute -inset-1 rounded-2xl blur-sm opacity-5 group-hover:opacity-10 transition duration-1000",
-              activeMode === 'live' ? "bg-secondary" : "bg-primary"
-            )}></div>
-            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-2xl flex flex-col items-center h-full overflow-hidden">
+            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-3xl flex flex-col items-center h-full overflow-hidden">
               
               {/* Capturing Window (Webcam Area) */}
               <div className={clsx(
@@ -206,15 +263,26 @@ const MultimodalEngine = () => {
 
                 {/* Overlay UI */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                   {!isCameraActive && (
-                      <button 
-                        onClick={toggleCamera}
-                        className="pointer-events-auto bg-primary text-white px-6 py-3 rounded-full font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                      >
-                        <Video size={18} />
-                        Enable Sensing Module
-                      </button>
-                   )}
+                    <div className="flex flex-col gap-4 pointer-events-auto">
+                      {!isCameraActive && (
+                        <button 
+                          onClick={toggleCamera}
+                          className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                        >
+                          <Video size={18} />
+                          Enable Video Sensing
+                        </button>
+                      )}
+                      {!isMicActive && activeMode === 'live' && (
+                        <button 
+                          onClick={toggleMic}
+                          className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                        >
+                          <Mic size={18} />
+                          Enable Audio Sensing
+                        </button>
+                      )}
+                    </div>
                 </div>
 
                 {/* Status Indicators */}
@@ -243,10 +311,20 @@ const MultimodalEngine = () => {
                       </button>
                     )}
                     <button 
+                      onClick={toggleMic}
+                      className={clsx(
+                        "flex items-center gap-2 text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all pointer-events-auto",
+                        isMicActive ? "bg-secondary/20 text-secondary border-secondary/30" : "bg-muted text-muted-foreground border-border"
+                      )}
+                    >
+                      <Mic size={12} className={clsx(isMicActive && "animate-pulse")} />
+                      {isMicActive ? "MIC_ACTIVE" : "MIC_OFF"}
+                    </button>
+                    <button 
                       onClick={toggleCamera}
                       className="pointer-events-auto text-[10px] font-black text-primary hover:underline"
                     >
-                      {isCameraActive ? "STOP_SENSING" : "START_SENSING"}
+                      {isCameraActive ? "STOP_VIDEO" : "START_VIDEO"}
                     </button>
                   </div>
                 </div>

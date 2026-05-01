@@ -12,5 +12,10 @@ export const mcaService = {
       }
       throw error;
     }
+  },
+  
+  getAudioStreamUrl: () => {
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+    return `${wsUrl}/api/v1/mca/audio/audio-analysis?token=mca_secure_session_alpha`;
   }
 };
