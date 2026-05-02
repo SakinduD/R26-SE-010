@@ -7,10 +7,11 @@ from app.schemas.analytics import (
     AnalyticsSessionMetricRead,
     FeedbackEntryCreate,
     FeedbackEntryRead,
+    AnalyticsAggregateSummary,
     SkillPredictionCreate,
     SkillPredictionRead,
 )
-from app.services import analytics_service
+from app.services import analytics_service, data_aggregation_service
 
 router = APIRouter(tags=["feedback-analytics"])
 
@@ -133,3 +134,23 @@ def list_session_predictions(
     db: Session = Depends(get_db),
 ):
     return analytics_service.list_predictions_by_session(db, session_id, limit)
+
+
+@router.get(
+    "/sessions/{session_id}/aggregate",
+    response_model=AnalyticsAggregateSummary,
+)
+def get_session_aggregate(session_id: str, db: Session = Depends(get_db)):
+    return data_aggregation_service.get_session_aggregate(db, session_id)
+
+
+@router.get(
+    "/users/{user_id}/aggregate",
+    response_model=AnalyticsAggregateSummary,
+)
+def get_user_aggregate(
+    user_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return data_aggregation_service.get_user_aggregate(db, user_id, limit)

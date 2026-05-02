@@ -1,4 +1,5 @@
 from app.schemas.analytics import (
+    AnalyticsAggregateSummary,
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
     FeedbackEntryCreate,
@@ -8,6 +9,7 @@ from app.schemas.analytics import (
 )
 
 __all__ = [
+    "AnalyticsAggregateSummary",
     "AnalyticsSessionMetricCreate",
     "AnalyticsSessionMetricRead",
     "FeedbackEntryCreate",
