@@ -5,6 +5,7 @@ import AdminDashboard from './pages/admin/dashboard'
 import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
+import SkillTwinProfile from './pages/Analytics/SkillTwinProfile'
 
 export default function App(){
   return (
@@ -20,6 +21,8 @@ export default function App(){
           <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
           <Route path="/analytics-feedback" element={<FeedbackForm />} />
           <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
+          <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
+          <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
           <Route path="/analytics-session-report" element={<PostSessionReport />} />
           <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
         </Routes>
