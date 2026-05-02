@@ -23,4 +23,7 @@ export const analyticsService = {
 
   getPostSessionReport: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/report`).then(unwrap),
+
+  createFeedbackEntry: (payload) =>
+    api.post('/api/v1/analytics/feedback', payload).then(unwrap),
 }
