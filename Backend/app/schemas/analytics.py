@@ -226,3 +226,39 @@ class BlindSpotDetectionResult(BaseModel):
     blind_spots: list[BlindSpotItem]
     generated_at: datetime
     detection_version: str
+
+
+class ProgressTrendPoint(BaseModel):
+    session_id: str
+    score: float
+    created_at: datetime
+
+
+class SkillTrendItem(BaseModel):
+    skill_area: str
+    trend_label: Literal["improving", "stable", "declining", "insufficient_data"]
+    first_score: float | None = None
+    latest_score: float | None = None
+    delta: float | None = None
+    slope: float | None = None
+    session_count: int
+    points: list[ProgressTrendPoint]
+    recommendation: str
+
+
+class ProgressTrendSummary(BaseModel):
+    analyzed_skill_count: int
+    improving_count: int
+    stable_count: int
+    declining_count: int
+    insufficient_data_count: int
+    strongest_improvement: SkillTrendItem | None = None
+    strongest_decline: SkillTrendItem | None = None
+
+
+class ProgressTrendResult(BaseModel):
+    user_id: str
+    summary: ProgressTrendSummary
+    trends: list[SkillTrendItem]
+    generated_at: datetime
+    trend_version: str

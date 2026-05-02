@@ -506,3 +506,103 @@ def test_user_blind_spots_returns_empty_result_for_unknown_user(client):
         "strongest_blind_spot": None,
     }
     assert data["blind_spots"] == []
+
+
+def test_user_progress_trends_detects_improving_declining_and_stable_skills(client):
+    session_payloads = [
+        {
+            "session_id": "trend-session-1",
+            "confidence_score": 55,
+            "empathy_score": 90,
+            "clarity_score": 72,
+            "overall_score": 70,
+        },
+        {
+            "session_id": "trend-session-2",
+            "confidence_score": 65,
+            "empathy_score": 82,
+            "clarity_score": 73,
+            "overall_score": 74,
+        },
+        {
+            "session_id": "trend-session-3",
+            "confidence_score": 78,
+            "empathy_score": 70,
+            "clarity_score": 74,
+            "overall_score": 80,
+        },
+    ]
+
+    for payload in session_payloads:
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": "trend-user",
+                **payload,
+            },
+        )
+
+    response = client.get("/api/v1/analytics/users/trend-user/progress-trends")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "trend-user"
+    assert data["trend_version"] == "rule-based-v1"
+    assert data["summary"]["improving_count"] >= 2
+    assert data["summary"]["declining_count"] == 1
+    assert data["summary"]["stable_count"] == 1
+    assert data["summary"]["strongest_improvement"]["skill_area"] == "confidence"
+    assert data["summary"]["strongest_decline"]["skill_area"] == "empathy"
+
+    trends = {item["skill_area"]: item for item in data["trends"]}
+    assert trends["confidence"]["trend_label"] == "improving"
+    assert trends["confidence"]["first_score"] == 55
+    assert trends["confidence"]["latest_score"] == 78
+    assert trends["confidence"]["delta"] == 23
+    assert trends["confidence"]["slope"] == 11.5
+    assert len(trends["confidence"]["points"]) == 3
+    assert trends["empathy"]["trend_label"] == "declining"
+    assert trends["empathy"]["delta"] == -20
+    assert trends["communication_clarity"]["trend_label"] == "stable"
+    assert trends["adaptability"]["trend_label"] == "insufficient_data"
+
+
+def test_user_skill_progress_trend_returns_single_skill(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "single-trend-user",
+            "session_id": "single-trend-session-1",
+            "overall_score": 60,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "single-trend-user",
+            "session_id": "single-trend-session-2",
+            "overall_score": 68,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/single-trend-user/progress-trends/overall")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["skill_area"] == "overall"
+    assert data["trend_label"] == "improving"
+    assert data["delta"] == 8
+    assert data["session_count"] == 2
+
+
+def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client):
+    response = client.get("/api/v1/analytics/users/no-trend-user/progress-trends")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "no-trend-user"
+    assert data["summary"]["improving_count"] == 0
+    assert data["summary"]["declining_count"] == 0
+    assert data["summary"]["stable_count"] == 0
+    assert data["summary"]["insufficient_data_count"] == data["summary"]["analyzed_skill_count"]
+    assert all(item["trend_label"] == "insufficient_data" for item in data["trends"])
