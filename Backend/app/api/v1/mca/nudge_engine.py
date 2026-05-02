@@ -20,6 +20,7 @@ class AudioFeatures:
     feature_vector: Optional[np.ndarray] = None # Cached 181 features for SVM
     emotion_label: Optional[str] = None  # SVM Prediction
     emotion_confidence: float = 0.0      # SVM Probability
+    visual_metrics: Optional[dict] = None # MediaPipe visual data (ear, mar, pose)
 
 
 @dataclass
@@ -216,6 +217,76 @@ class SerAnalyzer(AudioAnalyzer):
         return None
 
 
+class AffectFusionAnalyzer(AudioAnalyzer):
+    """
+    Affect Fusion Logic.
+    Cross-checks the Audio SVM Prediction with the Visual MediaPipe Metrics.
+    """
+    
+    def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
+        if not features.emotion_label or not features.visual_metrics:
+            return None
+            
+        audio_emotion = features.emotion_label
+        visual = features.visual_metrics
+        
+        yaw = abs(visual.get("pose", {}).get("yaw", 0))
+        pitch_val = visual.get("pose", {}).get("pitch", 0)
+        roll = abs(visual.get("pose", {}).get("roll", 0))
+        mar = visual.get("mar", 0)
+        ear = visual.get("ear", 0)
+        
+        # Rule 1: The Distracted Presenter
+        if audio_emotion in ["happy", "calm", "neutral"] and yaw > 0.2:
+            return Nudge(
+                message="Your voice is calm, but you are looking away from the audience.",
+                category="fusion",
+                severity="warning"
+            )
+            
+        # Rule 2: The Tense Presenter
+        if audio_emotion in ["angry", "fearful"] and mar < 0.1:
+            return Nudge(
+                message="Your tone sounds stressed, and your facial expression appears very tense.",
+                category="fusion",
+                severity="critical"
+            )
+
+        # Rule 3: The Script Reader (Neutral/Calm + looking down)
+        if audio_emotion in ["neutral", "calm"] and pitch_val < -0.15:
+            return Nudge(
+                message="You are speaking clearly, but you appear to be reading from a script.",
+                category="fusion",
+                severity="warning"
+            )
+
+        # Rule 4: Deer in the Headlights (Fearful/Surprised + Wide eyes + Frozen head)
+        if audio_emotion in ["fearful", "surprised"] and ear > 0.3 and yaw < 0.05 and abs(pitch_val) < 0.05:
+            return Nudge(
+                message="You appear frozen. Your eyes are wide and your voice sounds panicked.",
+                category="fusion",
+                severity="warning"
+            )
+
+        # Rule 5: Overly Animated / Rushed (Happy/Surprised + High head movement proxy)
+        if audio_emotion in ["happy", "surprised"] and (yaw > 0.15 or roll > 0.15) and features.zero_crossing_rate > 0.15:
+            return Nudge(
+                message="You have great vocal energy, but your head movements and pacing are very fast.",
+                category="fusion",
+                severity="info"
+            )
+
+        # Rule 6: The Incongruent / Sarcastic Signal (Angry/Disgust + Big Smile)
+        if audio_emotion in ["angry", "disgust"] and mar > 0.5:
+            return Nudge(
+                message="You are displaying mixed signals: your tone sounds frustrated, but you are smiling widely.",
+                category="fusion",
+                severity="info"
+            )
+
+        return None
+
+
 # Feature Extractor
 class AudioFeatureExtractor:
     """Responsible only for converting raw bytes into AudioFeatures."""
@@ -307,20 +378,24 @@ class NudgeEngine:
             PaceAnalyzer(),
             ClarityAnalyzer(),
             SilenceAnalyzer(),
-            SerAnalyzer(), # New: MCA-14 Emotion Recognition
+            SerAnalyzer(), # Emotion Recognition
+            AffectFusionAnalyzer(), # Affect Fusion
         ]
         self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
         self.last_nudge_text: Optional[str] = None
         self.last_nudge_time: float = 0.0
         self.COOLDOWN_SECONDS: float = 25.0 # Prevent same nudge spamming
 
-    def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
+    def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
         """
         Runs all analyzers in order. Returns the first nudge found.
         Includes a cooldown check to prevent repeat spamming.
         """
         import time
         current_time = time.time()
+        
+        if visual_metrics:
+            features.visual_metrics = visual_metrics
 
         # UN EMOTION INFERENCE FIRST
         if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None:

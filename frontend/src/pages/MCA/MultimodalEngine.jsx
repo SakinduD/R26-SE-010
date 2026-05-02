@@ -24,6 +24,9 @@ const MultimodalEngine = () => {
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
   const showMeshRef = useRef(showMesh);
+  
+  // Keep a mutable ref of latest metrics for the WebSocket closure
+  const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
 
   // Audio Streaming Refs
   const mediaRecorderRef = useRef(null);
@@ -76,7 +79,10 @@ const MultimodalEngine = () => {
       const ear = calculateEAR(landmarks);
       const mar = calculateMAR(landmarks);
       const pose = estimateHeadPose(landmarks);
-      setMetrics({ ear, mar, pose });
+      
+      const newMetrics = { ear, mar, pose };
+      setMetrics(newMetrics);
+      metricsRef.current = newMetrics; // Update ref for WebSocket
 
       // Only draw the mesh overlay if enabled
       if (showMeshRef.current) {
@@ -116,6 +122,13 @@ const MultimodalEngine = () => {
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+              // Send Visual Data First 
+              socket.send(JSON.stringify({
+                type: 'visual_metrics',
+                metrics: metricsRef.current
+              }));
+              
+              // Send Audio Data
               socket.send(event.data);
             }
           };
