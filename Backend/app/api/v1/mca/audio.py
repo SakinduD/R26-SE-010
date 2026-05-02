@@ -53,6 +53,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 continue
 
             if "bytes" in message:
+                import time
+                process_start = time.time()
+                
                 data = message["bytes"]
                 # Extract audio features from raw bytes
                 features = _extractor.extract(data)
@@ -60,27 +63,26 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 # Build response
                 response = {"status": "analyzed", "bytes": len(data)}
 
-            if features:
-                nudge = _nudge_engine.evaluate(features, latest_visual_metrics)
-                response["metrics"] = {
-                    "volume": features.avg_volume,
-                    "pitch": features.pitch_hz,
-                    "zero_crossing_rate": features.zero_crossing_rate,
-                    "spectral_centroid": features.spectral_centroid,
-                    "duration_ms": features.duration_ms,
-                    "emotion": features.emotion_label,
-                    "confidence": features.emotion_confidence,
-                    "nudge": nudge.message if nudge else None,
-                    "nudge_category": nudge.category if nudge else None,
-                    "nudge_severity": nudge.severity if nudge else None,
-                }
-                if nudge:
-                    logger.info(
-                        f"[NUDGE/{nudge.category.upper()}] {nudge.message} "
-                        f"| vol={features.avg_volume:.4f} pitch={features.pitch_hz:.1f}Hz"
-                    )
+                if features:
+                    nudge = _nudge_engine.evaluate(features, latest_visual_metrics)
+                    
+                    response["metrics"] = {
+                        "emotion": features.emotion_label,
+                        "confidence": features.emotion_confidence,
+                        "nudge": nudge.message if nudge else None,
+                        "nudge_category": nudge.category if nudge else None,
+                        "nudge_severity": nudge.severity if nudge else None,
+                    }
+                    
+                    latency_ms = (time.time() - process_start) * 1000
+                    if nudge:
+                        logger.info(
+                            f"[NUDGE] {nudge.message} | Latency: {latency_ms:.2f}ms"
+                        )
+                    else:
+                        logger.info(f"Chunk processed in {latency_ms:.2f}ms | Emotion: {features.emotion_label}")
 
-            await websocket.send_json(response)
+                await websocket.send_json(response)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
