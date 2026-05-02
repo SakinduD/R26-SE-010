@@ -11,6 +11,8 @@ from app.schemas.analytics import (
     FeedbackAnalysisResult,
     AnalyticsAggregateSummary,
     ProgressTrendResult,
+    PredictiveModelingItem,
+    PredictiveModelingResult,
     SkillTrendItem,
     SkillPredictionCreate,
     SkillPredictionRead,
@@ -22,6 +24,7 @@ from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    predictive_modeling_service,
     progress_trend_service,
     skill_scoring_service,
 )
@@ -248,3 +251,28 @@ def get_user_skill_progress_trend(
     db: Session = Depends(get_db),
 ):
     return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, limit)
+
+
+@router.get(
+    "/users/{user_id}/predicted-outcomes",
+    response_model=PredictiveModelingResult,
+)
+def get_user_predicted_outcomes(
+    user_id: str,
+    limit: int = Query(default=100, ge=2, le=500),
+    db: Session = Depends(get_db),
+):
+    return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+
+
+@router.get(
+    "/users/{user_id}/predicted-outcomes/{skill_area}",
+    response_model=PredictiveModelingItem,
+)
+def get_user_skill_predicted_outcome(
+    user_id: str,
+    skill_area: str,
+    limit: int = Query(default=100, ge=2, le=500),
+    db: Session = Depends(get_db),
+):
+    return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, limit)
