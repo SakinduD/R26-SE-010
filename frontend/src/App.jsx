@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
 import AdminDashboard from './pages/admin/dashboard'
 import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
+import FeedbackForm from './pages/Analytics/FeedbackForm'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
 
 export default function App(){
@@ -17,6 +18,8 @@ export default function App(){
           } />
           <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
           <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
+          <Route path="/analytics-feedback" element={<FeedbackForm />} />
+          <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
           <Route path="/analytics-session-report" element={<PostSessionReport />} />
           <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
         </Routes>
