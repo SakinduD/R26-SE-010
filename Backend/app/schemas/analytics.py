@@ -262,3 +262,30 @@ class ProgressTrendResult(BaseModel):
     trends: list[SkillTrendItem]
     generated_at: datetime
     trend_version: str
+
+
+class PredictiveModelingItem(BaseModel):
+    predicted_skill: str
+    current_score: float | None = None
+    predicted_score: float | None = None
+    trend_label: Literal["improving", "stable", "declining", "insufficient_data"]
+    risk_level: Literal["low", "medium", "high"]
+    confidence: float
+    evidence_points: int
+    recommendation: str
+
+
+class PredictiveModelingSummary(BaseModel):
+    predicted_count: int
+    low_risk_count: int
+    medium_risk_count: int
+    high_risk_count: int
+    highest_risk_prediction: PredictiveModelingItem | None = None
+
+
+class PredictiveModelingResult(BaseModel):
+    user_id: str
+    predictions: list[PredictiveModelingItem]
+    summary: PredictiveModelingSummary
+    generated_at: datetime
+    model_version: str
