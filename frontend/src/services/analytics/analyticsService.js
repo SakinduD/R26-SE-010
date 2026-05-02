@@ -15,6 +15,11 @@ export const analyticsService = {
   getPredictedOutcomesByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes`).then(unwrap),
 
+  getPredictedOutcomeBySkill: (userId, skillArea) =>
+    api
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes/${encodeURIComponent(skillArea)}`)
+      .then(unwrap),
+
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
 
