@@ -289,3 +289,30 @@ class PredictiveModelingResult(BaseModel):
     summary: PredictiveModelingSummary
     generated_at: datetime
     model_version: str
+
+
+class PostSessionActionItem(BaseModel):
+    priority: Literal["high", "medium", "low"]
+    skill_area: str | None = None
+    title: str
+    detail: str
+
+
+class PostSessionReportSummary(BaseModel):
+    headline: str
+    strengths: list[str]
+    improvement_areas: list[str]
+    completion_status: Literal["complete", "partial", "empty"]
+
+
+class PostSessionReportResult(BaseModel):
+    session_id: str
+    user_id: str | None = None
+    summary: PostSessionReportSummary
+    aggregate: AnalyticsAggregateSummary
+    skill_scores: SkillScoreResult
+    feedback_analysis: FeedbackAnalysisResult
+    blind_spots: BlindSpotDetectionResult
+    action_items: list[PostSessionActionItem]
+    generated_at: datetime
+    report_version: str

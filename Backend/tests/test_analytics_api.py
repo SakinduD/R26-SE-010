@@ -180,6 +180,86 @@ def test_session_aggregate_combines_metrics_feedback_and_predictions(client):
     }
 
 
+def test_post_session_report_combines_session_analytics(client):
+    session_id = "report-session"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "report-user",
+            "session_id": session_id,
+            "confidence_score": 58,
+            "clarity_score": 74,
+            "empathy_score": 82,
+            "listening_score": 77,
+            "overall_score": 73,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "report-user",
+            "session_id": session_id,
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 92,
+            "sentiment": "positive",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "report-user",
+            "session_id": session_id,
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 60,
+            "sentiment": "neutral",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/predictions",
+        json={
+            "user_id": "report-user",
+            "session_id": session_id,
+            "predicted_skill": "confidence",
+            "current_score": 58,
+            "predicted_score": 52,
+            "trend_label": "declining",
+            "risk_level": "high",
+            "recommendation": "Practice confidence with a shorter response script.",
+        },
+    )
+
+    response = client.get(f"/api/v1/analytics/sessions/{session_id}/report")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == session_id
+    assert data["user_id"] == "report-user"
+    assert data["report_version"] == "rule-based-report-v1"
+    assert data["summary"]["completion_status"] == "complete"
+    assert "Empathy" in data["summary"]["strengths"]
+    assert "Confidence" in data["summary"]["improvement_areas"]
+    assert data["aggregate"]["scores"]["metric_count"] == 1
+    assert data["skill_scores"]["skill_scores"]["confidence"] is not None
+    assert data["feedback_analysis"]["summary"]["blind_spot_count"] == 1
+    assert data["blind_spots"]["summary"]["total_count"] == 1
+    assert data["action_items"][0]["skill_area"] == "confidence"
+
+
+def test_post_session_report_returns_empty_report_for_unknown_session(client):
+    response = client.get("/api/v1/analytics/sessions/missing-session/report")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == "missing-session"
+    assert data["user_id"] is None
+    assert data["summary"]["completion_status"] == "empty"
+    assert data["summary"]["strengths"] == []
+    assert data["summary"]["improvement_areas"] == []
+    assert data["action_items"][0]["title"] == "Maintain current progress"
+
+
 def test_user_aggregate_returns_empty_summary_for_unknown_user(client):
     response = client.get("/api/v1/analytics/users/unknown-user/aggregate")
 
