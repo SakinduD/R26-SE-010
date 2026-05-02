@@ -19,7 +19,14 @@ const MultimodalEngine = () => {
   const [isMicActive, setIsMicActive] = useState(false);
   const [hasMicPermission, setHasMicPermission] = useState(false);
   const [nudges, setNudges] = useState([]); // State for coaching nudges stack
-  const [metrics, setMetrics] = useState({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
+  const [metrics, setMetrics] = useState({ 
+    ear: 0, 
+    mar: 0, 
+    pose: { yaw: 0, pitch: 0, roll: 0 },
+    emotion: 'Sensing...',
+    confidence: 0,
+    isSyncing: false
+  });
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
@@ -33,11 +40,13 @@ const MultimodalEngine = () => {
   const socketRef = useRef(null);
   const audioStreamRef = useRef(null);
 
-  const handleNudge = useCallback((text) => {
+  const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
     const id = Date.now();
     const newNudge = {
       id,
       text,
+      category,
+      severity,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setNudges(prev => [newNudge, ...prev].slice(0, 5));
@@ -81,8 +90,8 @@ const MultimodalEngine = () => {
       const pose = estimateHeadPose(landmarks);
       
       const newMetrics = { ear, mar, pose };
-      setMetrics(newMetrics);
-      metricsRef.current = newMetrics; // Update ref for WebSocket
+      setMetrics(prev => ({ ...prev, ...newMetrics }));
+      metricsRef.current = { ...metricsRef.current, ...newMetrics }; // ref for WebSocket
 
       // Only draw the mesh overlay if enabled
       if (showMeshRef.current) {
@@ -151,8 +160,22 @@ const MultimodalEngine = () => {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.metrics?.nudge) {
-            handleNudge(data.metrics.nudge);
+          if (data.metrics) {
+            // Update metrics with SVM data from backend
+            setMetrics(prev => ({
+              ...prev,
+              emotion: data.metrics.emotion || 'Neutral',
+              confidence: data.metrics.confidence || 0,
+              isSyncing: true
+            }));
+
+            if (data.metrics.nudge) {
+              handleNudge(
+                data.metrics.nudge, 
+                data.metrics.nudge_category, 
+                data.metrics.nudge_severity
+              );
+            }
           }
         } catch (err) {
           console.error("Error parsing socket message:", err);
@@ -247,11 +270,17 @@ const MultimodalEngine = () => {
           <div
             key={nudge.id}
             className={clsx(
-              "bg-primary/95 backdrop-blur-2xl border border-white/20 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
+              "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
+              nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
+              nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
+              "bg-primary/95 border-white/20 text-white",
               index > 0 && "scale-90 opacity-40 hover:opacity-100"
             )}
           >
-            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+            <div className={clsx(
+              "w-9 h-9 rounded-full flex items-center justify-center animate-pulse",
+              nudge.severity === 'critical' ? "bg-white/30" : "bg-white/20"
+            )}>
               <Activity size={20} />
             </div>
             <div className="flex flex-col min-w-[120px]">
@@ -433,6 +462,12 @@ const MultimodalEngine = () => {
                     Tracking: {showMesh ? "Visual" : "Background"}
                   </div>
                 )}
+                {metrics.isSyncing && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-black text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
+                    <Activity size={12} />
+                    Fusion: Active
+                  </div>
+                )}
               </div>
 
               {/* Behavioral Metrics Dashboard */}
@@ -484,7 +519,6 @@ const MultimodalEngine = () => {
                       </span>
                     </div>
                     <div className="flex gap-1 h-1.5 w-full relative">
-                      {/* A visual center-zone indicator */}
                       <div className="absolute left-1/2 -translate-x-1/2 w-4 h-full bg-foreground/10 z-10 rounded"></div>
                       <div className="flex-1 bg-muted rounded-full overflow-hidden">
                         <div className={clsx(
@@ -494,6 +528,25 @@ const MultimodalEngine = () => {
                       </div>
                     </div>
                     <p className="text-[9px] text-card-foreground/60 font-medium">Keeping your head level and facing forward.</p>
+                  </div>
+
+                  {/* Vocal Emotion */}
+                  <div className="space-y-3 col-span-1 sm:col-span-3 pt-6 mt-6 border-t border-border/30">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-primary">Vocal Affect (SVM)</span>
+                      <span className="text-[10px] font-black text-primary uppercase">
+                        {metrics.emotion} • {Math.round(metrics.confidence * 100)}% Confidence
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+                       <div 
+                         className="h-full bg-primary transition-all duration-700" 
+                         style={{ width: `${metrics.confidence * 100}%` }}
+                       ></div>
+                    </div>
+                    <p className="text-[9px] text-card-foreground/60 font-medium">
+                      The Affect Fusion engine is currently cross-checking your {(metrics.emotion || 'sensing').toLowerCase()} vocal tone with your facial geometry.
+                    </p>
                   </div>
                 </div>
               )}
