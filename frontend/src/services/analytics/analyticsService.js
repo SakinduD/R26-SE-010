@@ -20,4 +20,7 @@ export const analyticsService = {
 
   getSkillScoresBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/skill-scores`).then(unwrap),
+
+  getPostSessionReport: (sessionId) =>
+    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/report`).then(unwrap),
 }
