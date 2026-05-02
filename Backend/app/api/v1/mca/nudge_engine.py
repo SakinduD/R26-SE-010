@@ -5,7 +5,6 @@ import numpy as np
 import librosa
 import logging
 import io
-import av
 import traceback
 
 @dataclass
@@ -174,6 +173,8 @@ class AudioFeatureExtractor:
 
     def extract(self, data: bytes) -> Optional[AudioFeatures]:
         try:
+            import av
+
             # Decode WebM/Opus using PyAV instead of librosa/soundfile directly
             container = av.open(io.BytesIO(data))
             frames = []
