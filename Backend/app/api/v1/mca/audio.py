@@ -54,6 +54,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                     "zero_crossing_rate": features.zero_crossing_rate,
                     "spectral_centroid": features.spectral_centroid,
                     "duration_ms": features.duration_ms,
+                    "emotion": features.emotion_label,
+                    "confidence": features.emotion_confidence,
                     "nudge": nudge.message if nudge else None,
                     "nudge_category": nudge.category if nudge else None,
                     "nudge_severity": nudge.severity if nudge else None,
