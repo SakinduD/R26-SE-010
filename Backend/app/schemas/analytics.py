@@ -157,3 +157,42 @@ class SkillScoreResult(BaseModel):
     overall_score: float | None
     completeness: float
     scoring_version: str
+
+
+class FeedbackAlignmentItem(BaseModel):
+    skill_area: str
+    self_rating: float | None = None
+    peer_rating: float | None = None
+    observed_score: float | None = None
+    self_peer_gap: float | None = None
+    self_observed_gap: float | None = None
+    peer_observed_gap: float | None = None
+    alignment: Literal[
+        "aligned",
+        "self_overestimation",
+        "self_underestimation",
+        "peer_misalignment",
+        "insufficient_data",
+    ]
+    severity: Literal["none", "low", "medium", "high"]
+    recommendation: str
+
+
+class FeedbackAnalysisSummary(BaseModel):
+    self_feedback_count: int
+    peer_feedback_count: int
+    analyzed_skill_count: int
+    aligned_count: int
+    blind_spot_count: int
+    average_self_rating: float | None = None
+    average_peer_rating: float | None = None
+
+
+class FeedbackAnalysisResult(BaseModel):
+    scope: Literal["session", "user"]
+    user_id: str | None = None
+    session_id: str | None = None
+    summary: FeedbackAnalysisSummary
+    items: list[FeedbackAlignmentItem]
+    generated_at: datetime
+    analysis_version: str
