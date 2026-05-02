@@ -120,3 +120,40 @@ class AnalyticsAggregateSummary(BaseModel):
     predictions: PredictionSummary
     data_completeness: DataCompletenessSummary
     generated_at: datetime
+
+
+class SkillScoreInputs(BaseModel):
+    confidence_score: Score = Field(default=None, ge=0, le=100)
+    clarity_score: Score = Field(default=None, ge=0, le=100)
+    empathy_score: Score = Field(default=None, ge=0, le=100)
+    listening_score: Score = Field(default=None, ge=0, le=100)
+    adaptability_score: Score = Field(default=None, ge=0, le=100)
+    emotional_control_score: Score = Field(default=None, ge=0, le=100)
+    professionalism_score: Score = Field(default=None, ge=0, le=100)
+    eye_contact_score: Score = Field(default=None, ge=0, le=100)
+    speech_pace_score: Score = Field(default=None, ge=0, le=100)
+    speech_volume_score: Score = Field(default=None, ge=0, le=100)
+    response_quality_score: Score = Field(default=None, ge=0, le=100)
+    self_rating: Score = Field(default=None, ge=0, le=100)
+    peer_rating: Score = Field(default=None, ge=0, le=100)
+
+
+class SkillScoreRequest(BaseModel):
+    user_id: str | None = Field(default=None, max_length=64)
+    session_id: str | None = Field(default=None, max_length=64)
+    inputs: SkillScoreInputs
+
+
+class SkillScoreBreakdown(BaseModel):
+    score: float | None
+    inputs_used: list[str]
+
+
+class SkillScoreResult(BaseModel):
+    user_id: str | None = None
+    session_id: str | None = None
+    skill_scores: dict[str, float | None]
+    breakdown: dict[str, SkillScoreBreakdown]
+    overall_score: float | None
+    completeness: float
+    scoring_version: str
