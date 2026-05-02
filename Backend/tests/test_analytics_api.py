@@ -606,3 +606,100 @@ def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client)
     assert data["summary"]["stable_count"] == 0
     assert data["summary"]["insufficient_data_count"] == data["summary"]["analyzed_skill_count"]
     assert all(item["trend_label"] == "insufficient_data" for item in data["trends"])
+
+
+def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
+    session_payloads = [
+        {
+            "session_id": "prediction-session-1",
+            "confidence_score": 55,
+            "empathy_score": 90,
+            "clarity_score": 72,
+            "overall_score": 70,
+        },
+        {
+            "session_id": "prediction-session-2",
+            "confidence_score": 65,
+            "empathy_score": 72,
+            "clarity_score": 73,
+            "overall_score": 74,
+        },
+        {
+            "session_id": "prediction-session-3",
+            "confidence_score": 78,
+            "empathy_score": 45,
+            "clarity_score": 74,
+            "overall_score": 80,
+        },
+    ]
+
+    for payload in session_payloads:
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": "prediction-user",
+                **payload,
+            },
+        )
+
+    response = client.get("/api/v1/analytics/users/prediction-user/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "prediction-user"
+    assert data["model_version"] == "rule-based-baseline-v1"
+    assert data["summary"]["predicted_count"] == 4
+    assert data["summary"]["high_risk_count"] == 1
+    assert data["summary"]["low_risk_count"] >= 2
+    assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
+
+    predictions = {item["predicted_skill"]: item for item in data["predictions"]}
+    assert predictions["confidence"]["predicted_score"] == 89.5
+    assert predictions["confidence"]["risk_level"] == "low"
+    assert predictions["confidence"]["confidence"] == 0.65
+    assert predictions["empathy"]["predicted_score"] == 22.5
+    assert predictions["empathy"]["risk_level"] == "high"
+    assert predictions["communication_clarity"]["risk_level"] == "low"
+    assert predictions["overall"]["predicted_score"] == 85
+
+
+def test_user_skill_predicted_outcome_returns_single_prediction(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "single-prediction-user",
+            "session_id": "single-prediction-session-1",
+            "overall_score": 60,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "single-prediction-user",
+            "session_id": "single-prediction-session-2",
+            "overall_score": 68,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/single-prediction-user/predicted-outcomes/overall")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predicted_skill"] == "overall"
+    assert data["current_score"] == 68
+    assert data["predicted_score"] == 76
+    assert data["trend_label"] == "improving"
+    assert data["risk_level"] == "low"
+    assert data["evidence_points"] == 2
+
+
+def test_user_skill_predicted_outcome_handles_insufficient_data(client):
+    response = client.get("/api/v1/analytics/users/no-prediction-user/predicted-outcomes/confidence")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predicted_skill"] == "confidence"
+    assert data["predicted_score"] is None
+    assert data["risk_level"] == "medium"
+    assert data["confidence"] == 0.2
+    assert data["evidence_points"] == 0
