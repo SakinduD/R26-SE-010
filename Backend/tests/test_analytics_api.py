@@ -99,3 +99,100 @@ def test_score_validation_rejects_invalid_value(client):
     )
 
     assert response.status_code == 422
+
+
+def test_session_aggregate_combines_metrics_feedback_and_predictions(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "aggregate-user",
+            "session_id": "aggregate-session",
+            "confidence_score": 80,
+            "clarity_score": 70,
+            "overall_score": 75,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "aggregate-user",
+            "session_id": "aggregate-session",
+            "confidence_score": 90,
+            "clarity_score": 80,
+            "overall_score": 85,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "aggregate-user",
+            "session_id": "aggregate-session",
+            "feedback_type": "self",
+            "rating": 88,
+            "sentiment": "positive",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "aggregate-user",
+            "session_id": "aggregate-session",
+            "feedback_type": "peer",
+            "rating": 72,
+            "sentiment": "neutral",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/predictions",
+        json={
+            "user_id": "aggregate-user",
+            "session_id": "aggregate-session",
+            "predicted_skill": "confidence",
+            "current_score": 85,
+            "predicted_score": 89,
+            "trend_label": "improving",
+            "risk_level": "low",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/sessions/aggregate-session/aggregate")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "session"
+    assert data["user_id"] == "aggregate-user"
+    assert data["session_id"] == "aggregate-session"
+    assert data["scores"]["metric_count"] == 2
+    assert data["scores"]["averages"]["confidence_score"] == 85
+    assert data["scores"]["averages"]["overall_score"] == 80
+    assert data["feedback"]["total_count"] == 2
+    assert data["feedback"]["by_type"]["self"] == 1
+    assert data["feedback"]["by_type"]["peer"] == 1
+    assert data["feedback"]["sentiment_counts"]["positive"] == 1
+    assert data["feedback"]["average_rating"] == 80
+    assert data["predictions"]["total_count"] == 1
+    assert data["predictions"]["risk_counts"]["low"] == 1
+    assert data["predictions"]["trend_counts"]["improving"] == 1
+    assert data["data_completeness"] == {
+        "has_session_metrics": True,
+        "has_feedback": True,
+        "has_predictions": True,
+    }
+
+
+def test_user_aggregate_returns_empty_summary_for_unknown_user(client):
+    response = client.get("/api/v1/analytics/users/unknown-user/aggregate")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "user"
+    assert data["user_id"] == "unknown-user"
+    assert data["scores"]["metric_count"] == 0
+    assert data["scores"]["averages"] == {}
+    assert data["feedback"]["total_count"] == 0
+    assert data["predictions"]["total_count"] == 0
+    assert data["data_completeness"] == {
+        "has_session_metrics": False,
+        "has_feedback": False,
+        "has_predictions": False,
+    }
