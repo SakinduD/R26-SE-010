@@ -17,6 +17,9 @@ class AudioFeatures:
     zero_crossing_rate: float  # Proxy for speaking pace / consonant density
     spectral_centroid: float   # Brightness/clarity of the signal
     duration_ms: float
+    feature_vector: Optional[np.ndarray] = None # Cached 181 features for SVM
+    emotion_label: Optional[str] = None  # SVM Prediction
+    emotion_confidence: float = 0.0      # SVM Probability
 
 
 @dataclass
@@ -167,6 +170,52 @@ class SilenceAnalyzer(AudioAnalyzer):
         return None
 
 
+class SerAnalyzer(AudioAnalyzer):
+    """
+    Speech Emotion Recognition (SER) Analyzer.
+    Loads the trained SVM pipeline (Scaler + SVC) to predict the user's emotional state.
+    """
+
+    def __init__(self, model_path: str = "app/models/affect_fusion/svm_model.pkl"):
+        self.model = None
+        self.model_path = model_path
+        self._load_model()
+
+    def _load_model(self):
+        import joblib
+        import os
+        try:
+            if os.path.exists(self.model_path):
+                self.model = joblib.load(self.model_path)
+                logging.getLogger("uvicorn").info(f"SVM Emotion Model loaded from {self.model_path}")
+            else:
+                logging.getLogger("uvicorn").warning(f"SVM Model not found at {self.model_path}. Emotion detection disabled.")
+        except Exception as e:
+            logging.getLogger("uvicorn").error(f"Failed to load SVM model: {str(e)}")
+
+    def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
+        # Populates the emotion metadata if the engine was built that way.
+        # Fire a nudge if the emotion is 'Angry' or 'Sad' to help the user.
+        if not features.emotion_label:
+            return None
+
+        if features.emotion_label == "angry":
+            return Nudge(
+                message="High intensity detected. Remember to breathe and stay grounded.",
+                category="emotion",
+                severity="warning"
+            )
+        
+        if features.emotion_label == "sad":
+            return Nudge(
+                message="Tone feels a bit low. Connecting with your 'why' can boost energy.",
+                category="emotion",
+                severity="info"
+            )
+
+        return None
+
+
 # Feature Extractor
 class AudioFeatureExtractor:
     """Responsible only for converting raw bytes into AudioFeatures."""
@@ -211,6 +260,21 @@ class AudioFeatureExtractor:
             centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio_data, sr=sr)))
             duration_ms = (len(audio_data) / sr) * 1000
 
+            # This must exactly match the training script: MFCC(40) + Chroma(12) + Mel(128) + Pitch(1)
+            try:
+                # MFCC (40)
+                mfcc = np.mean(librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40).T, axis=0)
+                # Chroma (12)
+                stft = np.abs(librosa.stft(audio_data))
+                chroma = np.mean(librosa.feature.chroma_stft(S=stft, sr=sr).T, axis=0)
+                # Mel (128)
+                mel = np.mean(librosa.feature.melspectrogram(y=audio_data, sr=sr).T, axis=0)
+                # Combined into the 181-feature vector
+                feature_vector = np.hstack((mfcc, chroma, mel, np.array([pitch_hz])))
+            except Exception as e:
+                logging.getLogger("uvicorn").error(f"SVM Feature Extraction Error: {str(e)}")
+                feature_vector = None
+
             return AudioFeatures(
                 audio_data=audio_data,
                 sample_rate=sr,
@@ -219,6 +283,8 @@ class AudioFeatureExtractor:
                 zero_crossing_rate=zcr,
                 spectral_centroid=centroid,
                 duration_ms=duration_ms,
+                feature_vector=feature_vector,
+                emotion_label=None, # Will be filled by SerAnalyzer
             )
         except Exception as e:
             logging.getLogger("uvicorn").error(f"Feature Extraction Error: {str(e)}\n{traceback.format_exc()}")
@@ -241,7 +307,9 @@ class NudgeEngine:
             PaceAnalyzer(),
             ClarityAnalyzer(),
             SilenceAnalyzer(),
+            SerAnalyzer(), # New: MCA-14 Emotion Recognition
         ]
+        self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
         self.last_nudge_text: Optional[str] = None
         self.last_nudge_time: float = 0.0
         self.COOLDOWN_SECONDS: float = 25.0 # Prevent same nudge spamming
@@ -253,6 +321,22 @@ class NudgeEngine:
         """
         import time
         current_time = time.time()
+
+        # UN EMOTION INFERENCE FIRST
+        if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None:
+            try:
+                vec = features.feature_vector
+                
+                # Predict using the SVM model
+                prediction = self.ser_analyzer.model.predict(vec.reshape(1, -1))[0]
+                features.emotion_label = prediction
+                
+                # Get confidence score (probability)
+                if hasattr(self.ser_analyzer.model, "predict_proba"):
+                    probs = self.ser_analyzer.model.predict_proba(vec.reshape(1, -1))[0]
+                    features.emotion_confidence = float(np.max(probs))
+            except Exception as e:
+                logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 
         for analyzer in self._analyzers:
             nudge = analyzer.analyze(features)
