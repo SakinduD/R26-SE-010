@@ -196,3 +196,107 @@ def test_user_aggregate_returns_empty_summary_for_unknown_user(client):
         "has_feedback": False,
         "has_predictions": False,
     }
+
+
+def test_calculate_skill_scores_from_payload(client):
+    response = client.post(
+        "/api/v1/analytics/skill-scores/calculate",
+        json={
+            "user_id": "score-user",
+            "session_id": "score-session",
+            "inputs": {
+                "confidence_score": 80,
+                "eye_contact_score": 70,
+                "speech_volume_score": 90,
+                "clarity_score": 75,
+                "speech_pace_score": 85,
+                "response_quality_score": 80,
+                "empathy_score": 65,
+                "listening_score": 88,
+                "adaptability_score": 72,
+                "emotional_control_score": 78,
+                "professionalism_score": 82,
+                "self_rating": 90,
+                "peer_rating": 70,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "score-user"
+    assert data["session_id"] == "score-session"
+    assert data["skill_scores"]["confidence"] == 78.5
+    assert data["skill_scores"]["communication_clarity"] == 77.75
+    assert data["skill_scores"]["empathy"] == 70.25
+    assert data["skill_scores"]["active_listening"] == 84.6
+    assert data["skill_scores"]["adaptability"] == 73.3
+    assert data["skill_scores"]["emotional_control"] == 80.85
+    assert data["skill_scores"]["professionalism"] == 79.6
+    assert data["overall_score"] == 77.84
+    assert data["completeness"] == 1.0
+    assert data["scoring_version"] == "rule-based-v1"
+    assert "confidence_score" in data["breakdown"]["confidence"]["inputs_used"]
+
+
+def test_session_skill_scores_use_saved_metrics_and_feedback(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "stored-score-user",
+            "session_id": "stored-score-session",
+            "confidence_score": 80,
+            "eye_contact_score": 70,
+            "speech_volume_score": 90,
+            "clarity_score": 75,
+            "speech_pace_score": 85,
+            "response_quality_score": 80,
+            "empathy_score": 65,
+            "listening_score": 88,
+            "adaptability_score": 72,
+            "emotional_control_score": 78,
+            "professionalism_score": 82,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "stored-score-user",
+            "session_id": "stored-score-session",
+            "feedback_type": "self",
+            "rating": 90,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "stored-score-user",
+            "session_id": "stored-score-session",
+            "feedback_type": "peer",
+            "rating": 70,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/sessions/stored-score-session/skill-scores")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "stored-score-user"
+    assert data["session_id"] == "stored-score-session"
+    assert data["skill_scores"]["confidence"] == 78.5
+    assert data["skill_scores"]["empathy"] == 70.25
+    assert data["overall_score"] == 77.84
+    assert data["completeness"] == 1.0
+
+
+def test_calculate_skill_scores_rejects_invalid_input(client):
+    response = client.post(
+        "/api/v1/analytics/skill-scores/calculate",
+        json={
+            "inputs": {
+                "confidence_score": 150,
+            },
+        },
+    )
+
+    assert response.status_code == 422
