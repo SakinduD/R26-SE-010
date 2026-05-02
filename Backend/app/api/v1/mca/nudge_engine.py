@@ -1,47 +1,14 @@
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 import librosa
 import logging
 import io
 import traceback
+import os
+import joblib
 
-@dataclass
-class AudioFeatures:
-    """Immutable snapshot of all extracted audio features for a single chunk."""
-    audio_data: np.ndarray
-    sample_rate: int
-    avg_volume: float          # RMS energy
-    pitch_hz: float            # Dominant fundamental frequency (Hz)
-    zero_crossing_rate: float  # Proxy for speaking pace / consonant density
-    spectral_centroid: float   # Brightness/clarity of the signal
-    duration_ms: float
-    feature_vector: Optional[np.ndarray] = None # Cached 181 features for SVM
-    emotion_label: Optional[str] = None  # SVM Prediction
-    emotion_confidence: float = 0.0      # SVM Probability
-
-
-@dataclass
-class Nudge:
-    """A single coaching suggestion with category and severity metadata."""
-    message: str
-    category: str              # e.g. "volume", "pitch", "pace", "clarity"
-    severity: str              # "info" | "warning" | "critical"
-
-
-# Abstract Base (Interface Segregation + Liskov Substitution)
-class AudioAnalyzer(ABC):
-    """
-    Single-responsibility contract for one coaching dimension.
-    Every analyzer receives the same AudioFeatures object and
-    returns a Nudge or None.
-    """
-
-    @abstractmethod
-    def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
-        """Return a Nudge if an issue is detected, otherwise None."""
-        ...
+from .base_types import AudioAnalyzer, AudioFeatures, Nudge
+from .affect_fusion import AffectFusionAnalyzer
 
 
 # Concrete Analyzers
@@ -194,25 +161,6 @@ class SerAnalyzer(AudioAnalyzer):
             logging.getLogger("uvicorn").error(f"Failed to load SVM model: {str(e)}")
 
     def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
-        # Populates the emotion metadata if the engine was built that way.
-        # Fire a nudge if the emotion is 'Angry' or 'Sad' to help the user.
-        if not features.emotion_label:
-            return None
-
-        if features.emotion_label == "angry":
-            return Nudge(
-                message="High intensity detected. Remember to breathe and stay grounded.",
-                category="emotion",
-                severity="warning"
-            )
-        
-        if features.emotion_label == "sad":
-            return Nudge(
-                message="Tone feels a bit low. Connecting with your 'why' can boost energy.",
-                category="emotion",
-                severity="info"
-            )
-
         return None
 
 
@@ -302,51 +250,65 @@ class NudgeEngine:
     def __init__(self, analyzers: list[AudioAnalyzer] = None):
         # Default set of analyzers — extend this list to add new nudge types
         self._analyzers: list[AudioAnalyzer] = analyzers or [
+            AffectFusionAnalyzer(), # High Priority: Multimodal Logic
             VolumeAnalyzer(),
             PitchAnalyzer(),
             PaceAnalyzer(),
             ClarityAnalyzer(),
             SilenceAnalyzer(),
-            SerAnalyzer(), # New: MCA-14 Emotion Recognition
+            SerAnalyzer(), # Classification Only
         ]
         self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
-        self.last_nudge_text: Optional[str] = None
         self.last_nudge_time: float = 0.0
-        self.COOLDOWN_SECONDS: float = 25.0 # Prevent same nudge spamming
+        self.COOLDOWN_SECONDS: float = 15.0 # Global gap between any two nudges
+        
+        # MCA-15: History buffer to ensure behavior is sustained before nudging
+        self.behavior_history: dict[str, int] = {} 
+        self.SUSTAIN_THRESHOLD = 3 # Behavior must persist for 3 chunks (3 seconds)
 
-    def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
+    def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
         """
-        Runs all analyzers in order. Returns the first nudge found.
-        Includes a cooldown check to prevent repeat spamming.
+        Runs all analyzers in order. Returns a nudge only if behavior is sustained 
+        and global cooldown has passed.
         """
         import time
         current_time = time.time()
+        
+        # 1. Global Cooldown Check (Don't even try if we recently nudged)
+        if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
+            return None
 
-        # UN EMOTION INFERENCE FIRST
+        if visual_metrics:
+            features.visual_metrics = visual_metrics
+
+        # 2. Emotion Inference
         if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None:
             try:
                 vec = features.feature_vector
-                
-                # Predict using the SVM model
                 prediction = self.ser_analyzer.model.predict(vec.reshape(1, -1))[0]
                 features.emotion_label = prediction
-                
-                # Get confidence score (probability)
                 if hasattr(self.ser_analyzer.model, "predict_proba"):
                     probs = self.ser_analyzer.model.predict_proba(vec.reshape(1, -1))[0]
                     features.emotion_confidence = float(np.max(probs))
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 
+        # 3. Analyze and Buffer
         for analyzer in self._analyzers:
             nudge = analyzer.analyze(features)
+            
             if nudge:
-                # Check for spam/cooldown
-                if nudge.message == self.last_nudge_text and (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
-                    return None # Still in cooldown for this specific nudge
+                # Increment hit count for this specific nudge
+                self.behavior_history[nudge.message] = self.behavior_history.get(nudge.message, 0) + 1
                 
-                # New nudge or cooldown expired
-                self.last_nudge_text = nudge.message
-                self.last_nudge_time = current_time
-                return nudge
+                # Only fire if sustained
+                if self.behavior_history[nudge.message] >= self.SUSTAIN_THRESHOLD:
+                    self.last_nudge_time = current_time
+                    self.behavior_history = {} # Reset all history after a successful nudge
+                    return nudge
+                
+                return None # Behavior detected but not yet sustained
+            
+        # If no nudge detected for this chunk, gradually clear history
+        self.behavior_history = {} 
         return None
