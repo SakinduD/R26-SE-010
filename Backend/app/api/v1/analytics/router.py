@@ -10,6 +10,8 @@ from app.schemas.analytics import (
     FeedbackEntryRead,
     FeedbackAnalysisResult,
     AnalyticsAggregateSummary,
+    ProgressTrendResult,
+    SkillTrendItem,
     SkillPredictionCreate,
     SkillPredictionRead,
     SkillScoreRequest,
@@ -20,6 +22,7 @@ from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    progress_trend_service,
     skill_scoring_service,
 )
 
@@ -220,3 +223,28 @@ def get_user_blind_spots(
     db: Session = Depends(get_db),
 ):
     return blind_spot_service.detect_user_blind_spots(db, user_id, limit)
+
+
+@router.get(
+    "/users/{user_id}/progress-trends",
+    response_model=ProgressTrendResult,
+)
+def get_user_progress_trends(
+    user_id: str,
+    limit: int = Query(default=100, ge=2, le=500),
+    db: Session = Depends(get_db),
+):
+    return progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+
+
+@router.get(
+    "/users/{user_id}/progress-trends/{skill_area}",
+    response_model=SkillTrendItem,
+)
+def get_user_skill_progress_trend(
+    user_id: str,
+    skill_area: str,
+    limit: int = Query(default=100, ge=2, le=500),
+    db: Session = Depends(get_db),
+):
+    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, limit)
