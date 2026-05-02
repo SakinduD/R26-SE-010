@@ -10,6 +10,7 @@ from app.schemas.analytics import (
     FeedbackEntryRead,
     FeedbackAnalysisResult,
     AnalyticsAggregateSummary,
+    PostSessionReportResult,
     ProgressTrendResult,
     PredictiveModelingItem,
     PredictiveModelingResult,
@@ -24,6 +25,7 @@ from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    post_session_report_service,
     predictive_modeling_service,
     progress_trend_service,
     skill_scoring_service,
@@ -158,6 +160,14 @@ def list_session_predictions(
 )
 def get_session_aggregate(session_id: str, db: Session = Depends(get_db)):
     return data_aggregation_service.get_session_aggregate(db, session_id)
+
+
+@router.get(
+    "/sessions/{session_id}/report",
+    response_model=PostSessionReportResult,
+)
+def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
+    return post_session_report_service.generate_session_report(db, session_id)
 
 
 @router.get(
