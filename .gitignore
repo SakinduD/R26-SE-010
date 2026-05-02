@@ -1,0 +1,22 @@
+# EmpowerZ: Machine Learning Data
+training/affect_fusion/data/
+training/affect_fusion/**/*.npz
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+
+# Environment variables (Secrets)
+.env
+.env.local
+
+# Node/Frontend
+node_modules/
+dist/
+.next/
