@@ -196,3 +196,33 @@ class FeedbackAnalysisResult(BaseModel):
     items: list[FeedbackAlignmentItem]
     generated_at: datetime
     analysis_version: str
+
+
+class BlindSpotItem(BaseModel):
+    skill_area: str
+    blind_spot_type: Literal["overestimation", "underestimation"]
+    severity: Literal["low", "medium", "high"]
+    self_rating: float
+    comparison_score: float
+    comparison_source: Literal["observed", "peer"]
+    gap: float
+    confidence: float
+    recommendation: str
+
+
+class BlindSpotSummary(BaseModel):
+    total_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    strongest_blind_spot: BlindSpotItem | None = None
+
+
+class BlindSpotDetectionResult(BaseModel):
+    scope: Literal["session", "user"]
+    user_id: str | None = None
+    session_id: str | None = None
+    summary: BlindSpotSummary
+    blind_spots: list[BlindSpotItem]
+    generated_at: datetime
+    detection_version: str
