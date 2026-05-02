@@ -392,3 +392,117 @@ def test_user_feedback_analysis_returns_empty_summary_for_unknown_user(client):
         "average_peer_rating": None,
     }
     assert data["items"] == []
+
+
+def test_session_blind_spots_detects_and_prioritizes_self_perception_gaps(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "confidence_score": 55,
+            "empathy_score": 90,
+            "clarity_score": 76,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 92,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 58,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "self",
+            "skill_area": "empathy",
+            "rating": 64,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "peer",
+            "skill_area": "empathy",
+            "rating": 88,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "self",
+            "skill_area": "clarity",
+            "rating": 78,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "blind-user",
+            "session_id": "blind-session",
+            "feedback_type": "peer",
+            "skill_area": "clarity",
+            "rating": 74,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/sessions/blind-session/blind-spots")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "session"
+    assert data["user_id"] == "blind-user"
+    assert data["session_id"] == "blind-session"
+    assert data["summary"]["total_count"] == 2
+    assert data["summary"]["high_count"] == 1
+    assert data["summary"]["medium_count"] == 1
+    assert data["summary"]["low_count"] == 0
+    assert data["summary"]["strongest_blind_spot"]["skill_area"] == "confidence"
+    assert data["detection_version"] == "rule-based-v1"
+
+    blind_spots = {item["skill_area"]: item for item in data["blind_spots"]}
+    assert blind_spots["confidence"]["blind_spot_type"] == "overestimation"
+    assert blind_spots["confidence"]["severity"] == "high"
+    assert blind_spots["confidence"]["comparison_source"] == "observed"
+    assert blind_spots["confidence"]["gap"] == 37
+    assert blind_spots["empathy"]["blind_spot_type"] == "underestimation"
+    assert blind_spots["empathy"]["severity"] == "medium"
+    assert blind_spots["empathy"]["gap"] == 26
+    assert "clarity" not in blind_spots
+
+
+def test_user_blind_spots_returns_empty_result_for_unknown_user(client):
+    response = client.get("/api/v1/analytics/users/no-blind-user/blind-spots")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "user"
+    assert data["user_id"] == "no-blind-user"
+    assert data["summary"] == {
+        "total_count": 0,
+        "high_count": 0,
+        "medium_count": 0,
+        "low_count": 0,
+        "strongest_blind_spot": None,
+    }
+    assert data["blind_spots"] == []
