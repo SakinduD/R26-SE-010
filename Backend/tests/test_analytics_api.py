@@ -300,3 +300,95 @@ def test_calculate_skill_scores_rejects_invalid_input(client):
     )
 
     assert response.status_code == 422
+
+
+def test_session_feedback_analysis_detects_self_peer_and_observed_gaps(client):
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "feedback-analysis-user",
+            "session_id": "feedback-analysis-session",
+            "confidence_score": 60,
+            "empathy_score": 82,
+            "overall_score": 70,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "feedback-analysis-user",
+            "session_id": "feedback-analysis-session",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 88,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "feedback-analysis-user",
+            "session_id": "feedback-analysis-session",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "feedback-analysis-user",
+            "session_id": "feedback-analysis-session",
+            "feedback_type": "self",
+            "skill_area": "empathy",
+            "rating": 84,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "feedback-analysis-user",
+            "session_id": "feedback-analysis-session",
+            "feedback_type": "peer",
+            "skill_area": "empathy",
+            "rating": 80,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/sessions/feedback-analysis-session/feedback-analysis")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "session"
+    assert data["user_id"] == "feedback-analysis-user"
+    assert data["session_id"] == "feedback-analysis-session"
+    assert data["summary"]["self_feedback_count"] == 2
+    assert data["summary"]["peer_feedback_count"] == 2
+    assert data["summary"]["blind_spot_count"] == 1
+    assert data["analysis_version"] == "rule-based-v1"
+
+    items = {item["skill_area"]: item for item in data["items"]}
+    assert items["confidence"]["alignment"] == "self_overestimation"
+    assert items["confidence"]["severity"] == "medium"
+    assert items["confidence"]["self_peer_gap"] == 26
+    assert items["confidence"]["self_observed_gap"] == 28
+    assert items["empathy"]["alignment"] == "aligned"
+    assert items["empathy"]["severity"] == "none"
+
+
+def test_user_feedback_analysis_returns_empty_summary_for_unknown_user(client):
+    response = client.get("/api/v1/analytics/users/no-feedback-user/feedback-analysis")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "user"
+    assert data["user_id"] == "no-feedback-user"
+    assert data["summary"] == {
+        "self_feedback_count": 0,
+        "peer_feedback_count": 0,
+        "analyzed_skill_count": 0,
+        "aligned_count": 0,
+        "blind_spot_count": 0,
+        "average_self_rating": None,
+        "average_peer_rating": None,
+    }
+    assert data["items"] == []
