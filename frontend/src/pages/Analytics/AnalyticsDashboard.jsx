@@ -9,10 +9,10 @@ import {
   Search,
   ShieldAlert,
   Target,
-  TrendingDown,
-  TrendingUp,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
+import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
+import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 
 const SKILL_LABELS = {
@@ -251,10 +251,7 @@ export default function AnalyticsDashboard() {
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
           <Panel title="Skill Twin" icon={BarChart3}>
-            <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
-              <RadarChart scores={radarScores} />
-              <ScoreList scores={radarScores} />
-            </div>
+            <SkillTwinRadar scores={radarScores} />
           </Panel>
 
           <Panel title="Prediction Risk" icon={BrainCircuit}>
@@ -264,7 +261,7 @@ export default function AnalyticsDashboard() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Progress Trends" icon={LineChart}>
-            <TrendChart trends={data.trends?.trends || []} />
+            <ProgressTrendVisualization trends={data.trends?.trends || []} labelFor={labelFor} />
           </Panel>
 
           <Panel title="Blind Spot Detection" icon={AlertTriangle}>
@@ -342,101 +339,6 @@ function Panel({ title, icon: Icon, children }) {
   )
 }
 
-function RadarChart({ scores }) {
-  const size = 260
-  const center = size / 2
-  const radius = 88
-  const points = scores.map((item, index) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * index) / scores.length
-    const valueRadius = radius * (item.value / 100)
-    return {
-      ...item,
-      x: center + Math.cos(angle) * valueRadius,
-      y: center + Math.sin(angle) * valueRadius,
-      labelX: center + Math.cos(angle) * (radius + 28),
-      labelY: center + Math.sin(angle) * (radius + 28),
-      axisX: center + Math.cos(angle) * radius,
-      axisY: center + Math.sin(angle) * radius,
-    }
-  })
-
-  return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="h-[260px] w-full max-w-[280px]">
-      {[0.25, 0.5, 0.75, 1].map((level) => (
-        <circle key={level} cx={center} cy={center} r={radius * level} fill="none" stroke="currentColor" className="text-border" />
-      ))}
-      {points.map((point) => (
-        <line key={point.key} x1={center} y1={center} x2={point.axisX} y2={point.axisY} stroke="currentColor" className="text-border" />
-      ))}
-      <polygon points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="rgb(14 116 144 / 0.24)" stroke="rgb(14 116 144)" strokeWidth="2" />
-      {points.map((point) => (
-        <g key={point.key}>
-          <circle cx={point.x} cy={point.y} r="3" fill="rgb(14 116 144)" />
-          <text x={point.labelX} y={point.labelY} textAnchor="middle" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
-            {Math.round(point.value)}
-          </text>
-        </g>
-      ))}
-    </svg>
-  )
-}
-
-function ScoreList({ scores }) {
-  return (
-    <div className="space-y-3">
-      {scores.map((item) => (
-        <div key={item.key}>
-          <div className="mb-1 flex justify-between text-sm">
-            <span>{item.label}</span>
-            <span className="text-muted-foreground">{formatScore(item.value)}</span>
-          </div>
-          <div className="h-2 rounded-full bg-muted">
-            <div className="h-2 rounded-full bg-secondary" style={{ width: `${Math.min(100, item.value)}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function TrendChart({ trends }) {
-  const visible = trends.filter((item) => item.points?.length > 1).slice(0, 4)
-  if (!visible.length) return <EmptyState text="No trend history yet" />
-
-  return (
-    <div className="space-y-4">
-      {visible.map((trendItem) => (
-        <div key={trendItem.skill_area}>
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span>{labelFor(trendItem.skill_area)}</span>
-            <TrendBadge label={trendItem.trend_label} />
-          </div>
-          <MiniLine points={trendItem.points} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function MiniLine({ points }) {
-  const width = 360
-  const height = 64
-  const xStep = points.length > 1 ? width / (points.length - 1) : width
-  const coords = points.map((point, index) => ({
-    x: index * xStep,
-    y: height - (Number(point.score || 0) / 100) * height,
-  }))
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-16 w-full rounded-md bg-muted/40">
-      <polyline points={coords.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="rgb(14 116 144)" strokeWidth="3" />
-      {coords.map((point, index) => (
-        <circle key={index} cx={point.x} cy={point.y} r="4" fill="rgb(14 116 144)" />
-      ))}
-    </svg>
-  )
-}
-
 function RiskList({ predictions }) {
   if (!predictions.length) return <EmptyState text="No predictions yet" />
 
@@ -477,16 +379,6 @@ function BlindSpotList({ blindSpots }) {
         </div>
       ))}
     </div>
-  )
-}
-
-function TrendBadge({ label }) {
-  const Icon = label === 'improving' ? TrendingUp : label === 'declining' ? TrendingDown : Activity
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-      <Icon className="h-3 w-3" />
-      {label}
-    </span>
   )
 }
 
