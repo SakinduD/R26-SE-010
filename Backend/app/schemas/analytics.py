@@ -82,3 +82,41 @@ class SkillPredictionRead(SkillPredictionBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ScoreSummary(BaseModel):
+    metric_count: int
+    averages: dict[str, float]
+    latest: AnalyticsSessionMetricRead | None = None
+
+
+class FeedbackSummary(BaseModel):
+    total_count: int
+    by_type: dict[str, int]
+    sentiment_counts: dict[str, int]
+    average_rating: float | None = None
+    latest_entries: list[FeedbackEntryRead]
+
+
+class PredictionSummary(BaseModel):
+    total_count: int
+    risk_counts: dict[str, int]
+    trend_counts: dict[str, int]
+    latest_predictions: list[SkillPredictionRead]
+
+
+class DataCompletenessSummary(BaseModel):
+    has_session_metrics: bool
+    has_feedback: bool
+    has_predictions: bool
+
+
+class AnalyticsAggregateSummary(BaseModel):
+    scope: Literal["session", "user"]
+    user_id: str | None = None
+    session_id: str | None = None
+    scores: ScoreSummary
+    feedback: FeedbackSummary
+    predictions: PredictionSummary
+    data_completeness: DataCompletenessSummary
+    generated_at: datetime
