@@ -5,6 +5,7 @@ from app.api.dependencies import get_db
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
+    BlindSpotDetectionResult,
     FeedbackEntryCreate,
     FeedbackEntryRead,
     FeedbackAnalysisResult,
@@ -16,6 +17,7 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
     skill_scoring_service,
@@ -198,3 +200,23 @@ def get_user_feedback_analysis(
     db: Session = Depends(get_db),
 ):
     return feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
+
+
+@router.get(
+    "/sessions/{session_id}/blind-spots",
+    response_model=BlindSpotDetectionResult,
+)
+def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
+    return blind_spot_service.detect_session_blind_spots(db, session_id)
+
+
+@router.get(
+    "/users/{user_id}/blind-spots",
+    response_model=BlindSpotDetectionResult,
+)
+def get_user_blind_spots(
+    user_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return blind_spot_service.detect_user_blind_spots(db, user_id, limit)
