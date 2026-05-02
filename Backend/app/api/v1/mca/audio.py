@@ -37,17 +37,31 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
 
     await manager.connect(websocket)
     try:
+        latest_visual_metrics = None
+
         while True:
-            data = await websocket.receive_bytes()
+            message = await websocket.receive()
 
-            # Extract audio features from raw bytes
-            features = _extractor.extract(data)
+            if "text" in message:
+                try:
+                    import json
+                    payload = json.loads(message["text"])
+                    if payload.get("type") == "visual_metrics":
+                        latest_visual_metrics = payload.get("metrics")
+                except Exception as e:
+                    logger.error(f"Error parsing visual metrics: {e}")
+                continue
 
-            # Build response
-            response = {"status": "analyzed", "bytes": len(data)}
+            if "bytes" in message:
+                data = message["bytes"]
+                # Extract audio features from raw bytes
+                features = _extractor.extract(data)
+
+                # Build response
+                response = {"status": "analyzed", "bytes": len(data)}
 
             if features:
-                nudge = _nudge_engine.evaluate(features)
+                nudge = _nudge_engine.evaluate(features, latest_visual_metrics)
                 response["metrics"] = {
                     "volume": features.avg_volume,
                     "pitch": features.pitch_hz,
