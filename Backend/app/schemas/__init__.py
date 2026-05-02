@@ -4,6 +4,10 @@ from app.schemas.analytics import (
     AnalyticsSessionMetricRead,
     FeedbackEntryCreate,
     FeedbackEntryRead,
+    SkillScoreBreakdown,
+    SkillScoreInputs,
+    SkillScoreRequest,
+    SkillScoreResult,
     SkillPredictionCreate,
     SkillPredictionRead,
 )
@@ -14,6 +18,10 @@ __all__ = [
     "AnalyticsSessionMetricRead",
     "FeedbackEntryCreate",
     "FeedbackEntryRead",
+    "SkillScoreBreakdown",
+    "SkillScoreInputs",
+    "SkillScoreRequest",
+    "SkillScoreResult",
     "SkillPredictionCreate",
     "SkillPredictionRead",
 ]

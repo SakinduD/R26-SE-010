@@ -10,8 +10,10 @@ from app.schemas.analytics import (
     AnalyticsAggregateSummary,
     SkillPredictionCreate,
     SkillPredictionRead,
+    SkillScoreRequest,
+    SkillScoreResult,
 )
-from app.services import analytics_service, data_aggregation_service
+from app.services import analytics_service, data_aggregation_service, skill_scoring_service
 
 router = APIRouter(tags=["feedback-analytics"])
 
@@ -154,3 +156,19 @@ def get_user_aggregate(
     db: Session = Depends(get_db),
 ):
     return data_aggregation_service.get_user_aggregate(db, user_id, limit)
+
+
+@router.post(
+    "/skill-scores/calculate",
+    response_model=SkillScoreResult,
+)
+def calculate_skill_scores(payload: SkillScoreRequest):
+    return skill_scoring_service.calculate_skill_scores(payload)
+
+
+@router.get(
+    "/sessions/{session_id}/skill-scores",
+    response_model=SkillScoreResult,
+)
+def get_session_skill_scores(session_id: str, db: Session = Depends(get_db)):
+    return skill_scoring_service.calculate_session_skill_scores(db, session_id)
