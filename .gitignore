@@ -3,6 +3,12 @@ training/affect_fusion/data/
 training/affect_fusion/**/*.npz
 *.zip
 
+# Machine Learning Models (Keep small SVM, ignore large DL models)
+Backend/app/models/affect_fusion/cnn_*
+Backend/app/models/affect_fusion/transformer_*
+Backend/app/models/affect_fusion/*.h5
+Backend/app/models/affect_fusion/*.pt
+
 # Python
 __pycache__/
 *.py[cod]
