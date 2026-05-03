@@ -30,5 +30,8 @@ dist/
 # Design reference bundle (do not commit)
 .design-ref/
 
+# Claude workspace settings
+.claude/
+
 
 RESEARCH_BRIEF.md
