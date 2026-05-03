@@ -12,8 +12,23 @@ const EMOTION_COLORS = {
   confused:   'bg-gray-100 text-gray-700',
 }
 
-const getTrustBarColor   = (s) => s >= 70 ? 'bg-green-500'  : s >= 40 ? 'bg-yellow-400'  : 'bg-red-500'
-const getTrustTextColor  = (s) => s >= 70 ? 'text-green-600': s >= 40 ? 'text-yellow-500' : 'text-red-500'
+const getTrustBarColor  = (s) => s >= 70 ? 'bg-green-500'  : s >= 40 ? 'bg-yellow-400'  : 'bg-red-500'
+const getTrustTextColor = (s) => s >= 70 ? 'text-green-600': s >= 40 ? 'text-yellow-500' : 'text-red-500'
+
+const computeNpcTone = (trust) =>
+  trust >= 70 ? 'cooperative' : trust >= 40 ? 'neutral' : 'hostile'
+
+const NPC_TONE_CHIP = {
+  cooperative: 'bg-green-100 text-green-700',
+  neutral:     'bg-yellow-100 text-yellow-700',
+  hostile:     'bg-red-100 text-red-700',
+}
+
+const dominantEmotion = (history) => {
+  const counts = {}
+  for (const e of history) counts[e] = (counts[e] || 0) + 1
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'calm'
+}
 
 export default function SessionComplete() {
   const location = useLocation()
@@ -24,7 +39,7 @@ export default function SessionComplete() {
   } = location.state || {}
 
   const [sessionData, setSessionData] = useState(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading]     = useState(true)
   const [showAllTurns, setShowAllTurns] = useState(false)
 
   useEffect(() => {
@@ -38,7 +53,36 @@ export default function SessionComplete() {
   const emotionHistory = sessionData?.emotion_history ?? []
   const trustHistory   = sessionData?.trust_history   ?? []
   const turns          = sessionData?.turns            ?? []
+  const finalTrust     = sessionData?.final_trust      ?? trustScore ?? 0
+  const finalEsc       = sessionData?.final_escalation ?? escalationLevel ?? 0
   const visibleTurns   = showAllTurns ? turns : turns.slice(0, 3)
+
+  // Trust delta per turn (diff between consecutive trust_history values)
+  const trustDeltas = trustHistory.slice(1).map((v, i) => v - trustHistory[i])
+
+  // NPC tone per trust snapshot
+  const toneHistory = trustHistory.map(computeNpcTone)
+
+  // Performance insights
+  const dom = dominantEmotion(emotionHistory.slice(1)) // skip initial "calm"
+  const trustInsight =
+    finalTrust > 60
+      ? '✅ You maintained strong trust throughout.'
+      : finalTrust > 40
+      ? '⚠ Trust was moderate. Try more assertive responses.'
+      : '❌ Trust was low. Focus on staying calm and professional.'
+  const escInsight =
+    finalEsc <= 1
+      ? '✅ You kept the conversation calm and controlled.'
+      : finalEsc <= 3
+      ? '⚠ Some tension arose. Try de-escalating earlier.'
+      : '❌ High escalation. Avoid reactive or emotional responses.'
+  const emotionInsight =
+    dom === 'assertive' || dom === 'calm'
+      ? '✅ Your tone was professional and composed.'
+      : dom === 'anxious' || dom === 'confused'
+      ? '⚠ You seemed uncertain. Practice confident phrasing.'
+      : '❌ Frustration came through. Try staying solution-focused.'
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
@@ -60,24 +104,9 @@ export default function SessionComplete() {
         {/* Score cards */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            {
-              label: 'Final Trust',
-              value: trustScore ?? '—',
-              valueClass: getTrustTextColor(trustScore ?? 0),
-              suffix: null,
-            },
-            {
-              label: 'Escalation',
-              value: escalationLevel ?? '—',
-              valueClass: 'text-gray-800',
-              suffix: '/5',
-            },
-            {
-              label: 'Turns',
-              value: currentTurn ?? '—',
-              valueClass: 'text-gray-800',
-              suffix: `/${totalTurns}`,
-            },
+            { label: 'Final Trust',  value: trustScore ?? '—', valueClass: getTrustTextColor(trustScore ?? 0), suffix: null },
+            { label: 'Escalation',   value: escalationLevel ?? '—', valueClass: 'text-gray-800', suffix: '/5' },
+            { label: 'Turns',        value: currentTurn ?? '—', valueClass: 'text-gray-800', suffix: `/${totalTurns}` },
           ].map(({ label, value, valueClass, suffix }) => (
             <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
               <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
@@ -88,6 +117,78 @@ export default function SessionComplete() {
             </div>
           ))}
         </div>
+
+        {/* Trust progression chart — labeled bars */}
+        {!isLoading && trustHistory.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">Trust Progression</h2>
+            <div className="relative flex items-end gap-2" style={{ height: '128px' }}>
+              {/* Baseline at trust=50 */}
+              <div
+                className="absolute left-0 right-0 border-t border-dashed border-gray-300 pointer-events-none"
+                style={{ bottom: `${(50 / 100) * 96}px` }}
+              />
+              {trustHistory.map((val, i) => (
+                <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                  <span className={cn('text-[10px] font-medium tabular-nums', getTrustTextColor(val))}>
+                    {val}
+                  </span>
+                  <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
+                    <div
+                      className={cn('w-full rounded-t transition-all', getTrustBarColor(val))}
+                      style={{ height: `${Math.max(2, (val / 100) * 96)}px` }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-gray-400 tabular-nums">
+                    {i === 0 ? 'S' : `T${i}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Trust delta per turn */}
+        {!isLoading && trustDeltas.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Trust Change Per Turn</h2>
+            <div className="flex flex-wrap gap-2">
+              {trustDeltas.map((d, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'rounded-full px-2.5 py-0.5 text-xs font-bold',
+                    d > 0 ? 'bg-green-100 text-green-700'
+                    : d < 0 ? 'bg-red-100 text-red-600'
+                    : 'bg-gray-100 text-gray-500'
+                  )}
+                >
+                  T{i + 1}: {d > 0 ? `+${d}` : d === 0 ? '±0' : d}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* NPC tone journey */}
+        {!isLoading && toneHistory.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">NPC Attitude Over Time</h2>
+            <div className="flex flex-wrap gap-2">
+              {toneHistory.map((tone, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
+                    NPC_TONE_CHIP[tone] ?? 'bg-gray-100 text-gray-600'
+                  )}
+                >
+                  {i === 0 ? 'Start' : `T${i}`}: {tone}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Emotion journey */}
         {!isLoading && emotionHistory.length > 0 && (
@@ -104,28 +205,6 @@ export default function SessionComplete() {
                 >
                   {i === 0 ? 'start' : `T${i}`}: {em}
                 </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Trust progression bar chart */}
-        {!isLoading && trustHistory.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Trust Progression</h2>
-            <div className="flex items-end gap-1.5" style={{ height: '88px' }}>
-              {trustHistory.map((val, i) => (
-                <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                  <div className="w-full flex flex-col justify-end" style={{ height: '72px' }}>
-                    <div
-                      className={cn('w-full rounded-t transition-all', getTrustBarColor(val))}
-                      style={{ height: `${Math.max(2, (val / 100) * 72)}px` }}
-                    />
-                  </div>
-                  <span className="text-[9px] text-gray-400 tabular-nums">
-                    {i === 0 ? 'S' : `T${i}`}
-                  </span>
-                </div>
               ))}
             </div>
           </div>
@@ -172,6 +251,18 @@ export default function SessionComplete() {
         {isLoading && (
           <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400 animate-pulse">
             Loading session data…
+          </div>
+        )}
+
+        {/* Performance summary */}
+        {!isLoading && (
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">How Did You Do?</h2>
+            <ul className="space-y-2 text-sm text-gray-700">
+              <li>{trustInsight}</li>
+              <li>{escInsight}</li>
+              <li>{emotionInsight}</li>
+            </ul>
           </div>
         )}
 
