@@ -1,0 +1,18 @@
+{
+  "session_id": "962e48e1-da90-45fa-a66b-cc9f8b6951a3",
+  "scenario_id": "scenario_001",
+  "user_id": "test_user",
+  "started_at": "2026-05-03T13:37:00.794382",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [],
+  "emotion_history": [
+    "calm"
+  ],
+  "trust_history": [
+    50
+  ],
+  "ended_at": null,
+  "outcome": null,
+  "final_trust": null,
+  "final_escalation": null
+}
