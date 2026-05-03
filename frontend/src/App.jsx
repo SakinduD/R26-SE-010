@@ -51,7 +51,7 @@ export default function App() {
               <Route path="/verify-email" element={<VerifyEmail />} />
             </Route>
 
-            {/* Auth callback — no layout chrome */}
+            {/* Auth callback - no layout chrome */}
             <Route path="/auth-callback" element={<AuthCallback />} />
 
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
