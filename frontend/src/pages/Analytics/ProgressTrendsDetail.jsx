@@ -46,6 +46,7 @@ const DEMO_DATA = {
     trend('active_listening', 'improving', [66, 72, 79]),
     trend('professionalism', 'improving', [70, 75, 80]),
   ],
+  generated_at: '2026-05-03T00:00:00',
   trend_version: 'rule-based-v1',
 }
 
