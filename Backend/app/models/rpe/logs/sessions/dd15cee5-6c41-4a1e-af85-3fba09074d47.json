@@ -1,0 +1,79 @@
+{
+  "session_id": "dd15cee5-6c41-4a1e-af85-3fba09074d47",
+  "scenario_id": "scenario_001",
+  "user_id": "guest_user",
+  "started_at": "2026-05-03T19:16:26.316337",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "what can i do from my side i tried my best but from client side requirement is not finalized yet. thats because i cannot completed the report ontime",
+      "npc_response": "Stop making excuses and find a way to work with what you have, I didn't hire you to wait for perfect data. Get creative and give me something to review, even if it's not complete.",
+      "emotion": "anxious",
+      "trust_score": 49,
+      "escalation_level": 1
+    },
+    {
+      "turn": 2,
+      "user_input": "this what i have completed upto now. it is 80% complete",
+      "npc_response": "That's still 20% short of what I need, I expect to see the full report, not some incomplete draft, finish it now and don't waste any more time.",
+      "emotion": "frustrated",
+      "trust_score": 47,
+      "escalation_level": 3
+    },
+    {
+      "turn": 3,
+      "user_input": "ok i'll finished the report working overtime! that's you want to here am i right",
+      "npc_response": "Spare me the drama, just get the report done, and don't expect any praise or rewards for doing what's expected of you, just meet the deadline.",
+      "emotion": "confused",
+      "trust_score": 47,
+      "escalation_level": 3
+    },
+    {
+      "turn": 4,
+      "user_input": "you get the full completed report sharp 5pm. ok",
+      "npc_response": "See that you do, I'll be watching the clock, and if it's even a minute late, there will be consequences, got it?",
+      "emotion": "assertive",
+      "trust_score": 49,
+      "escalation_level": 2
+    },
+    {
+      "turn": 5,
+      "user_input": "ok i got it",
+      "npc_response": "Don't just \"got it\", make sure you deliver, I'm still waiting to see if you can actually come through on your promises.",
+      "emotion": "calm",
+      "trust_score": 50,
+      "escalation_level": 1
+    },
+    {
+      "turn": 6,
+      "user_input": "i make sure you get the report on time and i responsible for that and i tell my coworkers to do their best to deliver the report on time",
+      "npc_response": "I don't pay your coworkers to do their best, I pay them to deliver results, and I'm holding you accountable for making sure that happens, so keep them on track.",
+      "emotion": "calm",
+      "trust_score": 51,
+      "escalation_level": 0
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "anxious",
+    "frustrated",
+    "confused",
+    "assertive",
+    "calm",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    49,
+    47,
+    47,
+    49,
+    50,
+    51
+  ],
+  "ended_at": "2026-05-03T19:21:37.800436",
+  "outcome": "success",
+  "final_trust": 51,
+  "final_escalation": 0
+}

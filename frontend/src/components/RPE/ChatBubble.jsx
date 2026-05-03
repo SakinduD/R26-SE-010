@@ -8,7 +8,13 @@ const EMOTION_COLORS = {
   confused:   'bg-gray-100 text-gray-700',
 }
 
-export default function ChatBubble({ role, message, emotion, npcRole }) {
+const NPC_BORDER = {
+  cooperative: 'border-l-4 border-green-400',
+  neutral:     'border-l-4 border-yellow-400',
+  hostile:     'border-l-4 border-red-400',
+}
+
+export default function ChatBubble({ role, message, emotion, trustDelta, npcTone, npcRole }) {
   const isNpc = role === 'npc'
 
   return (
@@ -17,18 +23,31 @@ export default function ChatBubble({ role, message, emotion, npcRole }) {
         {isNpc && npcRole && (
           <span className="text-xs text-gray-400 mb-1 ml-1 font-medium">{npcRole}</span>
         )}
+
         <div className={cn(
           'rounded-2xl px-4 py-3 text-sm leading-relaxed',
-          isNpc ? 'bg-gray-800 text-white' : 'bg-blue-600 text-white'
+          isNpc
+            ? cn('bg-gray-800 text-white', NPC_BORDER[npcTone] ?? 'border-l-4 border-gray-300')
+            : 'bg-blue-600 text-white'
         )}>
           {message}
         </div>
+
         {!isNpc && emotion && (
           <span className={cn(
             'mt-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
             EMOTION_COLORS[emotion] ?? EMOTION_COLORS.confused
           )}>
             {emotion}
+          </span>
+        )}
+
+        {!isNpc && trustDelta != null && (
+          <span className={cn(
+            'text-xs mt-1 text-right',
+            trustDelta > 0 ? 'text-green-600' : trustDelta < 0 ? 'text-red-500' : 'text-gray-400'
+          )}>
+            {trustDelta > 0 ? `↑ Trust +${trustDelta}` : trustDelta < 0 ? `↓ Trust ${trustDelta}` : '→ Trust ±0'}
           </span>
         )}
       </div>

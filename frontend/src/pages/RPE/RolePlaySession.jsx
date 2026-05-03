@@ -6,6 +6,12 @@ import MetricsHUD from '@/components/RPE/MetricsHUD'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
 
+const computeNpcTone = (trust) =>
+  trust >= 70 ? 'cooperative' : trust >= 40 ? 'neutral' : 'hostile'
+
+const computeEscalationTone = (level) =>
+  level >= 4 ? 'furious' : level >= 2 ? 'irritated' : 'controlled'
+
 export default function RolePlaySession() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -14,25 +20,28 @@ export default function RolePlaySession() {
     conflictType, totalTurns, npcRole,
   } = location.state || {}
 
-  const bottomRef = useRef(null)
-  const textareaRef = useRef(null)
+  const bottomRef    = useRef(null)
+  const textareaRef  = useRef(null)
 
-  const [messages, setMessages] = useState([])
-  const [userInput, setUserInput] = useState('')
-  const [trustScore, setTrustScore] = useState(50)
+  const [messages, setMessages]             = useState([])
+  const [userInput, setUserInput]           = useState('')
+  const [trustScore, setTrustScore]         = useState(50)
   const [escalationLevel, setEscalationLevel] = useState(0)
   const [currentEmotion, setCurrentEmotion] = useState('calm')
-  const [currentTurn, setCurrentTurn] = useState(0)
-  const [isLoading, setIsLoading] = useState(false)
+  const [currentTurn, setCurrentTurn]       = useState(0)
+  const [isLoading, setIsLoading]           = useState(false)
   const [sessionComplete, setSessionComplete] = useState(false)
-  const [outcome, setOutcome] = useState(null)
+  const [outcome, setOutcome]               = useState(null)
+
+  // Phase 2 state
+  const [trustDelta, setTrustDelta]           = useState(null)
+  const [npcTone, setNpcTone]                 = useState('hostile')
+  const [escalationTone, setEscalationTone]   = useState('controlled')
+  const [previousTrust, setPreviousTrust]     = useState(50)
 
   useEffect(() => {
-    if (!sessionId) {
-      navigate('/roleplay')
-      return
-    }
-    setMessages([{ role: 'npc', message: openingNpcLine }])
+    if (!sessionId) { navigate('/roleplay'); return }
+    setMessages([{ role: 'npc', message: openingNpcLine, npcTone: 'hostile' }])
   }, [])
 
   useEffect(() => {
@@ -43,22 +52,38 @@ export default function RolePlaySession() {
     const input = userInput.trim()
     if (!input || isLoading || sessionComplete) return
 
-    setMessages(prev => [...prev, { role: 'user', message: input, emotion: null }])
+    const userMsg = { role: 'user', message: input, emotion: null, trustDelta: null }
+    setMessages(prev => [...prev, userMsg])
     setUserInput('')
     setIsLoading(true)
 
     try {
       const response = await rpeService.sendTurn(sessionId, input)
 
+      const delta    = response.trust_score - previousTrust
+      const newTone  = computeNpcTone(response.trust_score)
+      const newEscTone = computeEscalationTone(response.escalation_level)
+
       setTrustScore(response.trust_score)
       setEscalationLevel(response.escalation_level)
       setCurrentEmotion(response.emotion)
       setCurrentTurn(response.turn)
+      setTrustDelta(delta)
+      setPreviousTrust(response.trust_score)
+      setNpcTone(newTone)
+      setEscalationTone(newEscTone)
 
       setMessages(prev => {
         const updated = [...prev]
-        updated[updated.length - 1] = { ...updated[updated.length - 1], emotion: response.emotion }
-        return [...updated, { role: 'npc', message: response.npc_response }]
+        updated[updated.length - 1] = {
+          ...updated[updated.length - 1],
+          emotion: response.emotion,
+          trustDelta: delta,
+        }
+        return [
+          ...updated,
+          { role: 'npc', message: response.npc_response, npcTone: newTone },
+        ]
       })
 
       if (response.session_complete) {
@@ -68,12 +93,12 @@ export default function RolePlaySession() {
           navigate('/roleplay/session/complete', {
             state: {
               sessionId,
-              trustScore:     response.trust_score,
+              trustScore:      response.trust_score,
               escalationLevel: response.escalation_level,
-              outcome:        response.outcome,
+              outcome:         response.outcome,
               totalTurns,
               scenarioTitle,
-              currentTurn:    response.turn,
+              currentTurn:     response.turn,
             },
           })
         }, 1500)
@@ -81,7 +106,7 @@ export default function RolePlaySession() {
     } catch (err) {
       setMessages(prev => [
         ...prev,
-        { role: 'npc', message: `[System error: ${err.message}]` },
+        { role: 'npc', message: `[System error: ${err.message}]`, npcTone: null },
       ])
     } finally {
       setIsLoading(false)
@@ -128,6 +153,8 @@ export default function RolePlaySession() {
                 role={msg.role}
                 message={msg.message}
                 emotion={msg.emotion}
+                trustDelta={msg.trustDelta}
+                npcTone={msg.npcTone}
                 npcRole={npcRole}
               />
             ))}
@@ -135,7 +162,7 @@ export default function RolePlaySession() {
             {/* NPC typing indicator */}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-gray-800 rounded-2xl px-4 py-3">
+                <div className="bg-gray-800 rounded-2xl px-4 py-3 border-l-4 border-gray-300">
                   <span className="flex gap-1 items-center">
                     {[0, 1, 2].map((i) => (
                       <span
@@ -164,6 +191,16 @@ export default function RolePlaySession() {
                 : 'Session Complete — Keep Practicing!'}
             </div>
           )}
+
+          {/* Escalation warning banner */}
+          <div className={cn(
+            'mx-6 overflow-hidden transition-all duration-300',
+            escalationLevel >= 3 ? 'max-h-16 mb-2' : 'max-h-0'
+          )}>
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
+              ⚠ Tension is rising. Try to de-escalate your response.
+            </div>
+          </div>
 
           {/* Input bar */}
           <div className="shrink-0 border-t border-gray-200 bg-white px-6 py-4">
@@ -198,6 +235,9 @@ export default function RolePlaySession() {
             trustScore={trustScore}
             escalationLevel={escalationLevel}
             emotion={currentEmotion}
+            trustDelta={trustDelta}
+            npcTone={npcTone}
+            escalationTone={escalationTone}
           />
 
           {/* Session info */}
