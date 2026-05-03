@@ -26,3 +26,6 @@ ENV/
 node_modules/
 dist/
 .next/
+
+
+RESEARCH_BRIEF.md
