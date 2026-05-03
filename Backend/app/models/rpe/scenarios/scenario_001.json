@@ -1,0 +1,19 @@
+{
+  "scenario_id": "scenario_001",
+  "title": "Handling a Difficult Manager",
+  "difficulty": "beginner",
+  "conflict_type": "manager_pressure",
+  "npc_role": "Aggressive Manager",
+  "npc_personality": "impatient, demanding, dismissive",
+  "context": "You are a new employee. Your manager is pressuring you to submit a report by EOD even though you were given incomplete data.",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": 6,
+  "success_criteria": {
+    "min_trust_score": 40,
+    "max_escalation_level": 2
+  },
+  "npc_behaviour": {
+    "trust_thresholds": { "cooperative": 70, "neutral": 40, "hostile": 0 },
+    "escalation_thresholds": { "furious": 4, "irritated": 2, "controlled": 0 }
+  }
+}
