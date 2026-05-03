@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "genz-softskills-api"
     app_env: str = "development"
     debug: bool = False
-    database_url: str = ""
+    database_url: str
     gemini_api_key: str = ""
 
     model_config = {

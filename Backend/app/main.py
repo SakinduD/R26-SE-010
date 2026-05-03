@@ -1,8 +1,13 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api_router import router as api_v1_router
 from app.config import get_settings
+from app.db.database import check_database_connection
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -19,13 +24,27 @@ app.add_middleware(
 app.include_router(api_v1_router, prefix="/api/v1")
 
 
+@app.on_event("startup")
+async def startup_event() -> None:
+    result = check_database_connection()
+    if result["connected"]:
+        logger.info("✓ Supabase connection established")
+    else:
+        logger.error("✗ Database connection failed: %s", result["error"])
+
+
 @app.get("/")
 def root() -> dict[str, str]:
-    """Welcome endpoint."""
     return {"message": f"Welcome to {settings.app_name}"}
 
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
+def health_check() -> dict:
+    """Health check — always returns 200; status reflects DB state."""
+    db_status = check_database_connection()
+    return {
+        "status": "ok" if db_status["connected"] else "degraded",
+        "app": settings.app_name,
+        "env": settings.app_env,
+        "database": db_status,
+    }
