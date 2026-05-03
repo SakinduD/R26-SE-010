@@ -4,7 +4,7 @@ from .base_types import AudioAnalyzer, AudioFeatures, Nudge
 
 class FusionRule(ABC):
     """
-    Base interface for a single Multimodal Fusion Rule (SOLID: Interface Segregation).
+    Base interface for a single Multimodal Fusion Rule.
     """
     @abstractmethod
     def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
@@ -37,12 +37,16 @@ class TensePresenterRule(FusionRule):
 
 class ScriptReaderRule(FusionRule):
     def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
-        pitch_val = features.visual_metrics.get("pose", {}).get("pitch", 0)
-        if features.emotion_label in ["neutral", "calm"] and pitch_val < -0.15:
+        visual = features.visual_metrics
+        pitch_std = features.pitch_std
+        # Script Reader: Neutral emotion + Flat Pitch + Looking Down (Head Pitch > 0.15)
+        head_pitch = visual.get("pose", {}).get("pitch", 0)
+        
+        if features.emotion_label == "neutral" and pitch_std < 5 and pitch_std > 0 and head_pitch > 0.15:
             return Nudge(
-                message="You are speaking clearly, but you appear to be reading from a script.",
+                message="You sound a bit monotone and are looking down. Try to engage more with your audience!",
                 category="fusion",
-                severity="warning"
+                severity="info"
             )
         return None
 
@@ -57,6 +61,21 @@ class DeerInHeadlightsRule(FusionRule):
                 message="You appear frozen. Your eyes are wide and your voice sounds panicked.",
                 category="fusion",
                 severity="warning"
+            )
+        return None
+
+class MicFailureRule(FusionRule):
+    def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
+        visual = features.visual_metrics
+        mar = visual.get("mar", 0)
+        yaw = abs(visual.get("pose", {}).get("yaw", 0))
+        
+        # 0.15 threshold to capture normal speech movements without sound
+        if mar > 0.15 and features.avg_volume < 0.008 and yaw < 0.2:
+            return Nudge(
+                message="You appear to be speaking, but your audio signal is very weak. Please check your microphone.",
+                category="fusion",
+                severity="critical"
             )
         return None
 
@@ -81,17 +100,6 @@ class IncongruentSignalRule(FusionRule):
                 message="You are displaying mixed signals: your tone sounds frustrated, but you are smiling widely.",
                 category="fusion",
                 severity="info"
-            )
-        return None
-
-class MicFailureRule(FusionRule):
-    def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
-        mar = features.visual_metrics.get("mar", 0)
-        if mar > 0.3 and features.avg_volume < 0.01:
-            return Nudge(
-                message="You appear to be speaking, but your audio signal is very weak. Please check your microphone.",
-                category="fusion",
-                severity="critical"
             )
         return None
 
@@ -130,9 +138,20 @@ class AffectFusionAnalyzer(AudioAnalyzer):
         if not features.visual_metrics:
             return None
             
+        # VOICE GATE: Skip emotional rules if the user is silent
+        # This prevents false positives from background noise
+        is_talking = features.avg_volume > 0.015
+            
         for rule in self.rules:
-            nudge = rule.evaluate(features)
-            if nudge:
-                return nudge
+            # Mic Failure should run even if volume is low (to detect the failure!)
+            if isinstance(rule, MicFailureRule):
+                nudge = rule.evaluate(features)
+                if nudge: return nudge
+                continue
+                
+            # All other rules require active speech
+            if is_talking:
+                nudge = rule.evaluate(features)
+                if nudge: return nudge
         
         return None

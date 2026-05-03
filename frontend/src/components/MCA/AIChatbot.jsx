@@ -3,7 +3,7 @@ import { Mic, Bot, User, Volume2, Activity, X } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics }) => {
   // Mock messages for UI demonstration
   const [messages, setMessages] = useState([
     {
@@ -218,7 +218,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     setIsLoading(true);
 
     try {
-      const data = await mcaService.chat(userMessage, updatedHistory);
+      const data = await mcaService.chat(userMessage, updatedHistory, { metrics });
       if (!data.isSuccessful) throw new Error(data.message);
 
       const botMsg = {
