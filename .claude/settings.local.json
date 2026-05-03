@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Get-ChildItem -Recurse -Path \"c:\\\\Users\\\\sakin\\\\Documents\\\\GitHub\\\\R26-SE-010\\\\Backend\" -Force)",
-      "Bash(Select-Object FullName)",
-      "Bash(Sort-Object FullName)"
-    ]
-  }
-}
