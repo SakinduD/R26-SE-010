@@ -1,0 +1,69 @@
+{
+  "session_id": "f5a0878e-3c67-4ff1-8f34-5eef71e2d2f9",
+  "scenario_id": "scenario_001",
+  "user_id": "test_user",
+  "started_at": "2026-05-03T19:02:37.102686",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "I understand the deadline. I will do my best with what I have.",
+      "npc_response": "Your best isn't good enough if it's based on incomplete data, I expect you to find a way to fill in the gaps and deliver a comprehensive report nonetheless.",
+      "emotion": "calm",
+      "trust_score": 51,
+      "escalation_level": 0
+    },
+    {
+      "turn": 2,
+      "user_input": "I propose we flag the missing fields and submit a partial report.",
+      "npc_response": "Flagging missing fields is a half-measure, I want a complete analysis, and I want it now, don't waste my time with partial solutions.",
+      "emotion": "assertive",
+      "trust_score": 53,
+      "escalation_level": 0
+    },
+    {
+      "turn": 3,
+      "user_input": "I can have a draft to you in 30 minutes if you confirm the data source.",
+      "npc_response": "Thirty minutes is still too long, I need something to review ASAP, confirm the data source yourself and stop relying on me to hold your hand through every step of this process.",
+      "emotion": "assertive",
+      "trust_score": 55,
+      "escalation_level": 0
+    },
+    {
+      "turn": 4,
+      "user_input": "I appreciate your patience. I will deliver the best report possible.",
+      "npc_response": "Spare me the appreciation, I'm not here to make friends, I'm here to get results, and so far, I'm not seeing enough progress, so get back to work and make it happen.",
+      "emotion": "assertive",
+      "trust_score": 57,
+      "escalation_level": 0
+    },
+    {
+      "turn": 5,
+      "user_input": "Thank you. I will stay late if needed to get this done right.",
+      "npc_response": "Staying late is the least I expect, what I expect is a report that meets my standards, so don't bother telling me about your work ethic, just show me the results.",
+      "emotion": "calm",
+      "trust_score": 58,
+      "escalation_level": 0
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "calm",
+    "assertive",
+    "assertive",
+    "assertive",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    51,
+    53,
+    55,
+    57,
+    58
+  ],
+  "ended_at": null,
+  "outcome": null,
+  "final_trust": null,
+  "final_escalation": null
+}

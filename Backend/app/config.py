@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str
     gemini_api_key: str = ""
+    groq_api_key: str = ""
 
     # Supabase Auth — url + keys required; jwt_secret kept for reference only
     # (newer Supabase projects use ES256 — verification uses the JWKS endpoint, not this secret)
