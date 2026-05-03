@@ -21,6 +21,9 @@ class VolumeAnalyzer(AudioAnalyzer):
 
     def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
         v = features.avg_volume
+        if v < self.NOISE_FLOOR: # Gate
+            return None
+            
         if self.NOISE_FLOOR < v < self.LOW_THRESHOLD:
             return Nudge(
                 message="A bit quiet. Projecting helps engagement.",
@@ -128,7 +131,9 @@ class SilenceAnalyzer(AudioAnalyzer):
     SILENCE_THRESHOLD = 0.008  # accounts for higher noise floors
 
     def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
-        if features.avg_volume < self.SILENCE_THRESHOLD:
+        # Only trigger if there was *some* noise but very low (true hesitation)
+        # and ignore if completely silent (standby)
+        if 0.001 < features.avg_volume < self.SILENCE_THRESHOLD:
             return Nudge(
                 message="Take your time! Pauses help gather ideas.",
                 category="silence",
@@ -210,12 +215,12 @@ class AudioFeatureExtractor:
 
             # This must exactly match the training script: MFCC(40) + Chroma(12) + Mel(128) + Pitch(1)
             try:
-                # MFCC (40)
+                # MFCC (40) - shape of voice
                 mfcc = np.mean(librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40).T, axis=0)
-                # Chroma (12)
+                # Chroma (12) - pitch and harmony
                 stft = np.abs(librosa.stft(audio_data))
                 chroma = np.mean(librosa.feature.chroma_stft(S=stft, sr=sr).T, axis=0)
-                # Mel (128)
+                # Mel (128) - vocal energy
                 mel = np.mean(librosa.feature.melspectrogram(y=audio_data, sr=sr).T, axis=0)
                 # Combined into the 181-feature vector
                 feature_vector = np.hstack((mfcc, chroma, mel, np.array([pitch_hz])))
@@ -281,8 +286,8 @@ class NudgeEngine:
         if visual_metrics:
             features.visual_metrics = visual_metrics
 
-        # 2. Emotion Inference
-        if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None:
+        # 2. Emotion Inference (Only run if user is actually talking)
+        if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None and features.avg_volume > 0.015:
             try:
                 vec = features.feature_vector
                 prediction = self.ser_analyzer.model.predict(vec.reshape(1, -1))[0]

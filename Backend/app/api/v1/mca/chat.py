@@ -27,7 +27,11 @@ async def chat_with_bot(request: ChatRequest):
         )
     
     try:
-        response_text = await llm_service.get_response(request.message, history=request.history)
+        response_text = await llm_service.get_response(
+            request.message, 
+            history=request.history,
+            context=request.context
+        )
         return ChatResponse(
             isSuccessful=True,
             message="Chat generated successfully",
