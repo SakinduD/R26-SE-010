@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
 import AdminDashboard from './pages/admin/dashboard'
 import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
+import BlindSpotDetail from './pages/Analytics/BlindSpotDetail'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
 import PredictiveAnalytics from './pages/Analytics/PredictiveAnalytics'
@@ -26,6 +27,9 @@ export default function App(){
           <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
           <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
           <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
+          <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
+          <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
+          <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
           <Route path="/analytics-session-report" element={<PostSessionReport />} />
           <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
         </Routes>
