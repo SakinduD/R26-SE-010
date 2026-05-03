@@ -21,6 +21,11 @@ export const analyticsService = {
   getProgressTrendsByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends`).then(unwrap),
 
+  getProgressTrendBySkill: (userId, skillArea) =>
+    api
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends/${encodeURIComponent(skillArea)}`)
+      .then(unwrap),
+
   getPredictedOutcomesByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes`).then(unwrap),
 
