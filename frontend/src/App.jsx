@@ -78,12 +78,10 @@ export default function App() {
             <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
             <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
             <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
+            <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
             <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
-            
-            {/* --- YOUR FEATURE ROUTES ADDED HERE --- */}
             <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
             <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
-
             <Route path="/analytics-session-report" element={<PostSessionReport />} />
             <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
           </Routes>
