@@ -1,0 +1,79 @@
+{
+  "session_id": "dbb8dae6-8790-4614-b25f-fe643d517481",
+  "scenario_id": "scenario_001",
+  "user_id": "guest_user",
+  "started_at": "2026-05-03T18:02:35.290857",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "i dont have enough information to complete it",
+      "npc_response": "[NPC temporarily unavailable: Error code: 400 - {'error': {'message': 'The model `llama3-70b-8192` has been decommissioned and is no longer supported. Please refer to https://console.groq.com/docs/deprecations for a recommendation on which model to use instead.', 'type': 'invalid_request_error', 'code': 'model_decommissioned'}}]",
+      "emotion": "calm",
+      "trust_score": 51,
+      "escalation_level": 0
+    },
+    {
+      "turn": 2,
+      "user_input": "i dont have enough information to complete it",
+      "npc_response": "Figure it out, make assumptions if you have to, I don't pay you to make excuses, I pay you to deliver results.",
+      "emotion": "calm",
+      "trust_score": 52,
+      "escalation_level": 0
+    },
+    {
+      "turn": 3,
+      "user_input": "ok i provide tell and provide you what i have finished upto now",
+      "npc_response": "Let me see what you've got so far, but don't think this is going to buy you an extension, I still expect a complete report by the end of the day.",
+      "emotion": "confused",
+      "trust_score": 52,
+      "escalation_level": 0
+    },
+    {
+      "turn": 4,
+      "user_input": "i completed the report working overtime",
+      "npc_response": "Finally, now let's see if it's even worth the overtime you put in, I expect it to be flawless and comprehensive, no mistakes, no omissions.",
+      "emotion": "assertive",
+      "trust_score": 54,
+      "escalation_level": 0
+    },
+    {
+      "turn": 5,
+      "user_input": "yeash sure",
+      "npc_response": "I'll review it now, and I better not find any errors or gaps, you're lucky I didn't dock your pay for the delay, consider this a one-time warning.",
+      "emotion": "calm",
+      "trust_score": 55,
+      "escalation_level": 0
+    },
+    {
+      "turn": 6,
+      "user_input": "sure boss",
+      "npc_response": "Don't call me \"boss\", my name is Mr. Johnson, and I expect you to use it, now let's get down to business and see if your report is up to par.",
+      "emotion": "calm",
+      "trust_score": 56,
+      "escalation_level": 0
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "calm",
+    "calm",
+    "confused",
+    "assertive",
+    "calm",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    51,
+    52,
+    52,
+    54,
+    55,
+    56
+  ],
+  "ended_at": "2026-05-03T18:13:32.158735",
+  "outcome": "success",
+  "final_trust": 56,
+  "final_escalation": 0
+}
