@@ -19,6 +19,8 @@ import AuthCallback from './pages/auth/AuthCallback'
 
 // Protected app pages
 import Dashboard from './pages/app/Dashboard'
+import Survey from './pages/app/Survey'
+import SurveyResults from './pages/app/survey/SurveyResults'
 
 // Existing feature pages
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
@@ -55,6 +57,8 @@ export default function App() {
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/survey" element={<Survey />} />
+              <Route path="/survey/results" element={<SurveyResults />} />
             </Route>
 
             {/* Legacy / feature routes (unchanged) */}
