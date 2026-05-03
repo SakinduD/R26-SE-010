@@ -27,5 +27,8 @@ node_modules/
 dist/
 .next/
 
+# Design reference bundle (do not commit)
+.design-ref/
+
 
 RESEARCH_BRIEF.md
