@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str
     gemini_api_key: str = ""
+    groq_api_key: str = ""
 
     model_config = {
         "env_file": ".env",
