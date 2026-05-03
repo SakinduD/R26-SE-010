@@ -17,12 +17,14 @@ if TYPE_CHECKING:
 class User(Base):
     __tablename__ = "users"
 
+    # ID matches Supabase auth.users.id — set from JWT sub on first authenticated request
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
     )
+    display_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)

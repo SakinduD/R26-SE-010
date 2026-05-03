@@ -40,11 +40,17 @@ def root() -> dict[str, str]:
 
 @app.get("/health")
 def health_check() -> dict:
-    """Health check — always returns 200; status reflects DB state."""
+    """Health check — always returns 200; status reflects DB and auth state."""
     db_status = check_database_connection()
+    auth_configured = bool(
+        settings.supabase_url
+        and settings.supabase_anon_key
+        and settings.supabase_jwt_secret
+    )
     return {
         "status": "ok" if db_status["connected"] else "degraded",
         "app": settings.app_name,
         "env": settings.app_env,
         "database": db_status,
+        "auth": {"configured": auth_configured},
     }
