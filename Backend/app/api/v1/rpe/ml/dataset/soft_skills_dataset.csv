@@ -1,0 +1,201 @@
+user_input,emotion_label,trust_delta,escalation_label
+"I understand the deadline and I will do my best to meet it.",calm,2,0
+"Thank you for explaining that, it makes a lot of sense now.",calm,2,0
+"Of course, I appreciate you letting me know.",calm,2,0
+"That sounds reasonable, I'm happy to adjust.",calm,2,0
+"No problem, I'll get that sorted right away.",calm,2,0
+"I see your point and I'll keep that in mind going forward.",calm,2,0
+"Certainly, let me take care of that for you.",calm,2,0
+"I agree, that approach makes sense for the team.",calm,2,0
+"Sure, I can have that ready by end of day.",calm,2,0
+"That's fair, I'll revise the document accordingly.",calm,2,0
+"I respect your decision and I'll act on it immediately.",calm,2,0
+"Happy to help, just let me know what you need.",calm,2,0
+"Understood, I'll follow up on that right away.",calm,2,0
+"Makes sense, I'll coordinate with the team.",calm,2,0
+"I appreciate the feedback, I'll work on improving that.",calm,2,0
+"Let's work together to find the best solution here.",calm,2,0
+"Sounds good, I'll keep you posted on my progress.",calm,2,0
+"I hear you, and I'll make the necessary adjustments.",calm,2,0
+"That's a good point, I hadn't considered it that way.",calm,2,0
+"I'm happy to take on that responsibility.",calm,2,0
+"Absolutely, I'll prioritize that task.",calm,2,0
+"I understand, I'll make sure it doesn't happen again.",calm,2,0
+"Of course, your guidance is very helpful.",calm,2,0
+"That's fine, I'll align with what the team needs.",calm,2,0
+"I appreciate the clarity, I know what to do now.",calm,2,0
+"Sure, let me know if there's anything else I can assist with.",calm,2,0
+"That's perfectly fine, I'll adapt my approach.",calm,2,0
+"I'll make note of that and incorporate it into my work.",calm,2,0
+"Thank you for the opportunity, I won't let you down.",calm,2,0
+"I'm fully committed to making this work.",calm,2,0
+"I agree with your assessment and will act accordingly.",calm,2,0
+"I'll reach out to the relevant stakeholders to confirm.",calm,2,0
+"That all makes sense, I'll proceed as discussed.",calm,2,0
+"I'm on board with that plan.",calm,2,0
+"Noted, I'll keep that in mind throughout the project.",calm,2,0
+"I'll make sure the report is ready before the meeting.",calm,2,0
+"Of course, feedback is important and I welcome it.",calm,2,0
+"I take full responsibility for that oversight.",calm,2,0
+"I'll double-check my work before submitting.",calm,2,0
+"Thank you, I'll use your suggestions to improve.",calm,2,0
+"I need to inform you that the data I received was incomplete.",assertive,2,0
+"I want to clarify my position before we proceed.",assertive,2,0
+"Let me be clear: I was not given all the information needed.",assertive,2,0
+"I require more time because the requirements changed last minute.",assertive,2,0
+"I expect to be given the correct data before I can finalize the report.",assertive,2,0
+"My position is that this timeline is unrealistic given the constraints.",assertive,2,0
+"I insist we discuss the resources available before committing.",assertive,2,0
+"I am requesting a brief extension to ensure quality output.",assertive,2,0
+"I will deliver the report once I have the correct figures.",assertive,2,0
+"We need to address the communication gap that caused this issue.",assertive,2,0
+"I need to flag that I was not included in the initial briefing.",assertive,2,0
+"I want this documented so there is a clear record going forward.",assertive,2,0
+"Please ensure the team is aligned before assigning me this task.",assertive,2,0
+"I am asking for a realistic deadline given the current workload.",assertive,2,0
+"Let me be direct: I cannot produce accurate work without accurate input.",assertive,2,0
+"I expect regular feedback so I can course-correct early.",assertive,2,0
+"I need clarity on who the final decision-maker is for this project.",assertive,2,0
+"I want to escalate this concern through the proper channel.",assertive,2,0
+"I'm raising this issue so we can resolve it constructively.",assertive,2,0
+"I require a clear scope before I commit to this deliverable.",assertive,2,0
+"I need to push back on that timeline because the data is still pending.",assertive,2,0
+"I want to make sure my concerns are formally acknowledged.",assertive,2,0
+"This must be addressed before the end of the week.",assertive,2,0
+"I am confident the deadline can be met if I get the right support.",assertive,2,0
+"I need the raw data files by noon to complete the analysis.",assertive,2,0
+"I want to propose an alternative approach that is more achievable.",assertive,2,0
+"Let me explain the blockers so we can solve them together.",assertive,2,0
+"I respectfully disagree with that assessment and here is why.",assertive,2,0
+"I'm bringing this up now so it does not become a bigger problem.",assertive,2,0
+"My expectation is that we agree on deliverables before I start.",assertive,2,0
+"I will complete this task, but I need the relevant access first.",assertive,2,0
+"I am committed to the project but need support on the technical side.",assertive,2,0
+"I need to flag a risk before it impacts the delivery.",assertive,2,0
+"I want to propose that we split this task between two people.",assertive,2,0
+"I am formally requesting the resources outlined in the project plan.",assertive,2,0
+"I need this escalated to senior management if we cannot agree.",assertive,2,0
+"Let me outline what I need to make this a success.",assertive,2,0
+"I want to set clear boundaries around the scope of my role.",assertive,2,0
+"I'm asking you to reconsider the timeline given what has changed.",assertive,2,0
+"I need a written confirmation of the agreed deliverables.",assertive,2,0
+"I'm worried I won't be able to finish this by 5pm.",anxious,-1,2
+"I'm not sure I have all the information I need.",anxious,-1,2
+"I'm afraid I might make a mistake if I rush this.",anxious,-1,2
+"What if I can't get it done in time?",anxious,-1,2
+"I'm feeling overwhelmed by the amount of work on my plate.",anxious,-1,2
+"I might not be able to meet the expectations.",anxious,-1,2
+"I'm nervous about presenting this to the senior team.",anxious,-1,2
+"I don't know if I'm the right person for this task.",anxious,-1,2
+"I'm not confident I understand the requirements fully.",anxious,-1,2
+"I'm stressed about the deadline and afraid of failing.",anxious,-1,2
+"What if the client rejects the proposal?",anxious,-1,2
+"I'm panicking a little because I just found out about this now.",anxious,-1,2
+"I'm not sure how to handle this situation.",anxious,-1,2
+"I feel like I might let the team down.",anxious,-1,2
+"I'm scared to give bad news to a senior stakeholder.",anxious,-1,2
+"I'm second-guessing whether my approach is correct.",anxious,-1,2
+"I'm worried the report won't be accurate enough.",anxious,-1,2
+"I don't think I have enough experience for this.",anxious,-1,2
+"I might need more time because I'm unsure about the data.",anxious,-1,2
+"I'm stressing out about all the tasks due this week.",anxious,-1,2
+"I'm afraid to push back in case it affects my performance review.",anxious,-1,2
+"What if we miss the deadline because of my delay?",anxious,-1,2
+"I'm not sure if my work is good enough to submit.",anxious,-1,2
+"I feel anxious when there are sudden changes to the plan.",anxious,-1,2
+"I'm worried about the consequences if this goes wrong.",anxious,-1,2
+"I might be overthinking this but I don't want to fail.",anxious,-1,2
+"I don't feel prepared to handle this on my own.",anxious,-1,2
+"I'm unsure if my decision is the right one.",anxious,-1,2
+"I'm struggling to stay calm given all these pressure points.",anxious,-1,2
+"I'm concerned that I won't meet the quality standard.",anxious,-1,2
+"I'm very nervous about taking on this new responsibility.",anxious,-1,2
+"I'm not sure what happens if I get this wrong.",anxious,-1,2
+"I feel like there's too much pressure and not enough guidance.",anxious,-1,2
+"I'm scared to raise this issue in case it backfires.",anxious,-1,2
+"I'm worried my manager will be disappointed in my output.",anxious,-1,2
+"I might need to ask for help but I'm nervous about it.",anxious,-1,2
+"I don't want to fail the team by missing this deadline.",anxious,-1,2
+"I feel like I'm in over my head with this assignment.",anxious,-1,2
+"I'm not confident about speaking up in the meeting.",anxious,-1,2
+"I'm afraid of getting blamed if something goes wrong.",anxious,-1,2
+"This is completely unfair and I am done with this situation.",frustrated,-2,2
+"I can't believe you're still asking me to do this.",frustrated,-2,2
+"This is ridiculous, I've already explained this three times.",frustrated,-2,2
+"Why do you keep changing the requirements at the last minute?",frustrated,-2,2
+"I'm sick of being given impossible deadlines.",frustrated,-2,2
+"This is not acceptable, I was never given that information.",frustrated,-2,2
+"I cannot work like this anymore.",frustrated,-2,2
+"Nobody told me about this change and now I'm being blamed for it.",frustrated,-2,2
+"I've had enough of these last-minute demands.",frustrated,-2,2
+"This is wrong, I clearly stated the data was missing.",frustrated,-2,2
+"Stop shifting the goalposts every single day.",frustrated,-2,2
+"I am fed up with the lack of communication on this team.",frustrated,-2,2
+"This is the third time this week my work has been dismissed.",frustrated,-2,2
+"Why is everyone blaming me when I wasn't given the tools to succeed?",frustrated,-2,2
+"I refuse to keep working under these conditions.",frustrated,-2,2
+"It's not my fault the deadline is impossible to meet.",frustrated,-2,2
+"Nobody listens to my concerns and then acts surprised when things fail.",frustrated,-2,2
+"I've been telling you about this problem for two weeks.",frustrated,-2,2
+"This constant pressure is destroying my motivation.",frustrated,-2,2
+"I'm exhausted from trying to fix everyone else's mistakes.",frustrated,-2,2
+"Every time I raise a concern it gets ignored.",frustrated,-2,2
+"This is a total mess and management created it.",frustrated,-2,2
+"I cannot keep delivering quality work in these conditions.",frustrated,-2,2
+"This situation is absolutely unacceptable to me.",frustrated,-2,2
+"Why do I always get blamed when the system is broken?",frustrated,-2,2
+"I'm beyond frustrated at this point.",frustrated,-2,2
+"Nobody warned me about the change in scope and now I'm behind.",frustrated,-2,2
+"I am not going to accept blame for a problem I did not create.",frustrated,-2,2
+"This keeps happening because nothing ever gets fixed.",frustrated,-2,2
+"I'm furious that my concerns were dismissed again.",frustrated,-2,2
+"This is not how a professional team should operate.",frustrated,-2,2
+"I have been working around the clock and still get no recognition.",frustrated,-2,2
+"Why is this always falling on my shoulders?",frustrated,-2,2
+"I'm tired of being the only one who cares about quality.",frustrated,-2,2
+"I was set up to fail from the beginning.",frustrated,-2,2
+"Nobody told me that process had changed.",frustrated,-2,2
+"This is impossible and I should not have to deal with it alone.",frustrated,-2,2
+"I gave up my weekend for this and it still isn't good enough.",frustrated,-2,2
+"I'm completely done being treated like this.",frustrated,-2,2
+"There's no point trying when the rules change every hour.",frustrated,-2,2
+"What do you mean by that exactly?",confused,0,1
+"I don't quite follow what you're asking me to do.",confused,0,1
+"Could you clarify what success looks like here?",confused,0,1
+"I'm not following the logic of this approach.",confused,0,1
+"I'm confused about who owns this task.",confused,0,1
+"Can you explain what format the report should be in?",confused,0,1
+"I lost track of what was agreed in the last meeting.",confused,0,1
+"I'm not sure what changed since yesterday.",confused,0,1
+"What exactly are you expecting me to deliver?",confused,0,1
+"Could you walk me through the process again?",confused,0,1
+"I'm not clear on the difference between these two tasks.",confused,0,1
+"I don't understand why the priority suddenly shifted.",confused,0,1
+"Can you help me understand what the main objective is?",confused,0,1
+"I'm a bit lost on where to start with this.",confused,0,1
+"What does that acronym stand for?",confused,0,1
+"I need more context to understand this decision.",confused,0,1
+"I'm not sure which version of the document I should use.",confused,0,1
+"Could you define what good looks like for this output?",confused,0,1
+"I'm having trouble connecting the dots between these two points.",confused,0,1
+"What am I supposed to do if the data doesn't match?",confused,0,1
+"I'm not clear on whether I should include that section.",confused,0,1
+"Who is the right person to ask about this?",confused,0,1
+"I don't fully understand the criteria for approval.",confused,0,1
+"Could you repeat that? I want to make sure I understood correctly.",confused,0,1
+"I'm unsure which tool I should be using for this.",confused,0,1
+"What does this error message actually mean?",confused,0,1
+"I'm not sure if this falls within my scope or someone else's.",confused,0,1
+"I don't know what you mean by 'aligned with stakeholders'.",confused,0,1
+"Can you give me an example of what you're describing?",confused,0,1
+"I'm lost when it comes to the approval workflow.",confused,0,1
+"I'm not sure what the next step is after I submit this.",confused,0,1
+"Could you explain why this process requires three sign-offs?",confused,0,1
+"I don't understand the difference between these two priorities.",confused,0,1
+"What does 'best effort basis' mean in this context?",confused,0,1
+"I'm unclear on which team is responsible for the final review.",confused,0,1
+"Can you clarify the definition of done for this task?",confused,0,1
+"I'm not tracking what caused the original delay.",confused,0,1
+"I didn't understand the instruction from the email.",confused,0,1
+"Could you tell me what I should do if this happens again?",confused,0,1
+"I'm confused about whether this needs manager sign-off.",confused,0,1
