@@ -28,6 +28,7 @@ import BlindSpotDetail from './pages/Analytics/BlindSpotDetail'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
 import PredictiveAnalytics from './pages/Analytics/PredictiveAnalytics'
+import ProgressTrendsDetail from './pages/Analytics/ProgressTrendsDetail'
 import SkillTwinProfile from './pages/Analytics/SkillTwinProfile'
 
 export default function App() {
@@ -49,7 +50,7 @@ export default function App() {
               <Route path="/verify-email" element={<VerifyEmail />} />
             </Route>
 
-            {/* Auth callback — no layout chrome */}
+            {/* Auth callback - no layout chrome */}
             <Route path="/auth-callback" element={<AuthCallback />} />
 
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
@@ -73,6 +74,13 @@ export default function App() {
             <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
             <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
             <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
+            <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
+            <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
+            
+            {/* --- YOUR FEATURE ROUTES ADDED HERE --- */}
+            <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
+            <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
+
             <Route path="/analytics-session-report" element={<PostSessionReport />} />
             <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
           </Routes>
