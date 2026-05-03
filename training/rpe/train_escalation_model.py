@@ -19,6 +19,7 @@ OUTPUT_DIR = Path(__file__).parent.parent.parent / "Backend" / "app" / "models" 
 
 def main() -> None:
     df = pd.read_csv(DATASET_PATH)
+    df = df.dropna(subset=["user_input", "escalation_label"])
 
     X = df["user_input"].astype(str)
     y = df["escalation_label"].astype(int)
@@ -35,7 +36,8 @@ def main() -> None:
     model.fit(X_train_vec, y_train)
 
     y_pred = model.predict(X_test_vec)
-    print("=== Escalation Model ===")
+    score = model.score(X_test_vec, y_test)
+    print(f"Escalation model accuracy: {score:.4f}")
     print(classification_report(y_test, y_pred))
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
