@@ -13,6 +13,7 @@ class AudioFeatures:
     zero_crossing_rate: float  # Proxy for speaking pace / consonant density
     spectral_centroid: float   # Brightness/clarity of the signal
     duration_ms: float
+    pitch_std: float = 0.0      # Standard deviation of fundamental frequency
     feature_vector: Optional[np.ndarray] = None # Cached 181 features for SVM
     emotion_label: Optional[str] = None  # SVM Prediction
     emotion_confidence: float = 0.0      # SVM Probability

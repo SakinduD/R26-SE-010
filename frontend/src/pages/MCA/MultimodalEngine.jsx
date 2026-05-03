@@ -16,8 +16,11 @@ const MultimodalEngine = () => {
   const activeMode = searchParams.get('mode') || 'live';
   const showMesh = searchParams.get('mesh') !== 'false';
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isMicActive, setIsMicActive] = useState(false);
-  const [hasMicPermission, setHasMicPermission] = useState(false);
+  const [liveMicActive, setLiveMicActive] = useState(false);
+  const [liveHasMicPermission, setLiveHasMicPermission] = useState(false);
+  const [aiMicActive, setAiMicActive] = useState(false);
+  const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
+  const [aiStopSignal, setAiStopSignal] = useState(0);
   const [nudges, setNudges] = useState([]); // State for coaching nudges stack
   const [metrics, setMetrics] = useState({ 
     ear: 0, 
@@ -39,6 +42,7 @@ const MultimodalEngine = () => {
   const mediaRecorderRef = useRef(null);
   const socketRef = useRef(null);
   const audioStreamRef = useRef(null);
+  const recordRestartTimeoutRef = useRef(null);
 
   const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
     const id = Date.now();
@@ -117,7 +121,7 @@ const MultimodalEngine = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
-      setHasMicPermission(true);
+      setLiveHasMicPermission(true);
 
       const socket = new WebSocket(mcaService.getAudioStreamUrl());
       socketRef.current = socket;
@@ -145,7 +149,10 @@ const MultimodalEngine = () => {
           mediaRecorder.start();
 
           // Stop and restart every 1 second to create standalone chunks with headers
-          setTimeout(() => {
+          if (recordRestartTimeoutRef.current) {
+            clearTimeout(recordRestartTimeoutRef.current);
+          }
+          recordRestartTimeoutRef.current = setTimeout(() => {
             if (mediaRecorder.state === 'recording') {
               mediaRecorder.stop();
               startRecordingChunk();
@@ -154,7 +161,7 @@ const MultimodalEngine = () => {
         };
 
         startRecordingChunk();
-        setIsMicActive(true);
+        setLiveMicActive(true);
       };
 
       socket.onmessage = (event) => {
@@ -164,7 +171,9 @@ const MultimodalEngine = () => {
             // Update metrics with SVM data from backend
             setMetrics(prev => ({
               ...prev,
-              emotion: data.metrics.emotion || 'Neutral',
+              emotion: data.metrics.emotion 
+                ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1) 
+                : 'Neutral',
               confidence: data.metrics.confidence || 0,
               isSyncing: true
             }));
@@ -187,7 +196,11 @@ const MultimodalEngine = () => {
   };
 
   const stopAudioCapture = () => {
-    setIsMicActive(false);
+    setLiveMicActive(false);
+    if (recordRestartTimeoutRef.current) {
+      clearTimeout(recordRestartTimeoutRef.current);
+      recordRestartTimeoutRef.current = null;
+    }
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
@@ -200,12 +213,25 @@ const MultimodalEngine = () => {
       audioStreamRef.current.getTracks().forEach(track => track.stop());
       audioStreamRef.current = null;
     }
+    setMetrics(prev => ({ ...prev, isSyncing: false, emotion: 'Sensing...' }));
   };
 
-  const toggleMic = () => {
-    if (isMicActive) stopAudioCapture();
-    else startAudioCapture();
+  const toggleLiveMic = () => {
+    if (liveMicActive) {
+      stopAudioCapture();
+      return;
+    }
+    if (aiMicActive) {
+      setAiStopSignal(Date.now());
+    }
+    startAudioCapture();
   };
+
+  useEffect(() => {
+    if (aiMicActive && liveMicActive) {
+      stopAudioCapture();
+    }
+  }, [aiMicActive, liveMicActive]);
 
   useEffect(() => {
     let faceMeshModel = null;
@@ -386,9 +412,9 @@ const MultimodalEngine = () => {
                         Enable Video Sensing
                       </button>
                     )}
-                    {!isMicActive && activeMode === 'live' && (
+                    {!liveMicActive && activeMode === 'live' && (
                       <button
-                        onClick={toggleMic}
+                        onClick={toggleLiveMic}
                         className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
                       >
                         <Mic size={18} />
@@ -406,8 +432,8 @@ const MultimodalEngine = () => {
                       SENSING: {isCameraActive ? "ACTIVE" : "IDLE"}
                     </div>
                     <div className="flex items-center gap-2.5 text-[10px] text-card-foreground font-bold">
-                      <div className={clsx("w-2 h-2 rounded-full animate-pulse", isMicActive ? "bg-primary" : "bg-border")}></div>
-                      AUDIO: {isMicActive ? "CAPTURE" : "OFF"}
+                      <div className={clsx("w-2 h-2 rounded-full animate-pulse", liveMicActive ? "bg-primary" : "bg-border")}></div>
+                      AUDIO: {liveMicActive ? "CAPTURE" : "OFF"}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -424,14 +450,14 @@ const MultimodalEngine = () => {
                       </button>
                     )}
                     <button
-                      onClick={toggleMic}
+                      onClick={toggleLiveMic}
                       className={clsx(
                         "flex items-center gap-2 text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all pointer-events-auto",
-                        isMicActive ? "bg-secondary/20 text-secondary border-secondary/30" : "bg-muted text-muted-foreground border-border"
+                        liveMicActive ? "bg-secondary/20 text-secondary border-secondary/30" : "bg-muted text-muted-foreground border-border"
                       )}
                     >
-                      <Mic size={12} className={clsx(isMicActive && "animate-pulse")} />
-                      {isMicActive ? "MIC_ACTIVE" : "MIC_OFF"}
+                      <Mic size={12} className={clsx(liveMicActive && "animate-pulse")} />
+                      {liveMicActive ? "MIC_ACTIVE" : "MIC_OFF"}
                     </button>
                     <button
                       onClick={toggleCamera}
@@ -557,12 +583,13 @@ const MultimodalEngine = () => {
           {activeMode === 'ai' && (
             <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full max-h-[calc(100vh-160px)]">
               <AIChatbot
-                isListening={isMicActive}
-                setIsListening={setIsMicActive}
-                hasPermission={hasMicPermission}
-                setHasPermission={setHasMicPermission}
+                isListening={aiMicActive}
+                setIsListening={setAiMicActive}
+                hasPermission={aiHasMicPermission}
+                setHasPermission={setAiHasMicPermission}
                 onNudge={handleNudge}
                 metrics={metrics}
+                stopSignal={aiStopSignal}
               />
             </div>
           )}
