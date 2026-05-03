@@ -24,6 +24,7 @@ import Dashboard from './pages/app/Dashboard'
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
 import AdminDashboard from './pages/admin/dashboard'
 import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
+import AnalyticsRecommendations from './pages/Analytics/AnalyticsRecommendations'
 import BlindSpotDetail from './pages/Analytics/BlindSpotDetail'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
@@ -68,6 +69,8 @@ export default function App() {
             } />
             <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
             <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
+            <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
+            <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
             <Route path="/analytics-feedback" element={<FeedbackForm />} />
             <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
             <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
