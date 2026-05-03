@@ -62,7 +62,25 @@ class RpeSessionService:
         return self._sessions[session_id].current_turn
 
     def get_state(self, session_id: str) -> SessionState | None:
-        return self._sessions.get(session_id)
+        if session_id in self._sessions:
+            return self._sessions[session_id]
+        # Reconstruct from disk after a server restart
+        path = LOGS_DIR / f"{session_id}.json"
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            state = SessionState(
+                session_id=data["session_id"],
+                scenario_id=data["scenario_id"],
+                user_id=data["user_id"],
+                current_turn=len(data.get("turns", [])),
+                started_at=data["started_at"],
+            )
+            self._sessions[session_id] = state
+            return state
+        except Exception:
+            return None
 
     def is_complete(self, session_id: str, total_turns: int) -> bool:
         state = self._sessions.get(session_id)

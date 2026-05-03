@@ -40,71 +40,76 @@ def start_session(payload: StartSessionRequest) -> StartSessionResponse:
 
 @rpe_router.post("/session-respond", response_model=RespondResponse)
 def session_respond(payload: RespondRequest) -> RespondResponse:
-    state = rpe_session_service.get_state(payload.session_id)
-    if not state:
-        raise HTTPException(status_code=404, detail=f"Session '{payload.session_id}' not found.")
-
     try:
-        session_data = rpe_session_service.get_session(payload.session_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        state = rpe_session_service.get_state(payload.session_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Session '{payload.session_id}' not found.")
 
-    prior_turns: list[dict] = session_data.get("turns", [])
-    opening_npc_line: str = session_data.get("opening_npc_line", "")
-    trust_history: list[int] = session_data.get("trust_history", [50])
-    current_trust: int = trust_history[-1] if trust_history else 50
-    current_esc: int = prior_turns[-1]["escalation_level"] if prior_turns else 0
+        try:
+            session_data = rpe_session_service.get_session(payload.session_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
 
-    scenario = rpe_scenario_service.get_scenario(state.scenario_id)
+        prior_turns: list[dict] = session_data.get("turns", [])
+        opening_npc_line: str = session_data.get("opening_npc_line", "")
+        trust_history: list[int] = session_data.get("trust_history", [50])
+        current_trust: int = trust_history[-1] if trust_history else 50
+        current_esc: int = prior_turns[-1]["escalation_level"] if prior_turns else 0
 
-    emotion = rpe_emotion_service.detect_emotion(payload.user_input)
-    new_trust = rpe_emotion_service.update_trust(current_trust, emotion)
-    new_esc = rpe_emotion_service.update_escalation(current_esc, emotion)
+        scenario = rpe_scenario_service.get_scenario(state.scenario_id)
 
-    npc_response = rpe_npc_service.generate_response(
-        user_input=payload.user_input,
-        opening_npc_line=opening_npc_line,
-        session_turns=prior_turns,
-        npc_role=scenario.npc_role,
-        npc_personality=scenario.npc_personality,
-        context=scenario.context,
-        trust_score=new_trust,
-        escalation_level=new_esc,
-        npc_behaviour=scenario.npc_behaviour,
-    )
+        emotion = rpe_emotion_service.detect_emotion(payload.user_input)
+        new_trust = rpe_emotion_service.update_trust(current_trust, emotion)
+        new_esc = rpe_emotion_service.update_escalation(current_esc, emotion)
 
-    turn_number = rpe_session_service.advance_turn(payload.session_id)
-    turn_data = {
-        "turn": turn_number,
-        "user_input": payload.user_input,
-        "npc_response": npc_response,
-        "emotion": emotion,
-        "trust_score": new_trust,
-        "escalation_level": new_esc,
-    }
-    rpe_session_service.log_turn(payload.session_id, turn_data)
-
-    complete = rpe_session_service.is_complete(payload.session_id, scenario.turns)
-    outcome: str | None = None
-    if complete:
-        criteria = scenario.success_criteria
-        outcome = (
-            "success"
-            if new_trust >= criteria["min_trust_score"]
-            and new_esc <= criteria["max_escalation_level"]
-            else "failure"
+        npc_response = rpe_npc_service.generate_response(
+            user_input=payload.user_input,
+            opening_npc_line=opening_npc_line,
+            session_turns=prior_turns,
+            npc_role=scenario.npc_role,
+            npc_personality=scenario.npc_personality,
+            context=scenario.context,
+            trust_score=new_trust,
+            escalation_level=new_esc,
+            npc_behaviour=scenario.npc_behaviour,
         )
-        rpe_session_service.finalize_session(payload.session_id, outcome, new_trust, new_esc)
 
-    return RespondResponse(
-        npc_response=npc_response,
-        emotion=emotion,
-        trust_score=new_trust,
-        escalation_level=new_esc,
-        turn=turn_number,
-        session_complete=complete,
-        outcome=outcome,
-    )
+        turn_number = rpe_session_service.advance_turn(payload.session_id)
+        turn_data = {
+            "turn": turn_number,
+            "user_input": payload.user_input,
+            "npc_response": npc_response,
+            "emotion": emotion,
+            "trust_score": new_trust,
+            "escalation_level": new_esc,
+        }
+        rpe_session_service.log_turn(payload.session_id, turn_data)
+
+        complete = rpe_session_service.is_complete(payload.session_id, scenario.turns)
+        outcome: str | None = None
+        if complete:
+            criteria = scenario.success_criteria
+            outcome = (
+                "success"
+                if new_trust >= criteria["min_trust_score"]
+                and new_esc <= criteria["max_escalation_level"]
+                else "failure"
+            )
+            rpe_session_service.finalize_session(payload.session_id, outcome, new_trust, new_esc)
+
+        return RespondResponse(
+            npc_response=npc_response,
+            emotion=emotion,
+            trust_score=new_trust,
+            escalation_level=new_esc,
+            turn=turn_number,
+            session_complete=complete,
+            outcome=outcome,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
 
 
 @rpe_router.get("/session-summary/{session_id}")

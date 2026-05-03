@@ -20,6 +20,11 @@ import AuthCallback from './pages/auth/AuthCallback'
 // Protected app pages
 import Dashboard from './pages/app/Dashboard'
 
+// RPE pages
+import ScenarioSelect  from './pages/RPE/ScenarioSelect'
+import RolePlaySession from './pages/RPE/RolePlaySession'
+import SessionComplete from './pages/RPE/SessionComplete'
+
 // Existing feature pages
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
 import AdminDashboard from './pages/admin/dashboard'
@@ -58,6 +63,11 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
             </Route>
+
+            {/* RPE routes */}
+            <Route path="/roleplay"                  element={<ScenarioSelect />}  />
+            <Route path="/roleplay/session"          element={<RolePlaySession />} />
+            <Route path="/roleplay/session/complete" element={<SessionComplete />} />
 
             {/* Legacy / feature routes (unchanged) */}
             <Route path="/admin" element={

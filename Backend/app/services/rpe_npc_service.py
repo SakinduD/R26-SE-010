@@ -82,9 +82,12 @@ class RpeNpcService:
             messages.append({"role": "assistant", "content": turn["npc_response"]})
         messages.append({"role": "user", "content": user_input})
 
-        response = self._client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=messages,
-            max_tokens=150,
-        )
-        return response.choices[0].message.content
+        try:
+            response = self._client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                max_tokens=150,
+            )
+            return response.choices[0].message.content
+        except Exception as exc:
+            return f"[NPC temporarily unavailable: {exc}]"
