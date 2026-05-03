@@ -562,6 +562,7 @@ const MultimodalEngine = () => {
                 hasPermission={hasMicPermission}
                 setHasPermission={setHasMicPermission}
                 onNudge={handleNudge}
+                metrics={metrics}
               />
             </div>
           )}
