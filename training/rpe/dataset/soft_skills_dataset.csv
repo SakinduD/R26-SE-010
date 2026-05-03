@@ -224,3 +224,13 @@ Could you clarify what you mean by urgent,confused,0,1
 I do not understand the decision that was made,confused,0,1
 What exactly needs to be fixed in my previous work,confused,0,1
 I am confused about who the final decision maker is,confused,0,1
+I can have a draft ready for you in thirty minutes if you confirm the data source,assertive,2,0
+I can deliver the report once you confirm which dataset to use,assertive,2,0
+I can have this completed by end of day if you send me the missing files now,assertive,2,0
+I can submit a draft in an hour provided you give me the correct figures,assertive,2,0
+I can have the first version ready quickly if you confirm the format you need,assertive,2,0
+I can produce a full report if you clarify the data requirements today,assertive,2,0
+I can get this done faster if you confirm the scope right now,assertive,2,0
+I can finalize the report once you confirm the deadline is flexible,assertive,2,0
+I can turn this around quickly if you provide the missing information,assertive,2,0
+I can complete this by tomorrow morning if you approve the revised timeline,assertive,2,0

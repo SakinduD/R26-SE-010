@@ -1,0 +1,69 @@
+{
+  "session_id": "012cabaf-2f5c-4fd2-a957-31dba4182935",
+  "scenario_id": "scenario_001",
+  "user_id": "test_user",
+  "started_at": "2026-05-03T19:00:01.122831",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "This is completely unfair. I was never given the data.",
+      "npc_response": "Fairness is not a luxury we can afford when deadlines are looming, get creative and find a way to make it work.",
+      "emotion": "frustrated",
+      "trust_score": 48,
+      "escalation_level": 2
+    },
+    {
+      "turn": 2,
+      "user_input": "I refuse to submit an incomplete report. That is not my fault.",
+      "npc_response": "Refusal is not an option, submit what you have and deal with the consequences or find another job.",
+      "emotion": "frustrated",
+      "trust_score": 46,
+      "escalation_level": 4
+    },
+    {
+      "turn": 3,
+      "user_input": "You are being unreasonable. No one can do this.",
+      "npc_response": "Unreasonable is what gets results, and if you can't deliver, maybe someone else will take your place.",
+      "emotion": "frustrated",
+      "trust_score": 44,
+      "escalation_level": 5
+    },
+    {
+      "turn": 4,
+      "user_input": "I hate this job. This is ridiculous.",
+      "npc_response": "Hate it or quit it, but until then, you'll do as you're told and meet that deadline.",
+      "emotion": "frustrated",
+      "trust_score": 42,
+      "escalation_level": 5
+    },
+    {
+      "turn": 5,
+      "user_input": "Fine. Whatever. I quit.",
+      "npc_response": "Don't let the door hit you on the way out, and don't bother asking for a reference.",
+      "emotion": "calm",
+      "trust_score": 43,
+      "escalation_level": 4
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "frustrated",
+    "frustrated",
+    "frustrated",
+    "frustrated",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    48,
+    46,
+    44,
+    42,
+    43
+  ],
+  "ended_at": null,
+  "outcome": null,
+  "final_trust": null,
+  "final_escalation": null
+}
