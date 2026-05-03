@@ -1,0 +1,69 @@
+{
+  "session_id": "a676e7e4-c0c2-4bce-9478-130b8a44cbbd",
+  "scenario_id": "scenario_001",
+  "user_id": "test_user",
+  "started_at": "2026-05-03T18:59:56.708767",
+  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "I understand the deadline. I will do my best with what I have.",
+      "npc_response": "Your best isn't good enough if it's based on incomplete data, I expect you to find a way to fill in the gaps and make it work.",
+      "emotion": "calm",
+      "trust_score": 51,
+      "escalation_level": 0
+    },
+    {
+      "turn": 2,
+      "user_input": "I propose we flag the missing fields and submit a partial report.",
+      "npc_response": "Flagging missing fields is a cop-out, I want a comprehensive report, not a partial one, so get on the phone and track down the missing information.",
+      "emotion": "assertive",
+      "trust_score": 53,
+      "escalation_level": 0
+    },
+    {
+      "turn": 3,
+      "user_input": "I can have a draft to you in 30 minutes if you confirm the data source.",
+      "npc_response": "Thirty minutes is still too long, I need something to review now, confirm the data source yourself and don't waste any more of my time.",
+      "emotion": "confused",
+      "trust_score": 53,
+      "escalation_level": 0
+    },
+    {
+      "turn": 4,
+      "user_input": "I appreciate your patience. I will deliver the best report possible.",
+      "npc_response": "Spare me the flattery, I'm not looking for appreciation, I'm looking for results, and right now, the results I'm seeing are a report that's still not on my desk.",
+      "emotion": "calm",
+      "trust_score": 54,
+      "escalation_level": 0
+    },
+    {
+      "turn": 5,
+      "user_input": "Thank you. I will stay late if needed to get this done right.",
+      "npc_response": "Staying late is the bare minimum I expect, what I want to know is what you're going to do to ensure the report is accurate and complete, not just a product of overtime.",
+      "emotion": "calm",
+      "trust_score": 55,
+      "escalation_level": 0
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "calm",
+    "assertive",
+    "confused",
+    "calm",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    51,
+    53,
+    53,
+    54,
+    55
+  ],
+  "ended_at": null,
+  "outcome": null,
+  "final_trust": null,
+  "final_escalation": null
+}
