@@ -102,4 +102,14 @@ export const rpeService = {
       throw new Error(err.response?.data?.detail || err.message || 'Failed to notify session complete')
     }
   },
+
+  getFeedback: async (sessionId) => {
+    try {
+      return await api
+        .get(`/api/v1/rpe/session-feedback/${encodeURIComponent(sessionId)}`)
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to fetch session feedback')
+    }
+  },
 }
