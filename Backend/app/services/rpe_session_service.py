@@ -214,16 +214,22 @@ class RpeSessionService:
         trust_history:     list[int],
         escalation_level:  int,
         current_turn:      int,
+        profanity_count:   int = 0,
     ) -> tuple[bool, str | None]:
         """
         Evaluate whether the session should end.
         Returns (should_end, end_reason | None).
 
         Priority:
-          1. max_turns_reached  — hard cap
-          2. trust_sustained    — trust ≥ threshold for N consecutive turns
-          3. npc_exit           — escalation ≥ failure threshold
+          0. npc_exit (profanity) — immediate exit if user used profanity 3+ times
+          1. max_turns_reached    — hard cap
+          2. trust_sustained      — trust ≥ threshold for N consecutive turns
+          3. npc_exit             — escalation ≥ failure threshold
         """
+        # Immediate NPC exit on repeated profanity
+        if profanity_count >= 3:
+            return True, "npc_exit"
+
         if current_turn >= max_turns:
             return True, "max_turns_reached"
 
