@@ -1,3 +1,8 @@
+from pathlib import Path
+
+import pytest
+
+
 def test_create_and_get_session_metric(client):
     payload = {
         "user_id": "user-1",
@@ -950,6 +955,59 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
     assert prediction["predicted_score"] == 44.5
     assert prediction["risk_level"] == "high"
     assert prediction["confidence"] == 0.91
+
+
+def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
+    model_path = (
+        Path(__file__).resolve().parents[2]
+        / "training"
+        / "feedback_analytics"
+        / "models"
+        / "predictive_behavior_model.joblib"
+    )
+    if not model_path.exists():
+        pytest.skip("Train predictive_behavior_model.joblib before running the real model API smoke test.")
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-1",
+            "confidence_score": 68,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "confidence_score": 74,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 72,
+            "comment": "The learner showed better confidence and clearer delivery.",
+            "sentiment": "positive",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/confidence")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predicted_skill"] == "confidence"
+    assert data["current_score"] == 74
+    assert data["predicted_score"] is not None
+    assert 0 <= data["predicted_score"] <= 100
+    assert data["risk_level"] in {"low", "medium", "high"}
+    assert 0 <= data["confidence"] <= 1
+    assert data["evidence_points"] == 2
 
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):
