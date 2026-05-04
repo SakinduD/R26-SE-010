@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle, BarChart2 } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
 
@@ -268,6 +268,12 @@ export default function SessionComplete() {
 
         {/* Action buttons */}
         <div className="flex gap-3 justify-center flex-wrap pb-8">
+          <button
+            onClick={() => navigate(`/roleplay/feedback/${sessionId}`)}
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700 transition-colors"
+          >
+            <BarChart2 size={14} /> View Full Feedback
+          </button>
           <button
             onClick={() => navigate('/roleplay')}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
