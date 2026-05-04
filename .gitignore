@@ -9,6 +9,12 @@ Backend/app/models/affect_fusion/transformer_*
 Backend/app/models/affect_fusion/*.h5
 Backend/app/models/affect_fusion/*.pt
 
+# RPE — large model artifacts and generated data (regenerate locally)
+Backend/app/models/rpe/ml/transformer/
+Backend/app/models/rpe/logs/sessions/
+training/rpe/dataset/raw/
+training/rpe/dataset/merged_rpe_dataset.csv
+
 # Python
 __pycache__/
 *.py[cod]
