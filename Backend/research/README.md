@@ -9,7 +9,7 @@ Goal: train and evaluate an NLP model that classifies self/peer feedback comment
 Dataset:
 
 - Kaggle Sentiment140 Dataset
-- Expected raw file path: `Backend/research/datasets/raw/sentiment140.csv`
+- Expected raw file path: `training/feedback_analytics/datasets/raw/sentiment140.csv`
 - Sentiment140 normally has no header and uses columns:
   `target,id,date,flag,user,text`
 
@@ -51,31 +51,31 @@ From the backend folder:
 ```powershell
 cd Backend
 python -m research.nlp_sentiment.train_sentiment_baseline `
-  --dataset research/datasets/raw/sentiment140.csv `
-  --output-model research/models/sentiment_model.joblib `
-  --output-evaluation research/evaluation/sentiment_evaluation.json
+  --dataset ../training/feedback_analytics/datasets/raw/sentiment140.csv `
+  --output-model ../training/feedback_analytics/models/sentiment_model.joblib `
+  --output-evaluation ../training/feedback_analytics/evaluation/sentiment_evaluation.json
 ```
 
 For a faster first check, train with a balanced per-class row limit. This is important because Sentiment140 is commonly sorted with negative examples first and positive examples later:
 
 ```powershell
 python -m research.nlp_sentiment.train_sentiment_baseline `
-  --dataset research/datasets/raw/sentiment140.csv `
+  --dataset ../training/feedback_analytics/datasets/raw/sentiment140.csv `
   --limit-per-class 25000
 ```
 
 Outputs:
 
-- `Backend/research/models/sentiment_model.joblib`
-- `Backend/research/evaluation/sentiment_evaluation.json`
-- `Backend/research/evaluation/sentiment_model_comparison.csv`
+- `training/feedback_analytics/models/sentiment_model.joblib`
+- `training/feedback_analytics/evaluation/sentiment_evaluation.json`
+- `training/feedback_analytics/evaluation/sentiment_model_comparison.csv`
 
 Optional: save the cleaned dataset used for training:
 
 ```powershell
 python -m research.nlp_sentiment.train_sentiment_baseline `
-  --dataset research/datasets/raw/sentiment140.csv `
-  --output-processed research/datasets/processed/sentiment140_cleaned.csv
+  --dataset ../training/feedback_analytics/datasets/raw/sentiment140.csv `
+  --output-processed ../training/feedback_analytics/datasets/processed/sentiment140_cleaned.csv
 ```
 
 ## Research Explanation
