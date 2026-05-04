@@ -2,8 +2,19 @@ from pathlib import Path
 
 import joblib
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-MODELS_DIR = BASE_DIR / "models" / "rpe" / "ml"
+try:
+    from transformers import (
+        DistilBertTokenizerFast,
+        DistilBertForSequenceClassification,
+    )
+    import torch
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+BASE_DIR        = Path(__file__).resolve().parent.parent
+MODELS_DIR      = BASE_DIR / "models" / "rpe" / "ml"
+TRANSFORMER_DIR = MODELS_DIR / "transformer"
 
 EMOTION_KEYWORDS: dict[str, list[str]] = {
     "frustrated": [
@@ -45,26 +56,38 @@ class RpeEmotionService:
         self._escalation_model = None
         self._escalation_vectorizer = None
         self._models_loaded = False
+        self._transformer_model     = None
+        self._transformer_tokenizer = None
+        self._transformer_loaded    = False
         self._try_load_models()
 
     def _try_load_models(self) -> None:
+        # sklearn models (escalation always uses these)
         try:
-            self._emotion_model = joblib.load(MODELS_DIR / "emotion_classifier.pkl")
+            self._emotion_model      = joblib.load(MODELS_DIR / "emotion_classifier.pkl")
             self._emotion_vectorizer = joblib.load(MODELS_DIR / "tfidf_vectorizer.pkl")
-            self._escalation_model = joblib.load(MODELS_DIR / "escalation_model.pkl")
+            self._escalation_model   = joblib.load(MODELS_DIR / "escalation_model.pkl")
             self._escalation_vectorizer = joblib.load(MODELS_DIR / "escalation_tfidf.pkl")
             self._models_loaded = True
         except FileNotFoundError:
             self._models_loaded = False
 
-    # ── Profanity helpers ─────────────────────────────────────────────────────
+        # Transformer model (preferred for emotion detection)
+        if TRANSFORMERS_AVAILABLE:
+            try:
+                self._transformer_tokenizer = \
+                    DistilBertTokenizerFast.from_pretrained(str(TRANSFORMER_DIR))
+                self._transformer_model = \
+                    DistilBertForSequenceClassification.from_pretrained(
+                        str(TRANSFORMER_DIR)
+                    )
+                self._transformer_model.eval()
+                self._transformer_loaded = True
+            except Exception:
+                self._transformer_loaded = False
 
     def _is_profanity(self, text: str) -> bool:
-        """
-        Returns True if the input contains profanity or direct insults.
-        Called before the ML model to override any misclassification of
-        abusive language as assertive or calm.
-        """
+        """True if text contains profanity/insults — must be pre-lowercased."""
         for word in PROFANITY_KEYWORDS:
             if word in text:
                 return True
@@ -74,37 +97,77 @@ class RpeEmotionService:
         return False
 
     def profanity_escalation_penalty(self, user_input: str) -> int:
-        """
-        Returns extra escalation points if profanity is detected.
-        Called after update_escalation() to stack an additional +1
-        on top of the normal frustrated (+2) delta — total +3.
-        Normal escalation (frustrated): +2
-        With profanity:                 +1 extra (total +3 possible)
-        """
-        text = user_input.lower()
-        if self._is_profanity(text):
-            return 1
-        return 0
-
-    # ── Core emotion / trust / escalation ────────────────────────────────────
+        """Extra escalation penalty (+1) stacked on top of frustrated (+2) delta."""
+        return 1 if self._is_profanity(user_input.lower()) else 0
 
     def detect_emotion(self, user_input: str) -> str:
         text = user_input.lower()
 
-        # Check profanity FIRST — overrides ML model and keyword fallback
+        # 1. Profanity always wins — never reaches any model
         if self._is_profanity(text):
             return "frustrated"
 
-        # ML model if loaded
-        if self._models_loaded:
-            vec = self._emotion_vectorizer.transform([user_input])
-            return str(self._emotion_model.predict(vec)[0])
+        # 1b. Calm keyword override — both ML models underperform on this class.
+        # Skip if the keyword is negated (e.g. "do not understand").
+        for kw in EMOTION_KEYWORDS.get("calm", []):
+            if kw in text:
+                negated = any(neg + kw in text for neg in ("not ", "n't ", "can't ", "cannot "))
+                if not negated:
+                    return "calm"
 
-        # Keyword fallback
+        # 2. Get transformer prediction if available
+        transformer_pred = None
+        if self._transformer_loaded:
+            transformer_pred = self._predict_transformer(user_input)
+
+        # 3. Get sklearn prediction if available
+        sklearn_pred = None
+        if self._models_loaded:
+            vec          = self._emotion_vectorizer.transform([user_input])
+            sklearn_pred = str(self._emotion_model.predict(vec)[0])
+
+        # 4. Hybrid routing
+        # Transformer F1 scores: anxious=0.81, confused=0.76
+        # Sklearn F1 scores:     frustrated=1.00, assertive~0.78, calm~0.65
+        if transformer_pred in ("anxious", "confused"):
+            return transformer_pred    # transformer wins these classes
+        if sklearn_pred is not None:
+            return sklearn_pred        # sklearn wins calm/assertive/frustrated
+        if transformer_pred is not None:
+            return transformer_pred    # fallback to transformer
+        return self._keyword_fallback(text)
+
+    def _keyword_fallback(self, text: str) -> str:
         for emotion, keywords in EMOTION_KEYWORDS.items():
             if any(kw in text for kw in keywords):
                 return emotion
         return "calm"
+
+    def _predict_transformer(self, text: str) -> str:
+        try:
+            inputs = self._transformer_tokenizer(
+                text, return_tensors="pt",
+                truncation=True, max_length=128, padding=True,
+            )
+            with torch.no_grad():
+                outputs = self._transformer_model(**inputs)
+            pred_id = outputs.logits.argmax(-1).item()
+            return self._transformer_model.config.id2label[pred_id]
+        except Exception:
+            if self._models_loaded:
+                vec = self._emotion_vectorizer.transform([text])
+                return str(self._emotion_model.predict(vec)[0])
+            return "calm"
+
+    @property
+    def active_model(self) -> str:
+        if self._transformer_loaded and self._models_loaded:
+            return "hybrid (transformer: anxious/confused | sklearn: calm/assertive/frustrated)"
+        if self._transformer_loaded:
+            return "transformer (distilbert)"
+        if self._models_loaded:
+            return "sklearn (tfidf + lr)"
+        return "keyword fallback"
 
     def update_trust(
         self, current_score: int, emotion: str, user_input: str = ""
