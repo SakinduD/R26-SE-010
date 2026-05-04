@@ -1,12 +1,16 @@
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.rpe import (
+    ApaRecommendRequest,
+    ApaSessionCompleteRequest,
     RespondRequest,
     RespondResponse,
+    ScenarioDetail,
     ScenarioSummary,
     StartSessionRequest,
     StartSessionResponse,
 )
+from app.services.rpe_apa_service import ApaLearnerProfile, RpeApaService
 from app.services.rpe_emotion_service import RpeEmotionService
 from app.services.rpe_npc_service import RpeNpcService
 from app.services.rpe_scenario_service import RpeScenarioService
@@ -17,6 +21,7 @@ rpe_scenario_service.load_all()
 rpe_session_service = RpeSessionService(rpe_scenario_service)
 rpe_emotion_service = RpeEmotionService()
 rpe_npc_service = RpeNpcService()
+rpe_apa_service = RpeApaService(rpe_scenario_service)
 
 rpe_router = APIRouter()
 
@@ -139,3 +144,67 @@ def scenarios_by_type(conflict_type: str) -> list[dict]:
     if not results:
         raise HTTPException(status_code=404, detail=f"No scenarios found for conflict type '{conflict_type}'.")
     return results
+
+
+@rpe_router.get("/scenarios/detail/{scenario_id}", response_model=ScenarioDetail)
+def scenario_detail(scenario_id: str) -> dict:
+    scenario = rpe_scenario_service.get_scenario(scenario_id)
+    if not scenario:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found.")
+    return {
+        "scenario_id":      scenario.scenario_id,
+        "title":            scenario.title,
+        "difficulty":       scenario.difficulty,
+        "conflict_type":    scenario.conflict_type,
+        "npc_role":         scenario.npc_role,
+        "npc_personality":  scenario.npc_personality,
+        "context":          scenario.context,
+        "opening_npc_line": scenario.opening_npc_line,
+        "turns":            scenario.turns,
+        "success_criteria": scenario.success_criteria,
+        "npc_behaviour":    scenario.npc_behaviour,
+        "apa_metadata":     scenario.apa_metadata,
+        "target_skills":    scenario.apa_metadata.get("target_skills", []),
+        "difficulty_weight": scenario.apa_metadata.get("difficulty_weight", 1.0),
+    }
+
+
+@rpe_router.get("/scenarios/skill/{skill}", response_model=list[ScenarioSummary])
+def scenarios_by_skill(skill: str) -> list[dict]:
+    results = rpe_scenario_service.get_by_skill(skill)
+    if not results:
+        raise HTTPException(status_code=404, detail=f"No scenarios found for skill '{skill}'.")
+    return results
+
+
+@rpe_router.get("/scenarios/trait/{trait}", response_model=list[ScenarioSummary])
+def scenarios_by_trait(trait: str) -> list[dict]:
+    results = rpe_scenario_service.get_by_big_five(trait)
+    if not results:
+        raise HTTPException(status_code=404, detail=f"No scenarios found for trait '{trait}'.")
+    return results
+
+
+@rpe_router.post("/apa/recommend", response_model=list[ScenarioSummary])
+def apa_recommend(payload: ApaRecommendRequest) -> list[dict]:
+    profile = ApaLearnerProfile(
+        user_id=payload.user_id,
+        openness=payload.openness,
+        conscientiousness=payload.conscientiousness,
+        extraversion=payload.extraversion,
+        agreeableness=payload.agreeableness,
+        neuroticism=payload.neuroticism,
+        weak_skills=payload.weak_skills,
+        recommended_difficulty=payload.recommended_difficulty,
+    )
+    return rpe_apa_service.get_recommended_scenarios(profile)
+
+
+@rpe_router.post("/apa/session-complete")
+def apa_session_complete(payload: ApaSessionCompleteRequest) -> dict:
+    try:
+        summary = rpe_session_service.get_session(payload.session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    rpe_apa_service.notify_session_complete(payload.user_id, summary)
+    return {"status": "notified"}

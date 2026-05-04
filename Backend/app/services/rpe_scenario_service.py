@@ -5,6 +5,18 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = BASE_DIR / "models" / "rpe" / "scenarios"
 
+_DEFAULT_APA: dict = {
+    "target_skills": [],
+    "big_five_relevance": [],
+    "recommended_for_profile": None,
+    "difficulty_weight": 1.0,
+}
+
+_DEFAULT_BEHAVIOUR: dict = {
+    "trust_thresholds": {"cooperative": 70, "neutral": 40, "hostile": 0},
+    "escalation_thresholds": {"furious": 4, "irritated": 2, "controlled": 0},
+}
+
 
 @dataclass
 class Scenario:
@@ -19,6 +31,7 @@ class Scenario:
     turns: int
     success_criteria: dict
     npc_behaviour: dict
+    apa_metadata: dict
 
 
 class RpeScenarioService:
@@ -39,10 +52,8 @@ class RpeScenarioService:
                 opening_npc_line=data["opening_npc_line"],
                 turns=data["turns"],
                 success_criteria=data["success_criteria"],
-                npc_behaviour=data.get("npc_behaviour", {
-                    "trust_thresholds": {"cooperative": 70, "neutral": 40, "hostile": 0},
-                    "escalation_thresholds": {"furious": 4, "irritated": 2, "controlled": 0},
-                }),
+                npc_behaviour=data.get("npc_behaviour", _DEFAULT_BEHAVIOUR),
+                apa_metadata=data.get("apa_metadata", _DEFAULT_APA),
             )
 
     def get_scenario(self, scenario_id: str) -> Scenario | None:
@@ -56,6 +67,8 @@ class RpeScenarioService:
                 "difficulty": s.difficulty,
                 "conflict_type": s.conflict_type,
                 "turns": s.turns,
+                "target_skills": s.apa_metadata.get("target_skills", []),
+                "difficulty_weight": s.apa_metadata.get("difficulty_weight", 1.0),
             }
             for s in self._scenarios.values()
         ]
@@ -65,6 +78,45 @@ class RpeScenarioService:
 
     def get_by_conflict_type(self, conflict_type: str) -> list[dict]:
         return [s for s in self.list_all() if s["conflict_type"] == conflict_type]
+
+    def get_by_skill(self, skill: str) -> list[dict]:
+        """Filter scenarios whose apa_metadata.target_skills contains skill."""
+        return [
+            s for s in self.list_all()
+            if skill in self._scenarios[s["scenario_id"]].apa_metadata.get("target_skills", [])
+        ]
+
+    def get_by_big_five(self, trait: str) -> list[dict]:
+        """Filter scenarios relevant to a Big Five personality trait."""
+        return [
+            s for s in self.list_all()
+            if trait in self._scenarios[s["scenario_id"]].apa_metadata.get("big_five_relevance", [])
+        ]
+
+    def get_recommended_for_profile(self, big_five_scores: dict) -> list[dict]:
+        """
+        APA INTEGRATION HOOK — called by rpe_apa_service.py.
+
+        Currently: returns all scenarios sorted by difficulty_weight ascending.
+
+        Future (when APA integration is ready):
+        This method will receive the learner's Big Five profile from the
+        Adaptive Pedagogical Architecture component and return personalised
+        scenario recommendations based on their weakest traits.
+
+        big_five_scores format expected from APA:
+        {
+          "openness": 0.72, "conscientiousness": 0.45,
+          "extraversion": 0.60, "agreeableness": 0.38, "neuroticism": 0.81
+        }
+
+        Do NOT implement personalisation logic yet.
+        The APA owner will provide the scoring logic later.
+        """
+        return sorted(
+            self.list_all(),
+            key=lambda s: self._scenarios[s["scenario_id"]].apa_metadata.get("difficulty_weight", 1.0),
+        )
 
     def available_ids(self) -> list[str]:
         return list(self._scenarios.keys())
