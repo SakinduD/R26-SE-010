@@ -189,13 +189,10 @@ export default function ScenarioSelect() {
           </span>
         </div>
 
-        {/* APA banner */}
-        <div className="flex items-start gap-3 rounded-xl bg-purple-50 border border-purple-100 px-4 py-3">
-          <Sparkles size={16} className="text-purple-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-purple-700">Scenarios recommended for your profile</p>
-            <p className="text-xs text-purple-400 mt-0.5">Personalised ordering coming soon via Adaptive Learning</p>
-          </div>
+        {/* APA banner — small pill */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-100 rounded-full w-fit text-xs text-purple-600 mb-0">
+          <Sparkles size={12} className="text-purple-400 shrink-0" />
+          <span>Personalised scenario ordering coming soon</span>
         </div>
 
         {/* Filter + sort bar */}

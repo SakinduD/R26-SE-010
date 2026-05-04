@@ -146,9 +146,8 @@ export default function SessionComplete() {
         {/* Score cards */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: 'Final Trust',  value: trustScore ?? '—', valueClass: getTrustTextColor(trustScore ?? 0), suffix: null },
-            { label: 'Escalation',   value: escalationLevel ?? '—', valueClass: 'text-gray-800', suffix: '/5' },
-            { label: 'Turns',        value: currentTurn ?? '—', valueClass: 'text-gray-800', suffix: totalTurns ? `/${totalTurns}` : null },
+            { label: 'Final Trust', value: trustScore ?? '—', valueClass: getTrustTextColor(trustScore ?? 0), suffix: null },
+            { label: 'Escalation',  value: escalationLevel ?? '—', valueClass: 'text-gray-800', suffix: '/5' },
           ].map(({ label, value, valueClass, suffix }) => (
             <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
               <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
@@ -158,6 +157,26 @@ export default function SessionComplete() {
               </p>
             </div>
           ))}
+
+          {/* Turns card — label varies by end reason */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Turns</p>
+            <p className="text-4xl font-bold text-gray-800">
+              {endReason === 'npc_exit' || endReason === 'trust_sustained'
+                ? `${currentTurn ?? '—'}`
+                : `${currentTurn ?? '—'}`}
+              {endReason !== 'npc_exit' && endReason !== 'trust_sustained' && recommendedTurns && (
+                <span className="text-lg text-gray-400">/{recommendedTurns}</span>
+              )}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              {endReason === 'npc_exit'
+                ? 'turns (NPC exited)'
+                : endReason === 'trust_sustained'
+                  ? 'turns (resolved)'
+                  : `of ${recommendedTurns ?? totalTurns ?? '?'} recommended`}
+            </p>
+          </div>
         </div>
 
         {/* Session length context line */}
@@ -181,33 +200,41 @@ export default function SessionComplete() {
         )}
 
         {/* Trust progression chart */}
-        {!isLoading && trustHistory.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Trust Progression</h2>
-            <div className="relative flex items-end gap-2" style={{ height: '128px' }}>
-              <div
-                className="absolute left-0 right-0 border-t border-dashed border-gray-300 pointer-events-none"
-                style={{ bottom: `${(50 / 100) * 96}px` }}
-              />
-              {trustHistory.map((val, i) => (
-                <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                  <span className={cn('text-[10px] font-medium tabular-nums', getTrustTextColor(val))}>
-                    {val}
-                  </span>
-                  <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
-                    <div
-                      className={cn('w-full rounded-t transition-all', getTrustBarColor(val))}
-                      style={{ height: `${Math.max(2, (val / 100) * 96)}px` }}
-                    />
-                  </div>
-                  <span className="text-[9px] text-gray-400 tabular-nums">
-                    {i === 0 ? 'S' : `T${i}`}
-                  </span>
-                </div>
-              ))}
+        {!isLoading && trustHistory.length > 0 && (() => {
+          const minVal = Math.min(...trustHistory)
+          const maxVal = Math.max(...trustHistory)
+          const range  = maxVal - minVal || 1
+          return (
+            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-700 mb-4">Trust Progression</h2>
+              <div className="relative flex items-end gap-2" style={{ height: '128px' }}>
+                <div
+                  className="absolute left-0 right-0 border-t border-dashed border-gray-300 pointer-events-none"
+                  style={{ bottom: `${(50 / 100) * 96}px` }}
+                />
+                {trustHistory.map((val, i) => {
+                  const heightPct = 20 + ((val - minVal) / range) * 80
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                      <span className={cn('text-[10px] font-medium tabular-nums', getTrustTextColor(val))}>
+                        {val}
+                      </span>
+                      <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
+                        <div
+                          className={cn('w-full rounded-t transition-all duration-500', getTrustBarColor(val))}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] text-gray-400 tabular-nums">
+                        {i === 0 ? 'S' : `T${i}`}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Trust delta per turn */}
         {!isLoading && trustDeltas.length > 0 && (

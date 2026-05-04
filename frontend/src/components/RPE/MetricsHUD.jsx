@@ -16,7 +16,7 @@ const getPipColor = (level) =>
 
 const NPC_TONE_STYLES = {
   cooperative: { pill: 'bg-green-100 text-green-700',   label: 'Warming Up' },
-  neutral:     { pill: 'bg-yellow-100 text-yellow-700', label: 'Under Pressure' },
+  neutral:     { pill: 'bg-yellow-100 text-yellow-700', label: 'Neutral' },
   hostile:     { pill: 'bg-red-100 text-red-700',       label: 'Hostile' },
 }
 
