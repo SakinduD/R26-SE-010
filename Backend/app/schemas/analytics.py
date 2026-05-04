@@ -61,6 +61,22 @@ class FeedbackEntryRead(FeedbackEntryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FeedbackSentimentRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class FeedbackSentimentResult(BaseModel):
+    text: str
+    cleaned_text: str
+    sentiment: Literal["positive", "neutral", "negative"]
+    confidence: float = Field(..., ge=0, le=1)
+    sentiment_score: float = Field(..., ge=-1, le=1)
+    class_probabilities: dict[str, float]
+    model_version: str
+    model_type: str
+    source: Literal["ml_model"]
+
+
 class SkillPredictionBase(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=64)
     session_id: str | None = Field(default=None, max_length=64)

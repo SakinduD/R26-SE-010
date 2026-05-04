@@ -64,6 +64,62 @@ def test_create_and_list_feedback(client):
     assert list_response.json()[0]["skill_area"] == "active_listening"
 
 
+def test_analyze_feedback_sentiment_returns_model_prediction(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="your communication was clear",
+            sentiment="positive",
+            confidence=0.88,
+            sentiment_score=0.88,
+            class_probabilities={"negative": 0.12, "positive": 0.88},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sentiment"] == "positive"
+    assert data["confidence"] == 0.88
+    assert data["model_type"] == "TF-IDF + Logistic Regression"
+
+
+def test_analyze_feedback_sentiment_returns_503_when_model_missing(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "model missing"
+
+
 def test_create_and_list_predictions(client):
     payload = {
         "user_id": "user-3",
