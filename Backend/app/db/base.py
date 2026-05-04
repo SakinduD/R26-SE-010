@@ -5,5 +5,7 @@ class Base(DeclarativeBase):
     pass
 
 
-# Import models so Alembic can discover them through Base.metadata.
+# Import models so Alembic and test fixtures can discover them through Base.metadata.
 from app.models import analytics  # noqa: E402,F401
+from app.models import personality_profile  # noqa: E402,F401
+from app.models import user  # noqa: E402,F401

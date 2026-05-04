@@ -29,14 +29,14 @@ class RpeNpcService:
         )
 
         if trust_score >= trust_thresholds["cooperative"]:
-            trust_tone = "The user has earned some respect. Be slightly more cooperative but remain demanding."
+            trust_tone = "The user has earned some respect. Be slightly more cooperative but stay demanding."
         elif trust_score >= trust_thresholds["neutral"]:
             trust_tone = "Remain neutral. Acknowledge effort but maintain pressure."
         else:
             trust_tone = "You have no confidence in this person. Be dismissive and impatient."
 
         if escalation_level >= escalation_thresholds["furious"]:
-            escalation_tone = "You are furious. Issue ultimatums. Use short sharp sentences."
+            escalation_tone = "You are furious. Issue ultimatums. Use short sharp sentences only."
         elif escalation_level >= escalation_thresholds["irritated"]:
             escalation_tone = "You are visibly irritated. No pleasantries whatsoever."
         else:
@@ -52,7 +52,8 @@ class RpeNpcService:
             f"Rules:\n"
             f"- Respond in 1-3 sentences only.\n"
             f"- Stay in character. Never break roleplay.\n"
-            f"- Never repeat the same response twice across turns.\n"
+            f"- IMPORTANT: Every response must be different from all previous responses. "
+            f"Never repeat or paraphrase a line you have already said in this conversation.\n"
             f"- Your tone must reflect the trust and escalation state above."
         )
 
@@ -82,9 +83,12 @@ class RpeNpcService:
             messages.append({"role": "assistant", "content": turn["npc_response"]})
         messages.append({"role": "user", "content": user_input})
 
-        response = self._client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=messages,
-            max_tokens=150,
-        )
-        return response.choices[0].message.content
+        try:
+            response = self._client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                max_tokens=150,
+            )
+            return response.choices[0].message.content
+        except Exception as exc:
+            return f"[NPC temporarily unavailable: {exc}]"

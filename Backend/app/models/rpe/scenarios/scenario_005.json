@@ -1,0 +1,33 @@
+{
+  "scenario_id": "scenario_005",
+  "title": "No Room to Breathe",
+  "difficulty": "advanced",
+  "conflict_type": "autonomy_conflict",
+  "npc_role": "Micromanaging Boss",
+  "npc_personality": "controlling, anxious, distrusts delegation, needs constant updates",
+  "context": "Your manager checks in every 30 minutes, rewrites your work without explanation, and cc's themselves on all your emails. You need to professionally establish boundaries.",
+  "opening_npc_line": "I need you to send me a status update every 30 minutes today. No exceptions.",
+  "turns": 8,
+  "success_criteria": {
+    "min_trust_score": 60,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 80,
+      "neutral": 55,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 5,
+      "irritated": 2,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": ["boundary_setting", "professional_assertiveness", "self_advocacy"],
+    "big_five_relevance": ["conscientiousness", "neuroticism", "extraversion"],
+    "recommended_for_profile": null,
+    "difficulty_weight": 2.5
+  }
+}

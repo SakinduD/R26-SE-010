@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -48,8 +48,12 @@ class PersonalityProfile(Base):
     extraversion: Mapped[float] = mapped_column(nullable=False)
     agreeableness: Mapped[float] = mapped_column(nullable=False)
     neuroticism: Mapped[float] = mapped_column(nullable=False)
-    raw_responses: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    raw_responses: Mapped[dict] = mapped_column(JSON, nullable=False)
     version: Mapped[str] = mapped_column(String(20), default="bfi-44-v1")
-    computed_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     user: Mapped["User"] = relationship("User", back_populates="personality_profile")
