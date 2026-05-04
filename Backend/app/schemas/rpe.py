@@ -89,3 +89,50 @@ class ApaRecommendRequest(BaseModel):
 class ApaSessionCompleteRequest(BaseModel):
     user_id: str
     session_id: str
+
+
+class TurnMetric(BaseModel):
+    turn:                int
+    assertiveness_score: float
+    empathy_score:       float
+    clarity_score:       float
+    response_quality:    float
+    flags:               list[str]
+
+
+class RiskFlag(BaseModel):
+    flag_type:      str
+    severity:       str
+    description:    str
+    affected_turns: list[int]
+
+
+class BlindSpot(BaseModel):
+    blind_spot_type: str
+    description:     str
+    affected_turns:  list[int]
+    recommendation:  str
+
+
+class CoachingAdvice(BaseModel):
+    overall_rating: str
+    summary:        str
+    advice:         list[str]
+    strengths:      list[str]
+    focus_areas:    list[str]
+
+
+class FeedbackResponse(BaseModel):
+    session_id:       str
+    scenario_id:      str
+    scenario_title:   str
+    user_id:          str
+    outcome:          str | None
+    final_trust:      int | None
+    final_escalation: int | None
+    total_turns:      int
+    turn_metrics:     list[TurnMetric]
+    risk_flags:       list[RiskFlag]
+    blind_spots:      list[BlindSpot]
+    coaching_advice:  CoachingAdvice
+    viz_payload:      dict

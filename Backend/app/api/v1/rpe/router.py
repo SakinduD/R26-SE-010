@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.rpe import (
     ApaRecommendRequest,
     ApaSessionCompleteRequest,
+    FeedbackResponse,
     RespondRequest,
     RespondResponse,
     ScenarioDetail,
@@ -10,18 +11,38 @@ from app.schemas.rpe import (
     StartSessionRequest,
     StartSessionResponse,
 )
-from app.services.rpe_apa_service import ApaLearnerProfile, RpeApaService
-from app.services.rpe_emotion_service import RpeEmotionService
-from app.services.rpe_npc_service import RpeNpcService
-from app.services.rpe_scenario_service import RpeScenarioService
-from app.services.rpe_session_service import RpeSessionService
+from app.services.rpe_apa_service       import ApaLearnerProfile, RpeApaService
+from app.services.rpe_blind_spot_service import RpeBlindSpotService
+from app.services.rpe_coaching_service  import RpeCoachingService
+from app.services.rpe_emotion_service   import RpeEmotionService
+from app.services.rpe_feedback_service  import RpeFeedbackService
+from app.services.rpe_nlp_service       import RpeNlpService
+from app.services.rpe_npc_service       import RpeNpcService
+from app.services.rpe_predictive_service import RpePredictiveService
+from app.services.rpe_scenario_service  import RpeScenarioService
+from app.services.rpe_session_service   import RpeSessionService
+from app.services.rpe_viz_service       import RpeVizService
 
-rpe_scenario_service = RpeScenarioService()
+rpe_scenario_service   = RpeScenarioService()
 rpe_scenario_service.load_all()
-rpe_session_service = RpeSessionService(rpe_scenario_service)
-rpe_emotion_service = RpeEmotionService()
-rpe_npc_service = RpeNpcService()
-rpe_apa_service = RpeApaService(rpe_scenario_service)
+rpe_session_service    = RpeSessionService(rpe_scenario_service)
+rpe_emotion_service    = RpeEmotionService()
+rpe_npc_service        = RpeNpcService()
+rpe_apa_service        = RpeApaService(rpe_scenario_service)
+rpe_nlp_service        = RpeNlpService()
+rpe_predictive_service = RpePredictiveService()
+rpe_blind_spot_service = RpeBlindSpotService()
+rpe_coaching_service   = RpeCoachingService()
+rpe_viz_service        = RpeVizService()
+rpe_feedback_service   = RpeFeedbackService(
+    session_service    = rpe_session_service,
+    scenario_service   = rpe_scenario_service,
+    nlp_service        = rpe_nlp_service,
+    predictive_service = rpe_predictive_service,
+    blind_spot_service = rpe_blind_spot_service,
+    coaching_service   = rpe_coaching_service,
+    viz_service        = rpe_viz_service,
+)
 
 rpe_router = APIRouter()
 
@@ -208,3 +229,13 @@ def apa_session_complete(payload: ApaSessionCompleteRequest) -> dict:
         raise HTTPException(status_code=404, detail=str(exc))
     rpe_apa_service.notify_session_complete(payload.user_id, summary)
     return {"status": "notified"}
+
+
+@rpe_router.get("/session-feedback/{session_id}", response_model=FeedbackResponse)
+def session_feedback(session_id: str) -> dict:
+    try:
+        return rpe_feedback_service.generate_feedback(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
