@@ -32,16 +32,17 @@ Preprocessing:
 - Removes duplicate cleaned text rows.
 - Records preprocessing counts in `sentiment_evaluation.json`.
 
-Model:
+Model comparison:
 
-- TF-IDF vectorizer
-- Logistic Regression classifier
+- TF-IDF + Multinomial Naive Bayes
+- TF-IDF + Logistic Regression
+- TF-IDF + Linear SVM
 
-Why this model is suitable:
+Selection rule:
 
-- It is simple and explainable for an undergraduate research baseline.
-- It gives measurable NLP evaluation results.
-- It can later be replaced by a transformer model if more accuracy is required.
+- The best model is selected using weighted F1-score.
+- Accuracy is used as a secondary comparison metric.
+- Training time is recorded to support deployment suitability discussion.
 
 ## How To Run Phase 1
 
@@ -67,6 +68,7 @@ Outputs:
 
 - `Backend/research/models/sentiment_model.joblib`
 - `Backend/research/evaluation/sentiment_evaluation.json`
+- `Backend/research/evaluation/sentiment_model_comparison.csv`
 
 Optional: save the cleaned dataset used for training:
 
@@ -78,7 +80,7 @@ python -m research.nlp_sentiment.train_sentiment_baseline `
 
 ## Research Explanation
 
-Sentiment140 is used to train a sentiment classifier for short informal text. The trained NLP model is then adapted to analyze self-assessment and peer feedback comments in the workplace soft-skills platform. The sentiment output becomes one signal for feedback analytics, skill scoring, blind spot detection, and mentoring recommendations.
+Sentiment140 is used to train and compare multiple sentiment classifiers for short informal text. The best-performing model is selected using weighted F1-score and adapted to analyze self-assessment and peer feedback comments in the workplace soft-skills platform. The sentiment output becomes one signal for feedback analytics, skill scoring, blind spot detection, and mentoring recommendations.
 
 ## Evaluation Metrics
 

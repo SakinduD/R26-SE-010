@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import html
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Iterable
 
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import LinearSVC
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
@@ -161,11 +165,12 @@ def _all_requested_classes_loaded(class_counts: Counter[str], limit_per_class: i
 def train_sentiment_model(
     dataset: SentimentDataset,
     *,
+    classifier_name: str = "logistic_regression",
     max_features: int = 50_000,
     test_size: float = 0.2,
     random_state: int = 42,
 ) -> tuple[Pipeline, dict]:
-    """Train TF-IDF + Logistic Regression and return model plus evaluation data."""
+    """Train TF-IDF + selected classifier and return model plus evaluation data."""
     stratify = dataset.labels if _can_stratify(dataset.labels) else None
     x_train, x_test, y_train, y_test = train_test_split(
         dataset.texts,
@@ -175,6 +180,7 @@ def train_sentiment_model(
         stratify=stratify,
     )
 
+    started_at = time.perf_counter()
     model = Pipeline(
         steps=[
             (
@@ -187,25 +193,48 @@ def train_sentiment_model(
                     sublinear_tf=True,
                 ),
             ),
-            (
-                "classifier",
-                LogisticRegression(
-                    class_weight="balanced",
-                    max_iter=1000,
-                    n_jobs=1,
-                    random_state=random_state,
-                ),
-            ),
+            ("classifier", build_classifier(classifier_name, random_state)),
         ]
     )
 
     model.fit(x_train, y_train)
+    training_seconds = round(time.perf_counter() - started_at, 4)
     evaluation = evaluate_sentiment_model(model, x_test, y_test)
+    evaluation["classifier_name"] = classifier_name
+    evaluation["model_type"] = model_display_name(classifier_name)
+    evaluation["training_seconds"] = training_seconds
     evaluation["train_rows"] = len(x_train)
     evaluation["test_rows"] = len(x_test)
     evaluation["label_distribution"] = dataset.label_distribution
     evaluation["preprocessing_summary"] = dataset.preprocessing_summary
     return model, evaluation
+
+
+def build_classifier(classifier_name: str, random_state: int):
+    if classifier_name == "logistic_regression":
+        return LogisticRegression(
+            class_weight="balanced",
+            max_iter=1000,
+            n_jobs=1,
+            random_state=random_state,
+        )
+    if classifier_name == "naive_bayes":
+        return MultinomialNB()
+    if classifier_name == "linear_svm":
+        return CalibratedClassifierCV(
+            estimator=LinearSVC(class_weight="balanced", random_state=random_state),
+            cv=3,
+        )
+    raise ValueError(f"Unsupported classifier: {classifier_name}")
+
+
+def model_display_name(classifier_name: str) -> str:
+    display_names = {
+        "logistic_regression": "TF-IDF + Logistic Regression",
+        "naive_bayes": "TF-IDF + Multinomial Naive Bayes",
+        "linear_svm": "TF-IDF + Linear SVM",
+    }
+    return display_names[classifier_name]
 
 
 def evaluate_sentiment_model(model: Pipeline, texts: Iterable[str], labels: Iterable[str]) -> dict:
