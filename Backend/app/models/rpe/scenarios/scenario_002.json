@@ -7,7 +7,13 @@
   "npc_personality": "sarcastic, credit-stealing, friendly on surface but undermining",
   "context": "Your colleague presented your idea in a team meeting as their own. You need to address this without causing a public scene.",
   "opening_npc_line": "Great meeting right? The team really loved my proposal.",
-  "turns": 6,
+  "recommended_turns": 6,
+  "max_turns": 15,
+  "end_conditions": {
+    "success_trust_threshold": 65,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 5
+  },
   "success_criteria": {
     "min_trust_score": 45,
     "max_escalation_level": 2

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronLeft, RefreshCw, Download } from 'lucide-react'
+import { ChevronLeft, RefreshCw, Download, CheckCircle, XCircle, Clock } from 'lucide-react'
 
 import { rpeService }       from '@/services/rpe/rpeService'
 import { cn }               from '@/lib/utils'
@@ -40,13 +40,55 @@ const EMOTION_BAR_COLORS = {
 }
 
 const SECTIONS = [
-  { id: 'overview',  label: 'Overview'             },
-  { id: 'coaching',  label: 'Coaching'              },
-  { id: 'risks',     label: 'Risk & Blind Spots'   },
-  { id: 'charts',    label: 'Charts'                },
+  { id: 'overview', label: 'Overview'           },
+  { id: 'coaching', label: 'Coaching'            },
+  { id: 'risks',    label: 'Risk & Blind Spots'  },
+  { id: 'charts',   label: 'Charts'              },
 ]
 
-/* ── score card helper ──────────────────────────────────────── */
+/* ── end reason badge config ─────────────────────────────────── */
+function endReasonBadge(endReason, outcome) {
+  if (endReason === 'trust_sustained')
+    return { cls: 'bg-green-100 text-green-700',  label: '🎉 Trust Built'  }
+  if (endReason === 'npc_exit')
+    return { cls: 'bg-red-100 text-red-700',      label: '💢 NPC Exited'   }
+  if (endReason === 'max_turns_reached' && outcome === 'success')
+    return { cls: 'bg-blue-100 text-blue-700',    label: '✅ Completed'    }
+  if (endReason === 'max_turns_reached' && outcome === 'failure')
+    return { cls: 'bg-yellow-100 text-yellow-700', label: '⏱ Time Limit'  }
+  if (outcome === 'success')
+    return { cls: 'bg-green-100 text-green-700',  label: '✅ Success'      }
+  if (outcome === 'failure')
+    return { cls: 'bg-red-100 text-red-700',      label: '❌ Needs Work'   }
+  return   { cls: 'bg-gray-100 text-gray-500',    label: 'Incomplete'      }
+}
+
+/* ── end reason context card ─────────────────────────────────── */
+function EndReasonCard({ endReason, totalTurns, recommendedTurns, maxTurns, label }) {
+  const config = {
+    trust_sustained:   { border: 'border-green-200 bg-green-50',  Icon: CheckCircle, iconCls: 'text-green-500' },
+    npc_exit:          { border: 'border-red-200 bg-red-50',       Icon: XCircle,    iconCls: 'text-red-500'   },
+    max_turns_reached: { border: 'border-blue-200 bg-blue-50',     Icon: Clock,      iconCls: 'text-blue-400'  },
+  }
+  const c = config[endReason] ?? config.max_turns_reached
+  const { Icon } = c
+  return (
+    <div className={cn('rounded-xl border px-4 py-3 flex items-center gap-3', c.border)}>
+      <Icon className={cn('w-5 h-5 shrink-0', c.iconCls)} />
+      <div>
+        <p className="text-sm font-semibold text-gray-800">{label ?? 'Session Ended'}</p>
+        <p className="text-xs text-gray-500">
+          Session ran {totalTurns} turns
+          {recommendedTurns && ` (recommended ${recommendedTurns}`}
+          {maxTurns && `, max ${maxTurns}`}
+          {(recommendedTurns || maxTurns) && ')'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/* ── score card ──────────────────────────────────────────────── */
 function ScoreCard({ label, value, suffix, colorClass = 'text-gray-900', children }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
@@ -64,7 +106,6 @@ function getTrustColor(v) {
   return v >= 70 ? 'text-green-600' : v >= 40 ? 'text-yellow-500' : 'text-red-500'
 }
 
-/* ── skeleton ────────────────────────────────────────────────── */
 function Skeleton() {
   return (
     <div className="animate-pulse space-y-4">
@@ -85,10 +126,10 @@ export default function FeedbackDashboard() {
 
   const sessionId = paramId || location.state?.sessionId
 
-  const [feedbackData,   setFeedbackData]   = useState(null)
-  const [isLoading,      setIsLoading]      = useState(true)
-  const [error,          setError]          = useState(null)
-  const [activeSection,  setActiveSection]  = useState('overview')
+  const [feedbackData,  setFeedbackData]  = useState(null)
+  const [isLoading,     setIsLoading]     = useState(true)
+  const [error,         setError]         = useState(null)
+  const [activeSection, setActiveSection] = useState('overview')
 
   const load = useCallback(async () => {
     if (!sessionId) { navigate('/roleplay'); return }
@@ -106,17 +147,20 @@ export default function FeedbackDashboard() {
 
   useEffect(() => { load() }, [load])
 
-  /* ── derived data ───────────────────────────────────────────── */
-  const viz        = feedbackData?.viz_payload         ?? {}
-  const summary    = viz.summary_scores                ?? {}
-  const emotionDist = viz.emotion_distribution         ?? {}
-  const trustDeltas = viz.trust_deltas                 ?? []
-  const npcToneJourney = viz.npc_tone_journey          ?? []
+  /* ── derived ─────────────────────────────────────────────── */
+  const viz             = feedbackData?.viz_payload         ?? {}
+  const summary         = viz.summary_scores                ?? {}
+  const emotionDist     = viz.emotion_distribution          ?? {}
+  const trustDeltas     = viz.trust_deltas                  ?? []
+  const npcToneJourney  = viz.npc_tone_journey              ?? []
+  const endReason       = feedbackData?.end_reason
+  const recommendedTurns = feedbackData?.recommended_turns
+  const maxTurns        = feedbackData?.max_turns
 
-  const totalEmotions = Object.values(emotionDist).reduce((s, c) => s + c, 0)
-  const emotionEntries = Object.entries(emotionDist).sort((a, b) => b[1] - a[1])
+  const totalEmotions   = Object.values(emotionDist).reduce((s, c) => s + c, 0)
+  const emotionEntries  = Object.entries(emotionDist).sort((a, b) => b[1] - a[1])
 
-  /* ── LOADING ────────────────────────────────────────────────── */
+  /* ── LOADING ────────────────────────────────────────────── */
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 px-4 py-10">
@@ -131,7 +175,7 @@ export default function FeedbackDashboard() {
     )
   }
 
-  /* ── ERROR ──────────────────────────────────────────────────── */
+  /* ── ERROR ──────────────────────────────────────────────── */
   if (error) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -158,17 +202,16 @@ export default function FeedbackDashboard() {
     )
   }
 
-  /* ── LOADED ─────────────────────────────────────────────────── */
-  const fd = feedbackData
+  /* ── LOADED ─────────────────────────────────────────────── */
+  const fd    = feedbackData
+  const badge = endReasonBadge(endReason, fd.outcome)
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
 
-      {/* ── Sticky page header ────────────────────────────────── */}
+      {/* ── Sticky page header ─────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-
-          {/* Left: back + title */}
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(-1)}
@@ -193,27 +236,14 @@ export default function FeedbackDashboard() {
               </div>
             </div>
           </div>
-
-          {/* Right: outcome badge */}
-          <div className="shrink-0">
-            {fd.outcome === 'success' ? (
-              <span className="bg-green-100 text-green-700 text-sm font-semibold rounded-full px-3 py-1">
-                ✅ Success
-              </span>
-            ) : fd.outcome === 'failure' ? (
-              <span className="bg-red-100 text-red-700 text-sm font-semibold rounded-full px-3 py-1">
-                ❌ Needs Work
-              </span>
-            ) : (
-              <span className="bg-gray-100 text-gray-500 text-sm rounded-full px-3 py-1">
-                Incomplete
-              </span>
-            )}
-          </div>
+          {/* End reason / outcome badge */}
+          <span className={cn('shrink-0 text-sm font-semibold rounded-full px-3 py-1', badge.cls)}>
+            {badge.label}
+          </span>
         </div>
       </div>
 
-      {/* ── Section nav bar ───────────────────────────────────── */}
+      {/* ── Section nav bar ────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100 px-4">
         <div className="max-w-4xl mx-auto flex gap-1 overflow-x-auto">
           {SECTIONS.map((s) => (
@@ -233,11 +263,11 @@ export default function FeedbackDashboard() {
         </div>
       </div>
 
-      {/* ── Main content ──────────────────────────────────────── */}
+      {/* ── Main content ───────────────────────────────────── */}
       <div className="flex-1 px-4 py-6">
         <div className="max-w-4xl mx-auto space-y-6">
 
-          {/* Score cards row — always visible */}
+          {/* Score cards — always visible */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <ScoreCard
               label="Final Trust"
@@ -253,7 +283,9 @@ export default function FeedbackDashboard() {
                     className={cn(
                       'w-2 h-2 rounded-full',
                       i < (fd.final_escalation ?? 0)
-                        ? (fd.final_escalation <= 1 ? 'bg-green-400' : fd.final_escalation <= 3 ? 'bg-yellow-400' : 'bg-red-500')
+                        ? fd.final_escalation <= 1 ? 'bg-green-400'
+                          : fd.final_escalation <= 3 ? 'bg-yellow-400'
+                          : 'bg-red-500'
                         : 'bg-gray-200'
                     )}
                   />
@@ -275,9 +307,18 @@ export default function FeedbackDashboard() {
             />
           </div>
 
-          {/* ── OVERVIEW section ──────────────────────────────── */}
+          {/* ── OVERVIEW ─────────────────────────────────────── */}
           {activeSection === 'overview' && (
             <div className="space-y-6">
+              {/* End reason context card */}
+              <EndReasonCard
+                endReason={endReason}
+                totalTurns={fd.total_turns}
+                recommendedTurns={recommendedTurns}
+                maxTurns={maxTurns}
+                label={summary.end_reason_label}
+              />
+
               <div className="grid md:grid-cols-2 gap-6">
                 <RadarSummaryCard summaryScores={summary} emotionDistribution={emotionDist} />
                 <CoachingPanel
@@ -313,12 +354,12 @@ export default function FeedbackDashboard() {
             </div>
           )}
 
-          {/* ── COACHING section ──────────────────────────────── */}
+          {/* ── COACHING ─────────────────────────────────────── */}
           {activeSection === 'coaching' && (
             <div className="space-y-6">
               <CoachingPanel coachingAdvice={fd.coaching_advice} />
 
-              {/* NPC tone journey strip */}
+              {/* NPC tone journey */}
               {npcToneJourney.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <p className="text-sm font-semibold text-gray-700 mb-3">
@@ -337,12 +378,24 @@ export default function FeedbackDashboard() {
                       </span>
                     ))}
                   </div>
+                  {/* End reason note */}
+                  {endReason === 'npc_exit' && (
+                    <p className="text-xs text-red-500 mt-2">
+                      ⚠ The NPC exited at turn {fd.total_turns} due to escalation reaching level{' '}
+                      {fd.final_escalation}/5
+                    </p>
+                  )}
+                  {endReason === 'trust_sustained' && (
+                    <p className="text-xs text-green-500 mt-2">
+                      ✅ Trust was sustained above the threshold — NPC resolved.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* ── RISKS section ─────────────────────────────────── */}
+          {/* ── RISKS ────────────────────────────────────────── */}
           {activeSection === 'risks' && (
             <div className="grid md:grid-cols-2 gap-6">
               <RiskFlagsPanel riskFlags={fd.risk_flags} />
@@ -350,7 +403,7 @@ export default function FeedbackDashboard() {
             </div>
           )}
 
-          {/* ── CHARTS section ────────────────────────────────── */}
+          {/* ── CHARTS ───────────────────────────────────────── */}
           {activeSection === 'charts' && (
             <div className="space-y-6">
               <QualityCurveChart
@@ -420,7 +473,7 @@ export default function FeedbackDashboard() {
         </div>
       </div>
 
-      {/* ── Sticky action bar ─────────────────────────────────── */}
+      {/* ── Sticky action bar ──────────────────────────────── */}
       <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 z-20">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <button

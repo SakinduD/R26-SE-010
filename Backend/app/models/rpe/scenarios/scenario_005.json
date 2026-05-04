@@ -7,7 +7,13 @@
   "npc_personality": "controlling, anxious, distrusts delegation, needs constant updates",
   "context": "Your manager checks in every 30 minutes, rewrites your work without explanation, and cc's themselves on all your emails. You need to professionally establish boundaries.",
   "opening_npc_line": "I need you to send me a status update every 30 minutes today. No exceptions.",
-  "turns": 8,
+  "recommended_turns": 8,
+  "max_turns": 20,
+  "end_conditions": {
+    "success_trust_threshold": 80,
+    "success_consecutive_turns": 3,
+    "failure_escalation_threshold": 4
+  },
   "success_criteria": {
     "min_trust_score": 60,
     "max_escalation_level": 1
