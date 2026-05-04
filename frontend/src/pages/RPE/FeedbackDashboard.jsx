@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronLeft, RefreshCw, Download, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { ChevronLeft, RefreshCw, CheckCircle, XCircle, Clock } from 'lucide-react'
 
 import { rpeService }       from '@/services/rpe/rpeService'
 import { cn }               from '@/lib/utils'
@@ -483,13 +483,7 @@ export default function FeedbackDashboard() {
             <RefreshCw size={14} /> Try Again
           </button>
           <div className="flex gap-3">
-            <button
-              disabled
-              title="Coming soon"
-              className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-400 cursor-not-allowed"
-            >
-              <Download size={14} /> Download Report
-            </button>
+            {/* Download Report hidden until Phase 5 */}
             <button
               onClick={() => navigate('/roleplay')}
               className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"

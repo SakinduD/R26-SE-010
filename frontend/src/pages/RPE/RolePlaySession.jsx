@@ -38,7 +38,7 @@ export default function RolePlaySession() {
 
   // Phase 2 state
   const [trustDelta, setTrustDelta]         = useState(null)
-  const [npcTone, setNpcTone]               = useState('hostile')
+  const [npcTone, setNpcTone]               = useState('neutral')
   const [escalationTone, setEscalationTone] = useState('controlled')
   const [previousTrust, setPreviousTrust]   = useState(50)
 
@@ -160,25 +160,28 @@ export default function RolePlaySession() {
 
         {/* Turn counter — dynamic with context */}
         <div className="ml-auto shrink-0 flex flex-col items-end">
-          <span className="text-sm font-semibold text-gray-700">
-            Turn {currentTurn}
-          </span>
-          <span className={cn(
-            'text-xs',
-            !maxTurns || currentTurn < recommendedTurns
-              ? 'text-gray-400'
-              : currentTurn < maxTurns
-                ? 'text-yellow-500'
-                : 'text-red-500'
-          )}>
-            {!maxTurns
-              ? `Recommended: ${recommendedTurns} turns`
-              : currentTurn < recommendedTurns
-                ? `Recommended: ${recommendedTurns} turns`
+          {currentTurn === 0
+            ? <span className="text-gray-400 text-sm">Not started</span>
+            : <span className="text-sm font-semibold text-gray-700">Turn {currentTurn}</span>
+          }
+          {currentTurn > 0 && (
+            <span className={cn(
+              'text-xs',
+              !maxTurns || currentTurn < recommendedTurns
+                ? 'text-gray-400'
                 : currentTurn < maxTurns
-                  ? `Extended — Max: ${maxTurns} turns`
-                  : 'Final turns ⚠'}
-          </span>
+                  ? 'text-yellow-500'
+                  : 'text-red-500'
+            )}>
+              {!maxTurns
+                ? `Recommended: ${recommendedTurns} turns`
+                : currentTurn < recommendedTurns
+                  ? `Recommended: ${recommendedTurns} turns`
+                  : currentTurn < maxTurns
+                    ? `Extended — Max: ${maxTurns} turns`
+                    : 'Final turns ⚠'}
+            </span>
+          )}
         </div>
       </header>
 
@@ -303,7 +306,7 @@ export default function RolePlaySession() {
                 ['Scenario',    scenarioTitle],
                 ['NPC Role',    npcRole],
                 ['Conflict',    conflictType],
-                ['Progress',    `Turn ${currentTurn} of ${recommendedTurns}`],
+                ['Progress',    currentTurn === 0 ? 'Not started' : `Turn ${currentTurn} of ${recommendedTurns}`],
               ].map(([label, value]) => (
                 <div key={label} className="flex flex-col">
                   <dt className="text-xs text-gray-400">{label}</dt>
