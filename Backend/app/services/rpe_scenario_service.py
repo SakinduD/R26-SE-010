@@ -17,21 +17,29 @@ _DEFAULT_BEHAVIOUR: dict = {
     "escalation_thresholds": {"furious": 4, "irritated": 2, "controlled": 0},
 }
 
+_DEFAULT_END_CONDITIONS: dict = {
+    "success_trust_threshold": 70,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 5,
+}
+
 
 @dataclass
 class Scenario:
-    scenario_id: str
-    title: str
-    difficulty: str
-    conflict_type: str
-    npc_role: str
-    npc_personality: str
-    context: str
-    opening_npc_line: str
-    turns: int
-    success_criteria: dict
-    npc_behaviour: dict
-    apa_metadata: dict
+    scenario_id:       str
+    title:             str
+    difficulty:        str
+    conflict_type:     str
+    npc_role:          str
+    npc_personality:   str
+    context:           str
+    opening_npc_line:  str
+    recommended_turns: int
+    max_turns:         int
+    end_conditions:    dict
+    success_criteria:  dict
+    npc_behaviour:     dict
+    apa_metadata:      dict
 
 
 class RpeScenarioService:
@@ -41,6 +49,10 @@ class RpeScenarioService:
     def load_all(self) -> None:
         for path in SCENARIOS_DIR.glob("*.json"):
             data = json.loads(path.read_text())
+            # Support old files that only have "turns"
+            recommended_turns = data.get("recommended_turns", data.get("turns", 6))
+            max_turns         = data.get("max_turns", 15)
+            end_conditions    = data.get("end_conditions", _DEFAULT_END_CONDITIONS)
             self._scenarios[data["scenario_id"]] = Scenario(
                 scenario_id=data["scenario_id"],
                 title=data["title"],
@@ -50,7 +62,9 @@ class RpeScenarioService:
                 npc_personality=data["npc_personality"],
                 context=data["context"],
                 opening_npc_line=data["opening_npc_line"],
-                turns=data["turns"],
+                recommended_turns=recommended_turns,
+                max_turns=max_turns,
+                end_conditions=end_conditions,
                 success_criteria=data["success_criteria"],
                 npc_behaviour=data.get("npc_behaviour", _DEFAULT_BEHAVIOUR),
                 apa_metadata=data.get("apa_metadata", _DEFAULT_APA),
@@ -62,12 +76,14 @@ class RpeScenarioService:
     def list_all(self) -> list[dict]:
         return [
             {
-                "scenario_id": s.scenario_id,
-                "title": s.title,
-                "difficulty": s.difficulty,
-                "conflict_type": s.conflict_type,
-                "turns": s.turns,
-                "target_skills": s.apa_metadata.get("target_skills", []),
+                "scenario_id":       s.scenario_id,
+                "title":             s.title,
+                "difficulty":        s.difficulty,
+                "conflict_type":     s.conflict_type,
+                "turns":             s.recommended_turns,   # backward-compat alias
+                "recommended_turns": s.recommended_turns,
+                "max_turns":         s.max_turns,
+                "target_skills":     s.apa_metadata.get("target_skills", []),
                 "difficulty_weight": s.apa_metadata.get("difficulty_weight", 1.0),
             }
             for s in self._scenarios.values()
@@ -96,22 +112,7 @@ class RpeScenarioService:
     def get_recommended_for_profile(self, big_five_scores: dict) -> list[dict]:
         """
         APA INTEGRATION HOOK — called by rpe_apa_service.py.
-
-        Currently: returns all scenarios sorted by difficulty_weight ascending.
-
-        Future (when APA integration is ready):
-        This method will receive the learner's Big Five profile from the
-        Adaptive Pedagogical Architecture component and return personalised
-        scenario recommendations based on their weakest traits.
-
-        big_five_scores format expected from APA:
-        {
-          "openness": 0.72, "conscientiousness": 0.45,
-          "extraversion": 0.60, "agreeableness": 0.38, "neuroticism": 0.81
-        }
-
-        Do NOT implement personalisation logic yet.
-        The APA owner will provide the scoring logic later.
+        Currently returns all scenarios sorted by difficulty_weight ascending.
         """
         return sorted(
             self.list_all(),
