@@ -4,6 +4,7 @@ from pathlib import Path
 from research.nlp_sentiment.sentiment_baseline import (
     clean_feedback_text,
     load_sentiment140,
+    model_display_name,
     predict_sentiment,
     train_sentiment_model,
 )
@@ -35,15 +36,54 @@ def test_sentiment_baseline_trains_and_predicts():
             writer.writerows(rows)
 
         dataset = load_sentiment140(dataset_path)
-        model, evaluation = train_sentiment_model(dataset, max_features=200, test_size=0.25)
+        model, evaluation = train_sentiment_model(
+            dataset,
+            classifier_name="logistic_regression",
+            max_features=200,
+            test_size=0.25,
+        )
         prediction = predict_sentiment(model, "This was a clear and excellent response")
 
         assert dataset.label_distribution == {"negative": 4, "positive": 4}
         assert dataset.preprocessing_summary["valid_rows_used"] == 8
+        assert evaluation["classifier_name"] == "logistic_regression"
         assert 0 <= evaluation["weighted_f1"] <= 1
         assert evaluation["preprocessing_summary"]["duplicate_rows_skipped"] == 0
         assert prediction["sentiment"] in {"negative", "positive"}
         assert 0 <= prediction["confidence"] <= 1
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+def test_supported_classifiers_can_train_on_small_dataset():
+    dataset_path = Path(__file__).with_name("_sentiment140_model_comparison_sample.csv")
+    rows = [
+        [0, "1", "date", "flag", "user", "Bad unclear response"],
+        [0, "2", "date", "flag", "user", "I hate this poor answer"],
+        [0, "3", "date", "flag", "user", "Terrible confusing tone"],
+        [0, "4", "date", "flag", "user", "Weak and unhelpful communication"],
+        [4, "5", "date", "flag", "user", "Clear helpful response"],
+        [4, "6", "date", "flag", "user", "Excellent confident tone"],
+        [4, "7", "date", "flag", "user", "Great professional answer"],
+        [4, "8", "date", "flag", "user", "Helpful and empathetic communication"],
+    ]
+    try:
+        with dataset_path.open("w", encoding="latin-1", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerows(rows)
+
+        dataset = load_sentiment140(dataset_path)
+        for classifier_name in ("naive_bayes", "logistic_regression", "linear_svm"):
+            model, evaluation = train_sentiment_model(
+                dataset,
+                classifier_name=classifier_name,
+                max_features=200,
+                test_size=0.25,
+            )
+            prediction = predict_sentiment(model, "Clear professional communication")
+
+            assert evaluation["model_type"] == model_display_name(classifier_name)
+            assert prediction["sentiment"] in {"negative", "positive"}
     finally:
         dataset_path.unlink(missing_ok=True)
 

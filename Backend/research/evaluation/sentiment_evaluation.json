@@ -1,9 +1,9 @@
 {
-  "model_version": "tfidf-logistic-regression-sentiment-v1",
+  "model_version": "tfidf-sentiment-model-comparison-v1",
   "dataset_name": "Sentiment140",
   "dataset_path": "research\\datasets\\raw\\sentiment140.csv",
   "rows_used": 1543240,
-  "trained_at": "2026-05-04T14:19:18.964852+00:00",
+  "trained_at": "2026-05-04T15:04:23.143278+00:00",
   "text_preprocessing": [
     "lowercase",
     "html_unescape",
@@ -26,9 +26,40 @@
     "min_text_length": 3
   },
   "model_type": "TF-IDF + Logistic Regression",
+  "selected_classifier": "logistic_regression",
+  "selection_metric": "weighted_f1",
   "max_features": 50000,
   "test_size": 0.2,
   "random_state": 42,
+  "model_comparison": [
+    {
+      "classifier_name": "logistic_regression",
+      "model_type": "TF-IDF + Logistic Regression",
+      "accuracy": 0.8175,
+      "weighted_precision": 0.8177,
+      "weighted_recall": 0.8175,
+      "weighted_f1": 0.8175,
+      "training_seconds": 41.4679
+    },
+    {
+      "classifier_name": "linear_svm",
+      "model_type": "TF-IDF + Linear SVM",
+      "accuracy": 0.8161,
+      "weighted_precision": 0.8162,
+      "weighted_recall": 0.8161,
+      "weighted_f1": 0.816,
+      "training_seconds": 99.4792
+    },
+    {
+      "classifier_name": "naive_bayes",
+      "model_type": "TF-IDF + Multinomial Naive Bayes",
+      "accuracy": 0.7962,
+      "weighted_precision": 0.7962,
+      "weighted_recall": 0.7962,
+      "weighted_f1": 0.7962,
+      "training_seconds": 33.9695
+    }
+  ],
   "evaluation": {
     "accuracy": 0.8175,
     "weighted_precision": 0.8177,
@@ -61,6 +92,9 @@
         "support": 308648.0
       }
     },
+    "classifier_name": "logistic_regression",
+    "model_type": "TF-IDF + Logistic Regression",
+    "training_seconds": 41.4679,
     "train_rows": 1234592,
     "test_rows": 308648,
     "label_distribution": {
