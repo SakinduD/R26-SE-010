@@ -3,7 +3,7 @@ import { Mic, Bot, User, Volume2, Activity, X } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal }) => {
   // Mock messages for UI demonstration
   const [messages, setMessages] = useState([
     {
@@ -25,6 +25,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const recognitionRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const transcriptRef = useRef("");
+  const recordRestartTimeoutRef = useRef(null);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,6 +55,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     };
   }, []);
 
+  useEffect(() => {
+    if (stopSignal && isListening) {
+      isContinuousRef.current = false;
+      stopListening(false);
+    }
+  }, [stopSignal]);
+
   const cleanup = () => {
     if (socketRef.current) socketRef.current.close();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -64,6 +72,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
+    }
+    if (recordRestartTimeoutRef.current) {
+      clearTimeout(recordRestartTimeoutRef.current);
+      recordRestartTimeoutRef.current = null;
     }
     window.speechSynthesis.cancel();
   };
@@ -88,6 +100,18 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+              // Send Visual Metrics in Chat mode to enable Affect Fusion
+              if (metrics) {
+                socket.send(JSON.stringify({
+                  type: 'visual_metrics',
+                  metrics: {
+                    ear: metrics.ear,
+                    mar: metrics.mar,
+                    pose: metrics.pose
+                  }
+                }));
+              }
+              
               socket.send(event.data);
             }
           };
@@ -95,7 +119,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           mediaRecorder.start();
 
           // Stop and restart every 1 second to create standalone chunks with headers
-          setTimeout(() => {
+          if (recordRestartTimeoutRef.current) {
+            clearTimeout(recordRestartTimeoutRef.current);
+          }
+          recordRestartTimeoutRef.current = setTimeout(() => {
             if (mediaRecorder.state === 'recording') {
               mediaRecorder.stop();
               startRecordingChunk();
@@ -111,7 +138,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         try {
           const data = JSON.parse(event.data);
           if (data.metrics?.nudge) {
-            onNudge(data.metrics.nudge);
+            onNudge(
+              data.metrics.nudge,
+              data.metrics.nudge_category,
+              data.metrics.nudge_severity
+            );
           }
         } catch (err) {
           console.error("Error parsing socket message:", err);
@@ -164,6 +195,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    if (recordRestartTimeoutRef.current) {
+      clearTimeout(recordRestartTimeoutRef.current);
+      recordRestartTimeoutRef.current = null;
     }
 
     if (streamRef.current) {
