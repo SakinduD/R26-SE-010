@@ -39,9 +39,12 @@ class RpeFeedbackService:
         session  = self._session.get_session(session_id)
         scenario = self._scenario.get_scenario(session["scenario_id"])
 
-        turns           = session.get("turns", [])
-        trust_history   = session.get("trust_history", [50])
-        emotion_history = session.get("emotion_history", ["calm"])
+        turns             = session.get("turns", [])
+        trust_history     = session.get("trust_history", [50])
+        emotion_history   = session.get("emotion_history", ["calm"])
+        end_reason        = session.get("end_reason", "max_turns_reached")
+        recommended_turns = session.get("recommended_turns", 6)
+        max_turns         = session.get("max_turns", 15)
 
         turn_metrics = self._nlp.analyse_turns(turns)
         risk_flags   = self._predictive.detect_risk_patterns(
@@ -49,24 +52,29 @@ class RpeFeedbackService:
         )
         blind_spots  = self._blind_spot.detect(turns, scenario.success_criteria)
         coaching     = self._coaching.generate_advice(
-            session, scenario, turn_metrics, risk_flags, blind_spots
+            session, scenario, turn_metrics, risk_flags, blind_spots,
+            end_reason=end_reason,
         )
         viz_payload  = self._viz.build(
-            turns, trust_history, emotion_history, turn_metrics
+            turns, trust_history, emotion_history, turn_metrics,
+            end_reason=end_reason,
         )
 
         return {
-            "session_id":       session_id,
-            "scenario_id":      session["scenario_id"],
-            "scenario_title":   scenario.title,
-            "user_id":          session["user_id"],
-            "outcome":          session.get("outcome"),
-            "final_trust":      session.get("final_trust"),
-            "final_escalation": session.get("final_escalation"),
-            "total_turns":      len(turns),
-            "turn_metrics":     turn_metrics,
-            "risk_flags":       risk_flags,
-            "blind_spots":      blind_spots,
-            "coaching_advice":  coaching,
-            "viz_payload":      viz_payload,
+            "session_id":        session_id,
+            "scenario_id":       session["scenario_id"],
+            "scenario_title":    scenario.title,
+            "user_id":           session["user_id"],
+            "outcome":           session.get("outcome"),
+            "final_trust":       session.get("final_trust"),
+            "final_escalation":  session.get("final_escalation"),
+            "total_turns":       len(turns),
+            "turn_metrics":      turn_metrics,
+            "risk_flags":        risk_flags,
+            "blind_spots":       blind_spots,
+            "coaching_advice":   coaching,
+            "viz_payload":       viz_payload,
+            "end_reason":        end_reason,
+            "recommended_turns": recommended_turns,
+            "max_turns":         max_turns,
         }

@@ -7,7 +7,13 @@
   "npc_personality": "impatient, condescending, always threatening to pull contract",
   "context": "A key client is unhappy with a delayed deliverable. The delay was caused by their own late requirements, but they are blaming your team.",
   "opening_npc_line": "This is unacceptable. We are paying you people a lot of money for nothing.",
-  "turns": 6,
+  "recommended_turns": 6,
+  "max_turns": 15,
+  "end_conditions": {
+    "success_trust_threshold": 70,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 4
+  },
   "success_criteria": {
     "min_trust_score": 50,
     "max_escalation_level": 2

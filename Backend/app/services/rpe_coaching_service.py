@@ -10,8 +10,8 @@ _FALLBACK_ADVICE = {
         "Use empathetic language early to build trust with the NPC.",
         "When escalation rises, slow down and acknowledge the NPC's concern.",
     ],
-    "strengths":    ["Completed the session"],
-    "focus_areas":  ["Trust building", "Escalation management"],
+    "strengths":   ["Completed the session"],
+    "focus_areas": ["Trust building", "Escalation management"],
 }
 
 _SYSTEM_PROMPT = (
@@ -43,6 +43,7 @@ class RpeCoachingService:
         turn_metrics: list[dict],
         risk_flags:   list[dict],
         blind_spots:  list[dict],
+        end_reason:   str | None = None,
     ) -> dict:
         if not self._client:
             rating = "good" if session.get("outcome") == "success" else "needs_work"
@@ -50,7 +51,9 @@ class RpeCoachingService:
             fallback["overall_rating"] = rating
             return fallback
 
-        prompt = self._build_prompt(session, scenario, turn_metrics, risk_flags, blind_spots)
+        prompt = self._build_prompt(
+            session, scenario, turn_metrics, risk_flags, blind_spots, end_reason
+        )
         try:
             response = self._client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -75,6 +78,7 @@ class RpeCoachingService:
         turn_metrics: list[dict],
         risk_flags:   list[dict],
         blind_spots:  list[dict],
+        end_reason:   str | None = None,
     ) -> str:
         avg_quality = (
             sum(m["response_quality"] for m in turn_metrics) / len(turn_metrics)
@@ -85,6 +89,7 @@ class RpeCoachingService:
         return (
             f"Scenario: {scenario.title} ({scenario.difficulty})\n"
             f"NPC Role: {scenario.npc_role}\n"
+            f"Session End Reason: {end_reason}\n"
             f"Outcome: {session.get('outcome', 'incomplete')}\n"
             f"Final Trust: {session.get('final_trust', 'N/A')}/100\n"
             f"Final Escalation: {session.get('final_escalation', 'N/A')}/5\n"

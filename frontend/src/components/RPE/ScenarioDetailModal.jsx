@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const DIFFICULTY_COLORS = {
@@ -132,8 +132,39 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
             Session Info
           </p>
+
+          {/* Session Length */}
+          <div className="space-y-1 mb-3">
+            <div className="flex gap-6 text-sm">
+              <span className="text-gray-700">
+                <span className="text-gray-400">Recommended: </span>
+                {scenario.recommended_turns ?? scenario.turns} turns
+              </span>
+              <span className="text-gray-500 text-sm">
+                <span className="text-gray-400">Maximum: </span>
+                {scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns
+              </span>
+            </div>
+            {/* Progress bar */}
+            {scenario.max_turns && (
+              <div className="w-full">
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-2 bg-blue-400 rounded-full transition-all"
+                    style={{
+                      width: `${((scenario.recommended_turns ?? scenario.turns) / scenario.max_turns) * 100}%`
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between mt-0.5">
+                  <span className="text-xs text-gray-400">0</span>
+                  <span className="text-xs text-gray-400">{scenario.max_turns}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-6 text-sm text-gray-700 mb-2">
-            <span><span className="text-gray-400">Turns: </span>{scenario.turns}</span>
             <span><span className="text-gray-400">Difficulty: </span>{getDifficultyLabel(weight)}</span>
           </div>
           {(criteria.min_trust_score != null || criteria.max_escalation_level != null) && (
@@ -147,6 +178,46 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
             </div>
           )}
         </section>
+
+        {/* How does this session end? */}
+        {(() => {
+          const ec = scenario.end_conditions ?? {}
+          const successThreshold  = ec.success_trust_threshold      ?? 70
+          const consecutiveTurns  = ec.success_consecutive_turns     ?? 2
+          const failureEscalation = ec.failure_escalation_threshold  ?? 5
+          const maxT              = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
+          return (
+            <section className="mb-5">
+              <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                How does this session end?
+              </p>
+              <div className="space-y-2">
+                {/* Success */}
+                <div className="border-l-2 border-green-400 bg-green-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
+                  <CheckCircle className="text-green-500 w-4 h-4 mt-0.5 shrink-0" />
+                  <p className="text-sm text-gray-600">
+                    Build trust above <span className="font-medium">{successThreshold}</span> for{' '}
+                    <span className="font-medium">{consecutiveTurns}</span> consecutive turns
+                  </p>
+                </div>
+                {/* Failure */}
+                <div className="border-l-2 border-red-400 bg-red-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
+                  <XCircle className="text-red-500 w-4 h-4 mt-0.5 shrink-0" />
+                  <p className="text-sm text-gray-600">
+                    Escalation reaches <span className="font-medium">{failureEscalation}/5</span> — the NPC walks out
+                  </p>
+                </div>
+                {/* Hard cap */}
+                <div className="border-l-2 border-gray-300 bg-gray-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
+                  <Clock className="text-gray-400 w-4 h-4 mt-0.5 shrink-0" />
+                  <p className="text-sm text-gray-500">
+                    Maximum of <span className="font-medium">{maxT}</span> turns — scored on final trust and escalation
+                  </p>
+                </div>
+              </div>
+            </section>
+          )
+        })()}
 
         {/* NPC Behaviour thresholds — collapsible */}
         {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (

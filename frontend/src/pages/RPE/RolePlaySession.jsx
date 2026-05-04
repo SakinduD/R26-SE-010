@@ -18,30 +18,48 @@ export default function RolePlaySession() {
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
     conflictType, totalTurns, npcRole,
+    recommendedTurns: recommendedTurnsFromState,
+    maxTurns:         maxTurnsFromState,
   } = location.state || {}
 
-  const bottomRef    = useRef(null)
-  const textareaRef  = useRef(null)
+  const bottomRef   = useRef(null)
+  const textareaRef = useRef(null)
 
-  const [messages, setMessages]             = useState([])
-  const [userInput, setUserInput]           = useState('')
-  const [trustScore, setTrustScore]         = useState(50)
+  const [messages, setMessages]               = useState([])
+  const [userInput, setUserInput]             = useState('')
+  const [trustScore, setTrustScore]           = useState(50)
   const [escalationLevel, setEscalationLevel] = useState(0)
-  const [currentEmotion, setCurrentEmotion] = useState('calm')
-  const [currentTurn, setCurrentTurn]       = useState(0)
-  const [isLoading, setIsLoading]           = useState(false)
+  const [currentEmotion, setCurrentEmotion]   = useState('calm')
+  const [currentTurn, setCurrentTurn]         = useState(0)
+  const [isLoading, setIsLoading]             = useState(false)
   const [sessionComplete, setSessionComplete] = useState(false)
-  const [outcome, setOutcome]               = useState(null)
+  const [outcome, setOutcome]                 = useState(null)
+  const [endReason, setEndReason]             = useState(null)
 
   // Phase 2 state
-  const [trustDelta, setTrustDelta]           = useState(null)
-  const [npcTone, setNpcTone]                 = useState('hostile')
-  const [escalationTone, setEscalationTone]   = useState('controlled')
-  const [previousTrust, setPreviousTrust]     = useState(50)
+  const [trustDelta, setTrustDelta]         = useState(null)
+  const [npcTone, setNpcTone]               = useState('hostile')
+  const [escalationTone, setEscalationTone] = useState('controlled')
+  const [previousTrust, setPreviousTrust]   = useState(50)
+
+  // Dynamic turn limits — populated from session summary on mount
+  const [recommendedTurns, setRecommendedTurns] = useState(
+    recommendedTurnsFromState || totalTurns || 6
+  )
+  const [maxTurns, setMaxTurns] = useState(maxTurnsFromState || null)
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     setMessages([{ role: 'npc', message: openingNpcLine, npcTone: 'hostile' }])
+    // Fetch session config to get max_turns (not in nav state from ScenarioSelect)
+    if (!maxTurnsFromState) {
+      rpeService.getSessionSummary(sessionId)
+        .then((data) => {
+          if (data.recommended_turns) setRecommendedTurns(data.recommended_turns)
+          if (data.max_turns)         setMaxTurns(data.max_turns)
+        })
+        .catch(() => {}) // degrade gracefully — UI still works without max_turns
+    }
   }, [])
 
   useEffect(() => {
@@ -60,8 +78,8 @@ export default function RolePlaySession() {
     try {
       const response = await rpeService.sendTurn(sessionId, input)
 
-      const delta    = response.trust_score - previousTrust
-      const newTone  = computeNpcTone(response.trust_score)
+      const delta      = response.trust_score - previousTrust
+      const newTone    = computeNpcTone(response.trust_score)
       const newEscTone = computeEscalationTone(response.escalation_level)
 
       setTrustScore(response.trust_score)
@@ -77,7 +95,7 @@ export default function RolePlaySession() {
         const updated = [...prev]
         updated[updated.length - 1] = {
           ...updated[updated.length - 1],
-          emotion: response.emotion,
+          emotion:    response.emotion,
           trustDelta: delta,
         }
         return [
@@ -89,19 +107,24 @@ export default function RolePlaySession() {
       if (response.session_complete) {
         setSessionComplete(true)
         setOutcome(response.outcome)
+        setEndReason(response.end_reason)
+
         setTimeout(() => {
           navigate('/roleplay/session/complete', {
             state: {
               sessionId,
-              trustScore:      response.trust_score,
-              escalationLevel: response.escalation_level,
-              outcome:         response.outcome,
+              trustScore:       response.trust_score,
+              escalationLevel:  response.escalation_level,
+              outcome:          response.outcome,
+              endReason:        response.end_reason,
+              recommendedTurns,
+              maxTurns,
               totalTurns,
               scenarioTitle,
-              currentTurn:     response.turn,
+              currentTurn:      response.turn,
             },
           })
-        }, 1500)
+        }, 2000)
       }
     } catch (err) {
       setMessages(prev => [
@@ -134,9 +157,29 @@ export default function RolePlaySession() {
         )}>
           {difficulty}
         </span>
-        <span className="ml-auto shrink-0 text-sm text-gray-400 tabular-nums">
-          Turn {currentTurn} / {totalTurns}
-        </span>
+
+        {/* Turn counter — dynamic with context */}
+        <div className="ml-auto shrink-0 flex flex-col items-end">
+          <span className="text-sm font-semibold text-gray-700">
+            Turn {currentTurn}
+          </span>
+          <span className={cn(
+            'text-xs',
+            !maxTurns || currentTurn < recommendedTurns
+              ? 'text-gray-400'
+              : currentTurn < maxTurns
+                ? 'text-yellow-500'
+                : 'text-red-500'
+          )}>
+            {!maxTurns
+              ? `Recommended: ${recommendedTurns} turns`
+              : currentTurn < recommendedTurns
+                ? `Recommended: ${recommendedTurns} turns`
+                : currentTurn < maxTurns
+                  ? `Extended — Max: ${maxTurns} turns`
+                  : 'Final turns ⚠'}
+          </span>
+        </div>
       </header>
 
       {/* Body */}
@@ -178,17 +221,27 @@ export default function RolePlaySession() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Session complete banner */}
-          {sessionComplete && (
+          {/* End-reason-aware session complete banners */}
+          {sessionComplete && endReason === 'trust_sustained' && (
+            <div className="mx-6 mb-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm font-medium text-green-700">
+              🎉 You built strong trust — the situation has been resolved!
+            </div>
+          )}
+          {sessionComplete && endReason === 'npc_exit' && (
+            <div className="mx-6 mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-medium text-red-700">
+              💢 The conversation broke down — the NPC ended the session.
+            </div>
+          )}
+          {sessionComplete && endReason === 'max_turns_reached' && (
             <div className={cn(
-              'mx-6 mb-3 rounded-lg px-4 py-3 text-sm font-medium text-center border',
+              'mx-6 mb-3 rounded-xl px-4 py-3 text-sm font-medium border',
               outcome === 'success'
                 ? 'bg-green-50 border-green-200 text-green-700'
-                : 'bg-red-50 border-red-200 text-red-700'
+                : 'bg-yellow-50 border-yellow-200 text-yellow-700'
             )}>
               {outcome === 'success'
-                ? '🎉 Session Complete — Success!'
-                : 'Session Complete — Keep Practicing!'}
+                ? '✅ Session complete — well handled!'
+                : '⏱ Maximum turns reached — review your feedback.'}
             </div>
           )}
 
@@ -247,16 +300,22 @@ export default function RolePlaySession() {
             </h3>
             <dl className="space-y-1.5 text-sm">
               {[
-                ['Scenario',  scenarioTitle],
-                ['NPC Role',  npcRole],
-                ['Conflict',  conflictType],
-                ['Progress',  `Turn ${currentTurn} of ${totalTurns}`],
+                ['Scenario',    scenarioTitle],
+                ['NPC Role',    npcRole],
+                ['Conflict',    conflictType],
+                ['Progress',    `Turn ${currentTurn} of ${recommendedTurns}`],
               ].map(([label, value]) => (
                 <div key={label} className="flex flex-col">
                   <dt className="text-xs text-gray-400">{label}</dt>
                   <dd className="text-gray-700 font-medium">{value}</dd>
                 </div>
               ))}
+              {maxTurns && (
+                <div className="flex flex-col">
+                  <dt className="text-xs text-gray-400">Max turns</dt>
+                  <dd className="text-gray-500 text-xs">{maxTurns} (hard cap)</dd>
+                </div>
+              )}
             </dl>
           </div>
         </aside>

@@ -16,6 +16,7 @@ class RpeVizService:
         trust_history:   list[int],
         emotion_history: list[str],
         turn_metrics:    list[dict],
+        end_reason:      str | None = None,
     ) -> dict:
         return {
             "trust_curve":          self._build_trust_curve(trust_history),
@@ -24,8 +25,18 @@ class RpeVizService:
             "quality_curve":        self._build_quality_curve(turn_metrics),
             "trust_deltas":         self._build_trust_deltas(trust_history),
             "npc_tone_journey":     self._build_npc_tone_journey(trust_history),
-            "summary_scores":       self._build_summary(trust_history, turns, emotion_history, turn_metrics),
+            "summary_scores":       self._build_summary(
+                trust_history, turns, emotion_history, turn_metrics, end_reason
+            ),
         }
+
+    def _end_reason_label(self, end_reason: str | None) -> str:
+        labels = {
+            "trust_sustained":   "Resolved — Trust Built",
+            "npc_exit":          "Failed — NPC Walked Out",
+            "max_turns_reached": "Completed — Max Turns",
+        }
+        return labels.get(end_reason or "", "Session Ended")
 
     def _build_trust_curve(self, trust_history: list[int]) -> list[dict]:
         labels = ["Start"] + [f"T{i}" for i in range(1, len(trust_history))]
@@ -64,6 +75,7 @@ class RpeVizService:
         turns:           list[dict],
         emotion_history: list[str],
         turn_metrics:    list[dict],
+        end_reason:      str | None = None,
     ) -> dict:
         avg_trust = round(sum(trust_history) / len(trust_history), 1) if trust_history else 0.0
         avg_esc   = round(sum(t["escalation_level"] for t in turns) / len(turns), 1) if turns else 0.0
@@ -89,4 +101,5 @@ class RpeVizService:
             "avg_quality":      avg_qual,
             "trust_trend":      trend,
             "dominant_emotion": dominant,
+            "end_reason_label": self._end_reason_label(end_reason),
         }

@@ -45,8 +45,20 @@ export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarti
         <span className="bg-gray-100 text-gray-500 text-xs rounded-full px-2 py-0.5">
           {scenario.conflict_type}
         </span>
-        <span className="text-gray-400 text-xs">{scenario.turns} turns</span>
+        <div className="flex flex-col leading-tight">
+          <span className="text-xs text-gray-400">~{scenario.recommended_turns ?? scenario.turns} turns</span>
+          {scenario.max_turns && (
+            <span className="text-xs text-gray-300">up to {scenario.max_turns} max</span>
+          )}
+        </div>
       </div>
+
+      {/* End condition hint */}
+      {scenario.end_conditions?.success_trust_threshold != null && (
+        <span className="text-xs text-gray-300 italic">
+          Resolves when trust ≥ {scenario.end_conditions.success_trust_threshold}
+        </span>
+      )}
 
       {/* Skill tags */}
       {visibleSkills.length > 0 && (
