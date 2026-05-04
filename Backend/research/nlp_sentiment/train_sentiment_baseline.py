@@ -21,6 +21,9 @@ def main() -> None:
         args.dataset,
         limit=args.limit,
         limit_per_class=args.limit_per_class,
+        min_text_length=args.min_text_length,
+        remove_duplicates=not args.keep_duplicates,
+        output_processed_path=args.output_processed,
     )
 
     model, evaluation = train_sentiment_model(
@@ -43,7 +46,11 @@ def main() -> None:
             "mention_normalization",
             "special_character_cleanup",
             "whitespace_normalization",
+            "empty_text_removal",
+            "short_text_removal",
+            "duplicate_cleaned_text_removal",
         ],
+        "preprocessing_summary": dataset.preprocessing_summary,
         "model_type": "TF-IDF + Logistic Regression",
         "max_features": args.max_features,
         "test_size": args.test_size,
@@ -103,6 +110,23 @@ def parse_args() -> argparse.Namespace:
         help="Optional balanced row limit for each sentiment class. Recommended for quick Sentiment140 training.",
     )
     parser.add_argument("--max-features", type=int, default=50_000)
+    parser.add_argument(
+        "--min-text-length",
+        type=int,
+        default=3,
+        help="Minimum cleaned text character length to keep.",
+    )
+    parser.add_argument(
+        "--keep-duplicates",
+        action="store_true",
+        help="Keep duplicate cleaned text rows. By default duplicates are removed.",
+    )
+    parser.add_argument(
+        "--output-processed",
+        type=Path,
+        default=None,
+        help="Optional path for saving the cleaned training dataset CSV.",
+    )
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--random-state", type=int, default=42)
     return parser.parse_args()

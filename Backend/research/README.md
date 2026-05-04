@@ -19,6 +19,19 @@ Label mapping:
 - `2` -> neutral
 - `4` -> positive
 
+Preprocessing:
+
+- Converts text to lowercase.
+- Converts HTML entities safely.
+- Replaces URLs with `url`.
+- Replaces user mentions with `user`.
+- Removes unsupported symbols while keeping useful punctuation.
+- Normalizes extra whitespace.
+- Removes empty rows.
+- Removes very short rows.
+- Removes duplicate cleaned text rows.
+- Records preprocessing counts in `sentiment_evaluation.json`.
+
 Model:
 
 - TF-IDF vectorizer
@@ -54,6 +67,14 @@ Outputs:
 
 - `Backend/research/models/sentiment_model.joblib`
 - `Backend/research/evaluation/sentiment_evaluation.json`
+
+Optional: save the cleaned dataset used for training:
+
+```powershell
+python -m research.nlp_sentiment.train_sentiment_baseline `
+  --dataset research/datasets/raw/sentiment140.csv `
+  --output-processed research/datasets/processed/sentiment140_cleaned.csv
+```
 
 ## Research Explanation
 

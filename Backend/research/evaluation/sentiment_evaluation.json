@@ -2,57 +2,80 @@
   "model_version": "tfidf-logistic-regression-sentiment-v1",
   "dataset_name": "Sentiment140",
   "dataset_path": "research\\datasets\\raw\\sentiment140.csv",
-  "rows_used": 1600000,
-  "trained_at": "2026-05-04T09:17:34.068699+00:00",
+  "rows_used": 1543240,
+  "trained_at": "2026-05-04T14:19:18.964852+00:00",
   "text_preprocessing": [
     "lowercase",
     "html_unescape",
     "url_normalization",
     "mention_normalization",
     "special_character_cleanup",
-    "whitespace_normalization"
+    "whitespace_normalization",
+    "empty_text_removal",
+    "short_text_removal",
+    "duplicate_cleaned_text_removal"
   ],
+  "preprocessing_summary": {
+    "raw_rows_scanned": 1600000,
+    "valid_rows_used": 1543240,
+    "invalid_rows_skipped": 0,
+    "empty_rows_skipped": 0,
+    "short_rows_skipped": 0,
+    "duplicate_rows_skipped": 56760,
+    "remove_duplicates": true,
+    "min_text_length": 3
+  },
   "model_type": "TF-IDF + Logistic Regression",
   "max_features": 50000,
   "test_size": 0.2,
   "random_state": 42,
   "evaluation": {
-    "accuracy": 0.8199,
-    "weighted_precision": 0.82,
-    "weighted_recall": 0.8199,
-    "weighted_f1": 0.8198,
+    "accuracy": 0.8175,
+    "weighted_precision": 0.8177,
+    "weighted_recall": 0.8175,
+    "weighted_f1": 0.8175,
     "classification_report": {
       "negative": {
-        "precision": 0.8264933109621114,
-        "recall": 0.8097,
-        "f1-score": 0.8180104751711923,
-        "support": 160000.0
+        "precision": 0.8259842778673158,
+        "recall": 0.8078207330489664,
+        "f1-score": 0.8168015404230959,
+        "support": 155433.0
       },
       "positive": {
-        "precision": 0.8134896570311974,
-        "recall": 0.83001875,
-        "f1-score": 0.8216710853176015,
-        "support": 160000.0
+        "precision": 0.8092930608492463,
+        "recall": 0.8273471918545834,
+        "f1-score": 0.8182205468487774,
+        "support": 153215.0
       },
-      "accuracy": 0.819859375,
+      "accuracy": 0.8175138021305824,
       "macro avg": {
-        "precision": 0.8199914839966544,
-        "recall": 0.8198593750000001,
-        "f1-score": 0.8198407802443969,
-        "support": 320000.0
+        "precision": 0.8176386693582811,
+        "recall": 0.8175839624517749,
+        "f1-score": 0.8175110436359367,
+        "support": 308648.0
       },
       "weighted avg": {
-        "precision": 0.8199914839966542,
-        "recall": 0.819859375,
-        "f1-score": 0.819840780244397,
-        "support": 320000.0
+        "precision": 0.8176986424009479,
+        "recall": 0.8175138021305824,
+        "f1-score": 0.8175059450183332,
+        "support": 308648.0
       }
     },
-    "train_rows": 1280000,
-    "test_rows": 320000,
+    "train_rows": 1234592,
+    "test_rows": 308648,
     "label_distribution": {
-      "negative": 800000,
-      "positive": 800000
+      "negative": 777163,
+      "positive": 766077
+    },
+    "preprocessing_summary": {
+      "raw_rows_scanned": 1600000,
+      "valid_rows_used": 1543240,
+      "invalid_rows_skipped": 0,
+      "empty_rows_skipped": 0,
+      "short_rows_skipped": 0,
+      "duplicate_rows_skipped": 56760,
+      "remove_duplicates": true,
+      "min_text_length": 3
     }
   },
   "sample_predictions": [
@@ -60,22 +83,22 @@
       "text": "Your answer was clear and professional.",
       "cleaned_text": "your answer was clear and professional.",
       "sentiment": "positive",
-      "confidence": 0.8962,
-      "sentiment_score": 0.8962,
+      "confidence": 0.862,
+      "sentiment_score": 0.862,
       "class_probabilities": {
-        "negative": 0.1038,
-        "positive": 0.8962
+        "negative": 0.138,
+        "positive": 0.862
       }
     },
     {
       "text": "The response was confusing and lacked empathy.",
       "cleaned_text": "the response was confusing and lacked empathy.",
       "sentiment": "negative",
-      "confidence": 0.7561,
-      "sentiment_score": -0.7561,
+      "confidence": 0.7177,
+      "sentiment_score": -0.7177,
       "class_probabilities": {
-        "negative": 0.7561,
-        "positive": 0.2439
+        "negative": 0.7177,
+        "positive": 0.2823
       }
     }
   ]

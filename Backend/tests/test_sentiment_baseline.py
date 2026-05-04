@@ -39,7 +39,9 @@ def test_sentiment_baseline_trains_and_predicts():
         prediction = predict_sentiment(model, "This was a clear and excellent response")
 
         assert dataset.label_distribution == {"negative": 4, "positive": 4}
+        assert dataset.preprocessing_summary["valid_rows_used"] == 8
         assert 0 <= evaluation["weighted_f1"] <= 1
+        assert evaluation["preprocessing_summary"]["duplicate_rows_skipped"] == 0
         assert prediction["sentiment"] in {"negative", "positive"}
         assert 0 <= prediction["confidence"] <= 1
     finally:
@@ -64,5 +66,35 @@ def test_load_sentiment140_can_limit_each_class_for_sorted_dataset():
         dataset = load_sentiment140(dataset_path, limit_per_class=2)
 
         assert dataset.label_distribution == {"negative": 2, "positive": 2}
+    finally:
+        dataset_path.unlink(missing_ok=True)
+
+
+def test_load_sentiment140_removes_empty_short_and_duplicate_text():
+    dataset_path = Path(__file__).with_name("_sentiment140_dirty_sample.csv")
+    rows = [
+        [0, "1", "date", "flag", "user", "Bad unclear response"],
+        [0, "2", "date", "flag", "user", "Bad unclear response"],
+        [0, "3", "date", "flag", "user", ""],
+        [0, "4", "date", "flag", "user", "ok"],
+        [4, "5", "date", "flag", "user", "Clear helpful response"],
+        [4, "6", "date", "flag", "user", "Clear helpful response"],
+        [4, "7", "date", "flag", "user", "Great answer"],
+    ]
+    try:
+        with dataset_path.open("w", encoding="latin-1", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerows(rows)
+
+        dataset = load_sentiment140(dataset_path)
+
+        assert dataset.texts == [
+            "bad unclear response",
+            "clear helpful response",
+            "great answer",
+        ]
+        assert dataset.preprocessing_summary["empty_rows_skipped"] == 1
+        assert dataset.preprocessing_summary["short_rows_skipped"] == 1
+        assert dataset.preprocessing_summary["duplicate_rows_skipped"] == 2
     finally:
         dataset_path.unlink(missing_ok=True)
