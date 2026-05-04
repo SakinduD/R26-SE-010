@@ -33,6 +33,7 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 class SentimentDataset:
     texts: list[str]
     labels: list[str]
+    preprocessing_summary: dict[str, int | bool]
 
     @property
     def label_distribution(self) -> dict[str, int]:
@@ -54,6 +55,9 @@ def load_sentiment140(
     dataset_path: str | Path,
     limit: int | None = None,
     limit_per_class: int | None = None,
+    min_text_length: int = 3,
+    remove_duplicates: bool = True,
+    output_processed_path: str | Path | None = None,
 ) -> SentimentDataset:
     """Load Sentiment140 CSV rows and map numeric labels to sentiment names.
 
@@ -69,22 +73,32 @@ def load_sentiment140(
     texts: list[str] = []
     labels: list[str] = []
     class_counts: Counter[str] = Counter()
+    seen_cleaned_texts: set[str] = set()
+    raw_rows = 0
+    invalid_rows = 0
+    empty_rows = 0
+    short_rows = 0
+    duplicate_rows = 0
 
     with path.open("r", encoding="latin-1", newline="") as file:
         reader = csv.reader(file)
         for row in reader:
+            raw_rows += 1
             if not row or row[0].lower() == "target":
                 continue
             if len(row) < 6:
+                invalid_rows += 1
                 continue
 
             try:
                 target = int(row[0])
             except ValueError:
+                invalid_rows += 1
                 continue
 
             label = SENTIMENT_LABELS.get(target)
             if label is None:
+                invalid_rows += 1
                 continue
             if limit_per_class is not None and class_counts[label] >= limit_per_class:
                 if _all_requested_classes_loaded(class_counts, limit_per_class):
@@ -93,10 +107,18 @@ def load_sentiment140(
 
             cleaned = clean_feedback_text(row[5])
             if not cleaned:
+                empty_rows += 1
+                continue
+            if len(cleaned) < min_text_length:
+                short_rows += 1
+                continue
+            if remove_duplicates and cleaned in seen_cleaned_texts:
+                duplicate_rows += 1
                 continue
 
             texts.append(cleaned)
             labels.append(label)
+            seen_cleaned_texts.add(cleaned)
             class_counts[label] += 1
 
             if limit is not None and len(texts) >= limit:
@@ -105,7 +127,30 @@ def load_sentiment140(
     if len(set(labels)) < 2:
         raise ValueError("At least two sentiment classes are required to train the baseline model.")
 
-    return SentimentDataset(texts=texts, labels=labels)
+    summary = {
+        "raw_rows_scanned": raw_rows,
+        "valid_rows_used": len(texts),
+        "invalid_rows_skipped": invalid_rows,
+        "empty_rows_skipped": empty_rows,
+        "short_rows_skipped": short_rows,
+        "duplicate_rows_skipped": duplicate_rows,
+        "remove_duplicates": remove_duplicates,
+        "min_text_length": min_text_length,
+    }
+
+    if output_processed_path is not None:
+        save_processed_dataset(output_processed_path, texts, labels)
+
+    return SentimentDataset(texts=texts, labels=labels, preprocessing_summary=summary)
+
+
+def save_processed_dataset(output_path: str | Path, texts: list[str], labels: list[str]) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["label", "cleaned_text"])
+        writer.writerows(zip(labels, texts))
 
 
 def _all_requested_classes_loaded(class_counts: Counter[str], limit_per_class: int) -> bool:
@@ -159,6 +204,7 @@ def train_sentiment_model(
     evaluation["train_rows"] = len(x_train)
     evaluation["test_rows"] = len(x_test)
     evaluation["label_distribution"] = dataset.label_distribution
+    evaluation["preprocessing_summary"] = dataset.preprocessing_summary
     return model, evaluation
 
 
