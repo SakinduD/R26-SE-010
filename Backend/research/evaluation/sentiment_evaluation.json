@@ -1,0 +1,139 @@
+{
+  "model_version": "tfidf-sentiment-model-comparison-v1",
+  "dataset_name": "Sentiment140",
+  "dataset_path": "research\\datasets\\raw\\sentiment140.csv",
+  "rows_used": 1543240,
+  "trained_at": "2026-05-04T15:04:23.143278+00:00",
+  "text_preprocessing": [
+    "lowercase",
+    "html_unescape",
+    "url_normalization",
+    "mention_normalization",
+    "special_character_cleanup",
+    "whitespace_normalization",
+    "empty_text_removal",
+    "short_text_removal",
+    "duplicate_cleaned_text_removal"
+  ],
+  "preprocessing_summary": {
+    "raw_rows_scanned": 1600000,
+    "valid_rows_used": 1543240,
+    "invalid_rows_skipped": 0,
+    "empty_rows_skipped": 0,
+    "short_rows_skipped": 0,
+    "duplicate_rows_skipped": 56760,
+    "remove_duplicates": true,
+    "min_text_length": 3
+  },
+  "model_type": "TF-IDF + Logistic Regression",
+  "selected_classifier": "logistic_regression",
+  "selection_metric": "weighted_f1",
+  "max_features": 50000,
+  "test_size": 0.2,
+  "random_state": 42,
+  "model_comparison": [
+    {
+      "classifier_name": "logistic_regression",
+      "model_type": "TF-IDF + Logistic Regression",
+      "accuracy": 0.8175,
+      "weighted_precision": 0.8177,
+      "weighted_recall": 0.8175,
+      "weighted_f1": 0.8175,
+      "training_seconds": 41.4679
+    },
+    {
+      "classifier_name": "linear_svm",
+      "model_type": "TF-IDF + Linear SVM",
+      "accuracy": 0.8161,
+      "weighted_precision": 0.8162,
+      "weighted_recall": 0.8161,
+      "weighted_f1": 0.816,
+      "training_seconds": 99.4792
+    },
+    {
+      "classifier_name": "naive_bayes",
+      "model_type": "TF-IDF + Multinomial Naive Bayes",
+      "accuracy": 0.7962,
+      "weighted_precision": 0.7962,
+      "weighted_recall": 0.7962,
+      "weighted_f1": 0.7962,
+      "training_seconds": 33.9695
+    }
+  ],
+  "evaluation": {
+    "accuracy": 0.8175,
+    "weighted_precision": 0.8177,
+    "weighted_recall": 0.8175,
+    "weighted_f1": 0.8175,
+    "classification_report": {
+      "negative": {
+        "precision": 0.8259842778673158,
+        "recall": 0.8078207330489664,
+        "f1-score": 0.8168015404230959,
+        "support": 155433.0
+      },
+      "positive": {
+        "precision": 0.8092930608492463,
+        "recall": 0.8273471918545834,
+        "f1-score": 0.8182205468487774,
+        "support": 153215.0
+      },
+      "accuracy": 0.8175138021305824,
+      "macro avg": {
+        "precision": 0.8176386693582811,
+        "recall": 0.8175839624517749,
+        "f1-score": 0.8175110436359367,
+        "support": 308648.0
+      },
+      "weighted avg": {
+        "precision": 0.8176986424009479,
+        "recall": 0.8175138021305824,
+        "f1-score": 0.8175059450183332,
+        "support": 308648.0
+      }
+    },
+    "classifier_name": "logistic_regression",
+    "model_type": "TF-IDF + Logistic Regression",
+    "training_seconds": 41.4679,
+    "train_rows": 1234592,
+    "test_rows": 308648,
+    "label_distribution": {
+      "negative": 777163,
+      "positive": 766077
+    },
+    "preprocessing_summary": {
+      "raw_rows_scanned": 1600000,
+      "valid_rows_used": 1543240,
+      "invalid_rows_skipped": 0,
+      "empty_rows_skipped": 0,
+      "short_rows_skipped": 0,
+      "duplicate_rows_skipped": 56760,
+      "remove_duplicates": true,
+      "min_text_length": 3
+    }
+  },
+  "sample_predictions": [
+    {
+      "text": "Your answer was clear and professional.",
+      "cleaned_text": "your answer was clear and professional.",
+      "sentiment": "positive",
+      "confidence": 0.862,
+      "sentiment_score": 0.862,
+      "class_probabilities": {
+        "negative": 0.138,
+        "positive": 0.862
+      }
+    },
+    {
+      "text": "The response was confusing and lacked empathy.",
+      "cleaned_text": "the response was confusing and lacked empathy.",
+      "sentiment": "negative",
+      "confidence": 0.7177,
+      "sentiment_score": -0.7177,
+      "class_probabilities": {
+        "negative": 0.7177,
+        "positive": 0.2823
+      }
+    }
+  ]
+}
