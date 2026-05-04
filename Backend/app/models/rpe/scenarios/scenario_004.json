@@ -7,7 +7,13 @@
   "npc_personality": "politically savvy, two-faced, smiles while blocking progress",
   "context": "A senior peer has been consistently leaving you out of key meetings and feeding wrong information to your manager about your performance.",
   "opening_npc_line": "Oh, I did not think you needed to be in that meeting. You have been so busy lately.",
-  "turns": 8,
+  "recommended_turns": 8,
+  "max_turns": 18,
+  "end_conditions": {
+    "success_trust_threshold": 75,
+    "success_consecutive_turns": 3,
+    "failure_escalation_threshold": 4
+  },
   "success_criteria": {
     "min_trust_score": 55,
     "max_escalation_level": 1
