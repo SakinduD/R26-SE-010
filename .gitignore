@@ -46,3 +46,11 @@ Backend/research/models/*
 !Backend/research/datasets/raw/.gitkeep
 !Backend/research/datasets/processed/.gitkeep
 !Backend/research/models/.gitkeep
+
+# Feedback analytics training assets
+training/feedback_analytics/datasets/raw/*
+training/feedback_analytics/datasets/processed/*
+training/feedback_analytics/models/*
+!training/feedback_analytics/datasets/raw/.gitkeep
+!training/feedback_analytics/datasets/processed/.gitkeep
+!training/feedback_analytics/models/.gitkeep
