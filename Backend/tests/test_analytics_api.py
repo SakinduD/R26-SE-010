@@ -64,6 +64,96 @@ def test_create_and_list_feedback(client):
     assert list_response.json()[0]["skill_area"] == "active_listening"
 
 
+def test_create_feedback_auto_detects_sentiment_when_missing(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="clear and professional",
+            sentiment="positive",
+            confidence=0.91,
+            sentiment_score=0.91,
+            class_probabilities={"negative": 0.09, "positive": 0.91},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "auto-sentiment-user",
+            "session_id": "auto-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "positive"
+
+
+def test_create_feedback_keeps_manual_sentiment(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fail_if_called(text: str):
+        raise AssertionError("manual sentiment should not call NLP model")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fail_if_called,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "manual-sentiment-user",
+            "session_id": "manual-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "This is mixed feedback.",
+            "sentiment": "neutral",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "neutral"
+
+
+def test_create_feedback_saves_when_sentiment_model_is_unavailable(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "missing-model-user",
+            "session_id": "missing-model-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] is None
+
+
 def test_analyze_feedback_sentiment_returns_model_prediction(client, monkeypatch):
     from app.schemas.analytics import FeedbackSentimentResult
     from app.services import sentiment_analysis_service

@@ -6,6 +6,7 @@ from app.schemas.analytics import (
     FeedbackEntryCreate,
     SkillPredictionCreate,
 )
+from app.services import sentiment_analysis_service
 
 
 def create_session_metric(
@@ -52,11 +53,22 @@ def list_session_metrics_by_session(
 
 
 def create_feedback_entry(db: Session, payload: FeedbackEntryCreate) -> FeedbackEntry:
-    feedback = FeedbackEntry(**payload.model_dump())
+    feedback_data = payload.model_dump()
+    if feedback_data.get("sentiment") is None and feedback_data.get("comment"):
+        feedback_data["sentiment"] = _infer_feedback_sentiment(feedback_data["comment"])
+
+    feedback = FeedbackEntry(**feedback_data)
     db.add(feedback)
     db.commit()
     db.refresh(feedback)
     return feedback
+
+
+def _infer_feedback_sentiment(comment: str) -> str | None:
+    try:
+        return sentiment_analysis_service.analyze_feedback_text(comment).sentiment
+    except sentiment_analysis_service.SentimentModelUnavailableError:
+        return None
 
 
 def get_feedback_entry(db: Session, feedback_id: int) -> FeedbackEntry | None:
