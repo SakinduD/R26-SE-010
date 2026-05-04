@@ -799,6 +799,69 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     assert predictions["overall"]["predicted_score"] == 85
 
 
+def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(client, monkeypatch):
+    from app.services import ml_predictive_model_service
+
+    def fake_ml_prediction(features):
+        assert features["current_score"] == 62
+        assert features["previous_score"] == 72
+        assert features["trend_slope"] == -10
+        assert features["average_feedback_rating"] == 58
+        assert features["sentiment_score"] == -1
+        return {
+            "predicted_score": 44.5,
+            "risk_level": "high",
+            "confidence": 0.91,
+            "model_version": "ml-predictive-behavioral-analytics-v1",
+            "model_type": {
+                "regressor": "linear_regression",
+                "classifier": "gradient_boosting_classifier",
+            },
+        }
+
+    monkeypatch.setattr(ml_predictive_model_service, "predict_behavioral_outcome", fake_ml_prediction)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-1",
+            "confidence_score": 72,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "confidence_score": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 58,
+            "comment": "The answer was unclear and needs stronger confidence.",
+            "sentiment": "negative",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/ml-prediction-user/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
+    prediction = data["predictions"][0]
+    assert prediction["predicted_skill"] == "confidence"
+    assert prediction["predicted_score"] == 44.5
+    assert prediction["risk_level"] == "high"
+    assert prediction["confidence"] == 0.91
+
+
 def test_user_skill_predicted_outcome_returns_single_prediction(client):
     client.post(
         "/api/v1/analytics/session-metrics",
