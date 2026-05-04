@@ -1,0 +1,82 @@
+{
+  "model_version": "tfidf-logistic-regression-sentiment-v1",
+  "dataset_name": "Sentiment140",
+  "dataset_path": "research\\datasets\\raw\\sentiment140.csv",
+  "rows_used": 1600000,
+  "trained_at": "2026-05-04T09:17:34.068699+00:00",
+  "text_preprocessing": [
+    "lowercase",
+    "html_unescape",
+    "url_normalization",
+    "mention_normalization",
+    "special_character_cleanup",
+    "whitespace_normalization"
+  ],
+  "model_type": "TF-IDF + Logistic Regression",
+  "max_features": 50000,
+  "test_size": 0.2,
+  "random_state": 42,
+  "evaluation": {
+    "accuracy": 0.8199,
+    "weighted_precision": 0.82,
+    "weighted_recall": 0.8199,
+    "weighted_f1": 0.8198,
+    "classification_report": {
+      "negative": {
+        "precision": 0.8264933109621114,
+        "recall": 0.8097,
+        "f1-score": 0.8180104751711923,
+        "support": 160000.0
+      },
+      "positive": {
+        "precision": 0.8134896570311974,
+        "recall": 0.83001875,
+        "f1-score": 0.8216710853176015,
+        "support": 160000.0
+      },
+      "accuracy": 0.819859375,
+      "macro avg": {
+        "precision": 0.8199914839966544,
+        "recall": 0.8198593750000001,
+        "f1-score": 0.8198407802443969,
+        "support": 320000.0
+      },
+      "weighted avg": {
+        "precision": 0.8199914839966542,
+        "recall": 0.819859375,
+        "f1-score": 0.819840780244397,
+        "support": 320000.0
+      }
+    },
+    "train_rows": 1280000,
+    "test_rows": 320000,
+    "label_distribution": {
+      "negative": 800000,
+      "positive": 800000
+    }
+  },
+  "sample_predictions": [
+    {
+      "text": "Your answer was clear and professional.",
+      "cleaned_text": "your answer was clear and professional.",
+      "sentiment": "positive",
+      "confidence": 0.8962,
+      "sentiment_score": 0.8962,
+      "class_probabilities": {
+        "negative": 0.1038,
+        "positive": 0.8962
+      }
+    },
+    {
+      "text": "The response was confusing and lacked empathy.",
+      "cleaned_text": "the response was confusing and lacked empathy.",
+      "sentiment": "negative",
+      "confidence": 0.7561,
+      "sentiment_score": -0.7561,
+      "class_probabilities": {
+        "negative": 0.7561,
+        "positive": 0.2439
+      }
+    }
+  ]
+}
