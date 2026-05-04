@@ -103,20 +103,41 @@ class RpeEmotionService:
     def detect_emotion(self, user_input: str) -> str:
         text = user_input.lower()
 
-        # Profanity always wins — checked before any ML model
+        # 1. Profanity always wins — never reaches any model
         if self._is_profanity(text):
             return "frustrated"
 
-        # Transformer model (most accurate)
+        # 1b. Calm keyword override — both ML models underperform on this class.
+        # Skip if the keyword is negated (e.g. "do not understand").
+        for kw in EMOTION_KEYWORDS.get("calm", []):
+            if kw in text:
+                negated = any(neg + kw in text for neg in ("not ", "n't ", "can't ", "cannot "))
+                if not negated:
+                    return "calm"
+
+        # 2. Get transformer prediction if available
+        transformer_pred = None
         if self._transformer_loaded:
-            return self._predict_transformer(user_input)
+            transformer_pred = self._predict_transformer(user_input)
 
-        # sklearn fallback
+        # 3. Get sklearn prediction if available
+        sklearn_pred = None
         if self._models_loaded:
-            vec = self._emotion_vectorizer.transform([user_input])
-            return str(self._emotion_model.predict(vec)[0])
+            vec          = self._emotion_vectorizer.transform([user_input])
+            sklearn_pred = str(self._emotion_model.predict(vec)[0])
 
-        # Keyword fallback
+        # 4. Hybrid routing
+        # Transformer F1 scores: anxious=0.81, confused=0.76
+        # Sklearn F1 scores:     frustrated=1.00, assertive~0.78, calm~0.65
+        if transformer_pred in ("anxious", "confused"):
+            return transformer_pred    # transformer wins these classes
+        if sklearn_pred is not None:
+            return sklearn_pred        # sklearn wins calm/assertive/frustrated
+        if transformer_pred is not None:
+            return transformer_pred    # fallback to transformer
+        return self._keyword_fallback(text)
+
+    def _keyword_fallback(self, text: str) -> str:
         for emotion, keywords in EMOTION_KEYWORDS.items():
             if any(kw in text for kw in keywords):
                 return emotion
@@ -140,6 +161,8 @@ class RpeEmotionService:
 
     @property
     def active_model(self) -> str:
+        if self._transformer_loaded and self._models_loaded:
+            return "hybrid (transformer: anxious/confused | sklearn: calm/assertive/frustrated)"
         if self._transformer_loaded:
             return "transformer (distilbert)"
         if self._models_loaded:
