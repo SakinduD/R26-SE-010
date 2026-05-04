@@ -38,3 +38,11 @@ dist/
 
 
 RESEARCH_BRIEF.md
+
+# Research datasets and generated model artifacts
+Backend/research/datasets/raw/*
+Backend/research/datasets/processed/*
+Backend/research/models/*
+!Backend/research/datasets/raw/.gitkeep
+!Backend/research/datasets/processed/.gitkeep
+!Backend/research/models/.gitkeep

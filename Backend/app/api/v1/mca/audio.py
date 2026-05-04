@@ -6,9 +6,8 @@ from app.api.v1.mca.nudge_engine import AudioFeatureExtractor, NudgeEngine
 router = APIRouter()
 logger = logging.getLogger("uvicorn")
 
-# Initialize Nudge Engine and Feature Extractor
+# Initialize Feature Extractor
 _extractor = AudioFeatureExtractor()
-_nudge_engine = NudgeEngine()
 
 
 class ConnectionManager:
@@ -35,6 +34,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
         await websocket.close(code=4003)
         return
 
+    # Initialize Nudge Engine per connection to avoid shared state race conditions
+    nudge_engine = NudgeEngine()
+    
     await manager.connect(websocket)
     try:
         latest_visual_metrics = None
@@ -64,7 +66,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 response = {"status": "analyzed", "bytes": len(data)}
 
                 if features:
-                    nudge = _nudge_engine.evaluate(features, latest_visual_metrics)
+                    nudge = nudge_engine.evaluate(features, latest_visual_metrics)
                     
                     response["metrics"] = {
                         "emotion": features.emotion_label,
