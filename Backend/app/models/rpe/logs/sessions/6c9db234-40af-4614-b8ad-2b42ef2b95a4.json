@@ -1,0 +1,99 @@
+{
+  "session_id": "6c9db234-40af-4614-b8ad-2b42ef2b95a4",
+  "scenario_id": "scenario_005",
+  "user_id": "guest_user",
+  "started_at": "2026-05-04T05:05:06.020293",
+  "opening_npc_line": "I need you to send me a status update every 30 minutes today. No exceptions.",
+  "turns": [
+    {
+      "turn": 1,
+      "user_input": "sure",
+      "npc_response": "Since I'll be closely reviewing your work, please refrain from sending any emails without my explicit approval first.",
+      "emotion": "calm",
+      "trust_score": 51,
+      "escalation_level": 0
+    },
+    {
+      "turn": 2,
+      "user_input": "sure",
+      "npc_response": "I've revised the project timeline, and I expect you to adapt to the new deadlines immediately, with no questions or discussion.",
+      "emotion": "calm",
+      "trust_score": 52,
+      "escalation_level": 0
+    },
+    {
+      "turn": 3,
+      "user_input": "sure",
+      "npc_response": "I'm scheduling a meeting with you for every hour to ensure you're on track, and I'll be joining all your calls to monitor your interactions.",
+      "emotion": "calm",
+      "trust_score": 53,
+      "escalation_level": 0
+    },
+    {
+      "turn": 4,
+      "user_input": "sure",
+      "npc_response": "Please add me to the cc line of every single email you send from now on, including internal communications, and ensure all attachments are in a specific format I'll specify later.",
+      "emotion": "calm",
+      "trust_score": 54,
+      "escalation_level": 0
+    },
+    {
+      "turn": 5,
+      "user_input": "of cause why not sure",
+      "npc_response": "Stop making assumptions and wait for my direct instructions before proceeding with any task, as I won't tolerate any deviations from my explicitly stated expectations.",
+      "emotion": "anxious",
+      "trust_score": 53,
+      "escalation_level": 1
+    },
+    {
+      "turn": 6,
+      "user_input": "sure",
+      "npc_response": "I've set up a shared screen monitoring system to track your activity in real-time, so I can intervene promptly if I notice any inefficiencies or mistakes.",
+      "emotion": "calm",
+      "trust_score": 54,
+      "escalation_level": 0
+    },
+    {
+      "turn": 7,
+      "user_input": "sure",
+      "npc_response": "Document every single step you take, including keystrokes and mouse clicks, and submit a detailed log to me at the end of each day for thorough review and analysis.",
+      "emotion": "calm",
+      "trust_score": 55,
+      "escalation_level": 0
+    },
+    {
+      "turn": 8,
+      "user_input": "sure",
+      "npc_response": "I expect a verbal confirmation from you every 15 minutes to assure me that you're focused and meeting the expectations I've outlined, without any distractions or interruptions.",
+      "emotion": "calm",
+      "trust_score": 56,
+      "escalation_level": 0
+    }
+  ],
+  "emotion_history": [
+    "calm",
+    "calm",
+    "calm",
+    "calm",
+    "calm",
+    "anxious",
+    "calm",
+    "calm",
+    "calm"
+  ],
+  "trust_history": [
+    50,
+    51,
+    52,
+    53,
+    54,
+    53,
+    54,
+    55,
+    56
+  ],
+  "ended_at": "2026-05-04T05:06:38.924250",
+  "outcome": "failure",
+  "final_trust": 56,
+  "final_escalation": 0
+}
