@@ -16,6 +16,8 @@ MODEL_VERSION = "rule-based-baseline-v1"
 ML_MODEL_VERSION = "ml-predictive-behavioral-analytics-v1"
 MIN_SCORE = 0.0
 MAX_SCORE = 100.0
+MAX_NEXT_SESSION_DELTA = 15.0
+LOW_EVIDENCE_MAX_DELTA = 10.0
 SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
 
 
@@ -77,12 +79,21 @@ def _prediction_from_trend(
 
     ml_prediction = _try_ml_prediction(db, user_id, trend)
     if ml_prediction is not None:
-        risk_level = ml_prediction["risk_level"]
+        predicted_score = _calibrate_ml_predicted_score(
+            raw_prediction=ml_prediction["predicted_score"],
+            trend=trend,
+        )
+        risk_level = _combined_risk_level(
+            model_risk=ml_prediction["risk_level"],
+            predicted_score=predicted_score,
+            trend_label=trend.trend_label,
+            slope=trend.slope or 0.0,
+        )
         return (
             PredictiveModelingItem(
                 predicted_skill=trend.skill_area,
                 current_score=trend.latest_score,
-                predicted_score=ml_prediction["predicted_score"],
+                predicted_score=predicted_score,
                 trend_label=trend.trend_label,
                 risk_level=risk_level,
                 confidence=ml_prediction["confidence"],
@@ -93,7 +104,11 @@ def _prediction_from_trend(
         )
 
     slope = trend.slope or 0.0
-    predicted_score = _clamp(round(trend.latest_score + slope, 2))
+    predicted_score = _bounded_next_score(
+        current_score=trend.latest_score,
+        proposed_score=trend.latest_score + slope,
+        evidence_points=trend.session_count,
+    )
     risk_level = _risk_level(predicted_score, trend.trend_label, slope)
 
     return (
@@ -208,6 +223,58 @@ def _risk_level(predicted_score: float, trend_label: str, slope: float) -> str:
     if predicted_score < 70 or trend_label == "declining":
         return "medium"
     return "low"
+
+
+def _combined_risk_level(
+    *,
+    model_risk: str,
+    predicted_score: float,
+    trend_label: str,
+    slope: float,
+) -> str:
+    calibrated_risk = _risk_level(predicted_score, trend_label, slope)
+    risk_rank = {"low": 1, "medium": 2, "high": 3}
+    ranked_risks = {value: key for key, value in risk_rank.items()}
+    return ranked_risks[max(risk_rank.get(model_risk, 2), risk_rank[calibrated_risk])]
+
+
+def _calibrate_ml_predicted_score(
+    *,
+    raw_prediction: float,
+    trend: SkillTrendItem,
+) -> float:
+    current_score = trend.latest_score or 0.0
+    trend_projection = current_score + (trend.slope or 0.0)
+    ml_weight = _ml_weight(trend.session_count)
+    blended_score = (raw_prediction * ml_weight) + (trend_projection * (1 - ml_weight))
+    return _bounded_next_score(
+        current_score=current_score,
+        proposed_score=blended_score,
+        evidence_points=trend.session_count,
+    )
+
+
+def _ml_weight(evidence_points: int) -> float:
+    # Keep the live forecast stable when there are only a few feedback sessions.
+    return min(0.55, 0.25 + (max(evidence_points, 0) * 0.05))
+
+
+def _bounded_next_score(
+    *,
+    current_score: float,
+    proposed_score: float,
+    evidence_points: int,
+) -> float:
+    max_delta = _max_allowed_delta(evidence_points)
+    lower_bound = current_score - max_delta
+    upper_bound = current_score + max_delta
+    return round(_clamp(max(lower_bound, min(upper_bound, proposed_score))), 2)
+
+
+def _max_allowed_delta(evidence_points: int) -> float:
+    if evidence_points < 4:
+        return LOW_EVIDENCE_MAX_DELTA
+    return MAX_NEXT_SESSION_DELTA
 
 
 def _confidence(session_count: int, trend_label: str) -> float:
