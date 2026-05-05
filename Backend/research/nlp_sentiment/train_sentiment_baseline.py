@@ -108,25 +108,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("research/datasets/raw/sentiment140.csv"),
+        default=Path("../training/feedback_analytics/datasets/raw/sentiment140.csv"),
         help="Path to Sentiment140 CSV file.",
     )
     parser.add_argument(
         "--output-model",
         type=Path,
-        default=Path("research/models/sentiment_model.joblib"),
+        default=Path("../training/feedback_analytics/models/sentiment_model.joblib"),
         help="Path for the generated model artifact.",
     )
     parser.add_argument(
         "--output-evaluation",
         type=Path,
-        default=Path("research/evaluation/sentiment_evaluation.json"),
+        default=Path("../training/feedback_analytics/evaluation/sentiment_evaluation.json"),
         help="Path for the generated evaluation JSON.",
     )
     parser.add_argument(
         "--output-comparison-csv",
         type=Path,
-        default=Path("research/evaluation/sentiment_model_comparison.csv"),
+        default=Path("../training/feedback_analytics/evaluation/sentiment_model_comparison.csv"),
         help="Path for the generated model comparison CSV.",
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional maximum number of rows to use.")

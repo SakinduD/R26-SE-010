@@ -2,12 +2,58 @@ import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle, BarChart2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
+import { submitSessionFeedback } from '@/lib/api/pedagogy'
 import { cn } from '@/lib/utils'
 
 const EMOTION_STYLES = {
   calm:       'bg-emerald-100 text-emerald-700',
   assertive:  'bg-violet-100 text-violet-700',
   anxious:    'bg-amber-100 text-amber-700',
+// Map RPE emotion labels → APM turn metric scores (0-1)
+const EMOTION_SCORES = {
+  assertive:  { assertiveness_score: 0.9, empathy_score: 0.5, clarity_score: 0.8, response_quality: 0.85 },
+  calm:       { assertiveness_score: 0.6, empathy_score: 0.7, clarity_score: 0.7, response_quality: 0.70 },
+  anxious:    { assertiveness_score: 0.2, empathy_score: 0.4, clarity_score: 0.4, response_quality: 0.30 },
+  frustrated: { assertiveness_score: 0.3, empathy_score: 0.2, clarity_score: 0.4, response_quality: 0.30 },
+  confused:   { assertiveness_score: 0.3, empathy_score: 0.4, clarity_score: 0.3, response_quality: 0.35 },
+}
+const DEFAULT_SCORES = { assertiveness_score: 0.5, empathy_score: 0.5, clarity_score: 0.5, response_quality: 0.5 }
+
+async function _sendApmFeedback(data, sessionId, scenarioTitle) {
+  try {
+    const finalTrust = data.final_trust ?? 50
+    const rating = finalTrust >= 70 ? 'good' : finalTrust >= 40 ? 'fair' : 'poor'
+    const summary = finalTrust >= 70
+      ? 'Strong trust maintained throughout the session.'
+      : finalTrust >= 40
+      ? 'Moderate trust — focus on clearer assertive communication.'
+      : 'Low trust recorded — review de-escalation and emotional regulation strategies.'
+
+    await submitSessionFeedback({
+      session_id: sessionId,
+      scenario_id: data.scenario_id,
+      scenario_title: scenarioTitle || data.scenario_title || 'Role-play session',
+      user_id: data.user_id,
+      outcome: data.outcome,
+      final_trust: finalTrust,
+      final_escalation: data.final_escalation ?? 0,
+      total_turns: data.turns?.length ?? 0,
+      turn_metrics: (data.turns ?? []).map((t) => ({
+        turn: t.turn,
+        ...(EMOTION_SCORES[t.emotion] ?? DEFAULT_SCORES),
+        flags: [],
+      })),
+      coaching_advice: { overall_rating: rating, summary, advice: [], strengths: [], focus_areas: [] },
+    })
+  } catch (err) {
+    console.warn('APM feedback update failed (non-blocking):', err.message)
+  }
+}
+
+const EMOTION_COLORS = {
+  calm:       'bg-green-100 text-green-700',
+  assertive:  'bg-blue-100 text-blue-700',
+  anxious:    'bg-yellow-100 text-yellow-700',
   frustrated: 'bg-red-100 text-red-700',
   confused:   'bg-slate-100 text-slate-600',
 }
@@ -62,7 +108,12 @@ export default function SessionComplete() {
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     rpeService.getSessionSummary(sessionId)
-      .then(setSessionData)
+      .then((data) => {
+        setSessionData(data)
+        if (data?.outcome) {
+          _sendApmFeedback(data, sessionId, scenarioTitle)
+        }
+      })
       .catch(console.error)
       .finally(() => setIsLoading(false))
   }, [])
@@ -361,6 +412,12 @@ export default function SessionComplete() {
         {/* Action buttons */}
         <div className="flex gap-3 justify-center flex-wrap pb-8">
           <button
+            onClick={() => navigate('/training-plan')}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+          >
+            View updated plan
+          </button>
+          <button
             onClick={() => navigate(`/roleplay/feedback/${sessionId}`)}
             className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-md shadow-primary/25"
           >
@@ -369,6 +426,7 @@ export default function SessionComplete() {
           <button
             onClick={() => navigate('/roleplay')}
             className="flex items-center gap-2 rounded-xl bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground hover:bg-secondary/90 transition-colors shadow-sm"
+            className="flex items-center gap-2 rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
           >
             <RefreshCw size={14} /> Try Again
           </button>

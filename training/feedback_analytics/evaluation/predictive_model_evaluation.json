@@ -1,0 +1,135 @@
+{
+  "model_version": "ml-predictive-behavioral-analytics-v1",
+  "trained_at": "2026-05-04T19:33:09.341226+00:00",
+  "dataset_path": "training\\feedback_analytics\\datasets\\processed\\predictive_training_dataset.csv",
+  "data_source": "kaggle_employee_performance_evaluation_transformed",
+  "row_count": 5000,
+  "feature_columns": [
+    "current_score",
+    "previous_score",
+    "trend_slope",
+    "average_feedback_rating",
+    "sentiment_score",
+    "blind_spot_count",
+    "session_count",
+    "engagement_score"
+  ],
+  "regression_target": "target_next_score",
+  "classification_target": "target_risk_level",
+  "risk_distribution": {
+    "low": 147,
+    "medium": 3312,
+    "high": 1541
+  },
+  "selected_regressor": "linear_regression",
+  "selected_classifier": "random_forest_classifier",
+  "selection_rule": "lowest RMSE for regression, highest weighted F1 for classification",
+  "target_note": "Kaggle raw performance_rating was not used directly because the provided files contain a single class. Targets are derived from real structured, behavioral, and audio feature signals.",
+  "preprocessing_summary": {
+    "raw_structured_rows": 5000,
+    "raw_behavior_rows": 5000,
+    "raw_audio_rows": 5000,
+    "duplicate_employee_ids_removed": 0,
+    "invalid_or_missing_rows_removed": 0,
+    "incomplete_employee_records_removed": 0,
+    "merged_employee_records": 5000,
+    "final_processed_rows": 5000,
+    "risk_distribution": {
+      "low": 147,
+      "medium": 3312,
+      "high": 1541
+    },
+    "original_rating_distribution": {
+      "Low": 15000
+    },
+    "notes": [
+      "Rows are merged by employee_id across structured, behavior, and audio feature files.",
+      "Duplicate employee_id rows are removed by keeping the first valid record.",
+      "Rows with missing employee_id or invalid required numeric values are removed.",
+      "Raw performance_rating is recorded but not used as the final target because the provided files contain a single class.",
+      "target_next_score and target_risk_level are derived from real structured, behavioral, and audio feature signals."
+    ]
+  },
+  "regression_model_comparison": [
+    {
+      "model_name": "linear_regression",
+      "task": "next_score_regression",
+      "mae": 3.7036,
+      "mse": 20.988,
+      "rmse": 4.5813,
+      "r2": 0.6917,
+      "cv_rmse": 4.5502,
+      "training_seconds": 0.0546
+    },
+    {
+      "model_name": "gradient_boosting_regressor",
+      "task": "next_score_regression",
+      "mae": 3.8127,
+      "mse": 22.0113,
+      "rmse": 4.6916,
+      "r2": 0.6766,
+      "cv_rmse": 4.6635,
+      "training_seconds": 3.2373
+    },
+    {
+      "model_name": "random_forest_regressor",
+      "task": "next_score_regression",
+      "mae": 3.9001,
+      "mse": 23.4081,
+      "rmse": 4.8382,
+      "r2": 0.6561,
+      "cv_rmse": 4.7692,
+      "training_seconds": 13.0286
+    }
+  ],
+  "classification_model_comparison": [
+    {
+      "model_name": "random_forest_classifier",
+      "task": "risk_level_classification",
+      "accuracy": 0.807,
+      "precision": 0.8026,
+      "recall": 0.807,
+      "f1": 0.804,
+      "roc_auc": 0.8661,
+      "cv_f1": 0.7922,
+      "labels": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "training_seconds": 4.601
+    },
+    {
+      "model_name": "gradient_boosting_classifier",
+      "task": "risk_level_classification",
+      "accuracy": 0.806,
+      "precision": 0.7981,
+      "recall": 0.806,
+      "f1": 0.7987,
+      "roc_auc": 0.8791,
+      "cv_f1": 0.7984,
+      "labels": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "training_seconds": 10.019
+    },
+    {
+      "model_name": "logistic_regression",
+      "task": "risk_level_classification",
+      "accuracy": 0.711,
+      "precision": 0.7929,
+      "recall": 0.711,
+      "f1": 0.7335,
+      "roc_auc": 0.8599,
+      "cv_f1": 0.7233,
+      "labels": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "training_seconds": 0.1099
+    }
+  ]
+}
