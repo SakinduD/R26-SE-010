@@ -108,8 +108,10 @@ class ScoreSummary(BaseModel):
 
 class FeedbackSummary(BaseModel):
     total_count: int
+    session_count: int = 0
     by_type: dict[str, int]
     sentiment_counts: dict[str, int]
+    skill_rating_averages: dict[str, float] = {}
     average_rating: float | None = None
     latest_entries: list[FeedbackEntryRead]
 
