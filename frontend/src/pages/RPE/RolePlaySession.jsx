@@ -167,7 +167,7 @@ export default function RolePlaySession() {
     : 3
 
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden">
+    <div className="h-[calc(100vh-3.5rem)] bg-background flex flex-col overflow-hidden">
 
       {/* Top bar */}
       <header className="shrink-0 bg-card border-b border-border px-6 py-3 flex items-center gap-3 shadow-sm">

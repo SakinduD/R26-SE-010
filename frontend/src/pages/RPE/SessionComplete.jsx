@@ -9,6 +9,10 @@ const EMOTION_STYLES = {
   calm:       'bg-emerald-100 text-emerald-700',
   assertive:  'bg-violet-100 text-violet-700',
   anxious:    'bg-amber-100 text-amber-700',
+  frustrated: 'bg-red-100 text-red-700',
+  confused:   'bg-slate-100 text-slate-600',
+}
+
 // Map RPE emotion labels → APM turn metric scores (0-1)
 const EMOTION_SCORES = {
   assertive:  { assertiveness_score: 0.9, empathy_score: 0.5, clarity_score: 0.8, response_quality: 0.85 },
@@ -48,14 +52,6 @@ async function _sendApmFeedback(data, sessionId, scenarioTitle) {
   } catch (err) {
     console.warn('APM feedback update failed (non-blocking):', err.message)
   }
-}
-
-const EMOTION_COLORS = {
-  calm:       'bg-green-100 text-green-700',
-  assertive:  'bg-blue-100 text-blue-700',
-  anxious:    'bg-yellow-100 text-yellow-700',
-  frustrated: 'bg-red-100 text-red-700',
-  confused:   'bg-slate-100 text-slate-600',
 }
 
 const getTrustGradient  = (s) => s >= 70 ? 'from-emerald-500 to-teal-400' : s >= 40 ? 'from-amber-400 to-yellow-300' : 'from-red-500 to-rose-400'
@@ -426,7 +422,6 @@ export default function SessionComplete() {
           <button
             onClick={() => navigate('/roleplay')}
             className="flex items-center gap-2 rounded-xl bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground hover:bg-secondary/90 transition-colors shadow-sm"
-            className="flex items-center gap-2 rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
           >
             <RefreshCw size={14} /> Try Again
           </button>
