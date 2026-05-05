@@ -79,7 +79,7 @@ export default function PredictiveAnalytics() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
-  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [selectedSkill, setSelectedSkill] = useState('confidence')
   const [data, setData] = useState(DEMO_DATA)
   const [skillPrediction, setSkillPrediction] = useState(null)
   const [status, setStatus] = useState('demo')

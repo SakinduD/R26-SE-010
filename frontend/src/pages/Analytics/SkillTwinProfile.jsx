@@ -131,6 +131,22 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+function averageFeedbackBySkill(entries) {
+  const grouped = entries.reduce((acc, entry) => {
+    if (!entry.skill_area || entry.rating === null || entry.rating === undefined) return acc
+    acc[entry.skill_area] = acc[entry.skill_area] || []
+    acc[entry.skill_area].push(Number(entry.rating))
+    return acc
+  }, {})
+
+  return Object.fromEntries(
+    Object.entries(grouped).map(([skill, ratings]) => [
+      skill,
+      ratings.reduce((total, rating) => total + rating, 0) / ratings.length,
+    ])
+  )
+}
+
 export default function SkillTwinProfile() {
   const params = useParams()
   const {
@@ -146,14 +162,18 @@ export default function SkillTwinProfile() {
 
   const radarScores = useMemo(() => {
     const averages = profile.aggregate?.scores?.averages || {}
+    const feedbackAverages =
+      profile.aggregate?.feedback?.skill_rating_averages ||
+      averageFeedbackBySkill(profile.aggregate?.feedback?.latest_entries || [])
+
     return [
-      ['confidence', averages.confidence_score],
-      ['communication_clarity', averages.clarity_score],
-      ['empathy', averages.empathy_score],
-      ['active_listening', averages.listening_score],
-      ['adaptability', averages.adaptability_score],
-      ['emotional_control', averages.emotional_control_score],
-      ['professionalism', averages.professionalism_score],
+      ['confidence', averages.confidence_score ?? feedbackAverages.confidence],
+      ['communication_clarity', averages.clarity_score ?? feedbackAverages.communication_clarity],
+      ['empathy', averages.empathy_score ?? feedbackAverages.empathy],
+      ['active_listening', averages.listening_score ?? feedbackAverages.active_listening],
+      ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
+      ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
+      ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
     ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
   }, [profile])
 

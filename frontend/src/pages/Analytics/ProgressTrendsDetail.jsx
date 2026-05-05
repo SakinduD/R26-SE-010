@@ -85,7 +85,7 @@ export default function ProgressTrendsDetail() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
-  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [selectedSkill, setSelectedSkill] = useState('confidence')
   const [data, setData] = useState(DEMO_DATA)
   const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
   const [status, setStatus] = useState('demo')
