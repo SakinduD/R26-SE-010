@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain } from 'lucide-react'
+import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain, LogIn } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
+import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,7 @@ const MAX_SKILL_PILLS = 8
 
 export default function ScenarioSelect() {
   const navigate = useNavigate()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth()
 
   const [allScenarios, setAllScenarios]           = useState([])
   const [filteredScenarios, setFilteredScenarios] = useState([])
@@ -39,7 +41,7 @@ export default function ScenarioSelect() {
       try {
         const [data, recs] = await Promise.all([
           rpeService.getScenarios(),
-          rpeService.getApaRecommendations('guest_user').catch(() => []),
+          rpeService.getApaRecommendations(isAuthenticated && user ? user.id : 'guest').catch(() => []),
         ])
         setAllScenarios(data)
         setFilteredScenarios(data)
@@ -145,7 +147,10 @@ export default function ScenarioSelect() {
     setStartingId(scenario.scenario_id)
     setError(null)
     try {
-      const response = await rpeService.startSession(scenario.scenario_id, 'guest_user')
+      const response = await rpeService.startSession(
+        scenario.scenario_id,
+        isAuthenticated && user ? user.id : null
+      )
       navigate('/roleplay/session', {
         state: {
           sessionId:                   response.session_id,
@@ -198,6 +203,20 @@ export default function ScenarioSelect() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
+
+        {/* Guest banner — shown only when auth check is complete and user is not signed in */}
+        {!authLoading && !isAuthenticated && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+            <LogIn size={15} className="text-amber-600 shrink-0" />
+            <span className="text-amber-700">
+              You are browsing as a guest.{' '}
+              <a href="/signin" className="underline font-semibold text-amber-800 hover:no-underline">
+                Sign in
+              </a>{' '}
+              to save your session history.
+            </span>
+          </div>
+        )}
 
         {/* Filter + sort bar */}
         <div className="flex flex-wrap items-center gap-3 justify-between">
