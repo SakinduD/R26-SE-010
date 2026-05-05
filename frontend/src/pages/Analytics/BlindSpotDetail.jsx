@@ -14,6 +14,7 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -201,7 +202,12 @@ export default function BlindSpotDetail() {
             {scope === 'session' ? (
               <Input label="Session" value={sessionId} onChange={setSessionId} />
             ) : (
-              <Input label="User" value={userId} onChange={setUserId} />
+              <AnalyticsUserField
+                userId={userId}
+                userLabel={userLabel}
+                isAuthenticated={isAuthenticated}
+                onChange={setUserId}
+              />
             )}
             <Button className="h-10 self-end" onClick={() => loadBlindSpots()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
@@ -229,7 +235,7 @@ export default function BlindSpotDetail() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 {scope === 'session' ? <BarChart3 className="h-4 w-4 text-secondary" /> : <UserCircle className="h-4 w-4 text-secondary" />}
-                <span>{currentId}</span>
+                <span>{scope === 'user' && isAuthenticated ? userLabel : currentId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Self-perception gap analysis</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">

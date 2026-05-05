@@ -15,6 +15,7 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -240,7 +241,12 @@ export default function AnalyticsDashboard() {
             <h1 className="mt-1 text-2xl font-semibold">Analytics Dashboard</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <Input label="Session" value={sessionId} onChange={setSessionId} placeholder="optional" />
             <Button className="h-10 self-end" onClick={() => loadDashboard()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}

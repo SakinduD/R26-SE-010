@@ -13,6 +13,7 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_OPTIONS = [
@@ -139,11 +140,11 @@ export default function FeedbackForm() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <TextInput
-              label="User ID"
-              value={form.user_id}
+            <AnalyticsUserField
+              userId={form.user_id}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
               onChange={(value) => updateField('user_id', value)}
-              placeholder="user-123"
             />
             <TextInput
               label="Session ID"
@@ -234,7 +235,7 @@ export default function FeedbackForm() {
               <Star className="h-4 w-4 text-secondary" />
               <h2 className="text-base font-semibold">Current Entry</h2>
             </div>
-            <PreviewItem label="User" value={form.user_id} />
+            <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
             <PreviewItem label="Session" value={form.session_id} />
             <PreviewItem label="Type" value={form.feedback_type} />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
