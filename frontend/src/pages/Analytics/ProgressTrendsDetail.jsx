@@ -15,6 +15,7 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -142,7 +143,12 @@ export default function ProgressTrendsDetail() {
             <h1 className="mt-1 text-2xl font-semibold">Progress Trends</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
             <Button className="h-10 self-end" onClick={() => loadTrends()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
@@ -171,7 +177,7 @@ export default function ProgressTrendsDetail() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <LineChart className="h-4 w-4 text-secondary" />
-                <span>{data.user_id || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Longitudinal skill progress</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">

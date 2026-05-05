@@ -17,6 +17,7 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -138,7 +139,12 @@ export default function PredictiveAnalytics() {
             <h1 className="mt-1 text-2xl font-semibold">Predictive Analytics</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
             <Button className="h-10 self-end" onClick={() => loadPredictions()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
@@ -167,7 +173,7 @@ export default function PredictiveAnalytics() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <BrainCircuit className="h-4 w-4 text-secondary" />
-                <span>{data.user_id || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Live next-session risk forecast</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">

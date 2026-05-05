@@ -16,6 +16,7 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -205,14 +206,12 @@ export default function AnalyticsRecommendations() {
             <h1 className="mt-1 text-2xl font-semibold">Analytics Recommendations</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>User</span>
-              <input
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-                value={userId}
-                onChange={(event) => setUserId(event.target.value)}
-              />
-            </label>
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <Button className="h-10 self-end" onClick={() => loadRecommendations()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
@@ -240,7 +239,7 @@ export default function AnalyticsRecommendations() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Lightbulb className="h-4 w-4 text-secondary" />
-                <span>{data.userId || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.userId || userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Prioritized mentoring actions</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
