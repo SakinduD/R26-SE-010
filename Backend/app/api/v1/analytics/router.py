@@ -12,6 +12,7 @@ from app.schemas.analytics import (
     FeedbackSentimentRequest,
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
+    MentoringRecommendationResult,
     PostSessionReportResult,
     ProgressTrendResult,
     PredictiveModelingItem,
@@ -27,6 +28,7 @@ from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    llm_mentoring_service,
     post_session_report_service,
     predictive_modeling_service,
     progress_trend_service,
@@ -303,3 +305,15 @@ def get_user_skill_predicted_outcome(
     db: Session = Depends(get_db),
 ):
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, limit)
+
+
+@router.get(
+    "/users/{user_id}/mentoring-recommendations",
+    response_model=MentoringRecommendationResult,
+)
+def get_user_mentoring_recommendations(
+    user_id: str,
+    limit: int = Query(default=100, ge=2, le=500),
+    db: Session = Depends(get_db),
+):
+    return llm_mentoring_service.generate_user_mentoring_recommendations(db, user_id, limit)

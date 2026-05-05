@@ -6,7 +6,13 @@ from pathlib import Path
 from app.schemas.analytics import FeedbackSentimentResult
 from research.nlp_sentiment.sentiment_baseline import load_model, predict_sentiment
 
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "research" / "models" / "sentiment_model.joblib"
+DEFAULT_MODEL_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "training"
+    / "feedback_analytics"
+    / "models"
+    / "sentiment_model.joblib"
+)
 
 
 class SentimentModelUnavailableError(RuntimeError):
