@@ -1,4 +1,4 @@
-import apiClient from './client'
+import { authClient as apiClient } from './client'
 
 export async function getMyTrainingPlan() {
   try {

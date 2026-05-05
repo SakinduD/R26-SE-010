@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Brain } from 'lucide-react';
+import { LogOut, LayoutDashboard, Brain, ClipboardList } from 'lucide-react';
 import { toast } from 'sonner';
 import Logo from '@/components/ui/logo';
 import { useAuth } from '@/lib/auth/context';
@@ -46,6 +46,13 @@ export default function AppLayout() {
             >
               <LayoutDashboard className="size-3.5" />
               Dashboard
+            </Link>
+            <Link
+              to="/survey"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ClipboardList className="size-3.5" />
+              Survey
             </Link>
             <Link
               to="/training-plan"
