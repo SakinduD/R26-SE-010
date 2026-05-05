@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Activity,
@@ -15,6 +15,8 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -129,7 +131,13 @@ function labelFor(value) {
 
 export default function SkillTwinProfile() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
   const [profile, setProfile] = useState(DEMO_PROFILE)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -168,8 +176,10 @@ export default function SkillTwinProfile() {
     )
   }, [profile, status])
 
-  const loadProfile = async () => {
-    if (!userId.trim()) {
+  const loadProfile = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -179,10 +189,10 @@ export default function SkillTwinProfile() {
 
     try {
       const [aggregate, trends, predictions, blindSpots] = await Promise.all([
-        analyticsService.getAggregateByUser(userId.trim()),
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
-        analyticsService.getBlindSpotsByUser(userId.trim()),
+        analyticsService.getAggregateByUser(targetUserId),
+        analyticsService.getProgressTrendsByUser(targetUserId),
+        analyticsService.getPredictedOutcomesByUser(targetUserId),
+        analyticsService.getBlindSpotsByUser(targetUserId),
       ])
       setProfile({ aggregate, trends, predictions, blindSpots })
       setStatus('live')
@@ -192,6 +202,16 @@ export default function SkillTwinProfile() {
       setError('Backend profile unavailable. Showing demo skill twin.')
     }
   }
+
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadProfile(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -210,7 +230,7 @@ export default function SkillTwinProfile() {
                 onChange={(event) => setUserId(event.target.value)}
               />
             </label>
-            <Button className="h-10 self-end" onClick={loadProfile}>
+            <Button className="h-10 self-end" onClick={() => loadProfile()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -221,6 +241,7 @@ export default function SkillTwinProfile() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 

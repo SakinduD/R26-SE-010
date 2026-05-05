@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -111,8 +113,14 @@ function labelFor(value) {
 
 export default function BlindSpotDetail() {
   const params = useParams()
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
   const [scope, setScope] = useState(params.sessionId ? 'session' : 'user')
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState(params.sessionId || 'demo-session')
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
@@ -128,9 +136,11 @@ export default function BlindSpotDetail() {
     return Boolean(blindSpots.length || analysisItems.length)
   }, [analysisItems.length, blindSpots.length, status])
 
-  const loadBlindSpots = async () => {
-    if (!currentId.trim()) {
-      setError(`Enter a ${scope} id`)
+  const loadBlindSpots = async (nextScope = scope, nextUserId = userId, nextSessionId = sessionId) => {
+    const targetId = nextScope === 'session' ? nextSessionId.trim() : nextUserId.trim()
+
+    if (!targetId) {
+      setError(`Enter a ${nextScope} id`)
       return
     }
 
@@ -139,14 +149,14 @@ export default function BlindSpotDetail() {
 
     try {
       const [blindSpotResult, analysisResult] =
-        scope === 'session'
+        nextScope === 'session'
           ? await Promise.all([
-              analyticsService.getBlindSpotsBySession(sessionId.trim()),
-              analyticsService.getFeedbackAnalysisBySession(sessionId.trim()),
+              analyticsService.getBlindSpotsBySession(targetId),
+              analyticsService.getFeedbackAnalysisBySession(targetId),
             ])
           : await Promise.all([
-              analyticsService.getBlindSpotsByUser(userId.trim()),
-              analyticsService.getFeedbackAnalysisByUser(userId.trim()),
+              analyticsService.getBlindSpotsByUser(targetId),
+              analyticsService.getFeedbackAnalysisByUser(targetId),
             ])
 
       setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult })
@@ -157,6 +167,18 @@ export default function BlindSpotDetail() {
       setError('Backend blind spot data unavailable. Showing demo analysis.')
     }
   }
+
+  useEffect(() => {
+    if (scope === 'user') {
+      setUserId(connectedUserId)
+    }
+  }, [connectedUserId, scope])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId && scope === 'user') {
+      loadBlindSpots('user', connectedUserId, sessionId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, scope])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -181,7 +203,7 @@ export default function BlindSpotDetail() {
             ) : (
               <Input label="User" value={userId} onChange={setUserId} />
             )}
-            <Button className="h-10 self-end" onClick={loadBlindSpots}>
+            <Button className="h-10 self-end" onClick={() => loadBlindSpots()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -192,6 +214,7 @@ export default function BlindSpotDetail() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 
