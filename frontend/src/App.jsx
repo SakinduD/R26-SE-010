@@ -21,6 +21,7 @@ import AuthCallback from './pages/auth/AuthCallback'
 import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
+import TrainingPlan from './pages/app/TrainingPlan'
 
 // RPE pages
 import ScenarioSelect    from './pages/RPE/ScenarioSelect'
@@ -67,6 +68,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/survey" element={<Survey />} />
               <Route path="/survey/results" element={<SurveyResults />} />
+              <Route path="/training-plan" element={<TrainingPlan />} />
             </Route>
 
             {/* RPE routes */}
