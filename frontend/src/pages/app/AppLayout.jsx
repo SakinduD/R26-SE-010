@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, LayoutDashboard, Brain, BarChart3, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import Logo from '@/components/ui/logo';
@@ -22,6 +22,8 @@ export default function AppLayout() {
   const { isLoading } = useProtectedRoute();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAnalyticsRoute = location.pathname.startsWith('/analytics');
 
   if (isLoading) return <NavSkeleton />;
 
@@ -87,7 +89,7 @@ export default function AppLayout() {
       </header>
 
       {/* Page content */}
-      <main className="max-w-5xl mx-auto px-4 py-10">
+      <main className={isAnalyticsRoute ? '' : 'max-w-5xl mx-auto px-4 py-10'}>
         <Outlet />
       </main>
     </div>
