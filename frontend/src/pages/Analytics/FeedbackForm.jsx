@@ -132,18 +132,22 @@ export default function FeedbackForm() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 md:px-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-          <h1 className="text-2xl font-semibold">Self and Peer Feedback</h1>
-          <div className="pt-2">
-            <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
+            <h1 className="mt-1 text-2xl font-semibold">Self and Peer Feedback</h1>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <AnalyticsNav />
           </div>
         </div>
       </section>
 
-      <AnalyticsNav />
-
       <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
+        </div>
+
         <form onSubmit={submitFeedback} className="rounded-lg border border-border bg-card p-4">
           <div className="mb-5 flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4 text-secondary" />
