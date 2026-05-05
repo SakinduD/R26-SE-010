@@ -148,6 +148,16 @@ class SerAnalyzer(AudioAnalyzer):
     Loads the trained SVM pipeline (Scaler + SVC) to predict the user's emotional state.
     """
 
+    EMOTION_MAP = {
+        0: "neutral",
+        1: "happy",
+        2: "sad",
+        3: "angry",
+        4: "fearful",
+        5: "disgust",
+        6: "surprised"
+    }
+
     def __init__(self, model_path: str = "app/models/affect_fusion/svm_model.pkl"):
         self.model = None
         self.model_path = model_path
@@ -199,15 +209,23 @@ class AudioFeatureExtractor:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32) / np.iinfo(audio_data.dtype).max
 
+            # Resample to 22050Hz to match training pipeline
+            if sr != 22050:
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=22050)
+                sr = 22050
+
             avg_volume = float(np.mean(librosa.feature.rms(y=audio_data)))
 
-            # Dominant pitch
+            # Dominant pitch & Pitch Stability (STD)
             try:
-                pitches, magnitudes = librosa.piptrack(y=audio_data, sr=sr)
-                index = magnitudes.argmax()
-                pitch_hz = float(pitches.flatten()[index])
+                # Use YIN for more stable pitch tracking than piptrack
+                f0 = librosa.yin(audio_data, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+                voiced_f0 = f0[f0 > 0]
+                pitch_hz = float(np.mean(voiced_f0)) if len(voiced_f0) > 0 else 0.0
+                pitch_std = float(np.std(voiced_f0)) if len(voiced_f0) > 0 else 0.0
             except Exception:
                 pitch_hz = 0.0
+                pitch_std = 0.0
 
             zcr = float(np.mean(librosa.feature.zero_crossing_rate(y=audio_data)))
             centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio_data, sr=sr)))
@@ -236,6 +254,7 @@ class AudioFeatureExtractor:
                 zero_crossing_rate=zcr,
                 spectral_centroid=centroid,
                 duration_ms=duration_ms,
+                pitch_std=pitch_std,
                 feature_vector=feature_vector,
                 emotion_label=None, # Will be filled by SerAnalyzer
             )
@@ -290,8 +309,10 @@ class NudgeEngine:
         if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None and features.avg_volume > 0.015:
             try:
                 vec = features.feature_vector
-                prediction = self.ser_analyzer.model.predict(vec.reshape(1, -1))[0]
-                features.emotion_label = prediction
+                prediction = int(self.ser_analyzer.model.predict(vec.reshape(1, -1))[0])
+                # Map integer back to string for the rule-based fusion logic
+                features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
+                
                 if hasattr(self.ser_analyzer.model, "predict_proba"):
                     probs = self.ser_analyzer.model.predict_proba(vec.reshape(1, -1))[0]
                     features.emotion_confidence = float(np.max(probs))
