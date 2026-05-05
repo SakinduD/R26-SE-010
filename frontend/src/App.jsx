@@ -24,9 +24,10 @@ import SurveyResults from './pages/app/survey/SurveyResults'
 import TrainingPlan from './pages/app/TrainingPlan'
 
 // RPE pages
-import ScenarioSelect    from './pages/RPE/ScenarioSelect'
-import RolePlaySession   from './pages/RPE/RolePlaySession'
-import SessionComplete   from './pages/RPE/SessionComplete'
+import RPELayout from './pages/RPE/RPELayout'
+import ScenarioSelect from './pages/RPE/ScenarioSelect'
+import RolePlaySession from './pages/RPE/RolePlaySession'
+import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
 
 // Existing feature pages
@@ -87,20 +88,33 @@ export default function App() {
               <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
             </Route>
 
-            {/* RPE routes */}
-            <Route path="/roleplay"                          element={<ScenarioSelect />}    />
-            <Route path="/roleplay/session"                  element={<RolePlaySession />}   />
-            <Route path="/roleplay/session/complete"         element={<SessionComplete />}   />
-            <Route path="/roleplay/feedback/:sessionId"      element={<FeedbackDashboard />} />
+            {/* RPE routes - all share the RPELayout navbar */}
+            <Route element={<RPELayout />}>
+              <Route path="/roleplay" element={<ScenarioSelect />} />
+              <Route path="/roleplay/session" element={<RolePlaySession />} />
+              <Route path="/roleplay/session/complete" element={<SessionComplete />} />
+              <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
+              <Route
+                path="/roleplay/my-sessions"
+                element={
+                  <div className="py-16 text-center text-muted-foreground text-sm">
+                    My Sessions - coming soon
+                  </div>
+                }
+              />
+            </Route>
 
             {/* Legacy / feature routes (unchanged) */}
-            <Route path="/admin" element={
-              <div className="dark bg-background text-foreground min-h-screen">
-                <div className="bg-muted/30 p-6 min-h-screen">
-                  <AdminDashboard />
+            <Route
+              path="/admin"
+              element={
+                <div className="dark bg-background text-foreground min-h-screen">
+                  <div className="bg-muted/30 p-6 min-h-screen">
+                    <AdminDashboard />
+                  </div>
                 </div>
-              </div>
-            } />
+              }
+            />
             <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
           </Routes>
         </div>

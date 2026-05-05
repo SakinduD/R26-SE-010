@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.auth import get_current_user, get_current_user_optional
+from app.models.user import User
 from app.schemas.rpe import (
     ApaRecommendRequest,
     ApaSessionCompleteRequest,
@@ -48,11 +50,28 @@ rpe_router = APIRouter()
 
 
 @rpe_router.post("/start-session", response_model=StartSessionResponse)
-def start_session(payload: StartSessionRequest) -> StartSessionResponse:
+def start_session(
+    payload:      StartSessionRequest,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> StartSessionResponse:
+    if current_user:
+        resolved_user_id = str(current_user.id)
+        auth_user_id     = str(current_user.id)
+        is_authenticated = True
+    else:
+        resolved_user_id = payload.user_id or "guest"
+        auth_user_id     = None
+        is_authenticated = False
+
     try:
-        state = rpe_session_service.start_session(payload.scenario_id, payload.user_id)
+        state = rpe_session_service.start_session(
+            scenario_id  = payload.scenario_id,
+            user_id      = resolved_user_id,
+            auth_user_id = auth_user_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
     scenario = rpe_scenario_service.get_scenario(payload.scenario_id)
     rpe_session_service.store_session_config(
         session_id        = state.session_id,
@@ -60,19 +79,23 @@ def start_session(payload: StartSessionRequest) -> StartSessionResponse:
         max_turns         = scenario.max_turns,
     )
     return StartSessionResponse(
-        session_id=state.session_id,
-        opening_npc_line=scenario.opening_npc_line,
-        scenario_title=scenario.title,
-        difficulty=scenario.difficulty,
-        conflict_type=scenario.conflict_type,
-        total_turns=scenario.recommended_turns,       # backward-compat
-        recommended_turns=scenario.recommended_turns,
-        max_turns=scenario.max_turns,
+        session_id        = state.session_id,
+        opening_npc_line  = scenario.opening_npc_line,
+        scenario_title    = scenario.title,
+        difficulty        = scenario.difficulty,
+        conflict_type     = scenario.conflict_type,
+        total_turns       = scenario.recommended_turns,
+        recommended_turns = scenario.recommended_turns,
+        max_turns         = scenario.max_turns,
+        is_authenticated  = is_authenticated,
     )
 
 
 @rpe_router.post("/session-respond", response_model=RespondResponse)
-def session_respond(payload: RespondRequest) -> RespondResponse:
+def session_respond(
+    payload:      RespondRequest,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> RespondResponse:
     try:
         state = rpe_session_service.get_state(payload.session_id)
         if not state:
@@ -170,11 +193,20 @@ def session_respond(payload: RespondRequest) -> RespondResponse:
 
 
 @rpe_router.get("/session-summary/{session_id}")
-def session_summary(session_id: str) -> dict:
+def session_summary(
+    session_id:   str,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> dict:
     try:
-        return rpe_session_service.get_session(session_id)
+        session = rpe_session_service.get_session(session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+    if current_user and session.get("auth_user_id"):
+        if session["auth_user_id"] != str(current_user.id):
+            raise HTTPException(status_code=403, detail="You do not have access to this session.")
+
+    return session
 
 
 @rpe_router.get("/scenarios", response_model=list[ScenarioSummary])
@@ -265,10 +297,30 @@ def apa_session_complete(payload: ApaSessionCompleteRequest) -> dict:
 
 
 @rpe_router.get("/session-feedback/{session_id}", response_model=FeedbackResponse)
-def session_feedback(session_id: str) -> dict:
+def session_feedback(
+    session_id:   str,
+    current_user: User | None = Depends(get_current_user_optional),
+) -> dict:
+    try:
+        session = rpe_session_service.get_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    if current_user and session.get("auth_user_id"):
+        if session["auth_user_id"] != str(current_user.id):
+            raise HTTPException(status_code=403, detail="You do not have access to this session.")
+
     try:
         return rpe_feedback_service.generate_feedback(session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
+
+
+@rpe_router.get("/my-sessions")
+def my_sessions(
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """Returns all RPE sessions for the authenticated user."""
+    return rpe_session_service.get_user_sessions(str(current_user.id))

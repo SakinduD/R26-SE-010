@@ -1,6 +1,13 @@
 import React from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Brain, BarChart3, MessageSquare } from 'lucide-react';
+import {
+  LogOut,
+  LayoutDashboard,
+  Brain,
+  BarChart3,
+  MessageSquare,
+  Swords,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import Logo from '@/components/ui/logo';
 import { useAuth } from '@/lib/auth/context';
@@ -69,6 +76,13 @@ export default function AppLayout() {
             >
               <MessageSquare className="size-3.5" />
               Feedback
+            </Link>
+            <Link
+              to="/roleplay"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Swords className="size-3.5" />
+              Role Play
             </Link>
           </div>
 
