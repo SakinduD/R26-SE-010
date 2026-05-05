@@ -1050,3 +1050,118 @@ def test_user_skill_predicted_outcome_handles_insufficient_data(client):
     assert data["risk_level"] == "medium"
     assert data["confidence"] == 0.2
     assert data["evidence_points"] == 0
+
+
+def test_user_mentoring_recommendations_returns_rule_based_fallback(client, monkeypatch):
+    from app.services import llm_mentoring_service
+
+    monkeypatch.setattr(llm_mentoring_service, "_call_openai_mentoring", lambda evidence: None)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-1",
+            "confidence_score": 74,
+            "empathy_score": 88,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "confidence_score": 58,
+            "empathy_score": 80,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 92,
+            "sentiment": "positive",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 60,
+            "sentiment": "neutral",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/mentor-user/mentoring-recommendations")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "mentor-user"
+    assert data["source"] == "rule_based"
+    assert data["model_version"] == "rule-based-mentoring-v1"
+    assert data["evidence"]["session_count"] == 2
+    assert data["evidence"]["feedback_count"] == 2
+    assert data["recommendations"]
+    assert data["recommendations"][0]["priority"] in {"high", "medium"}
+    assert data["recommendations"][0]["next_action"]
+
+
+def test_user_mentoring_recommendations_can_use_llm_output(client, monkeypatch):
+    from app.schemas.analytics import MentoringRecommendationItem
+    from app.services import llm_mentoring_service
+
+    def fake_llm(evidence):
+        assert evidence["summary"]["session_count"] == 2
+        return [
+            MentoringRecommendationItem(
+                priority="high",
+                skill_area="confidence",
+                title="Practice confident delivery",
+                reason="Confidence evidence is below the target benchmark.",
+                detail="Use shorter answers with clear opening and closing statements.",
+                next_action="Record one response and compare it with peer feedback.",
+                source="llm",
+                evidence_sources=["skill_twin_scores", "feedback_analysis"],
+            )
+        ]
+
+    class FakeSettings:
+        openai_api_key = "test-key"
+        openai_base_url = "https://api.openai.com/v1"
+        openai_mentoring_model = "gpt-test-mentoring"
+        llm_mentoring_timeout_s = 1.0
+
+    monkeypatch.setattr(llm_mentoring_service, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(llm_mentoring_service, "_call_openai_mentoring", fake_llm)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "llm-mentor-user",
+            "session_id": "llm-mentor-session-1",
+            "confidence_score": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "llm-mentor-user",
+            "session_id": "llm-mentor-session-2",
+            "confidence_score": 66,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/llm-mentor-user/mentoring-recommendations")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "llm"
+    assert data["model_version"]
+    assert data["recommendations"][0]["source"] == "llm"
+    assert data["recommendations"][0]["title"] == "Practice confident delivery"

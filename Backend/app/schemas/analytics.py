@@ -307,6 +307,27 @@ class PredictiveModelingResult(BaseModel):
     model_version: str
 
 
+class MentoringRecommendationItem(BaseModel):
+    priority: Literal["high", "medium", "low"]
+    skill_area: str | None = None
+    title: str
+    reason: str
+    detail: str
+    next_action: str
+    source: Literal["llm", "rule_based"]
+    evidence_sources: list[str] = []
+
+
+class MentoringRecommendationResult(BaseModel):
+    user_id: str
+    recommendations: list[MentoringRecommendationItem]
+    evidence: dict[str, int | float | str | None]
+    generated_at: datetime
+    recommendation_version: str
+    model_version: str
+    source: Literal["llm", "rule_based"]
+
+
 class PostSessionActionItem(BaseModel):
     priority: Literal["high", "medium", "low"]
     skill_area: str | None = None
