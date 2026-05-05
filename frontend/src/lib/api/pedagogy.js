@@ -19,3 +19,8 @@ export async function getAdjustmentHistory() {
   const resp = await apiClient.get('/api/v1/apa/plan/history')
   return resp.data
 }
+
+export async function submitSessionFeedback(payload) {
+  const resp = await apiClient.post('/api/v1/apa/session-feedback', payload)
+  return resp.data
+}
