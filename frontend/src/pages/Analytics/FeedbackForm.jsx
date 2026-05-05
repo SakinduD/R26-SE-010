@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import {
   CheckCircle2,
   ClipboardCheck,
+  Plus,
   MessageSquare,
   RefreshCw,
   Save,
@@ -40,7 +41,7 @@ const SENTIMENT_OPTIONS = [
 
 const INITIAL_FORM = {
   user_id: 'demo-user',
-  session_id: '',
+  session_id: createSessionId(),
   feedback_type: 'self',
   skill_area: 'overall',
   rating: 75,
@@ -58,7 +59,7 @@ export default function FeedbackForm() {
   const [form, setForm] = useState({
     ...INITIAL_FORM,
     user_id: connectedUserId,
-    session_id: params.sessionId || 'demo-session',
+    session_id: params.sessionId || createSessionId(),
   })
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
@@ -109,11 +110,18 @@ export default function FeedbackForm() {
     setForm({
       ...INITIAL_FORM,
       user_id: connectedUserId,
-      session_id: params.sessionId || 'demo-session',
+      session_id: params.sessionId || createSessionId(),
     })
     setCreatedEntry(null)
     setStatus('idle')
     setMessage('')
+  }
+
+  const startNewSession = () => {
+    updateField('session_id', createSessionId())
+    setCreatedEntry(null)
+    setStatus('idle')
+    setMessage('New session ID generated.')
   }
 
   useEffect(() => {
@@ -151,6 +159,16 @@ export default function FeedbackForm() {
               value={form.session_id}
               onChange={(value) => updateField('session_id', value)}
               placeholder="session-123"
+              action={
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  onClick={startNewSession}
+                >
+                  <Plus className="h-3 w-3" />
+                  New
+                </button>
+              }
             />
           </div>
 
@@ -266,10 +284,13 @@ export default function FeedbackForm() {
   )
 }
 
-function TextInput({ label, value, onChange, placeholder }) {
+function TextInput({ label, value, onChange, placeholder, action }) {
   return (
     <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        {action}
+      </span>
       <input
         className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
         value={value}
@@ -353,4 +374,18 @@ function labelForSkill(value) {
 function formatDate(value) {
   if (!value) return 'N/A'
   return new Date(value).toLocaleString()
+}
+
+function createSessionId() {
+  const now = new Date()
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+
+  return `softskill-session-${stamp}`
 }
