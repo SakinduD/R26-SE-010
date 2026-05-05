@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -139,6 +140,8 @@ export default function FeedbackForm() {
           </div>
         </div>
       </section>
+
+      <AnalyticsNav />
 
       <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <form onSubmit={submitFeedback} className="rounded-lg border border-border bg-card p-4">
