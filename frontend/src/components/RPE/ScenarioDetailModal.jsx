@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const DIFFICULTY_COLORS = {
-  beginner:     'bg-green-100 text-green-700',
-  intermediate: 'bg-yellow-100 text-yellow-700',
+const DIFFICULTY_STYLES = {
+  beginner:     'bg-emerald-100 text-emerald-700',
+  intermediate: 'bg-amber-100 text-amber-700',
   advanced:     'bg-red-100 text-red-700',
 }
 
 const getDifficultyLabel = (weight) => {
-  if (weight <= 1.0) return '⭐ Easy start'
-  if (weight <= 1.5) return '⭐⭐ Moderate'
-  if (weight <= 2.0) return '⭐⭐⭐ Challenging'
-  return '⭐⭐⭐⭐ Expert'
+  if (weight <= 1.0) return 'Easy start'
+  if (weight <= 1.5) return 'Moderate'
+  if (weight <= 2.0) return 'Challenging'
+  return 'Expert'
 }
 
 export default function ScenarioDetailModal({ scenario, onClose, onStart, isStarting }) {
@@ -37,238 +37,219 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[85vh] overflow-y-auto"
+        className="bg-card rounded-2xl shadow-2xl border border-border max-w-lg w-full max-h-[88vh] overflow-y-auto custom-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 mb-5">
+        {/* Modal header with gradient */}
+        <div className="sticky top-0 bg-gradient-to-r from-primary/8 to-card border-b border-border px-6 py-4 rounded-t-2xl flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-gray-900 leading-snug">{scenario.title}</h2>
+            <h2 className="text-lg font-bold text-foreground leading-snug">{scenario.title}</h2>
             <div className="flex flex-wrap gap-1.5 mt-2">
               <span className={cn(
-                'rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-                DIFFICULTY_COLORS[scenario.difficulty] ?? 'bg-gray-100 text-gray-600'
+                'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
+                DIFFICULTY_STYLES[scenario.difficulty] ?? 'bg-slate-100 text-slate-600'
               )}>
                 {scenario.difficulty}
               </span>
-              <span className="bg-gray-100 text-gray-500 text-xs rounded-full px-2.5 py-0.5">
+              <span className="bg-muted text-muted-foreground text-xs rounded-full px-2.5 py-0.5 font-medium">
                 {scenario.conflict_type}
               </span>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
-        {/* Situation */}
-        {scenario.context && (
-          <section className="mb-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              What's the situation?
-            </p>
-            <p className="text-sm text-gray-700 leading-relaxed">{scenario.context}</p>
-          </section>
-        )}
+        <div className="px-6 py-5 space-y-5">
 
-        {/* NPC Profile */}
-        <section className="mb-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-            You'll be talking to
-          </p>
-          <p className="font-semibold text-gray-900">{scenario.npc_role}</p>
-          {scenario.npc_personality && (
-            <p className="text-sm text-gray-500 italic mt-0.5">{scenario.npc_personality}</p>
+          {/* Situation */}
+          {scenario.context && (
+            <section>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+                What's the situation?
+              </p>
+              <p className="text-sm text-foreground leading-relaxed">{scenario.context}</p>
+            </section>
           )}
-          {scenario.opening_npc_line && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-400 mb-1">Opening line:</p>
-              <div className="bg-gray-50 border-l-4 border-gray-300 px-3 py-2 rounded-r-lg">
-                <p className="text-sm text-gray-700 italic">"{scenario.opening_npc_line}"</p>
-              </div>
-            </div>
-          )}
-        </section>
 
-        {/* Skills */}
-        {(skills.length > 0 || traits.length > 0) && (
-          <section className="mb-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              Skills you'll practice
+          {/* NPC Profile */}
+          <section className="rounded-lg border border-border bg-muted/40 p-4">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+              You'll be talking to
             </p>
-            {skills.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {skills.map((s) => (
-                  <span key={s} className="bg-blue-50 text-blue-600 text-sm rounded-full px-3 py-1">
-                    {s.replace(/_/g, ' ')}
-                  </span>
-                ))}
+            <p className="font-semibold text-foreground">{scenario.npc_role}</p>
+            {scenario.npc_personality && (
+              <p className="text-sm text-muted-foreground italic mt-0.5">{scenario.npc_personality}</p>
+            )}
+            {scenario.opening_npc_line && (
+              <div className="mt-3 bg-slate-900 rounded-lg px-3 py-2.5 border-l-[3px] border-primary/60">
+                <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-widest">Opening line</p>
+                <p className="text-sm text-slate-200 italic">"{scenario.opening_npc_line}"</p>
               </div>
             )}
-            {traits.length > 0 && (
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Big Five relevance</p>
-                <div className="flex flex-wrap gap-1">
-                  {traits.map((t) => (
-                    <span key={t} className="bg-purple-50 text-purple-600 text-xs rounded-full px-2 py-0.5 capitalize">
-                      {t}
+          </section>
+
+          {/* Skills */}
+          {(skills.length > 0 || traits.length > 0) && (
+            <section>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+                Skills you'll practice
+              </p>
+              {skills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {skills.map((s) => (
+                    <span key={s} className="bg-accent text-accent-foreground text-xs rounded-full px-3 py-1 font-medium">
+                      {s.replace(/_/g, ' ')}
                     </span>
                   ))}
                 </div>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Session info */}
-        <section className="mb-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-            Session Info
-          </p>
-
-          {/* Session Length */}
-          <div className="space-y-1 mb-3">
-            <div className="flex gap-6 text-sm">
-              <span className="text-gray-700">
-                <span className="text-gray-400">Recommended: </span>
-                {scenario.recommended_turns ?? scenario.turns} turns
-              </span>
-              <span className="text-gray-500 text-sm">
-                <span className="text-gray-400">Maximum: </span>
-                {scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns
-              </span>
-            </div>
-            {/* Progress bar */}
-            {scenario.max_turns && (
-              <div className="w-full">
-                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-2 bg-blue-400 rounded-full transition-all"
-                    style={{
-                      width: `${((scenario.recommended_turns ?? scenario.turns) / scenario.max_turns) * 100}%`
-                    }}
-                  />
+              )}
+              {traits.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-widest">Big Five relevance</p>
+                  <div className="flex flex-wrap gap-1">
+                    {traits.map((t) => (
+                      <span key={t} className="bg-secondary/10 text-secondary text-xs rounded-full px-2.5 py-0.5 capitalize font-medium">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex justify-between mt-0.5">
-                  <span className="text-xs text-gray-400">0</span>
-                  <span className="text-xs text-gray-400">{scenario.max_turns}</span>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </section>
+          )}
 
-          <div className="flex gap-6 text-sm text-gray-700 mb-2">
-            <span><span className="text-gray-400">Difficulty: </span>{getDifficultyLabel(weight)}</span>
-          </div>
-          {(criteria.min_trust_score != null || criteria.max_escalation_level != null) && (
-            <div className="flex gap-6 text-sm text-gray-700">
+          {/* Session info */}
+          <section>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+              Session Info
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Recommended</p>
+                <p className="text-sm font-semibold text-foreground">{scenario.recommended_turns ?? scenario.turns} turns</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Maximum</p>
+                <p className="text-sm font-semibold text-foreground">{scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns</p>
+              </div>
               {criteria.min_trust_score != null && (
-                <span><span className="text-gray-400">Min trust: </span>{criteria.min_trust_score}</span>
+                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Min Trust</p>
+                  <p className="text-sm font-semibold text-emerald-600">{criteria.min_trust_score}</p>
+                </div>
               )}
               {criteria.max_escalation_level != null && (
-                <span><span className="text-gray-400">Max escalation: </span>{criteria.max_escalation_level}/5</span>
+                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Max Escalation</p>
+                  <p className="text-sm font-semibold text-amber-600">{criteria.max_escalation_level}/5</p>
+                </div>
               )}
             </div>
-          )}
-        </section>
-
-        {/* How does this session end? */}
-        {(() => {
-          const ec = scenario.end_conditions ?? {}
-          const successThreshold  = ec.success_trust_threshold      ?? 70
-          const consecutiveTurns  = ec.success_consecutive_turns     ?? 2
-          const failureEscalation = ec.failure_escalation_threshold  ?? 5
-          const maxT              = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
-          return (
-            <section className="mb-5">
-              <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                How does this session end?
-              </p>
-              <div className="space-y-2">
-                {/* Success */}
-                <div className="border-l-2 border-green-400 bg-green-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
-                  <CheckCircle className="text-green-500 w-4 h-4 mt-0.5 shrink-0" />
-                  <p className="text-sm text-gray-600">
-                    Build trust above <span className="font-medium">{successThreshold}</span> for{' '}
-                    <span className="font-medium">{consecutiveTurns}</span> consecutive turns
-                  </p>
-                </div>
-                {/* Failure */}
-                <div className="border-l-2 border-red-400 bg-red-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
-                  <XCircle className="text-red-500 w-4 h-4 mt-0.5 shrink-0" />
-                  <p className="text-sm text-gray-600">
-                    Escalation reaches <span className="font-medium">{failureEscalation}/5</span> — the NPC walks out
-                  </p>
-                </div>
-                {/* Hard cap */}
-                <div className="border-l-2 border-gray-300 bg-gray-50 pl-3 py-2 rounded-r-lg flex items-start gap-2">
-                  <Clock className="text-gray-400 w-4 h-4 mt-0.5 shrink-0" />
-                  <p className="text-sm text-gray-500">
-                    Maximum of <span className="font-medium">{maxT}</span> turns — scored on final trust and escalation
-                  </p>
-                </div>
-              </div>
-            </section>
-          )
-        })()}
-
-        {/* NPC Behaviour thresholds — collapsible */}
-        {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (
-          <section className="mb-6">
-            <button
-              onClick={() => setShowThresholds((v) => !v)}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              {showThresholds
-                ? <><ChevronUp size={12} /> Hide NPC thresholds</>
-                : <><ChevronDown size={12} /> Show NPC thresholds</>}
-            </button>
-            {showThresholds && (
-              <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
-                {Object.keys(trustThr).length > 0 && (
-                  <div>
-                    <p className="font-medium text-gray-500 mb-1">Trust thresholds</p>
-                    {Object.entries(trustThr).map(([k, v]) => (
-                      <div key={k} className="flex justify-between">
-                        <span className="capitalize">{k}</span><span>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {Object.keys(escThr).length > 0 && (
-                  <div className="mt-2">
-                    <p className="font-medium text-gray-500 mb-1">Escalation thresholds</p>
-                    {Object.entries(escThr).map(([k, v]) => (
-                      <div key={k} className="flex justify-between">
-                        <span className="capitalize">{k}</span><span>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="mt-2 flex items-center gap-1.5">
+              <Zap size={11} className="text-primary fill-current" />
+              <span className="text-xs font-semibold text-primary">{getDifficultyLabel(weight)}</span>
+            </div>
           </section>
-        )}
+
+          {/* How does this session end? */}
+          {(() => {
+            const ec = scenario.end_conditions ?? {}
+            const successThreshold  = ec.success_trust_threshold     ?? 70
+            const consecutiveTurns  = ec.success_consecutive_turns    ?? 2
+            const failureEscalation = ec.failure_escalation_threshold ?? 5
+            const maxT = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
+            return (
+              <section>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                  How does this session end?
+                </p>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 flex items-start gap-2.5">
+                    <CheckCircle className="text-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
+                    <p className="text-sm text-foreground">
+                      Build trust above <span className="font-semibold">{successThreshold}</span> for{' '}
+                      <span className="font-semibold">{consecutiveTurns}</span> consecutive turns
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 flex items-start gap-2.5">
+                    <XCircle className="text-red-500 w-4 h-4 mt-0.5 shrink-0" />
+                    <p className="text-sm text-foreground">
+                      Escalation reaches <span className="font-semibold">{failureEscalation}/5</span> — the NPC walks out
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/50 px-3 py-2.5 flex items-start gap-2.5">
+                    <Clock className="text-muted-foreground w-4 h-4 mt-0.5 shrink-0" />
+                    <p className="text-sm text-muted-foreground">
+                      Maximum of <span className="font-semibold text-foreground">{maxT}</span> turns — scored on final trust and escalation
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )
+          })()}
+
+          {/* NPC Behaviour thresholds — collapsible */}
+          {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (
+            <section>
+              <button
+                onClick={() => setShowThresholds((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium"
+              >
+                {showThresholds ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                {showThresholds ? 'Hide NPC thresholds' : 'Show NPC thresholds'}
+              </button>
+              {showThresholds && (
+                <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-2">
+                  {Object.keys(trustThr).length > 0 && (
+                    <div>
+                      <p className="font-semibold text-foreground mb-1">Trust thresholds</p>
+                      {Object.entries(trustThr).map(([k, v]) => (
+                        <div key={k} className="flex justify-between py-0.5">
+                          <span className="capitalize">{k}</span>
+                          <span className="font-medium text-foreground">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {Object.keys(escThr).length > 0 && (
+                    <div>
+                      <p className="font-semibold text-foreground mb-1">Escalation thresholds</p>
+                      {Object.entries(escThr).map(([k, v]) => (
+                        <div key={k} className="flex justify-between py-0.5">
+                          <span className="capitalize">{k}</span>
+                          <span className="font-medium text-foreground">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+        </div>
 
         {/* Footer */}
-        <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+        <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-4 bg-card border-t border-border rounded-b-2xl">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-muted transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={() => onStart(scenario)}
             disabled={isStarting}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/25"
           >
             {isStarting
               ? <><Loader2 size={14} className="animate-spin" /> Starting…</>

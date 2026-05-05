@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle, BarChart2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle, BarChart2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { submitSessionFeedback } from '@/lib/api/pedagogy'
 import { cn } from '@/lib/utils'
 
+const EMOTION_STYLES = {
+  calm:       'bg-emerald-100 text-emerald-700',
+  assertive:  'bg-violet-100 text-violet-700',
+  anxious:    'bg-amber-100 text-amber-700',
 // Map RPE emotion labels → APM turn metric scores (0-1)
 const EMOTION_SCORES = {
   assertive:  { assertiveness_score: 0.9, empathy_score: 0.5, clarity_score: 0.8, response_quality: 0.85 },
@@ -51,18 +55,18 @@ const EMOTION_COLORS = {
   assertive:  'bg-blue-100 text-blue-700',
   anxious:    'bg-yellow-100 text-yellow-700',
   frustrated: 'bg-red-100 text-red-700',
-  confused:   'bg-gray-100 text-gray-700',
+  confused:   'bg-slate-100 text-slate-600',
 }
 
-const getTrustBarColor  = (s) => s >= 70 ? 'bg-green-500'  : s >= 40 ? 'bg-yellow-400'  : 'bg-red-500'
-const getTrustTextColor = (s) => s >= 70 ? 'text-green-600': s >= 40 ? 'text-yellow-500' : 'text-red-500'
+const getTrustGradient  = (s) => s >= 70 ? 'from-emerald-500 to-teal-400' : s >= 40 ? 'from-amber-400 to-yellow-300' : 'from-red-500 to-rose-400'
+const getTrustTextColor = (s) => s >= 70 ? 'text-emerald-600' : s >= 40 ? 'text-amber-500' : 'text-red-500'
 
 const computeNpcTone = (trust) =>
   trust >= 70 ? 'cooperative' : trust >= 40 ? 'neutral' : 'hostile'
 
 const NPC_TONE_CHIP = {
-  cooperative: 'bg-green-100 text-green-700',
-  neutral:     'bg-yellow-100 text-yellow-700',
+  cooperative: 'bg-emerald-100 text-emerald-700',
+  neutral:     'bg-amber-100 text-amber-700',
   hostile:     'bg-red-100 text-red-700',
 }
 
@@ -70,6 +74,22 @@ const dominantEmotion = (history) => {
   const counts = {}
   for (const e of history) counts[e] = (counts[e] || 0) + 1
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'calm'
+}
+
+/* ── outcome banner config ────────────────────────────────── */
+const OUTCOME_BANNERS = {
+  trust_sustained: {
+    bg: 'bg-gradient-to-r from-emerald-500 to-teal-500',
+    icon: '🎉',
+    title: 'Session Complete — Success!',
+    sub: 'You built enough trust to resolve the situation.',
+  },
+  npc_exit: {
+    bg: 'bg-gradient-to-r from-red-500 to-rose-500',
+    icon: '💢',
+    title: 'The Conversation Broke Down',
+    sub: 'The NPC ended the session due to high escalation. Review your feedback below.',
+  },
 }
 
 export default function SessionComplete() {
@@ -107,117 +127,120 @@ export default function SessionComplete() {
 
   const trustDeltas = trustHistory.slice(1).map((v, i) => v - trustHistory[i])
   const toneHistory = trustHistory.map(computeNpcTone)
+  const dom         = dominantEmotion(emotionHistory.slice(1))
 
-  const dom = dominantEmotion(emotionHistory.slice(1))
   const trustInsight =
-    finalTrust > 60
-      ? '✅ You maintained strong trust throughout.'
-      : finalTrust > 40
-      ? '⚠ Trust was moderate. Try more assertive responses.'
-      : '❌ Trust was low. Focus on staying calm and professional.'
+    finalTrust > 60 ? { icon: '✅', text: 'You maintained strong trust throughout.', cls: 'text-emerald-700' }
+    : finalTrust > 40 ? { icon: '⚠', text: 'Trust was moderate. Try more assertive responses.', cls: 'text-amber-700' }
+    : { icon: '❌', text: 'Trust was low. Focus on staying calm and professional.', cls: 'text-red-700' }
+
   const escInsight =
-    finalEsc <= 1
-      ? '✅ You kept the conversation calm and controlled.'
-      : finalEsc <= 3
-      ? '⚠ Some tension arose. Try de-escalating earlier.'
-      : '❌ High escalation. Avoid reactive or emotional responses.'
+    finalEsc <= 1 ? { icon: '✅', text: 'You kept the conversation calm and controlled.', cls: 'text-emerald-700' }
+    : finalEsc <= 3 ? { icon: '⚠', text: 'Some tension arose. Try de-escalating earlier.', cls: 'text-amber-700' }
+    : { icon: '❌', text: 'High escalation. Avoid reactive or emotional responses.', cls: 'text-red-700' }
+
   const emotionInsight =
     dom === 'assertive' || dom === 'calm'
-      ? '✅ Your tone was professional and composed.'
+      ? { icon: '✅', text: 'Your tone was professional and composed.', cls: 'text-emerald-700' }
       : dom === 'anxious' || dom === 'confused'
-      ? '⚠ You seemed uncertain. Practice confident phrasing.'
-      : '❌ Frustration came through. Try staying solution-focused.'
+      ? { icon: '⚠', text: 'You seemed uncertain. Practice confident phrasing.', cls: 'text-amber-700' }
+      : { icon: '❌', text: 'Frustration came through. Try staying solution-focused.', cls: 'text-red-700' }
 
-  /* ── end-reason-aware outcome banner ─────────────────────────────── */
+  /* ── outcome banner ────────────────────────────────────── */
   const renderOutcomeBanner = () => {
-    if (endReason === 'trust_sustained') {
+    const banner = endReason === 'trust_sustained' ? OUTCOME_BANNERS.trust_sustained
+      : endReason === 'npc_exit' ? OUTCOME_BANNERS.npc_exit
+      : null
+
+    if (banner) {
       return (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-5 py-4 text-center">
-          <p className="text-2xl mb-1">🎉</p>
-          <p className="text-xl font-bold text-green-700">Session Complete — Success!</p>
-          <p className="text-sm text-green-600 mt-1">You built enough trust to resolve the situation.</p>
+        <div className={cn('rounded-2xl px-6 py-6 text-white text-center shadow-lg', banner.bg)}>
+          <p className="text-4xl mb-2">{banner.icon}</p>
+          <p className="text-xl font-bold">{banner.title}</p>
+          <p className="text-sm text-white/80 mt-1">{banner.sub}</p>
         </div>
       )
     }
-    if (endReason === 'npc_exit') {
-      return (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-center">
-          <p className="text-2xl mb-1">💢</p>
-          <p className="text-xl font-bold text-red-700">The Conversation Broke Down</p>
-          <p className="text-sm text-red-600 mt-1">The NPC ended the session due to high escalation.</p>
-          <p className="text-xs text-red-400 mt-1">Review your feedback to see where things escalated.</p>
+    if (endReason === 'max_turns_reached') {
+      return outcome === 'success' ? (
+        <div className="rounded-2xl bg-gradient-to-r from-primary to-violet-600 px-6 py-6 text-white text-center shadow-lg shadow-primary/25">
+          <p className="text-4xl mb-2">✅</p>
+          <p className="text-xl font-bold">Session Complete</p>
+          <p className="text-sm text-white/80 mt-1">You reached the turn limit — scored on final results.</p>
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-6 text-white text-center shadow-lg">
+          <p className="text-4xl mb-2">⏱</p>
+          <p className="text-xl font-bold">Maximum Turns Reached</p>
+          <p className="text-sm text-white/80 mt-1">Check your feedback for improvement tips.</p>
         </div>
       )
     }
-    if (endReason === 'max_turns_reached' && outcome === 'success') {
-      return (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-center">
-          <p className="text-2xl mb-1">✅</p>
-          <p className="text-xl font-bold text-blue-700">Session Complete</p>
-          <p className="text-sm text-blue-600 mt-1">You reached the turn limit — scored on final results.</p>
-        </div>
-      )
-    }
-    if (endReason === 'max_turns_reached' && outcome === 'failure') {
-      return (
-        <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-5 py-4 text-center">
-          <p className="text-2xl mb-1">⏱</p>
-          <p className="text-xl font-bold text-yellow-700">Maximum Turns Reached</p>
-          <p className="text-sm text-yellow-600 mt-1">Check your feedback for improvement tips.</p>
-        </div>
-      )
-    }
-    // Fallback (no endReason — old sessions)
     return (
       <div className={cn(
-        'rounded-xl border px-6 py-5 text-center',
+        'rounded-2xl px-6 py-6 text-white text-center shadow-lg',
         outcome === 'success'
-          ? 'bg-green-50 border-green-200 text-green-800'
-          : 'bg-red-50 border-red-200 text-red-800'
+          ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+          : 'bg-gradient-to-r from-red-500 to-rose-500'
       )}>
-        <p className="text-2xl font-bold">
-          {outcome === 'success' ? '🎉 Session Complete — Success!' : 'Session Complete — Keep Practicing'}
+        <p className="text-xl font-bold">
+          {outcome === 'success' ? 'Session Complete — Success!' : 'Session Complete — Keep Practicing'}
         </p>
-        <p className="text-sm mt-1 opacity-60">{scenarioTitle}</p>
+        <p className="text-sm text-white/70 mt-1">{scenarioTitle}</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-3xl mx-auto space-y-6">
+    <div className="min-h-screen bg-background py-10 px-4">
+      <div className="max-w-3xl mx-auto space-y-5">
 
         {/* Outcome banner */}
         {renderOutcomeBanner()}
 
         {/* Score cards */}
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: 'Final Trust',  value: trustScore ?? '—', valueClass: getTrustTextColor(trustScore ?? 0), suffix: null },
-            { label: 'Escalation',   value: escalationLevel ?? '—', valueClass: 'text-gray-800', suffix: '/5' },
-            { label: 'Turns',        value: currentTurn ?? '—', valueClass: 'text-gray-800', suffix: totalTurns ? `/${totalTurns}` : null },
-          ].map(({ label, value, valueClass, suffix }) => (
-            <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
-              <p className={cn('text-4xl font-bold', valueClass)}>
-                {value}
-                {suffix && <span className="text-lg text-gray-400">{suffix}</span>}
-              </p>
-            </div>
-          ))}
+        <div className="grid grid-cols-3 gap-3">
+          {/* Final Trust */}
+          <div className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Final Trust</p>
+            <p className={cn('text-4xl font-bold tabular-nums', getTrustTextColor(trustScore ?? 0))}>
+              {trustScore ?? '—'}
+            </p>
+          </div>
+          {/* Escalation */}
+          <div className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Escalation</p>
+            <p className="text-4xl font-bold text-foreground tabular-nums">
+              {escalationLevel ?? '—'}
+              <span className="text-xl text-muted-foreground font-normal">/5</span>
+            </p>
+          </div>
+          {/* Turns */}
+          <div className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Turns</p>
+            <p className="text-4xl font-bold text-foreground tabular-nums">
+              {currentTurn ?? '—'}
+              {endReason !== 'npc_exit' && endReason !== 'trust_sustained' && recommendedTurns && (
+                <span className="text-xl text-muted-foreground font-normal">/{recommendedTurns}</span>
+              )}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {endReason === 'npc_exit' ? 'turns (NPC exited)'
+                : endReason === 'trust_sustained' ? 'turns (resolved)'
+                : `of ${recommendedTurns ?? totalTurns ?? '?'} recommended`}
+            </p>
+          </div>
         </div>
 
-        {/* Session length context line */}
+        {/* Session length context */}
         {(recommendedTurns || maxTurns) && (
-          <p className="text-xs text-gray-400 text-center -mt-2">
+          <p className="text-xs text-muted-foreground text-center -mt-1">
             Session lasted{' '}
             <span className={cn(
-              'font-medium',
-              (currentTurn ?? 0) <= (recommendedTurns ?? 6)
-                ? 'text-green-500'
-                : (currentTurn ?? 0) <= (maxTurns ?? 999)
-                  ? 'text-yellow-500'
-                  : 'text-red-500'
+              'font-semibold',
+              (currentTurn ?? 0) <= (recommendedTurns ?? 6) ? 'text-emerald-600'
+              : (currentTurn ?? 0) <= (maxTurns ?? 999) ? 'text-amber-500'
+              : 'text-red-500'
             )}>
               {currentTurn} turns
             </span>
@@ -228,49 +251,58 @@ export default function SessionComplete() {
         )}
 
         {/* Trust progression chart */}
-        {!isLoading && trustHistory.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Trust Progression</h2>
-            <div className="relative flex items-end gap-2" style={{ height: '128px' }}>
-              <div
-                className="absolute left-0 right-0 border-t border-dashed border-gray-300 pointer-events-none"
-                style={{ bottom: `${(50 / 100) * 96}px` }}
-              />
-              {trustHistory.map((val, i) => (
-                <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                  <span className={cn('text-[10px] font-medium tabular-nums', getTrustTextColor(val))}>
-                    {val}
-                  </span>
-                  <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
-                    <div
-                      className={cn('w-full rounded-t transition-all', getTrustBarColor(val))}
-                      style={{ height: `${Math.max(2, (val / 100) * 96)}px` }}
-                    />
-                  </div>
-                  <span className="text-[9px] text-gray-400 tabular-nums">
-                    {i === 0 ? 'S' : `T${i}`}
-                  </span>
-                </div>
-              ))}
+        {!isLoading && trustHistory.length > 0 && (() => {
+          const minVal = Math.min(...trustHistory)
+          const maxVal = Math.max(...trustHistory)
+          const range  = maxVal - minVal || 1
+          return (
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="text-sm font-bold text-foreground mb-4 uppercase tracking-wide">Trust Progression</h2>
+              <div className="relative flex items-end gap-2" style={{ height: '128px' }}>
+                <div
+                  className="absolute left-0 right-0 border-t border-dashed border-border pointer-events-none"
+                  style={{ bottom: `${(50 / 100) * 96}px` }}
+                />
+                {trustHistory.map((val, i) => {
+                  const heightPct = 20 + ((val - minVal) / range) * 80
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                      <span className={cn('text-[10px] font-bold tabular-nums', getTrustTextColor(val))}>
+                        {val}
+                      </span>
+                      <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
+                        <div
+                          className={cn('w-full rounded-t-sm transition-all duration-500 bg-gradient-to-t', getTrustGradient(val))}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] text-muted-foreground tabular-nums">
+                        {i === 0 ? 'S' : `T${i}`}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Trust delta per turn */}
         {!isLoading && trustDeltas.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Trust Change Per Turn</h2>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">Trust Change Per Turn</h2>
             <div className="flex flex-wrap gap-2">
               {trustDeltas.map((d, i) => (
                 <span
                   key={i}
                   className={cn(
-                    'rounded-full px-2.5 py-0.5 text-xs font-bold',
-                    d > 0 ? 'bg-green-100 text-green-700'
-                    : d < 0 ? 'bg-red-100 text-red-600'
-                    : 'bg-gray-100 text-gray-500'
+                    'rounded-full px-2.5 py-0.5 text-xs font-bold flex items-center gap-1',
+                    d > 0 ? 'bg-emerald-100 text-emerald-700'
+                    : d < 0 ? 'bg-red-100 text-red-700'
+                    : 'bg-muted text-muted-foreground'
                   )}
                 >
+                  {d > 0 ? <TrendingUp size={10} /> : d < 0 ? <TrendingDown size={10} /> : <Minus size={10} />}
                   T{i + 1}: {d > 0 ? `+${d}` : d === 0 ? '±0' : d}
                 </span>
               ))}
@@ -280,15 +312,15 @@ export default function SessionComplete() {
 
         {/* NPC tone journey */}
         {!isLoading && toneHistory.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">NPC Attitude Over Time</h2>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">NPC Attitude Over Time</h2>
             <div className="flex flex-wrap gap-2">
               {toneHistory.map((tone, i) => (
                 <span
                   key={i}
                   className={cn(
-                    'rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-                    NPC_TONE_CHIP[tone] ?? 'bg-gray-100 text-gray-600'
+                    'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
+                    NPC_TONE_CHIP[tone] ?? 'bg-muted text-muted-foreground'
                   )}
                 >
                   {i === 0 ? 'Start' : `T${i}`}: {tone}
@@ -300,15 +332,15 @@ export default function SessionComplete() {
 
         {/* Emotion journey */}
         {!isLoading && emotionHistory.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Emotion History</h2>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">Emotion History</h2>
             <div className="flex flex-wrap gap-2">
               {emotionHistory.map((em, i) => (
                 <span
                   key={i}
                   className={cn(
-                    'rounded-full px-2.5 py-0.5 text-xs font-medium',
-                    EMOTION_COLORS[em] ?? EMOTION_COLORS.confused
+                    'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                    EMOTION_STYLES[em] ?? EMOTION_STYLES.confused
                   )}
                 >
                   {i === 0 ? 'start' : `T${i}`}: {em}
@@ -320,32 +352,32 @@ export default function SessionComplete() {
 
         {/* Turn review */}
         {!isLoading && turns.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Turn by Turn</h2>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">Turn by Turn</h2>
             <div className="space-y-2">
               {visibleTurns.map((t) => (
                 <div
                   key={t.turn}
-                  className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                  className="flex items-center gap-3 rounded-lg bg-muted/50 border border-border/60 px-3 py-2.5 text-sm"
                 >
-                  <span className="text-xs font-mono text-gray-400 w-5 shrink-0">T{t.turn}</span>
+                  <span className="text-xs font-mono font-bold text-muted-foreground w-5 shrink-0">T{t.turn}</span>
                   <span className={cn(
-                    'shrink-0 rounded-full px-2 py-0.5 text-xs font-medium',
-                    EMOTION_COLORS[t.emotion] ?? EMOTION_COLORS.confused
+                    'shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
+                    EMOTION_STYLES[t.emotion] ?? EMOTION_STYLES.confused
                   )}>
                     {t.emotion}
                   </span>
-                  <span className={cn('shrink-0 text-xs font-medium tabular-nums', getTrustTextColor(t.trust_score))}>
+                  <span className={cn('shrink-0 text-xs font-bold tabular-nums', getTrustTextColor(t.trust_score))}>
                     {t.trust_score}
                   </span>
-                  <p className="text-xs text-gray-500 truncate">{t.user_input}</p>
+                  <p className="text-xs text-muted-foreground truncate">{t.user_input}</p>
                 </div>
               ))}
             </div>
             {turns.length > 3 && (
               <button
                 onClick={() => setShowAllTurns((v) => !v)}
-                className="mt-3 flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                className="mt-3 flex items-center gap-1 text-xs text-primary hover:underline font-semibold"
               >
                 {showAllTurns
                   ? <><ChevronUp size={12} /> Hide</>
@@ -357,19 +389,22 @@ export default function SessionComplete() {
 
         {/* Loading skeleton */}
         {isLoading && (
-          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400 animate-pulse">
+          <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground animate-pulse">
             Loading session data…
           </div>
         )}
 
         {/* Performance summary */}
         {!isLoading && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">How Did You Do?</h2>
-            <ul className="space-y-2 text-sm text-gray-700">
-              <li>{trustInsight}</li>
-              <li>{escInsight}</li>
-              <li>{emotionInsight}</li>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">How Did You Do?</h2>
+            <ul className="space-y-2.5">
+              {[trustInsight, escInsight, emotionInsight].map((item, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span>{item.icon}</span>
+                  <span className={cn('font-medium', item.cls)}>{item.text}</span>
+                </li>
+              ))}
             </ul>
           </div>
         )}
@@ -384,25 +419,26 @@ export default function SessionComplete() {
           </button>
           <button
             onClick={() => navigate(`/roleplay/feedback/${sessionId}`)}
-            className="flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700 transition-colors"
+            className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-md shadow-primary/25"
           >
             <BarChart2 size={14} /> View Full Feedback
           </button>
           <button
             onClick={() => navigate('/roleplay')}
+            className="flex items-center gap-2 rounded-xl bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground hover:bg-secondary/90 transition-colors shadow-sm"
             className="flex items-center gap-2 rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
           >
             <RefreshCw size={14} /> Try Again
           </button>
           <button
             onClick={() => navigate('/roleplay')}
-            className="flex items-center gap-2 rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 rounded-xl bg-muted px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-muted/80 transition-colors"
           >
             <PlayCircle size={14} /> Try Another
           </button>
           <button
             onClick={() => navigate('/')}
-            className="flex items-center gap-2 rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 rounded-xl bg-muted px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-muted/80 transition-colors"
           >
             <Home size={14} /> Back to Home
           </button>
