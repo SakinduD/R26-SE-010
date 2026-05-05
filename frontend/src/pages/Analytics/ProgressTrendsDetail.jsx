@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Activity,
@@ -14,6 +14,10 @@ import {
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -74,8 +78,14 @@ function labelFor(value) {
 
 export default function ProgressTrendsDetail() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
-  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
+  const [selectedSkill, setSelectedSkill] = useState('confidence')
   const [data, setData] = useState(DEMO_DATA)
   const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
   const [status, setStatus] = useState('demo')
@@ -88,8 +98,10 @@ export default function ProgressTrendsDetail() {
 
   const hasLiveData = status !== 'live' || Boolean(data.trends?.some((item) => item.points?.length > 1))
 
-  const loadTrends = async () => {
-    if (!userId.trim()) {
+  const loadTrends = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -99,8 +111,8 @@ export default function ProgressTrendsDetail() {
 
     try {
       const [trendResult, skillResult] = await Promise.all([
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getProgressTrendBySkill(userId.trim(), selectedSkill),
+        analyticsService.getProgressTrendsByUser(targetUserId),
+        analyticsService.getProgressTrendBySkill(targetUserId, selectedSkill),
       ])
       setData(trendResult)
       setSelectedTrend(skillResult)
@@ -113,6 +125,16 @@ export default function ProgressTrendsDetail() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadTrends(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -122,9 +144,15 @@ export default function ProgressTrendsDetail() {
             <h1 className="mt-1 text-2xl font-semibold">Progress Trends</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsNav />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
-            <Button className="h-10 self-end" onClick={loadTrends}>
+            <Button className="h-10 self-end" onClick={() => loadTrends()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -135,6 +163,7 @@ export default function ProgressTrendsDetail() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           <span className="text-xs text-muted-foreground">{data.trend_version || 'rule-based-v1'}</span>
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
@@ -150,7 +179,7 @@ export default function ProgressTrendsDetail() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <LineChart className="h-4 w-4 text-secondary" />
-                <span>{data.user_id || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Longitudinal skill progress</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">

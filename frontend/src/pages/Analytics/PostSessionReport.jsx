@@ -13,6 +13,7 @@ import {
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -160,6 +161,7 @@ export default function PostSessionReport() {
             <h1 className="mt-1 text-2xl font-semibold">Post-Session Report</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            <AnalyticsNav />
             <label className="grid gap-1 text-xs text-muted-foreground">
               <span>Session</span>
               <input

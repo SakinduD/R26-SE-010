@@ -1,6 +1,13 @@
 import React from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Brain, Swords } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  LogOut,
+  LayoutDashboard,
+  Brain,
+  BarChart3,
+  MessageSquare,
+  Swords,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import Logo from '@/components/ui/logo';
 import { useAuth } from '@/lib/auth/context';
@@ -22,6 +29,8 @@ export default function AppLayout() {
   const { isLoading } = useProtectedRoute();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAnalyticsRoute = location.pathname.startsWith('/analytics');
 
   if (isLoading) return <NavSkeleton />;
 
@@ -55,6 +64,20 @@ export default function AppLayout() {
               Training plan
             </Link>
             <Link
+              to="/analytics-dashboard"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <BarChart3 className="size-3.5" />
+              Analytics
+            </Link>
+            <Link
+              to="/analytics-feedback"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <MessageSquare className="size-3.5" />
+              Feedback
+            </Link>
+            <Link
               to="/roleplay"
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -80,7 +103,7 @@ export default function AppLayout() {
       </header>
 
       {/* Page content */}
-      <main className="max-w-5xl mx-auto px-4 py-10">
+      <main className={isAnalyticsRoute ? '' : 'max-w-5xl mx-auto px-4 py-10'}>
         <Outlet />
       </main>
     </div>
