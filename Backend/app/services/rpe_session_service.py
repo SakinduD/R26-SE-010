@@ -77,7 +77,12 @@ class RpeSessionService:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def start_session(self, scenario_id: str, user_id: str) -> SessionState:
+    def start_session(
+        self,
+        scenario_id:  str,
+        user_id:      str,
+        auth_user_id: str | None = None,
+    ) -> SessionState:
         scenario = self._scenario_service.get_scenario(scenario_id)
         if not scenario:
             raise ValueError(
@@ -100,6 +105,7 @@ class RpeSessionService:
             "session_id":        session_id,
             "scenario_id":       scenario_id,
             "user_id":           user_id,
+            "auth_user_id":      auth_user_id,
             "started_at":        started_at,
             "opening_npc_line":  scenario.opening_npc_line,
             "emotion_history":   ["calm"],
@@ -325,6 +331,28 @@ class RpeSessionService:
 
         self._finalize_json(session_id, ended_at, outcome, final_trust, final_escalation, end_reason)
 
+    def get_user_sessions(self, auth_user_id: str) -> list[dict]:
+        """Return all sessions for the given Supabase auth UUID, newest first."""
+        sb = _get_supabase()
+        if not sb:
+            return []
+        try:
+            result = (
+                sb.table("rpe_sessions")
+                .select(
+                    "session_id, scenario_id, started_at, ended_at,"
+                    "outcome, end_reason, final_trust,"
+                    "final_escalation, recommended_turns"
+                )
+                .eq("auth_user_id", auth_user_id)
+                .order("started_at", desc=True)
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            logger.error("RPE get_user_sessions error: %s", exc)
+            return []
+
     # ── Supabase helpers ──────────────────────────────────────────────────────
 
     def _persist_session(self, session_id: str, payload: dict) -> None:
@@ -332,7 +360,7 @@ class RpeSessionService:
         sb = _get_supabase()
         if sb:
             try:
-                sb.table("rpe_sessions").insert({
+                row: dict = {
                     "session_id":        payload["session_id"],
                     "scenario_id":       payload["scenario_id"],
                     "user_id":           payload["user_id"],
@@ -347,7 +375,10 @@ class RpeSessionService:
                     "end_reason":        None,
                     "recommended_turns": None,
                     "max_turns":         None,
-                }).execute()
+                }
+                if payload.get("auth_user_id") is not None:
+                    row["auth_user_id"] = payload["auth_user_id"]
+                sb.table("rpe_sessions").insert(row).execute()
             except Exception as exc:
                 logger.error("Supabase persist_session failed: %s", exc)
 
@@ -396,6 +427,7 @@ class RpeSessionService:
             "session_id":        row["session_id"],
             "scenario_id":       row["scenario_id"],
             "user_id":           row["user_id"],
+            "auth_user_id":      row.get("auth_user_id"),
             "started_at":        row["started_at"],
             "opening_npc_line":  row.get("opening_npc_line", ""),
             "turns":             turns,

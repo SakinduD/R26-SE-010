@@ -13,7 +13,7 @@ class ScenarioSummary(BaseModel):
 
 class StartSessionRequest(BaseModel):
     scenario_id: str
-    user_id:     str
+    user_id:     str | None = None
 
 
 class StartSessionResponse(BaseModel):
@@ -25,6 +25,7 @@ class StartSessionResponse(BaseModel):
     total_turns:       int               # backward-compat = recommended_turns
     recommended_turns: int
     max_turns:         int
+    is_authenticated:  bool = False
 
 
 class RespondRequest(BaseModel):
