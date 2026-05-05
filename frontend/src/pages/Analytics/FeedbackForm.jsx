@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   CheckCircle2,
   ClipboardCheck,
+  Plus,
   MessageSquare,
   RefreshCw,
   Save,
@@ -12,6 +13,10 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_OPTIONS = [
   { value: 'confidence', label: 'Confidence' },
@@ -37,7 +42,7 @@ const SENTIMENT_OPTIONS = [
 
 const INITIAL_FORM = {
   user_id: 'demo-user',
-  session_id: '',
+  session_id: createSessionId(),
   feedback_type: 'self',
   skill_area: 'overall',
   rating: 75,
@@ -47,9 +52,15 @@ const INITIAL_FORM = {
 
 export default function FeedbackForm() {
   const params = useParams()
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthenticated,
+  } = useAnalyticsIdentity(null, INITIAL_FORM.user_id)
   const [form, setForm] = useState({
     ...INITIAL_FORM,
-    session_id: params.sessionId || 'demo-session',
+    user_id: connectedUserId,
+    session_id: params.sessionId || createSessionId(),
   })
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
@@ -99,23 +110,44 @@ export default function FeedbackForm() {
   const resetForm = () => {
     setForm({
       ...INITIAL_FORM,
-      session_id: params.sessionId || 'demo-session',
+      user_id: connectedUserId,
+      session_id: params.sessionId || createSessionId(),
     })
     setCreatedEntry(null)
     setStatus('idle')
     setMessage('')
   }
 
+  const startNewSession = () => {
+    updateField('session_id', createSessionId())
+    setCreatedEntry(null)
+    setStatus('idle')
+    setMessage('New session ID generated.')
+  }
+
+  useEffect(() => {
+    setForm((current) => ({ ...current, user_id: connectedUserId }))
+  }, [connectedUserId])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 md:px-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-          <h1 className="text-2xl font-semibold">Self and Peer Feedback</h1>
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
+            <h1 className="mt-1 text-2xl font-semibold">Self and Peer Feedback</h1>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <AnalyticsNav />
+          </div>
         </div>
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
+        </div>
+
         <form onSubmit={submitFeedback} className="rounded-lg border border-border bg-card p-4">
           <div className="mb-5 flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4 text-secondary" />
@@ -123,17 +155,27 @@ export default function FeedbackForm() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <TextInput
-              label="User ID"
-              value={form.user_id}
+            <AnalyticsUserField
+              userId={form.user_id}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
               onChange={(value) => updateField('user_id', value)}
-              placeholder="user-123"
             />
             <TextInput
               label="Session ID"
               value={form.session_id}
               onChange={(value) => updateField('session_id', value)}
               placeholder="session-123"
+              action={
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  onClick={startNewSession}
+                >
+                  <Plus className="h-3 w-3" />
+                  New
+                </button>
+              }
             />
           </div>
 
@@ -218,7 +260,7 @@ export default function FeedbackForm() {
               <Star className="h-4 w-4 text-secondary" />
               <h2 className="text-base font-semibold">Current Entry</h2>
             </div>
-            <PreviewItem label="User" value={form.user_id} />
+            <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
             <PreviewItem label="Session" value={form.session_id} />
             <PreviewItem label="Type" value={form.feedback_type} />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
@@ -249,10 +291,13 @@ export default function FeedbackForm() {
   )
 }
 
-function TextInput({ label, value, onChange, placeholder }) {
+function TextInput({ label, value, onChange, placeholder, action }) {
   return (
     <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        {action}
+      </span>
       <input
         className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
         value={value}
@@ -336,4 +381,18 @@ function labelForSkill(value) {
 function formatDate(value) {
   if (!value) return 'N/A'
   return new Date(value).toLocaleString()
+}
+
+function createSessionId() {
+  const now = new Date()
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+
+  return `softskill-session-${stamp}`
 }

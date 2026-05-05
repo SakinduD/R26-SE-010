@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -15,6 +15,10 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -107,7 +111,13 @@ function labelFor(value) {
 
 export default function AnalyticsRecommendations() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -123,8 +133,10 @@ export default function AnalyticsRecommendations() {
 
   const hasLiveData = status !== 'live' || data.recommendations.length > 0
 
-  const loadRecommendations = async () => {
-    if (!userId.trim()) {
+  const loadRecommendations = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -133,7 +145,7 @@ export default function AnalyticsRecommendations() {
     setError('')
 
     try {
-      const recommendations = await analyticsService.getMentoringRecommendationsByUser(userId.trim())
+      const recommendations = await analyticsService.getMentoringRecommendationsByUser(targetUserId)
 
       setData({
         userId: recommendations.user_id,
@@ -176,6 +188,16 @@ export default function AnalyticsRecommendations() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadRecommendations(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -185,15 +207,14 @@ export default function AnalyticsRecommendations() {
             <h1 className="mt-1 text-2xl font-semibold">Analytics Recommendations</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>User</span>
-              <input
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-                value={userId}
-                onChange={(event) => setUserId(event.target.value)}
-              />
-            </label>
-            <Button className="h-10 self-end" onClick={loadRecommendations}>
+            <AnalyticsNav />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
+            <Button className="h-10 self-end" onClick={() => loadRecommendations()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -204,6 +225,7 @@ export default function AnalyticsRecommendations() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {data.modelVersion ? <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">{data.modelVersion}</span> : null}
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
@@ -219,7 +241,7 @@ export default function AnalyticsRecommendations() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Lightbulb className="h-4 w-4 text-secondary" />
-                <span>{data.userId || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.userId || userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Prioritized mentoring actions</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">

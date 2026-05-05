@@ -130,10 +130,23 @@ def _summarize_scores(metrics: list[AnalyticsSessionMetric]) -> ScoreSummary:
 
 def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
     ratings = [entry.rating for entry in feedback if entry.rating is not None]
+    skill_rating_averages = {}
+    skill_areas = sorted({entry.skill_area for entry in feedback if entry.skill_area})
+    for skill_area in skill_areas:
+        skill_ratings = [
+            entry.rating
+            for entry in feedback
+            if entry.skill_area == skill_area and entry.rating is not None
+        ]
+        if skill_ratings:
+            skill_rating_averages[skill_area] = round(mean(skill_ratings), 2)
+
     return FeedbackSummary(
         total_count=len(feedback),
+        session_count=len({entry.session_id for entry in feedback if entry.session_id}),
         by_type=dict(Counter(entry.feedback_type for entry in feedback)),
         sentiment_counts=dict(Counter(entry.sentiment for entry in feedback if entry.sentiment)),
+        skill_rating_averages=skill_rating_averages,
         average_rating=round(mean(ratings), 2) if ratings else None,
         latest_entries=feedback[:5],
     )

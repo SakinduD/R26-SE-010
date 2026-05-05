@@ -885,10 +885,10 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
 
     predictions = {item["predicted_skill"]: item for item in data["predictions"]}
-    assert predictions["confidence"]["predicted_score"] == 89.5
+    assert predictions["confidence"]["predicted_score"] == 88
     assert predictions["confidence"]["risk_level"] == "low"
     assert predictions["confidence"]["confidence"] == 0.65
-    assert predictions["empathy"]["predicted_score"] == 22.5
+    assert predictions["empathy"]["predicted_score"] == 35
     assert predictions["empathy"]["risk_level"] == "high"
     assert predictions["communication_clarity"]["risk_level"] == "low"
     assert predictions["overall"]["predicted_score"] == 85
@@ -952,7 +952,7 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
     assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
     prediction = data["predictions"][0]
     assert prediction["predicted_skill"] == "confidence"
-    assert prediction["predicted_score"] == 44.5
+    assert prediction["predicted_score"] == 52
     assert prediction["risk_level"] == "high"
     assert prediction["confidence"] == 0.91
 
@@ -1006,8 +1006,65 @@ def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
     assert data["predicted_score"] is not None
     assert 0 <= data["predicted_score"] <= 100
     assert data["risk_level"] in {"low", "medium", "high"}
+
+
+def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkeypatch):
+    from app.services import ml_predictive_model_service
+
+    user_id = "calibrated-ml-user"
+    feedback_payloads = [
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-1",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 84,
+            "sentiment": "positive",
+        },
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-2",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 58,
+            "sentiment": "neutral",
+        },
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-3",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 40,
+            "sentiment": "negative",
+        },
+    ]
+    for payload in feedback_payloads:
+        response = client.post("/api/v1/analytics/feedback", json=payload)
+        assert response.status_code == 201
+
+    def fake_extreme_ml_prediction(_features):
+        return {
+            "predicted_score": 100,
+            "risk_level": "high",
+            "confidence": 0.91,
+            "model_version": "fake-extreme-model",
+        }
+
+    monkeypatch.setattr(
+        ml_predictive_model_service,
+        "predict_behavioral_outcome",
+        fake_extreme_ml_prediction,
+    )
+
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/confidence")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["current_score"] == 40
+    assert data["predicted_score"] == 50
+    assert data["risk_level"] == "high"
     assert 0 <= data["confidence"] <= 1
-    assert data["evidence_points"] == 2
+    assert data["evidence_points"] == 3
 
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):

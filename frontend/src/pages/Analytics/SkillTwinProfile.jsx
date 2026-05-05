@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Activity,
@@ -15,6 +15,10 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -127,23 +131,49 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+function averageFeedbackBySkill(entries) {
+  const grouped = entries.reduce((acc, entry) => {
+    if (!entry.skill_area || entry.rating === null || entry.rating === undefined) return acc
+    acc[entry.skill_area] = acc[entry.skill_area] || []
+    acc[entry.skill_area].push(Number(entry.rating))
+    return acc
+  }, {})
+
+  return Object.fromEntries(
+    Object.entries(grouped).map(([skill, ratings]) => [
+      skill,
+      ratings.reduce((total, rating) => total + rating, 0) / ratings.length,
+    ])
+  )
+}
+
 export default function SkillTwinProfile() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
   const [profile, setProfile] = useState(DEMO_PROFILE)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
 
   const radarScores = useMemo(() => {
     const averages = profile.aggregate?.scores?.averages || {}
+    const feedbackAverages =
+      profile.aggregate?.feedback?.skill_rating_averages ||
+      averageFeedbackBySkill(profile.aggregate?.feedback?.latest_entries || [])
+
     return [
-      ['confidence', averages.confidence_score],
-      ['communication_clarity', averages.clarity_score],
-      ['empathy', averages.empathy_score],
-      ['active_listening', averages.listening_score],
-      ['adaptability', averages.adaptability_score],
-      ['emotional_control', averages.emotional_control_score],
-      ['professionalism', averages.professionalism_score],
+      ['confidence', averages.confidence_score ?? feedbackAverages.confidence],
+      ['communication_clarity', averages.clarity_score ?? feedbackAverages.communication_clarity],
+      ['empathy', averages.empathy_score ?? feedbackAverages.empathy],
+      ['active_listening', averages.listening_score ?? feedbackAverages.active_listening],
+      ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
+      ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
+      ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
     ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
   }, [profile])
 
@@ -168,8 +198,10 @@ export default function SkillTwinProfile() {
     )
   }, [profile, status])
 
-  const loadProfile = async () => {
-    if (!userId.trim()) {
+  const loadProfile = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -179,10 +211,10 @@ export default function SkillTwinProfile() {
 
     try {
       const [aggregate, trends, predictions, blindSpots] = await Promise.all([
-        analyticsService.getAggregateByUser(userId.trim()),
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
-        analyticsService.getBlindSpotsByUser(userId.trim()),
+        analyticsService.getAggregateByUser(targetUserId),
+        analyticsService.getProgressTrendsByUser(targetUserId),
+        analyticsService.getPredictedOutcomesByUser(targetUserId),
+        analyticsService.getBlindSpotsByUser(targetUserId),
       ])
       setProfile({ aggregate, trends, predictions, blindSpots })
       setStatus('live')
@@ -193,6 +225,16 @@ export default function SkillTwinProfile() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadProfile(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -202,15 +244,14 @@ export default function SkillTwinProfile() {
             <h1 className="mt-1 text-2xl font-semibold">Skill Twin Profile</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>User</span>
-              <input
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-                value={userId}
-                onChange={(event) => setUserId(event.target.value)}
-              />
-            </label>
-            <Button className="h-10 self-end" onClick={loadProfile}>
+            <AnalyticsNav />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
+            <Button className="h-10 self-end" onClick={() => loadProfile()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -221,6 +262,7 @@ export default function SkillTwinProfile() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 
@@ -235,7 +277,7 @@ export default function SkillTwinProfile() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <UserCircle className="h-4 w-4 text-secondary" />
-                <span>{userId}</span>
+                <span>{isAuthenticated ? userLabel : userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Long-term soft skill profile</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
