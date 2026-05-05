@@ -191,6 +191,7 @@ export default function BlindSpotDetail() {
             <h1 className="mt-1 text-2xl font-semibold">Blind Spot Detection</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            <AnalyticsNav />
             <SelectInput
               label="Scope"
               value={scope}
@@ -217,8 +218,6 @@ export default function BlindSpotDetail() {
           </div>
         </div>
       </section>
-
-      <AnalyticsNav />
 
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
