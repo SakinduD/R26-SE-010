@@ -29,34 +29,48 @@ const SKILL_LABELS = {
 
 const DEMO_DATA = {
   userId: 'demo-user',
+  source: 'demo',
+  modelVersion: 'demo-llm-mentoring',
   recommendations: [
     recommendation(
       'high',
       'confidence',
       'Review confidence blind spot',
+      'Confidence has a visible self-perception gap.',
       'Your self-rating is higher than observed and peer evidence. Rewatch one response and define one measurable confidence behaviour.',
-      'Blind spot detection'
+      'Before the next role-play, compare one self-rating with peer feedback and set one measurable confidence goal.',
+      'Blind spot detection',
+      ['blind_spot_detection', 'feedback_analysis']
     ),
     recommendation(
       'high',
       'emotional_control',
       'Reduce emotional-control risk',
+      'The predictive model flags emotional control as the highest-risk area.',
       'Predicted score is declining. Practice a pause-breathe-answer routine before the next role-play.',
-      'Predictive analytics'
+      'Use the pause-breathe-answer routine in the next difficult customer or manager response.',
+      'Predictive analytics',
+      ['predictive_model', 'progress_trends']
     ),
     recommendation(
       'medium',
       'empathy',
       'Protect empathy progress',
+      'Empathy needs reinforcement before the next scenario.',
       'Empathy is showing decline. Add one reflective listening prompt in the next scenario.',
-      'Progress trend'
+      'Prepare two reflective listening phrases and use at least one during the next simulation.',
+      'Progress trend',
+      ['progress_trends']
     ),
     recommendation(
       'low',
       'professionalism',
       'Maintain professionalism strength',
+      'Professionalism is currently stable and can be maintained.',
       'Professionalism is stable and strong. Continue using clear openings and concise closing summaries.',
-      'Skill twin'
+      'Keep using a concise opening and closing summary in each role-play.',
+      'Skill twin',
+      ['skill_twin_scores']
     ),
   ],
   aggregate: {
@@ -74,13 +88,16 @@ const DEMO_DATA = {
   },
 }
 
-function recommendation(priority, skillArea, title, detail, source) {
+function recommendation(priority, skillArea, title, reason, detail, nextAction, source, evidenceSources = []) {
   return {
     priority,
     skill_area: skillArea,
     title,
+    reason,
     detail,
+    next_action: nextAction,
     source,
+    evidence_sources: evidenceSources,
   }
 }
 
@@ -116,20 +133,40 @@ export default function AnalyticsRecommendations() {
     setError('')
 
     try {
-      const [aggregate, blindSpots, trends, predictions] = await Promise.all([
-        analyticsService.getAggregateByUser(userId.trim()),
-        analyticsService.getBlindSpotsByUser(userId.trim()),
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
-      ])
+      const recommendations = await analyticsService.getMentoringRecommendationsByUser(userId.trim())
 
       setData({
-        userId: userId.trim(),
-        aggregate,
-        blindSpots,
-        trends,
-        predictions,
-        recommendations: buildRecommendations({ aggregate, blindSpots, trends, predictions }),
+        userId: recommendations.user_id,
+        source: recommendations.source,
+        modelVersion: recommendations.model_version,
+        recommendationVersion: recommendations.recommendation_version,
+        evidence: recommendations.evidence,
+        recommendations: recommendations.recommendations,
+        aggregate: {
+          scores: { metric_count: recommendations.evidence?.session_count || 0 },
+          feedback: {
+            total_count: recommendations.evidence?.feedback_count || 0,
+            average_rating: recommendations.evidence?.average_feedback_rating || null,
+          },
+        },
+        blindSpots: {
+          summary: {
+            total_count: recommendations.evidence?.blind_spot_count || 0,
+            high_count: recommendations.evidence?.high_blind_spot_count || 0,
+          },
+        },
+        trends: {
+          summary: {
+            improving_count: recommendations.evidence?.improving_count || 0,
+            declining_count: recommendations.evidence?.declining_count || 0,
+          },
+        },
+        predictions: {
+          summary: {
+            high_risk_count: recommendations.evidence?.high_risk_prediction_count || 0,
+            medium_risk_count: recommendations.evidence?.medium_risk_prediction_count || 0,
+          },
+        },
       })
       setStatus('live')
     } catch (err) {
@@ -167,6 +204,7 @@ export default function AnalyticsRecommendations() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          {data.modelVersion ? <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">{data.modelVersion}</span> : null}
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 
@@ -185,7 +223,7 @@ export default function AnalyticsRecommendations() {
               </div>
               <h2 className="mt-3 text-xl font-semibold">Prioritized mentoring actions</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Recommendations combine blind spots, predicted risks, progress trends, feedback volume, and session evidence into one action plan.
+                Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -233,7 +271,10 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         item.skill_area,
         `Review ${labelFor(item.skill_area)} blind spot`,
         item.recommendation,
-        'Blind spot detection'
+        item.recommendation,
+        `Compare your self-rating with peer or observed evidence for ${labelFor(item.skill_area)}.`,
+        'Blind spot detection',
+        ['blind_spot_detection']
       )
     )
   }
@@ -246,7 +287,10 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         item.predicted_skill,
         `Reduce ${labelFor(item.predicted_skill)} risk`,
         item.recommendation,
-        'Predictive analytics'
+        item.recommendation,
+        `Add one targeted ${labelFor(item.predicted_skill)} exercise to the next session.`,
+        'Predictive analytics',
+        ['predictive_model']
       )
     )
   }
@@ -259,7 +303,10 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         item.skill_area,
         `Reverse ${labelFor(item.skill_area)} decline`,
         item.recommendation,
-        'Progress trend'
+        item.recommendation,
+        `Set one measurable ${labelFor(item.skill_area)} goal before the next role-play.`,
+        'Progress trend',
+        ['progress_trends']
       )
     )
   }
@@ -281,8 +328,11 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         Number(score) < 60 ? 'high' : 'medium',
         skillArea,
         `Practice ${labelFor(skillArea)}`,
+        `Average score is ${Math.round(Number(score))}.`,
         `Average score is ${Math.round(Number(score))}. Add one targeted exercise before the next role-play session.`,
-        'Skill twin'
+        `Complete one focused ${labelFor(skillArea)} drill and request peer feedback.`,
+        'Skill twin',
+        ['skill_twin_scores']
       )
     )
   }
@@ -302,8 +352,11 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         'low',
         'overall',
         'Maintain current progress',
+        'No urgent risk was detected.',
         'Continue practicing at the current difficulty and review post-session feedback after each role-play.',
-        'Analytics summary'
+        'Complete one more role-play session and compare the new scores with this baseline.',
+        'Analytics summary',
+        ['analytics_summary']
       )
     )
   }
@@ -325,7 +378,14 @@ function RecommendationList({ items, compact = false }) {
             </div>
             <PriorityBadge priority={item.priority} />
           </div>
-          <p className={`mt-3 text-sm text-muted-foreground ${compact ? 'line-clamp-3' : ''}`}>{item.detail}</p>
+          {item.reason ? <p className="mt-3 text-sm text-foreground/90">{item.reason}</p> : null}
+          <p className={`mt-2 text-sm text-muted-foreground ${compact ? 'line-clamp-3' : ''}`}>{item.detail}</p>
+          {item.next_action && !compact ? (
+            <div className="mt-3 rounded-md border border-border bg-card/60 px-3 py-2 text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Next action: </span>
+              {item.next_action}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
