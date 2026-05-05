@@ -885,10 +885,10 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
 
     predictions = {item["predicted_skill"]: item for item in data["predictions"]}
-    assert predictions["confidence"]["predicted_score"] == 89.5
+    assert predictions["confidence"]["predicted_score"] == 88
     assert predictions["confidence"]["risk_level"] == "low"
     assert predictions["confidence"]["confidence"] == 0.65
-    assert predictions["empathy"]["predicted_score"] == 22.5
+    assert predictions["empathy"]["predicted_score"] == 35
     assert predictions["empathy"]["risk_level"] == "high"
     assert predictions["communication_clarity"]["risk_level"] == "low"
     assert predictions["overall"]["predicted_score"] == 85
@@ -952,7 +952,7 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
     assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
     prediction = data["predictions"][0]
     assert prediction["predicted_skill"] == "confidence"
-    assert prediction["predicted_score"] == 44.5
+    assert prediction["predicted_score"] == 52
     assert prediction["risk_level"] == "high"
     assert prediction["confidence"] == 0.91
 

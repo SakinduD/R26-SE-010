@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -27,6 +28,10 @@ from app.db.base import Base
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.models.user import User
+
+
+def json_column_type():
+    return JSON().with_variant(JSONB(), "postgresql")
 
 
 class TrainingPlan(Base):
@@ -60,13 +65,13 @@ class TrainingPlan(Base):
     skill: Mapped[str] = mapped_column(
         String(40), nullable=False, default="job_interview"
     )
-    strategy_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    strategy_json: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
     difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
     recommended_scenario_ids: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list
+        json_column_type(), nullable=False, default=list
     )
     primary_scenario_json: Mapped[Optional[dict]] = mapped_column(
-        JSONB, nullable=True
+        json_column_type(), nullable=True
     )
     generation_source: Mapped[str] = mapped_column(String(40), nullable=False)
     generation_status: Mapped[str] = mapped_column(
@@ -128,12 +133,12 @@ class AdjustmentHistory(Base):
         index=True,
     )
     trigger: Mapped[str] = mapped_column(String(40), nullable=False)
-    previous_strategy: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    new_strategy: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    previous_strategy: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
+    new_strategy: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
     previous_difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
     new_difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
     signals_summary: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, default=dict
+        json_column_type(), nullable=False, default=dict
     )
     rationale: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
