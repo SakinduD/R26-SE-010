@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Activity,
@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -68,7 +70,13 @@ function labelFor(value) {
 
 export default function PredictiveAnalytics() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
   const [selectedSkill, setSelectedSkill] = useState('overall')
   const [data, setData] = useState(DEMO_DATA)
   const [skillPrediction, setSkillPrediction] = useState(null)
@@ -84,8 +92,10 @@ export default function PredictiveAnalytics() {
   const hasLiveData = status !== 'live' || Boolean(data.predictions?.length)
   const isMlModel = data.model_version === 'ml-predictive-behavioral-analytics-v1'
 
-  const loadPredictions = async () => {
-    if (!userId.trim()) {
+  const loadPredictions = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -95,8 +105,8 @@ export default function PredictiveAnalytics() {
 
     try {
       const [predictionResult, selectedResult] = await Promise.all([
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
-        analyticsService.getPredictedOutcomeBySkill(userId.trim(), selectedSkill),
+        analyticsService.getPredictedOutcomesByUser(targetUserId),
+        analyticsService.getPredictedOutcomeBySkill(targetUserId, selectedSkill),
       ])
       setData(predictionResult)
       setSkillPrediction(selectedResult)
@@ -109,6 +119,16 @@ export default function PredictiveAnalytics() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadPredictions(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -120,7 +140,7 @@ export default function PredictiveAnalytics() {
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input label="User" value={userId} onChange={setUserId} />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
-            <Button className="h-10 self-end" onClick={loadPredictions}>
+            <Button className="h-10 self-end" onClick={() => loadPredictions()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -131,6 +151,7 @@ export default function PredictiveAnalytics() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           <ModelPill modelVersion={data.model_version} isMlModel={isMlModel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>

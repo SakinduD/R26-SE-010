@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Brain } from 'lucide-react';
+import { LogOut, LayoutDashboard, Brain, BarChart3, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import Logo from '@/components/ui/logo';
 import { useAuth } from '@/lib/auth/context';
@@ -53,6 +53,20 @@ export default function AppLayout() {
             >
               <Brain className="size-3.5" />
               Training plan
+            </Link>
+            <Link
+              to="/analytics-dashboard"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <BarChart3 className="size-3.5" />
+              Analytics
+            </Link>
+            <Link
+              to="/analytics-feedback"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <MessageSquare className="size-3.5" />
+              Feedback
             </Link>
           </div>
 

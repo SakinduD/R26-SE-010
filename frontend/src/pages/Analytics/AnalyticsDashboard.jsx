@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -14,6 +14,8 @@ import { Button } from '../../components/ui/Button'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -149,7 +151,13 @@ function labelFor(value) {
 }
 
 export default function AnalyticsDashboard() {
-  const [userId, setUserId] = useState('demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity()
+  const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
@@ -179,8 +187,10 @@ export default function AnalyticsDashboard() {
     )
   }, [data, status])
 
-  const loadDashboard = async () => {
-    if (!userId.trim()) {
+  const loadDashboard = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -190,10 +200,10 @@ export default function AnalyticsDashboard() {
 
     try {
       const [aggregate, blindSpots, trends, predictions, sessionScores] = await Promise.all([
-        analyticsService.getAggregateByUser(userId.trim()),
-        analyticsService.getBlindSpotsByUser(userId.trim()),
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
+        analyticsService.getAggregateByUser(targetUserId),
+        analyticsService.getBlindSpotsByUser(targetUserId),
+        analyticsService.getProgressTrendsByUser(targetUserId),
+        analyticsService.getPredictedOutcomesByUser(targetUserId),
         sessionId.trim() ? analyticsService.getSkillScoresBySession(sessionId.trim()) : Promise.resolve(null),
       ])
 
@@ -211,6 +221,16 @@ export default function AnalyticsDashboard() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadDashboard(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -222,7 +242,7 @@ export default function AnalyticsDashboard() {
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input label="User" value={userId} onChange={setUserId} />
             <Input label="Session" value={sessionId} onChange={setSessionId} placeholder="optional" />
-            <Button className="h-10 self-end" onClick={loadDashboard}>
+            <Button className="h-10 self-end" onClick={() => loadDashboard()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -233,6 +253,7 @@ export default function AnalyticsDashboard() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
         {!hasLiveData ? (

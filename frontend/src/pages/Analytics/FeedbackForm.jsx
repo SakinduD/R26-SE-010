@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   CheckCircle2,
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_OPTIONS = [
   { value: 'confidence', label: 'Confidence' },
@@ -47,8 +49,14 @@ const INITIAL_FORM = {
 
 export default function FeedbackForm() {
   const params = useParams()
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthenticated,
+  } = useAnalyticsIdentity(null, INITIAL_FORM.user_id)
   const [form, setForm] = useState({
     ...INITIAL_FORM,
+    user_id: connectedUserId,
     session_id: params.sessionId || 'demo-session',
   })
   const [status, setStatus] = useState('idle')
@@ -99,6 +107,7 @@ export default function FeedbackForm() {
   const resetForm = () => {
     setForm({
       ...INITIAL_FORM,
+      user_id: connectedUserId,
       session_id: params.sessionId || 'demo-session',
     })
     setCreatedEntry(null)
@@ -106,12 +115,19 @@ export default function FeedbackForm() {
     setMessage('')
   }
 
+  useEffect(() => {
+    setForm((current) => ({ ...current, user_id: connectedUserId }))
+  }, [connectedUserId])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 md:px-6">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
           <h1 className="text-2xl font-semibold">Self and Peer Feedback</h1>
+          <div className="pt-2">
+            <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
+          </div>
         </div>
       </section>
 
