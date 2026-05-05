@@ -24,9 +24,10 @@ import SurveyResults from './pages/app/survey/SurveyResults'
 import TrainingPlan from './pages/app/TrainingPlan'
 
 // RPE pages
-import ScenarioSelect  from './pages/RPE/ScenarioSelect'
-import RolePlaySession from './pages/RPE/RolePlaySession'
-import SessionComplete from './pages/RPE/SessionComplete'
+import ScenarioSelect    from './pages/RPE/ScenarioSelect'
+import RolePlaySession   from './pages/RPE/RolePlaySession'
+import SessionComplete   from './pages/RPE/SessionComplete'
+import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
 
 // Existing feature pages
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
@@ -71,9 +72,10 @@ export default function App() {
             </Route>
 
             {/* RPE routes */}
-            <Route path="/roleplay"                  element={<ScenarioSelect />}  />
-            <Route path="/roleplay/session"          element={<RolePlaySession />} />
-            <Route path="/roleplay/session/complete" element={<SessionComplete />} />
+            <Route path="/roleplay"                          element={<ScenarioSelect />}    />
+            <Route path="/roleplay/session"                  element={<RolePlaySession />}   />
+            <Route path="/roleplay/session/complete"         element={<SessionComplete />}   />
+            <Route path="/roleplay/feedback/:sessionId"      element={<FeedbackDashboard />} />
 
             {/* Legacy / feature routes (unchanged) */}
             <Route path="/admin" element={

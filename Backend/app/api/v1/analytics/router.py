@@ -9,6 +9,8 @@ from app.schemas.analytics import (
     FeedbackEntryCreate,
     FeedbackEntryRead,
     FeedbackAnalysisResult,
+    FeedbackSentimentRequest,
+    FeedbackSentimentResult,
     AnalyticsAggregateSummary,
     PostSessionReportResult,
     ProgressTrendResult,
@@ -28,6 +30,7 @@ from app.services import (
     post_session_report_service,
     predictive_modeling_service,
     progress_trend_service,
+    sentiment_analysis_service,
     skill_scoring_service,
 )
 
@@ -114,6 +117,20 @@ def list_session_feedback(
     db: Session = Depends(get_db),
 ):
     return analytics_service.list_feedback_by_session(db, session_id, limit)
+
+
+@router.post(
+    "/feedback/sentiment",
+    response_model=FeedbackSentimentResult,
+)
+def analyze_feedback_sentiment(payload: FeedbackSentimentRequest):
+    try:
+        return sentiment_analysis_service.analyze_feedback_text(payload.text)
+    except sentiment_analysis_service.SentimentModelUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(

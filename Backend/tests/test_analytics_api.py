@@ -1,3 +1,8 @@
+from pathlib import Path
+
+import pytest
+
+
 def test_create_and_get_session_metric(client):
     payload = {
         "user_id": "user-1",
@@ -62,6 +67,152 @@ def test_create_and_list_feedback(client):
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["skill_area"] == "active_listening"
+
+
+def test_create_feedback_auto_detects_sentiment_when_missing(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="clear and professional",
+            sentiment="positive",
+            confidence=0.91,
+            sentiment_score=0.91,
+            class_probabilities={"negative": 0.09, "positive": 0.91},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "auto-sentiment-user",
+            "session_id": "auto-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "positive"
+
+
+def test_create_feedback_keeps_manual_sentiment(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fail_if_called(text: str):
+        raise AssertionError("manual sentiment should not call NLP model")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fail_if_called,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "manual-sentiment-user",
+            "session_id": "manual-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "This is mixed feedback.",
+            "sentiment": "neutral",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "neutral"
+
+
+def test_create_feedback_saves_when_sentiment_model_is_unavailable(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "missing-model-user",
+            "session_id": "missing-model-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] is None
+
+
+def test_analyze_feedback_sentiment_returns_model_prediction(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="your communication was clear",
+            sentiment="positive",
+            confidence=0.88,
+            sentiment_score=0.88,
+            class_probabilities={"negative": 0.12, "positive": 0.88},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sentiment"] == "positive"
+    assert data["confidence"] == 0.88
+    assert data["model_type"] == "TF-IDF + Logistic Regression"
+
+
+def test_analyze_feedback_sentiment_returns_503_when_model_missing(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "model missing"
 
 
 def test_create_and_list_predictions(client):
@@ -741,6 +892,122 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     assert predictions["empathy"]["risk_level"] == "high"
     assert predictions["communication_clarity"]["risk_level"] == "low"
     assert predictions["overall"]["predicted_score"] == 85
+
+
+def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(client, monkeypatch):
+    from app.services import ml_predictive_model_service
+
+    def fake_ml_prediction(features):
+        assert features["current_score"] == 62
+        assert features["previous_score"] == 72
+        assert features["trend_slope"] == -10
+        assert features["average_feedback_rating"] == 58
+        assert features["sentiment_score"] == -1
+        return {
+            "predicted_score": 44.5,
+            "risk_level": "high",
+            "confidence": 0.91,
+            "model_version": "ml-predictive-behavioral-analytics-v1",
+            "model_type": {
+                "regressor": "linear_regression",
+                "classifier": "gradient_boosting_classifier",
+            },
+        }
+
+    monkeypatch.setattr(ml_predictive_model_service, "predict_behavioral_outcome", fake_ml_prediction)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-1",
+            "confidence_score": 72,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "confidence_score": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 58,
+            "comment": "The answer was unclear and needs stronger confidence.",
+            "sentiment": "negative",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/ml-prediction-user/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
+    prediction = data["predictions"][0]
+    assert prediction["predicted_skill"] == "confidence"
+    assert prediction["predicted_score"] == 44.5
+    assert prediction["risk_level"] == "high"
+    assert prediction["confidence"] == 0.91
+
+
+def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
+    model_path = (
+        Path(__file__).resolve().parents[2]
+        / "training"
+        / "feedback_analytics"
+        / "models"
+        / "predictive_behavior_model.joblib"
+    )
+    if not model_path.exists():
+        pytest.skip("Train predictive_behavior_model.joblib before running the real model API smoke test.")
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-1",
+            "confidence_score": 68,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "confidence_score": 74,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 72,
+            "comment": "The learner showed better confidence and clearer delivery.",
+            "sentiment": "positive",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/confidence")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predicted_skill"] == "confidence"
+    assert data["current_score"] == 74
+    assert data["predicted_score"] is not None
+    assert 0 <= data["predicted_score"] <= 100
+    assert data["risk_level"] in {"low", "medium", "high"}
+    assert 0 <= data["confidence"] <= 1
+    assert data["evidence_points"] == 2
 
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):

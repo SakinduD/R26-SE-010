@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -c \"from app.db.database import engine; from sqlalchemy import inspect; i = inspect\\(engine\\); print\\('training_plans:', 'training_plans' in i.get_table_names\\(\\)\\); print\\('adjustment_history:', 'adjustment_history' in i.get_table_names\\(\\)\\)\")"
-    ]
-  }
-}
