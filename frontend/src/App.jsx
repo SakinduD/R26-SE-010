@@ -69,6 +69,22 @@ export default function App() {
               <Route path="/survey" element={<Survey />} />
               <Route path="/survey/results" element={<SurveyResults />} />
               <Route path="/training-plan" element={<TrainingPlan />} />
+              <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
+              <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
+              <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
+              <Route path="/analytics-feedback" element={<FeedbackForm />} />
+              <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
+              <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
+              <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
+              <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
+              <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
+              <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
+              <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
+              <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
+              <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
+              <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
+              <Route path="/analytics-session-report" element={<PostSessionReport />} />
+              <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
             </Route>
 
             {/* RPE routes */}
@@ -86,22 +102,6 @@ export default function App() {
               </div>
             } />
             <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
-            <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
-            <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
-            <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
-            <Route path="/analytics-feedback" element={<FeedbackForm />} />
-            <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
-            <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
-            <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
-            <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
-            <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
-            <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
-            <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
-            <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
-            <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
-            <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
-            <Route path="/analytics-session-report" element={<PostSessionReport />} />
-            <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
           </Routes>
         </div>
       </AuthProvider>
