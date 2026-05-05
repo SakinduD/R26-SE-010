@@ -28,10 +28,22 @@ EMOTION_KEYWORDS: dict[str, list[str]] = {
     "assertive": [
         "propose", "suggest", "deliver", "need", "require",
         "will", "can do", "plan", "solution",
+        "it is your choice", "that is your decision",
+        "i respect your decision", "i accept your decision",
+        "i understand your position", "your call",
+        "i take responsibility", "i am committed",
+        "i can manage", "i will manage",
+        "i am capable", "i have the ability",
     ],
     "calm": [
         "understand", "okay", "sure", "alright", "happy to",
         "of course", "no problem", "appreciate",
+        "i am not telling", "i am not saying", "i am not complaining",
+        "i can complete", "i can deliver on time", "i can finish",
+        "i am telling you the reason", "the reason is",
+        "let me explain", "i want to explain",
+        "please consider", "please understand",
+        "please take into consideration",
     ],
 }
 
@@ -96,6 +108,16 @@ class RpeEmotionService:
                 return True
         return False
 
+    def _has_negation_before(self, text: str, keyword: str) -> bool:
+        """True only if a negation word appears immediately before keyword."""
+        negation_words = {"not", "don't", "cannot", "can't", "didn't", "won't", "never"}
+        words = text.split()
+        for i, word in enumerate(words):
+            if keyword in word and i > 0:
+                if words[i - 1] in negation_words:
+                    return True
+        return False
+
     def profanity_escalation_penalty(self, user_input: str) -> int:
         """Extra escalation penalty (+1) stacked on top of frustrated (+2) delta."""
         return 1 if self._is_profanity(user_input.lower()) else 0
@@ -108,12 +130,18 @@ class RpeEmotionService:
             return "frustrated"
 
         # 1b. Calm keyword override — both ML models underperform on this class.
-        # Skip if the keyword is negated (e.g. "do not understand").
+        # Multi-word phrases are self-evidently calm; single-word keywords
+        # use _has_negation_before to avoid "do not understand" → calm.
         for kw in EMOTION_KEYWORDS.get("calm", []):
             if kw in text:
-                negated = any(neg + kw in text for neg in ("not ", "n't ", "can't ", "cannot "))
-                if not negated:
+                if " " in kw or not self._has_negation_before(text, kw):
                     return "calm"
+
+        # 1c. Assertive phrase override for professional resignation/acceptance
+        # phrases. Only multi-word phrases to avoid over-matching short keywords.
+        for kw in EMOTION_KEYWORDS.get("assertive", []):
+            if " " in kw and kw in text:
+                return "assertive"
 
         # 2. Get transformer prediction if available
         transformer_pred = None
