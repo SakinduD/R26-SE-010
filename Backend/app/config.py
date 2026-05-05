@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     groq_api_key: str = ""
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_mentoring_model: str = "gpt-5-mini"
+    llm_mentoring_timeout_s: float = 45.0
 
     # Supabase Auth — url + keys required; jwt_secret kept for reference only
     # (newer Supabase projects use ES256 — verification uses the JWKS endpoint, not this secret)
