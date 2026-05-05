@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.analytics import AnalyticsSessionMetric
+from app.models.analytics import AnalyticsSessionMetric, FeedbackEntry
 from app.schemas.analytics import (
     ProgressTrendPoint,
     ProgressTrendResult,
@@ -32,6 +32,11 @@ TREND_SCORE_FIELDS = {
     "overall": "overall_score",
 }
 
+FEEDBACK_SKILL_ALIASES = {
+    "communication_clarity": {"communication_clarity", "clarity"},
+    "active_listening": {"active_listening", "listening"},
+}
+
 
 def analyze_user_progress_trends(
     db: Session,
@@ -39,7 +44,11 @@ def analyze_user_progress_trends(
     limit: int = 100,
 ) -> ProgressTrendResult:
     metrics = _query_user_metrics(db, user_id, limit)
-    trends = [_build_skill_trend(skill_area, field, metrics) for skill_area, field in TREND_SCORE_FIELDS.items()]
+    feedback = _query_user_feedback(db, user_id, limit)
+    trends = [
+        _build_skill_trend(skill_area, field, metrics, feedback)
+        for skill_area, field in TREND_SCORE_FIELDS.items()
+    ]
     return _build_result(user_id=user_id, trends=trends)
 
 
@@ -60,7 +69,8 @@ def analyze_user_skill_trend(
         )
 
     metrics = _query_user_metrics(db, user_id, limit)
-    return _build_skill_trend(normalized_skill, TREND_SCORE_FIELDS[normalized_skill], metrics)
+    feedback = _query_user_feedback(db, user_id, limit)
+    return _build_skill_trend(normalized_skill, TREND_SCORE_FIELDS[normalized_skill], metrics, feedback)
 
 
 def _query_user_metrics(
@@ -72,6 +82,20 @@ def _query_user_metrics(
         db.query(AnalyticsSessionMetric)
         .filter(AnalyticsSessionMetric.user_id == user_id)
         .order_by(AnalyticsSessionMetric.created_at.asc(), AnalyticsSessionMetric.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _query_user_feedback(
+    db: Session,
+    user_id: str,
+    limit: int,
+) -> list[FeedbackEntry]:
+    return (
+        db.query(FeedbackEntry)
+        .filter(FeedbackEntry.user_id == user_id)
+        .order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc())
         .limit(limit)
         .all()
     )
@@ -104,8 +128,11 @@ def _build_skill_trend(
     skill_area: str,
     field: str,
     metrics: list[AnalyticsSessionMetric],
+    feedback: list[FeedbackEntry],
 ) -> SkillTrendItem:
     points = _points_for_field(metrics, field)
+    if len(points) < 2:
+        points = _feedback_points_for_skill(feedback, skill_area)
     session_count = len(points)
 
     if session_count < 2:
@@ -163,6 +190,47 @@ def _points_for_field(
         ],
         key=lambda point: point.created_at,
     )
+
+
+def _feedback_points_for_skill(
+    feedback: list[FeedbackEntry],
+    skill_area: str,
+) -> list[ProgressTrendPoint]:
+    points_by_session = defaultdict(list)
+    created_at_by_session = {}
+
+    for entry in feedback:
+        if entry.rating is None or not entry.session_id:
+            continue
+        if not _feedback_matches_skill(entry.skill_area, skill_area):
+            continue
+        points_by_session[entry.session_id].append(entry.rating)
+        created_at_by_session.setdefault(entry.session_id, entry.created_at)
+
+    return sorted(
+        [
+            ProgressTrendPoint(
+                session_id=session_id,
+                score=round(sum(values) / len(values), 2),
+                created_at=created_at_by_session[session_id],
+            )
+            for session_id, values in points_by_session.items()
+        ],
+        key=lambda point: point.created_at,
+    )
+
+
+def _feedback_matches_skill(entry_skill: str | None, target_skill: str) -> bool:
+    if not entry_skill:
+        return False
+    normalized_entry_skill = _normalize_skill_area(entry_skill)
+    normalized_target_skill = _normalize_skill_area(target_skill)
+    if normalized_entry_skill == normalized_target_skill:
+        return True
+    if normalized_target_skill == "overall" and normalized_entry_skill == "overall":
+        return True
+    aliases = FEEDBACK_SKILL_ALIASES.get(normalized_target_skill, {normalized_target_skill})
+    return normalized_entry_skill in aliases
 
 
 def _linear_slope(scores: list[float]) -> float:
