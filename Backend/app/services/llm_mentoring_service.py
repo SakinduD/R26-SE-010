@@ -25,6 +25,17 @@ MIN_SCORE = 0.0
 MAX_SCORE = 100.0
 MAX_MENTORING_DELTA = 15.0
 IMPOSSIBLE_NEXT_SCORE_PATTERN = re.compile(r"\bto\s+-\d+(?:\.\d+)?", re.IGNORECASE)
+PEER_TEXT_REPLACEMENTS = (
+    (re.compile(r"\bself\s*\+\s*peer\s+or\s+mentor\b", re.IGNORECASE), "self-reflection or mentor/system observation"),
+    (re.compile(r"\bself\s+or\s+peer\b", re.IGNORECASE), "self-reflection or observed evidence"),
+    (re.compile(r"\bpeer\s+or\s+mentor\b", re.IGNORECASE), "mentor or system observation"),
+    (re.compile(r"\bask\s+a\s+peer\b", re.IGNORECASE), "ask a mentor or review system evidence"),
+    (re.compile(r"\bpeer\s+feedback\b", re.IGNORECASE), "observer/system feedback"),
+    (re.compile(r"\bpeer\s+rating\b", re.IGNORECASE), "observer/system rating"),
+    (re.compile(r"\bpeer\s+review\b", re.IGNORECASE), "mentor/system review"),
+    (re.compile(r"\bpeers\b", re.IGNORECASE), "mentors"),
+    (re.compile(r"\bpeer\b", re.IGNORECASE), "observer"),
+)
 
 
 def generate_user_mentoring_recommendations(
@@ -117,7 +128,11 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
         "Do not invent sessions, scores, diagnoses, or private user facts. "
         "All score values in the evidence are already normalized to the 0-100 range. "
         "Never write negative skill scores or a future score outside 0-100. "
-        "When discussing a trend, describe it as a point change, not as a predicted score."
+        "When discussing a trend, describe it as a point change, not as a predicted score. "
+        "Do not ask the learner to collect peer feedback or peer ratings. "
+        "This system uses self-reflection feedback plus observed performance evidence from adaptive pedagogy, "
+        "role-play, and multimodal analysis components. Use terms such as observed performance evidence, "
+        "mentor check, or system evidence instead of peer feedback."
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -260,12 +275,12 @@ def _coerce_recommendations(
         priority = str(raw.get("priority", "medium")).lower()
         if priority not in PRIORITY_WEIGHT:
             priority = "medium"
-        title = str(raw.get("title") or "").strip()
-        detail = str(raw.get("detail") or "").strip()
-        next_action = str(raw.get("next_action") or "").strip()
+        title = _sanitize_mentoring_text(str(raw.get("title") or "").strip())
+        detail = _sanitize_mentoring_text(str(raw.get("detail") or "").strip())
+        next_action = _sanitize_mentoring_text(str(raw.get("next_action") or "").strip())
         if not title or not detail or not next_action:
             continue
-        reason = str(raw.get("reason") or detail).strip()
+        reason = _sanitize_mentoring_text(str(raw.get("reason") or detail).strip())
         if _contains_impossible_score_text(title, reason, detail, next_action):
             continue
         items.append(
@@ -385,6 +400,13 @@ def _compact_prediction(item: dict[str, Any]) -> dict[str, Any]:
 def _contains_impossible_score_text(*values: str) -> bool:
     text = " ".join(value for value in values if value)
     return bool(IMPOSSIBLE_NEXT_SCORE_PATTERN.search(text))
+
+
+def _sanitize_mentoring_text(value: str) -> str:
+    sanitized = value
+    for pattern, replacement in PEER_TEXT_REPLACEMENTS:
+        sanitized = pattern.sub(replacement, sanitized)
+    return sanitized.strip()
 
 
 def _bounded_prediction(current_score: float, predicted_score: float) -> float:
