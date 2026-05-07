@@ -41,6 +41,59 @@ export function normalizeMcaNudges(value) {
   return Array.isArray(value) ? value : [value]
 }
 
+export function selectMcaSession(sessions, sessionId) {
+  if (!Array.isArray(sessions) || !sessions.length) return null
+
+  const exactMatch = sessions.find((session) => String(session.id) === String(sessionId))
+  if (exactMatch) return exactMatch
+
+  return sessions.find((session) => session.status === 'completed') || sessions[0]
+}
+
+export function normalizeMcaSessionNudges(session) {
+  if (!session) return []
+
+  const nudgeLog = Array.isArray(session.nudge_log) ? session.nudge_log : []
+  const nudgeEntries = nudgeLog.map((entry) => ({
+    emotion: session.dominant_emotion || null,
+    confidence: normalizeConfidence(entry.confidence),
+    nudge: entry.message || entry.nudge || entry.text || 'Multimodal communication cue recorded.',
+    nudge_category: normalizeCategory(entry.category),
+    nudge_severity: entry.severity || 'info',
+  }))
+
+  const mechanicalEntries = Object.entries(session.mechanical_averages || {}).map(([key, value]) => ({
+    emotion: session.dominant_emotion || null,
+    confidence: normalizeConfidence(value),
+    nudge: `Multimodal ${humanizeKey(key)} average was ${formatValue(value)}.`,
+    nudge_category: normalizeCategory(key),
+    nudge_severity: Number(value) < 50 ? 'warning' : 'info',
+  }))
+
+  const emotionEntries = Object.entries(session.emotion_distribution || {}).map(([emotion, value]) => ({
+    emotion,
+    confidence: normalizeConfidence(value),
+    nudge: `Detected ${humanizeKey(emotion)} emotion during the communication session.`,
+    nudge_category: 'fusion',
+    nudge_severity: emotionSeverity(emotion, value),
+  }))
+
+  const overallEntry =
+    session.overall_score !== null && session.overall_score !== undefined
+      ? [
+          {
+            emotion: session.dominant_emotion || null,
+            confidence: normalizeConfidence(session.overall_score),
+            nudge: `Multimodal communication overall score was ${formatValue(session.overall_score)}.`,
+            nudge_category: 'fusion',
+            nudge_severity: Number(session.overall_score) < 50 ? 'warning' : 'info',
+          },
+        ]
+      : []
+
+  return [...nudgeEntries, ...mechanicalEntries, ...emotionEntries, ...overallEntry]
+}
+
 export function hasPulledComponentData(sources) {
   return Boolean(
     sources?.surveyProfile?.ok ||
@@ -49,6 +102,44 @@ export function hasPulledComponentData(sources) {
       sources?.rpeFeedback?.ok ||
       sources?.mcaNudges?.ok
   )
+}
+
+function normalizeConfidence(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return null
+  if (number > 1) return Math.max(0, Math.min(1, number / 100))
+  return Math.max(0, Math.min(1, number))
+}
+
+function normalizeCategory(value) {
+  const key = String(value || '').toLowerCase()
+  if (key.includes('pace')) return 'pace'
+  if (key.includes('volume') || key.includes('pitch')) return 'volume'
+  if (key.includes('silence') || key.includes('listening')) return 'silence'
+  if (key.includes('clarity')) return 'clarity'
+  if (key.includes('eye') || key.includes('gaze')) return 'fusion'
+  if (key.includes('emotion') || key.includes('sentiment') || key.includes('affect')) return 'fusion'
+  return key || 'fusion'
+}
+
+function emotionSeverity(emotion, value) {
+  const key = String(emotion || '').toLowerCase()
+  const confidence = normalizeConfidence(value) || 0
+  if (['angry', 'sad', 'fear', 'disgust', 'frustrated'].some((item) => key.includes(item)) && confidence >= 0.35) {
+    return 'warning'
+  }
+  return 'info'
+}
+
+function humanizeKey(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatValue(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : value
 }
 
 function flattenOceanScores(scores) {

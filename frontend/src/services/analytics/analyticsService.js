@@ -63,4 +63,7 @@ export const analyticsService = {
 
   getComponentRpeFeedback: (sessionId) =>
     api.get(`/api/v1/rpe/session-feedback/${encodeURIComponent(sessionId)}`).then(unwrap),
+
+  getComponentMcaSessions: (limit = 20, offset = 0) =>
+    api.get('/api/v1/mca/sessions/', { params: { limit, offset } }).then(unwrap),
 }
