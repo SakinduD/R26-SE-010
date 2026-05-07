@@ -8,15 +8,18 @@ import {
   RefreshCw,
   Save,
   Star,
-  User,
-  Users,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import {
+  isGeneratedAnalyticsSessionId,
+  normalizeComponentSessionOptions,
+  optionalRequest,
+  selectPreferredComponentSession,
+} from './analyticsIntegrationUtils'
 
 const SKILL_OPTIONS = [
   { value: 'confidence', label: 'Confidence' },
@@ -27,11 +30,6 @@ const SKILL_OPTIONS = [
   { value: 'emotional_control', label: 'Emotional Control' },
   { value: 'professionalism', label: 'Professionalism' },
   { value: 'overall', label: 'Overall' },
-]
-
-const FEEDBACK_TYPES = [
-  { value: 'self', label: 'Self', icon: User },
-  { value: 'peer', label: 'Peer', icon: Users },
 ]
 
 const SENTIMENT_OPTIONS = [
@@ -65,9 +63,11 @@ export default function FeedbackForm() {
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
   const [createdEntry, setCreatedEntry] = useState(null)
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [sessionStatus, setSessionStatus] = useState('loading')
 
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim() && form.skill_area && form.feedback_type,
+    () => form.user_id.trim() && form.session_id.trim() && form.skill_area,
     [form]
   )
 
@@ -79,7 +79,7 @@ export default function FeedbackForm() {
   const submitFeedback = async (event) => {
     event.preventDefault()
     if (!canSubmit) {
-      setMessage('User, session, feedback type, and skill are required.')
+      setMessage('User, session, and skill are required.')
       return
     }
 
@@ -89,7 +89,7 @@ export default function FeedbackForm() {
     const payload = {
       user_id: form.user_id.trim(),
       session_id: form.session_id.trim(),
-      feedback_type: form.feedback_type,
+      feedback_type: 'self',
       skill_area: form.skill_area,
       rating: Number(form.rating),
       sentiment: form.sentiment,
@@ -108,10 +108,11 @@ export default function FeedbackForm() {
   }
 
   const resetForm = () => {
+    const preferred = selectPreferredComponentSession(sessionOptions)
     setForm({
       ...INITIAL_FORM,
       user_id: connectedUserId,
-      session_id: params.sessionId || createSessionId(),
+      session_id: params.sessionId || preferred?.id || createSessionId(),
     })
     setCreatedEntry(null)
     setStatus('idle')
@@ -122,12 +123,53 @@ export default function FeedbackForm() {
     updateField('session_id', createSessionId())
     setCreatedEntry(null)
     setStatus('idle')
-    setMessage('New session ID generated.')
+    setMessage('Manual session ID generated. Use this only for testing when no completed role-play or multimodal session exists yet.')
   }
 
   useEffect(() => {
     setForm((current) => ({ ...current, user_id: connectedUserId }))
   }, [connectedUserId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadCompletedSessions = async () => {
+      setSessionStatus('loading')
+      const [rpeSessions, mcaSessions] = await Promise.all([
+        optionalRequest(() => analyticsService.getComponentRpeSessions()),
+        optionalRequest(() => analyticsService.getComponentMcaSessions()),
+      ])
+
+      if (cancelled) return
+
+      const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+      const preferred = selectPreferredComponentSession(options)
+      setSessionOptions(options)
+      setSessionStatus(options.length ? 'ready' : 'empty')
+
+      setForm((current) => {
+        if (params.sessionId) return { ...current, session_id: params.sessionId }
+        if (!preferred) return current
+        if (!current.session_id || isGeneratedAnalyticsSessionId(current.session_id)) {
+          return { ...current, session_id: preferred.id }
+        }
+        return current
+      })
+    }
+
+    loadCompletedSessions().catch(() => {
+      if (!cancelled) setSessionStatus('error')
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [params.sessionId])
+
+  const selectedSession = useMemo(
+    () => sessionOptions.find((option) => option.id === form.session_id),
+    [form.session_id, sessionOptions]
+  )
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -135,7 +177,7 @@ export default function FeedbackForm() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Self and Peer Feedback</h1>
+            <h1 className="mt-1 text-2xl font-semibold">Self Reflection Feedback</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
@@ -154,16 +196,13 @@ export default function FeedbackForm() {
             <h2 className="text-base font-semibold">Submit Feedback</h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <AnalyticsUserField
-              userId={form.user_id}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={(value) => updateField('user_id', value)}
-            />
-            <TextInput
+          <div className="grid gap-4">
+            <SessionInput
               label="Session ID"
               value={form.session_id}
+              selectedLabel={selectedSession?.label}
+              options={sessionOptions}
+              status={sessionStatus}
               onChange={(value) => updateField('session_id', value)}
               placeholder="session-123"
               action={
@@ -177,21 +216,6 @@ export default function FeedbackForm() {
                 </button>
               }
             />
-          </div>
-
-          <div className="mt-5">
-            <FieldLabel>Feedback Type</FieldLabel>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {FEEDBACK_TYPES.map((item) => (
-                <SegmentButton
-                  key={item.value}
-                  active={form.feedback_type === item.value}
-                  icon={item.icon}
-                  label={item.label}
-                  onClick={() => updateField('feedback_type', item.value)}
-                />
-              ))}
-            </div>
           </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -260,9 +284,8 @@ export default function FeedbackForm() {
               <Star className="h-4 w-4 text-secondary" />
               <h2 className="text-base font-semibold">Current Entry</h2>
             </div>
-            <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
-            <PreviewItem label="Session" value={form.session_id} />
-            <PreviewItem label="Type" value={form.feedback_type} />
+            <PreviewItem label="Session" value={selectedSession?.label || form.session_id} />
+            <PreviewItem label="Type" value="Self reflection" />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
             <PreviewItem label="Rating" value={form.rating} />
             <PreviewItem label="Sentiment" value={form.sentiment} />
@@ -291,19 +314,51 @@ export default function FeedbackForm() {
   )
 }
 
-function TextInput({ label, value, onChange, placeholder, action }) {
+function SessionInput({ label, value, selectedLabel, options, status, onChange, placeholder, action }) {
+  const hasOptions = options.length > 0
+  const valueIsListed = options.some((option) => option.id === value)
+  const selectValue = valueIsListed ? value : value || ''
+
   return (
     <label className="grid gap-1 text-xs text-muted-foreground">
       <span className="flex items-center justify-between gap-3">
         <span>{label}</span>
         {action}
       </span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      {hasOptions ? (
+        <>
+          <select
+            className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+            value={selectValue}
+            onChange={(event) => onChange(event.target.value)}
+          >
+            {!valueIsListed && !value ? <option value="">Select completed session</option> : null}
+            {!valueIsListed && value ? <option value={value}>Manual session - {value}</option> : null}
+            {options.map((option) => (
+              <option key={`${option.source}-${option.id}`} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {selectedLabel ? `Using real component session: ${selectedLabel}` : 'Select the completed AP/MCA/Role Play session.'}
+          </span>
+        </>
+      ) : (
+        <>
+          <input
+            className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <span className="text-[11px] text-warning">
+            {status === 'loading'
+              ? 'Looking for completed component sessions...'
+              : 'No completed component session found yet. Complete AP, multimodal analysis, and role play first; manual sessions are for testing only.'}
+          </span>
+        </>
+      )}
     </label>
   )
 }
@@ -324,23 +379,6 @@ function SelectInput({ label, value, onChange, options }) {
         ))}
       </select>
     </label>
-  )
-}
-
-function SegmentButton({ active, icon: Icon, label, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`flex h-11 items-center justify-center gap-2 rounded-md border text-sm font-medium transition ${
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-background text-muted-foreground hover:text-foreground'
-      }`}
-      onClick={onClick}
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </button>
   )
 }
 

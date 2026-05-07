@@ -13,9 +13,26 @@ export default function ProgressTrendVisualization({ trends, labelFor }) {
     () => trends.filter((item) => item.points?.length > 1).slice(0, 5),
     [trends]
   )
+  const singleSessionTrends = useMemo(
+    () => trends.filter((item) => item.points?.length === 1).slice(0, 4),
+    [trends]
+  )
 
   if (!visibleTrends.length) {
-    return <EmptyState text="No trend history yet" />
+    if (!singleSessionTrends.length) {
+      return <EmptyState text="No trend history yet" />
+    }
+
+    return (
+      <div className="space-y-3">
+        <EmptyState text="One real session is available. Add another session to calculate progress trends." />
+        <div className="grid gap-2 sm:grid-cols-2">
+          {singleSessionTrends.map((item) => (
+            <SingleSessionTrendRow key={item.skill_area} item={item} labelFor={labelFor} />
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -126,6 +143,21 @@ function TrendRow({ item, labelFor }) {
       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
         <span>Latest {formatScore(item.latest_score)}</span>
         <span>Delta {formatDelta(item.delta)}</span>
+      </div>
+    </div>
+  )
+}
+
+function SingleSessionTrendRow({ item, labelFor }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-medium">{labelFor(item.skill_area)}</span>
+        <TrendBadge label="insufficient_data" />
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>Latest {formatScore(item.latest_score)}</span>
+        <span>Sessions {item.session_count || 1}</span>
       </div>
     </div>
   )

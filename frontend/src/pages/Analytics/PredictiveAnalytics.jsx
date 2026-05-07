@@ -18,7 +18,6 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -141,12 +140,6 @@ export default function PredictiveAnalytics() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <AnalyticsUserField
-              userId={userId}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={setUserId}
-            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
             <Button className="h-10 self-end" onClick={() => loadPredictions()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}

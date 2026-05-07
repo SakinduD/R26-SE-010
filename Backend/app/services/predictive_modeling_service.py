@@ -31,7 +31,7 @@ def predict_user_skill_outcomes(
     used_ml_model = False
 
     for trend in trend_result.trends:
-        if trend.session_count < 2 or trend.latest_score is None:
+        if trend.latest_score is None:
             continue
         prediction, source = _prediction_from_trend(db, user_id, trend)
         predictions.append(prediction)
@@ -62,7 +62,7 @@ def _prediction_from_trend(
     user_id: str,
     trend: SkillTrendItem,
 ) -> tuple[PredictiveModelingItem, str]:
-    if trend.session_count < 2 or trend.latest_score is None:
+    if trend.latest_score is None:
         return (
             PredictiveModelingItem(
                 predicted_skill=trend.skill_area,
@@ -73,6 +73,22 @@ def _prediction_from_trend(
                 confidence=0.2,
                 evidence_points=trend.session_count,
                 recommendation=f"Collect more sessions before predicting {trend.skill_area}.",
+            ),
+            "rule",
+        )
+
+    if trend.session_count < 2:
+        risk_level = _single_session_risk_level(trend.latest_score)
+        return (
+            PredictiveModelingItem(
+                predicted_skill=trend.skill_area,
+                current_score=trend.latest_score,
+                predicted_score=trend.latest_score,
+                trend_label="insufficient_data",
+                risk_level=risk_level,
+                confidence=0.3,
+                evidence_points=trend.session_count,
+                recommendation=_single_session_recommendation(trend.skill_area, risk_level),
             ),
             "rule",
         )
@@ -223,6 +239,22 @@ def _risk_level(predicted_score: float, trend_label: str, slope: float) -> str:
     if predicted_score < 70 or trend_label == "declining":
         return "medium"
     return "low"
+
+
+def _single_session_risk_level(current_score: float) -> str:
+    if current_score < 50:
+        return "high"
+    if current_score < 70:
+        return "medium"
+    return "low"
+
+
+def _single_session_recommendation(skill_area: str, risk_level: str) -> str:
+    if risk_level == "high":
+        return f"{skill_area} is currently high risk. Add another real session and assign focused practice."
+    if risk_level == "medium":
+        return f"{skill_area} needs one more session to confirm the trend. Keep targeted practice active."
+    return f"{skill_area} is currently low risk. Add another session to confirm the pattern."
 
 
 def _combined_risk_level(
