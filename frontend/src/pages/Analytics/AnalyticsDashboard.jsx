@@ -16,15 +16,19 @@ import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData,
+  normalizeComponentSessionOptions,
   normalizeAdaptivePlan,
+  normalizeMcaNudges,
+  normalizeMcaSessionNudges,
   normalizeRpeFeedback,
   normalizeRpeSession,
   normalizeSurveyProfile,
   optionalRequest,
+  selectPreferredComponentSession,
+  selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
@@ -55,7 +59,7 @@ const DEMO_DATA = {
     },
     feedback: {
       total_count: 7,
-      by_type: { self: 3, peer: 3, system: 1 },
+      by_type: { self: 3, system: 4 },
       sentiment_counts: { positive: 4, neutral: 2, negative: 1 },
       average_rating: 76,
     },
@@ -160,6 +164,11 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value.replaceAll('_', ' ')
 }
 
+function toScoreValue(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 export default function AnalyticsDashboard() {
   const {
     userId: connectedUserId,
@@ -169,6 +178,7 @@ export default function AnalyticsDashboard() {
   } = useAnalyticsIdentity()
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -187,7 +197,7 @@ export default function AnalyticsDashboard() {
       ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
       ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
       ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
-    ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
+    ].map(([key, value]) => ({ key, label: labelFor(key), value: toScoreValue(value) }))
   }, [data.aggregate])
 
   const hasLiveData = useMemo(() => {
@@ -201,9 +211,9 @@ export default function AnalyticsDashboard() {
     )
   }, [data, status])
 
-  const loadDashboard = async (nextUserId = userId) => {
+  const loadDashboard = async (nextUserId = userId, nextSessionId = sessionId) => {
     const targetUserId = nextUserId.trim()
-    const targetSessionId = sessionId.trim()
+    const targetSessionId = nextSessionId.trim()
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -247,14 +257,23 @@ export default function AnalyticsDashboard() {
   }
 
   const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
-    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback] = await Promise.all([
+    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
       optionalRequest(() => analyticsService.getComponentSurveyProfile()),
       optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
       optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
       optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
     ])
 
-    const sources = { surveyProfile, adaptivePlan, rpeSession, rpeFeedback }
+    const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
+    const mcaNudges = normalizeMcaSessionNudges(mcaSession)
+    const sources = {
+      surveyProfile,
+      adaptivePlan,
+      rpeSession,
+      rpeFeedback,
+      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
+    }
     if (!hasPulledComponentData(sources)) {
       return { checked: true, integrated: false }
     }
@@ -281,19 +300,35 @@ export default function AnalyticsDashboard() {
       adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
       rpe_session: normalizeRpeSession(rpeSession.data),
       rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
-      mca_nudges: [],
+      mca_nudges: normalizeMcaNudges(mcaNudges),
     })
 
     return { checked: true, integrated: true }
   }
 
-  useEffect(() => {
-    setUserId(connectedUserId)
-  }, [connectedUserId])
+  const loadSessionOptions = async () => {
+    const [rpeSessions, mcaSessions] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentRpeSessions()),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
+    ])
+
+    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+
+    setSessionOptions(options)
+
+    const preferred = selectPreferredComponentSession(options)
+    if (preferred) {
+      setSessionId((current) => current || preferred.id)
+    }
+    return preferred
+  }
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      loadDashboard(connectedUserId)
+      setUserId(connectedUserId)
+      loadSessionOptions()
+        .then((preferred) => loadDashboard(connectedUserId, preferred?.id || ''))
+        .catch(() => loadDashboard(connectedUserId, ''))
     }
   }, [connectedUserId, isAuthLoading, isAuthenticated])
 
@@ -307,14 +342,12 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <AnalyticsUserField
-              userId={userId}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={setUserId}
+            <SessionSelect
+              value={sessionId}
+              options={sessionOptions}
+              onChange={setSessionId}
             />
-            <Input label="Session" value={sessionId} onChange={setSessionId} placeholder="optional" />
-            <Button className="h-10 self-end" onClick={() => loadDashboard()}>
+            <Button className="h-10 self-end" onClick={() => loadDashboard(userId, sessionId)}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -332,7 +365,7 @@ export default function AnalyticsDashboard() {
         {!hasLiveData ? (
           <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
             Live API is connected, but no analytics records were found for this user. Add session metrics,
-            feedback, and predictions for this user, or use demo data before loading.
+            self feedback, component performance evidence, and predictions for this user.
           </div>
         ) : null}
 
@@ -416,6 +449,26 @@ function averageFeedbackBySkill(entries) {
 
 function countFeedbackSessions(entries) {
   return new Set(entries.map((entry) => entry.session_id).filter(Boolean)).size
+}
+
+function SessionSelect({ value, options, onChange }) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span>Session</span>
+      <select
+        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.length ? null : <option value="">No session yet</option>}
+        {options.map((option) => (
+          <option key={`${option.source}-${option.id}`} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 function Input({ label, value, onChange, placeholder }) {

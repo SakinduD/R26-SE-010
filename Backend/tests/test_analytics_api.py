@@ -417,7 +417,7 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
                 "feedback_type": "peer",
                 "skill_area": "confidence",
                 "rating": 72,
-                "comment": "Good structure, but the opening could be calmer.",
+                "comment": "Legacy peer payload should not be imported by the integration flow.",
                 "sentiment": "neutral",
             }
         ],
@@ -437,8 +437,8 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
         "has_rpe_session": True,
         "has_rpe_feedback": True,
         "mca_nudge_count": 2,
-        "submitted_feedback_count": 2,
-        "generated_feedback_count": 5,
+            "submitted_feedback_count": 1,
+            "generated_feedback_count": 5,
     }
 
     metric = data["metric"]
@@ -451,10 +451,10 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
     assert metric["overall_score"] is not None
 
     assert data["aggregate"]["scores"]["metric_count"] == 1
-    assert data["aggregate"]["feedback"]["total_count"] == 7
+    assert data["aggregate"]["feedback"]["total_count"] == 6
     assert data["aggregate"]["feedback"]["by_type"]["system"] >= 3
     assert data["aggregate"]["feedback"]["by_type"]["self"] == 1
-    assert data["aggregate"]["feedback"]["by_type"]["peer"] == 1
+    assert "peer" not in data["aggregate"]["feedback"]["by_type"]
 
     aggregate_response = client.get("/api/v1/analytics/sessions/integration-session-1/aggregate")
     assert aggregate_response.status_code == 200

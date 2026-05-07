@@ -213,8 +213,8 @@ def _recommendation(skill_area: str, alignment: str) -> str:
     if alignment == "self_underestimation":
         return f"Your {skill_area} performance appears stronger than your self-rating. Build confidence with evidence."
     if alignment == "peer_misalignment":
-        return f"Peer perception for {skill_area} differs from observed performance. Collect more feedback."
-    return f"Add self and peer ratings for {skill_area} to improve feedback analysis."
+        return f"External feedback for {skill_area} differs from observed performance. Collect more system evidence."
+    return f"Add self ratings and observed performance metrics for {skill_area} to improve feedback analysis."
 
 
 def _group_feedback_by_skill(feedback: list[FeedbackEntry]) -> dict[str, dict[str, list[float]]]:

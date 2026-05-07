@@ -17,8 +17,20 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import {
+  hasPulledComponentData,
+  normalizeAdaptivePlan,
+  normalizeComponentSessionOptions,
+  normalizeMcaNudges,
+  normalizeMcaSessionNudges,
+  normalizeRpeFeedback,
+  normalizeRpeSession,
+  normalizeSurveyProfile,
+  optionalRequest,
+  selectMcaSession,
+  selectPreferredComponentSession,
+} from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -49,7 +61,7 @@ const DEMO_PROFILE = {
     feedback: {
       total_count: 9,
       average_rating: 79,
-      by_type: { self: 4, peer: 4, system: 1 },
+      by_type: { self: 4, system: 5 },
     },
     predictions: { total_count: 4 },
   },
@@ -131,6 +143,11 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+function toScoreValue(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 function averageFeedbackBySkill(entries) {
   const grouped = entries.reduce((acc, entry) => {
     if (!entry.skill_area || entry.rating === null || entry.rating === undefined) return acc
@@ -156,9 +173,12 @@ export default function SkillTwinProfile() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
+  const [sessionId, setSessionId] = useState('')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [profile, setProfile] = useState(DEMO_PROFILE)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
+  const [integrationMessage, setIntegrationMessage] = useState('')
 
   const radarScores = useMemo(() => {
     const averages = profile.aggregate?.scores?.averages || {}
@@ -174,17 +194,27 @@ export default function SkillTwinProfile() {
       ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
       ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
       ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
-    ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
+    ].map(([key, value]) => ({ key, label: labelFor(key), value: toScoreValue(value) }))
   }, [profile])
 
-  const strengths = useMemo(
-    () => radarScores.filter((item) => item.value >= 80).sort((a, b) => b.value - a.value),
+  const measuredScores = useMemo(
+    () => radarScores.filter((item) => item.value !== null),
     [radarScores]
   )
 
-  const growthAreas = useMemo(
-    () => radarScores.filter((item) => item.value < 72).sort((a, b) => a.value - b.value),
+  const missingScores = useMemo(
+    () => radarScores.filter((item) => item.value === null),
     [radarScores]
+  )
+
+  const strengths = useMemo(
+    () => measuredScores.filter((item) => item.value >= 80).sort((a, b) => b.value - a.value),
+    [measuredScores]
+  )
+
+  const growthAreas = useMemo(
+    () => measuredScores.filter((item) => item.value < 72).sort((a, b) => a.value - b.value),
+    [measuredScores]
   )
 
   const hasLiveData = useMemo(() => {
@@ -198,8 +228,9 @@ export default function SkillTwinProfile() {
     )
   }, [profile, status])
 
-  const loadProfile = async (nextUserId = userId) => {
+  const loadProfile = async (nextUserId = userId, nextSessionId = sessionId) => {
     const targetUserId = nextUserId.trim()
+    const targetSessionId = nextSessionId.trim()
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -208,15 +239,31 @@ export default function SkillTwinProfile() {
 
     setStatus('loading')
     setError('')
+    setIntegrationMessage('')
 
     try {
-      const [aggregate, trends, predictions, blindSpots] = await Promise.all([
+      if (targetSessionId) {
+        const integrationResult = await pullAndSaveComponentData(targetUserId, targetSessionId)
+        if (integrationResult.integrated) {
+          setIntegrationMessage('Real component data pulled and saved into analytics for this session.')
+        } else if (integrationResult.checked) {
+          setIntegrationMessage('No component session data was found yet for this session ID.')
+        }
+      }
+
+      const [aggregate, trends, predictions, blindSpots, sessionScores] = await Promise.all([
         analyticsService.getAggregateByUser(targetUserId),
         analyticsService.getProgressTrendsByUser(targetUserId),
         analyticsService.getPredictedOutcomesByUser(targetUserId),
         analyticsService.getBlindSpotsByUser(targetUserId),
+        targetSessionId ? analyticsService.getSkillScoresBySession(targetSessionId) : Promise.resolve(null),
       ])
-      setProfile({ aggregate, trends, predictions, blindSpots })
+      setProfile({
+        aggregate: sessionScores ? mergeSessionScores(aggregate, sessionScores) : aggregate,
+        trends,
+        predictions,
+        blindSpots,
+      })
       setStatus('live')
     } catch (err) {
       setProfile(DEMO_PROFILE)
@@ -225,13 +272,82 @@ export default function SkillTwinProfile() {
     }
   }
 
+  const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
+    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentSurveyProfile()),
+      optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
+      optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
+      optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
+    ])
+
+    const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
+    const mcaNudges = normalizeMcaSessionNudges(mcaSession)
+    const sources = {
+      surveyProfile,
+      adaptivePlan,
+      rpeSession,
+      rpeFeedback,
+      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
+    }
+
+    if (!hasPulledComponentData(sources)) {
+      return { checked: true, integrated: false }
+    }
+
+    const scenarioId =
+      rpeSession.data?.scenario_id ||
+      rpeFeedback.data?.scenario_id ||
+      adaptivePlan.data?.primary_scenario ||
+      adaptivePlan.data?.selected_scenario_id ||
+      adaptivePlan.data?.scenario_id
+
+    const skillType =
+      adaptivePlan.data?.skill ||
+      rpeFeedback.data?.skill_type ||
+      rpeSession.data?.skill_type ||
+      'communication'
+
+    await analyticsService.integrateCompletedSession({
+      user_id: targetUserId,
+      session_id: targetSessionId,
+      scenario_id: scenarioId || undefined,
+      skill_type: skillType,
+      survey_profile: normalizeSurveyProfile(surveyProfile.data),
+      adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
+      rpe_session: normalizeRpeSession(rpeSession.data),
+      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
+      mca_nudges: normalizeMcaNudges(mcaNudges),
+    })
+
+    return { checked: true, integrated: true }
+  }
+
+  const loadSessionOptions = async () => {
+    const [rpeSessions, mcaSessions] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentRpeSessions()),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
+    ])
+
+    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+    setSessionOptions(options)
+
+    const preferred = selectPreferredComponentSession(options)
+    if (preferred) {
+      setSessionId((current) => current || preferred.id)
+    }
+    return preferred
+  }
+
   useEffect(() => {
     setUserId(connectedUserId)
   }, [connectedUserId])
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      loadProfile(connectedUserId)
+      loadSessionOptions()
+        .then((preferred) => loadProfile(connectedUserId, preferred?.id || ''))
+        .catch(() => loadProfile(connectedUserId, ''))
     }
   }, [connectedUserId, isAuthLoading, isAuthenticated])
 
@@ -245,13 +361,12 @@ export default function SkillTwinProfile() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <AnalyticsUserField
-              userId={userId}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={setUserId}
+            <SessionSelect
+              value={sessionId}
+              options={sessionOptions}
+              onChange={setSessionId}
             />
-            <Button className="h-10 self-end" onClick={() => loadProfile()}>
+            <Button className="h-10 self-end" onClick={() => loadProfile(userId, sessionId)}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -264,6 +379,7 @@ export default function SkillTwinProfile() {
           <StatusPill status={status} />
           <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
+          {integrationMessage ? <span className="text-sm text-secondary">{integrationMessage}</span> : null}
         </div>
 
         {!hasLiveData ? (
@@ -281,7 +397,7 @@ export default function SkillTwinProfile() {
               </div>
               <h2 className="mt-3 text-xl font-semibold">Long-term soft skill profile</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                The skill twin combines observed session metrics, self/peer feedback, blind spots, and predicted outcomes.
+                The skill twin combines observed session metrics, self feedback, system evidence, blind spots, and predicted outcomes. Skills with no real evidence yet are shown as N/A instead of fake zero scores.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[520px]">
@@ -303,6 +419,9 @@ export default function SkillTwinProfile() {
             <div className="mt-4">
               <SkillGroup title="Growth Areas" items={growthAreas} emptyText="No growth areas detected yet" />
             </div>
+            <div className="mt-4">
+              <EvidenceGapList items={missingScores} />
+            </div>
           </Panel>
         </div>
 
@@ -321,6 +440,47 @@ export default function SkillTwinProfile() {
         </Panel>
       </section>
     </main>
+  )
+}
+
+function mergeSessionScores(aggregate, sessionScores) {
+  const scores = sessionScores?.skill_scores || {}
+  return {
+    ...aggregate,
+    scores: {
+      ...(aggregate?.scores || {}),
+      averages: {
+        ...(aggregate?.scores?.averages || {}),
+        confidence_score: scores.confidence,
+        clarity_score: scores.communication_clarity,
+        empathy_score: scores.empathy,
+        listening_score: scores.active_listening,
+        adaptability_score: scores.adaptability,
+        emotional_control_score: scores.emotional_control,
+        professionalism_score: scores.professionalism,
+        overall_score: sessionScores.overall_score,
+      },
+    },
+  }
+}
+
+function SessionSelect({ value, options, onChange }) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span>Session</span>
+      <select
+        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.length ? null : <option value="">No session yet</option>}
+        {options.map((option) => (
+          <option key={`${option.source}-${option.id}`} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
@@ -371,6 +531,24 @@ function SkillGroup({ title, items, emptyText }) {
       ) : (
         <EmptyState text={emptyText} />
       )}
+    </div>
+  )
+}
+
+function EvidenceGapList({ items }) {
+  if (!items.length) return null
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-medium">Needs Evidence</h3>
+      <div className="space-y-2">
+        {items.slice(0, 4).map((item) => (
+          <div key={item.key} className="flex items-center justify-between rounded-md border border-dashed border-border p-3 text-sm">
+            <span>{item.label}</span>
+            <span className="text-xs text-muted-foreground">No session data yet</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

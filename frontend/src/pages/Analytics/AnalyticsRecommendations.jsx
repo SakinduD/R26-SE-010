@@ -17,7 +17,6 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -41,8 +40,8 @@ const DEMO_DATA = {
       'confidence',
       'Review confidence blind spot',
       'Confidence has a visible self-perception gap.',
-      'Your self-rating is higher than observed and peer evidence. Rewatch one response and define one measurable confidence behaviour.',
-      'Before the next role-play, compare one self-rating with peer feedback and set one measurable confidence goal.',
+      'Your self-rating is higher than observed system evidence. Rewatch one response and define one measurable confidence behaviour.',
+      'Before the next role-play, compare one self-rating with observed performance evidence and set one measurable confidence goal.',
       'Blind spot detection',
       ['blind_spot_detection', 'feedback_analysis']
     ),
@@ -106,7 +105,12 @@ function recommendation(priority, skillArea, title, reason, detail, nextAction, 
 }
 
 function labelFor(value) {
-  return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
+  if (!value) return 'Unknown'
+  const normalized = String(value).trim().toLowerCase().replaceAll('-', '_')
+  return (
+    SKILL_LABELS[normalized] ||
+    normalized.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+  )
 }
 
 export default function AnalyticsRecommendations() {
@@ -208,12 +212,6 @@ export default function AnalyticsRecommendations() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <AnalyticsUserField
-              userId={userId}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={setUserId}
-            />
             <Button className="h-10 self-end" onClick={() => loadRecommendations()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
@@ -294,7 +292,7 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         `Review ${labelFor(item.skill_area)} blind spot`,
         item.recommendation,
         item.recommendation,
-        `Compare your self-rating with peer or observed evidence for ${labelFor(item.skill_area)}.`,
+        `Compare your self-rating with observed performance evidence for ${labelFor(item.skill_area)}.`,
         'Blind spot detection',
         ['blind_spot_detection']
       )
@@ -352,7 +350,7 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         `Practice ${labelFor(skillArea)}`,
         `Average score is ${Math.round(Number(score))}.`,
         `Average score is ${Math.round(Number(score))}. Add one targeted exercise before the next role-play session.`,
-        `Complete one focused ${labelFor(skillArea)} drill and request peer feedback.`,
+        `Complete one focused ${labelFor(skillArea)} drill and compare it with the next observed performance score.`,
         'Skill twin',
         ['skill_twin_scores']
       )
@@ -396,7 +394,9 @@ function RecommendationList({ items, compact = false }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">{item.title}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">{labelFor(item.skill_area)} • {item.source}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {labelFor(item.skill_area)} - {sourceLabel(item.source)}
+              </p>
             </div>
             <PriorityBadge priority={item.priority} />
           </div>
@@ -477,4 +477,10 @@ function priorityWeight(priority) {
   if (priority === 'medium') return 2
   if (priority === 'low') return 1
   return 0
+}
+
+function sourceLabel(source) {
+  if (source === 'llm') return 'LLM'
+  if (source === 'rule_based') return 'Rule based'
+  return source || 'Analytics'
 }
