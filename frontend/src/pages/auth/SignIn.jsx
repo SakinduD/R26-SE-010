@@ -82,7 +82,7 @@ export default function SignIn() {
         </motion.div>
 
         <motion.div variants={fadeInUp} className="pt-1">
-          <LoadingButton isLoading={isSubmitting} type="submit">
+          <LoadingButton isLoading={isSubmitting} type="submit" className="w-full">
             Sign in
           </LoadingButton>
         </motion.div>
