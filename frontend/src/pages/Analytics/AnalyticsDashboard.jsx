@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -14,6 +14,10 @@ import { Button } from '../../components/ui/Button'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import AnalyticsUserField from './AnalyticsUserField'
+import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -149,7 +153,13 @@ function labelFor(value) {
 }
 
 export default function AnalyticsDashboard() {
-  const [userId, setUserId] = useState('demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity()
+  const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
@@ -157,14 +167,17 @@ export default function AnalyticsDashboard() {
 
   const radarScores = useMemo(() => {
     const averages = data.aggregate?.scores?.averages || {}
+    const feedbackAverages =
+      data.aggregate?.feedback?.skill_rating_averages ||
+      averageFeedbackBySkill(data.aggregate?.feedback?.latest_entries || [])
     return [
-      ['confidence', averages.confidence_score],
-      ['communication_clarity', averages.clarity_score],
-      ['empathy', averages.empathy_score],
-      ['active_listening', averages.listening_score],
-      ['adaptability', averages.adaptability_score],
-      ['emotional_control', averages.emotional_control_score],
-      ['professionalism', averages.professionalism_score],
+      ['confidence', averages.confidence_score ?? feedbackAverages.confidence],
+      ['communication_clarity', averages.clarity_score ?? feedbackAverages.communication_clarity],
+      ['empathy', averages.empathy_score ?? feedbackAverages.empathy],
+      ['active_listening', averages.listening_score ?? feedbackAverages.active_listening],
+      ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
+      ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
+      ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
     ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
   }, [data.aggregate])
 
@@ -179,8 +192,10 @@ export default function AnalyticsDashboard() {
     )
   }, [data, status])
 
-  const loadDashboard = async () => {
-    if (!userId.trim()) {
+  const loadDashboard = async (nextUserId = userId) => {
+    const targetUserId = nextUserId.trim()
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -190,10 +205,10 @@ export default function AnalyticsDashboard() {
 
     try {
       const [aggregate, blindSpots, trends, predictions, sessionScores] = await Promise.all([
-        analyticsService.getAggregateByUser(userId.trim()),
-        analyticsService.getBlindSpotsByUser(userId.trim()),
-        analyticsService.getProgressTrendsByUser(userId.trim()),
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
+        analyticsService.getAggregateByUser(targetUserId),
+        analyticsService.getBlindSpotsByUser(targetUserId),
+        analyticsService.getProgressTrendsByUser(targetUserId),
+        analyticsService.getPredictedOutcomesByUser(targetUserId),
         sessionId.trim() ? analyticsService.getSkillScoresBySession(sessionId.trim()) : Promise.resolve(null),
       ])
 
@@ -211,6 +226,16 @@ export default function AnalyticsDashboard() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadDashboard(connectedUserId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -220,9 +245,15 @@ export default function AnalyticsDashboard() {
             <h1 className="mt-1 text-2xl font-semibold">Analytics Dashboard</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsNav />
+            <AnalyticsUserField
+              userId={userId}
+              userLabel={userLabel}
+              isAuthenticated={isAuthenticated}
+              onChange={setUserId}
+            />
             <Input label="Session" value={sessionId} onChange={setSessionId} placeholder="optional" />
-            <Button className="h-10 self-end" onClick={loadDashboard}>
+            <Button className="h-10 self-end" onClick={() => loadDashboard()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -233,6 +264,7 @@ export default function AnalyticsDashboard() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
         {!hasLiveData ? (
@@ -243,7 +275,16 @@ export default function AnalyticsDashboard() {
         ) : null}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricTile icon={Activity} label="Sessions" value={data.aggregate?.scores?.metric_count || 0} />
+          <MetricTile
+            icon={Activity}
+            label="Sessions"
+            value={
+              data.aggregate?.scores?.metric_count ||
+              data.aggregate?.feedback?.session_count ||
+              countFeedbackSessions(data.aggregate?.feedback?.latest_entries || []) ||
+              0
+            }
+          />
           <MetricTile icon={Target} label="Avg Rating" value={formatScore(data.aggregate?.feedback?.average_rating)} />
           <MetricTile icon={ShieldAlert} label="Blind Spots" value={data.blindSpots?.summary?.total_count || 0} />
           <MetricTile icon={BrainCircuit} label="High Risk" value={data.predictions?.summary?.high_risk_count || 0} />
@@ -292,6 +333,27 @@ function mergeSessionScores(aggregate, sessionScores) {
       },
     },
   }
+}
+
+function averageFeedbackBySkill(entries) {
+  const grouped = entries.reduce((acc, entry) => {
+    if (!entry.skill_area || entry.rating === null || entry.rating === undefined) return acc
+    const key = entry.skill_area
+    acc[key] = acc[key] || []
+    acc[key].push(Number(entry.rating))
+    return acc
+  }, {})
+
+  return Object.fromEntries(
+    Object.entries(grouped).map(([skill, ratings]) => [
+      skill,
+      ratings.reduce((total, rating) => total + rating, 0) / ratings.length,
+    ])
+  )
+}
+
+function countFeedbackSessions(entries) {
+  return new Set(entries.map((entry) => entry.session_id).filter(Boolean)).size
 }
 
 function Input({ label, value, onChange, placeholder }) {

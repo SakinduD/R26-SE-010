@@ -1,0 +1,7 @@
+model_name,task,mae,mse,rmse,r2,cv_rmse,accuracy,precision,recall,f1,roc_auc,cv_f1,training_seconds
+linear_regression,next_score_regression,3.7036,20.988,4.5813,0.6917,4.5502,,,,,,,0.0546
+gradient_boosting_regressor,next_score_regression,3.8127,22.0113,4.6916,0.6766,4.6635,,,,,,,3.2373
+random_forest_regressor,next_score_regression,3.9001,23.4081,4.8382,0.6561,4.7692,,,,,,,13.0286
+random_forest_classifier,risk_level_classification,,,,,,0.807,0.8026,0.807,0.804,0.8661,0.7922,4.601
+gradient_boosting_classifier,risk_level_classification,,,,,,0.806,0.7981,0.806,0.7987,0.8791,0.7984,10.019
+logistic_regression,risk_level_classification,,,,,,0.711,0.7929,0.711,0.7335,0.8599,0.7233,0.1099

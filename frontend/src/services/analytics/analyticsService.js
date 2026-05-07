@@ -34,6 +34,9 @@ export const analyticsService = {
       .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes/${encodeURIComponent(skillArea)}`)
       .then(unwrap),
 
+  getMentoringRecommendationsByUser: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/mentoring-recommendations`).then(unwrap),
+
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
 
