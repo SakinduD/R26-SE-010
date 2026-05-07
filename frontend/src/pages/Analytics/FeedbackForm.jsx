@@ -15,6 +15,12 @@ import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import {
+  isGeneratedAnalyticsSessionId,
+  normalizeComponentSessionOptions,
+  optionalRequest,
+  selectPreferredComponentSession,
+} from './analyticsIntegrationUtils'
 
 const SKILL_OPTIONS = [
   { value: 'confidence', label: 'Confidence' },
@@ -58,6 +64,8 @@ export default function FeedbackForm() {
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
   const [createdEntry, setCreatedEntry] = useState(null)
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [sessionStatus, setSessionStatus] = useState('loading')
 
   const canSubmit = useMemo(
     () => form.user_id.trim() && form.session_id.trim() && form.skill_area,
@@ -101,10 +109,11 @@ export default function FeedbackForm() {
   }
 
   const resetForm = () => {
+    const preferred = selectPreferredComponentSession(sessionOptions)
     setForm({
       ...INITIAL_FORM,
       user_id: connectedUserId,
-      session_id: params.sessionId || createSessionId(),
+      session_id: params.sessionId || preferred?.id || createSessionId(),
     })
     setCreatedEntry(null)
     setStatus('idle')
@@ -115,12 +124,53 @@ export default function FeedbackForm() {
     updateField('session_id', createSessionId())
     setCreatedEntry(null)
     setStatus('idle')
-    setMessage('New session ID generated.')
+    setMessage('Manual session ID generated. Use this only for testing when no completed role-play or multimodal session exists yet.')
   }
 
   useEffect(() => {
     setForm((current) => ({ ...current, user_id: connectedUserId }))
   }, [connectedUserId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadCompletedSessions = async () => {
+      setSessionStatus('loading')
+      const [rpeSessions, mcaSessions] = await Promise.all([
+        optionalRequest(() => analyticsService.getComponentRpeSessions()),
+        optionalRequest(() => analyticsService.getComponentMcaSessions()),
+      ])
+
+      if (cancelled) return
+
+      const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+      const preferred = selectPreferredComponentSession(options)
+      setSessionOptions(options)
+      setSessionStatus(options.length ? 'ready' : 'empty')
+
+      setForm((current) => {
+        if (params.sessionId) return { ...current, session_id: params.sessionId }
+        if (!preferred) return current
+        if (!current.session_id || isGeneratedAnalyticsSessionId(current.session_id)) {
+          return { ...current, session_id: preferred.id }
+        }
+        return current
+      })
+    }
+
+    loadCompletedSessions().catch(() => {
+      if (!cancelled) setSessionStatus('error')
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [params.sessionId])
+
+  const selectedSession = useMemo(
+    () => sessionOptions.find((option) => option.id === form.session_id),
+    [form.session_id, sessionOptions]
+  )
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -154,9 +204,12 @@ export default function FeedbackForm() {
               isAuthenticated={isAuthenticated}
               onChange={(value) => updateField('user_id', value)}
             />
-            <TextInput
+            <SessionInput
               label="Session ID"
               value={form.session_id}
+              selectedLabel={selectedSession?.label}
+              options={sessionOptions}
+              status={sessionStatus}
               onChange={(value) => updateField('session_id', value)}
               placeholder="session-123"
               action={
@@ -239,7 +292,7 @@ export default function FeedbackForm() {
               <h2 className="text-base font-semibold">Current Entry</h2>
             </div>
             <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
-            <PreviewItem label="Session" value={form.session_id} />
+            <PreviewItem label="Session" value={selectedSession?.label || form.session_id} />
             <PreviewItem label="Type" value="Self reflection" />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
             <PreviewItem label="Rating" value={form.rating} />
@@ -269,19 +322,51 @@ export default function FeedbackForm() {
   )
 }
 
-function TextInput({ label, value, onChange, placeholder, action }) {
+function SessionInput({ label, value, selectedLabel, options, status, onChange, placeholder, action }) {
+  const hasOptions = options.length > 0
+  const valueIsListed = options.some((option) => option.id === value)
+  const selectValue = valueIsListed ? value : value || ''
+
   return (
     <label className="grid gap-1 text-xs text-muted-foreground">
       <span className="flex items-center justify-between gap-3">
         <span>{label}</span>
         {action}
       </span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      {hasOptions ? (
+        <>
+          <select
+            className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+            value={selectValue}
+            onChange={(event) => onChange(event.target.value)}
+          >
+            {!valueIsListed && !value ? <option value="">Select completed session</option> : null}
+            {!valueIsListed && value ? <option value={value}>Manual session - {value}</option> : null}
+            {options.map((option) => (
+              <option key={`${option.source}-${option.id}`} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {selectedLabel ? `Using real component session: ${selectedLabel}` : 'Select the completed AP/MCA/Role Play session.'}
+          </span>
+        </>
+      ) : (
+        <>
+          <input
+            className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <span className="text-[11px] text-warning">
+            {status === 'loading'
+              ? 'Looking for completed component sessions...'
+              : 'No completed component session found yet. Complete AP, multimodal analysis, and role play first; manual sessions are for testing only.'}
+          </span>
+        </>
+      )}
     </label>
   )
 }

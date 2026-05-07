@@ -20,6 +20,7 @@ import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData,
+  normalizeComponentSessionOptions,
   normalizeAdaptivePlan,
   normalizeMcaNudges,
   normalizeMcaSessionNudges,
@@ -27,6 +28,7 @@ import {
   normalizeRpeSession,
   normalizeSurveyProfile,
   optionalRequest,
+  selectPreferredComponentSession,
   selectMcaSession,
 } from './analyticsIntegrationUtils'
 
@@ -306,14 +308,11 @@ export default function AnalyticsDashboard() {
       optionalRequest(() => analyticsService.getComponentMcaSessions()),
     ])
 
-    const options = [
-      ...normalizeSessionOptions(rpeSessions.data, 'rpe'),
-      ...normalizeSessionOptions(mcaSessions.data, 'mca'),
-    ].sort((a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0))
+    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
 
     setSessionOptions(options)
 
-    const preferred = options.find((item) => item.source === 'rpe') || options[0]
+    const preferred = selectPreferredComponentSession(options)
     if (preferred) {
       setSessionId((current) => current || preferred.id)
     }
@@ -452,28 +451,6 @@ function averageFeedbackBySkill(entries) {
 
 function countFeedbackSessions(entries) {
   return new Set(entries.map((entry) => entry.session_id).filter(Boolean)).size
-}
-
-function normalizeSessionOptions(sessions, source) {
-  if (!Array.isArray(sessions)) return []
-
-  return sessions
-    .map((session) => {
-      const id = source === 'rpe' ? session.session_id : session.id
-      if (!id) return null
-
-      const scenario = session.scenario_id || session.scenarioId || session.skill_type || session.status
-      const startedAt = session.started_at || session.startedAt || session.created_at || session.createdAt
-      const labelDate = startedAt ? new Date(startedAt).toLocaleString() : null
-
-      return {
-        id: String(id),
-        source,
-        startedAt,
-        label: `${source.toUpperCase()} ${scenario ? `- ${scenario}` : ''}${labelDate ? ` - ${labelDate}` : ''}`,
-      }
-    })
-    .filter(Boolean)
 }
 
 function SessionSelect({ value, options, onChange }) {

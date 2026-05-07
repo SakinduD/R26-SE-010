@@ -50,6 +50,27 @@ export function selectMcaSession(sessions, sessionId) {
   return sessions.find((session) => session.status === 'completed') || sessions[0]
 }
 
+export function normalizeComponentSessionOptions(rpeSessions, mcaSessions) {
+  return [
+    ...normalizeSessionOptions(rpeSessions, 'rpe'),
+    ...normalizeSessionOptions(mcaSessions, 'mca'),
+  ].sort((a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0))
+}
+
+export function selectPreferredComponentSession(options) {
+  if (!Array.isArray(options) || !options.length) return null
+  return (
+    options.find((item) => item.source === 'rpe' && item.status === 'completed') ||
+    options.find((item) => item.source === 'mca' && item.status === 'completed') ||
+    options.find((item) => item.source === 'rpe') ||
+    options[0]
+  )
+}
+
+export function isGeneratedAnalyticsSessionId(value) {
+  return String(value || '').startsWith('softskill-session-')
+}
+
 export function normalizeMcaSessionNudges(session) {
   if (!session) return []
 
@@ -161,4 +182,36 @@ function inferDominantTraits(scores) {
 function stringifyShort(value) {
   if (!value) return null
   return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function normalizeSessionOptions(sessions, source) {
+  if (!Array.isArray(sessions)) return []
+
+  return sessions
+    .map((session) => {
+      const id = source === 'rpe' ? session.session_id : session.id
+      if (!id) return null
+
+      const status = session.status || session.outcome || session.completion_status
+      const scenario = session.scenario_title || session.scenario_id || session.scenarioId || session.skill_type
+      const startedAt =
+        session.ended_at ||
+        session.completed_at ||
+        session.started_at ||
+        session.startedAt ||
+        session.created_at ||
+        session.createdAt
+      const labelDate = startedAt ? new Date(startedAt).toLocaleString() : null
+      const sourceLabel = source === 'rpe' ? 'Role Play' : 'MCA'
+      const statusLabel = status ? humanizeKey(status) : 'Session'
+
+      return {
+        id: String(id),
+        source,
+        status,
+        startedAt,
+        label: `${sourceLabel} - ${statusLabel}${scenario ? ` - ${humanizeKey(scenario)}` : ''}${labelDate ? ` - ${labelDate}` : ''}`,
+      }
+    })
+    .filter(Boolean)
 }
