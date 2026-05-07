@@ -125,13 +125,19 @@ export default function SurveyResults() {
       ))}
 
       {/* CTA */}
-      <motion.div variants={fadeInUp} className="pt-2 pb-8">
+      <motion.div variants={fadeInUp} className="pt-2 pb-8 space-y-3">
         <Link
-          to="/dashboard"
+          to="/training-plan"
           className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          Continue to dashboard
+          View your training plan
           <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+        </Link>
+        <Link
+          to="/dashboard"
+          className="group flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all duration-200"
+        >
+          Continue to dashboard
         </Link>
       </motion.div>
     </motion.div>

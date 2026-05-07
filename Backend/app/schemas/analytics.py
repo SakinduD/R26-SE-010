@@ -61,6 +61,22 @@ class FeedbackEntryRead(FeedbackEntryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FeedbackSentimentRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class FeedbackSentimentResult(BaseModel):
+    text: str
+    cleaned_text: str
+    sentiment: Literal["positive", "neutral", "negative"]
+    confidence: float = Field(..., ge=0, le=1)
+    sentiment_score: float = Field(..., ge=-1, le=1)
+    class_probabilities: dict[str, float]
+    model_version: str
+    model_type: str
+    source: Literal["ml_model"]
+
+
 class SkillPredictionBase(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=64)
     session_id: str | None = Field(default=None, max_length=64)
@@ -92,8 +108,10 @@ class ScoreSummary(BaseModel):
 
 class FeedbackSummary(BaseModel):
     total_count: int
+    session_count: int = 0
     by_type: dict[str, int]
     sentiment_counts: dict[str, int]
+    skill_rating_averages: dict[str, float] = {}
     average_rating: float | None = None
     latest_entries: list[FeedbackEntryRead]
 
@@ -289,6 +307,27 @@ class PredictiveModelingResult(BaseModel):
     summary: PredictiveModelingSummary
     generated_at: datetime
     model_version: str
+
+
+class MentoringRecommendationItem(BaseModel):
+    priority: Literal["high", "medium", "low"]
+    skill_area: str | None = None
+    title: str
+    reason: str
+    detail: str
+    next_action: str
+    source: Literal["llm", "rule_based"]
+    evidence_sources: list[str] = []
+
+
+class MentoringRecommendationResult(BaseModel):
+    user_id: str
+    recommendations: list[MentoringRecommendationItem]
+    evidence: dict[str, int | float | str | None]
+    generated_at: datetime
+    recommendation_version: str
+    model_version: str
+    source: Literal["llm", "rule_based"]
 
 
 class PostSessionActionItem(BaseModel):
