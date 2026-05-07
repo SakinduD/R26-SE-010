@@ -17,7 +17,6 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 const SKILL_LABELS = {
@@ -213,12 +212,6 @@ export default function AnalyticsRecommendations() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <AnalyticsUserField
-              userId={userId}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={setUserId}
-            />
             <Button className="h-10 self-end" onClick={() => loadRecommendations()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load

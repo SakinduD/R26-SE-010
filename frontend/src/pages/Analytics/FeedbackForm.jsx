@@ -13,7 +13,6 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   isGeneratedAnalyticsSessionId,
@@ -197,13 +196,7 @@ export default function FeedbackForm() {
             <h2 className="text-base font-semibold">Submit Feedback</h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <AnalyticsUserField
-              userId={form.user_id}
-              userLabel={userLabel}
-              isAuthenticated={isAuthenticated}
-              onChange={(value) => updateField('user_id', value)}
-            />
+          <div className="grid gap-4">
             <SessionInput
               label="Session ID"
               value={form.session_id}
@@ -291,7 +284,6 @@ export default function FeedbackForm() {
               <Star className="h-4 w-4 text-secondary" />
               <h2 className="text-base font-semibold">Current Entry</h2>
             </div>
-            <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
             <PreviewItem label="Session" value={selectedSession?.label || form.session_id} />
             <PreviewItem label="Type" value="Self reflection" />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />

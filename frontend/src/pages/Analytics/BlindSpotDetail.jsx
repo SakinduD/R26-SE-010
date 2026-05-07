@@ -13,9 +13,10 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
-import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -119,7 +120,8 @@ export default function BlindSpotDetail() {
   } = useAnalyticsIdentity(params.userId)
   const [scope, setScope] = useState(params.sessionId ? 'session' : 'user')
   const [userId, setUserId] = useState(connectedUserId)
-  const [sessionId, setSessionId] = useState(params.sessionId || 'demo-session')
+  const [sessionId, setSessionId] = useState(params.sessionId || '')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -166,6 +168,17 @@ export default function BlindSpotDetail() {
     }
   }
 
+  const handleScopeChange = (nextScope) => {
+    setScope(nextScope)
+
+    if (nextScope === 'session' && !sessionId) {
+      const preferred = selectPreferredComponentSession(sessionOptions)
+      if (preferred) {
+        setSessionId(preferred.id)
+      }
+    }
+  }
+
   useEffect(() => {
     if (scope === 'user') {
       setUserId(connectedUserId)
@@ -177,6 +190,30 @@ export default function BlindSpotDetail() {
       loadBlindSpots('user', connectedUserId, sessionId)
     }
   }, [connectedUserId, isAuthLoading, isAuthenticated, scope])
+
+  useEffect(() => {
+    let isActive = true
+
+    async function loadSessions() {
+      const options = await loadComponentSessionOptions(analyticsService)
+      if (!isActive) return
+
+      setSessionOptions(options)
+
+      if (!params.sessionId && !sessionId) {
+        const preferred = selectPreferredComponentSession(options)
+        if (preferred) {
+          setSessionId(preferred.id)
+        }
+      }
+    }
+
+    loadSessions()
+
+    return () => {
+      isActive = false
+    }
+  }, [params.sessionId, sessionId])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -191,22 +228,15 @@ export default function BlindSpotDetail() {
             <SelectInput
               label="Scope"
               value={scope}
-              onChange={setScope}
+              onChange={handleScopeChange}
               options={[
                 { value: 'user', label: 'User' },
                 { value: 'session', label: 'Session' },
               ]}
             />
             {scope === 'session' ? (
-              <Input label="Session" value={sessionId} onChange={setSessionId} />
-            ) : (
-              <AnalyticsUserField
-                userId={userId}
-                userLabel={userLabel}
-                isAuthenticated={isAuthenticated}
-                onChange={setUserId}
-              />
-            )}
+              <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
+            ) : null}
             <Button className="h-10 self-end" onClick={() => loadBlindSpots()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
