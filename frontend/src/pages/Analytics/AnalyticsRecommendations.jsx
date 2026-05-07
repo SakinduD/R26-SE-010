@@ -106,7 +106,12 @@ function recommendation(priority, skillArea, title, reason, detail, nextAction, 
 }
 
 function labelFor(value) {
-  return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
+  if (!value) return 'Unknown'
+  const normalized = String(value).trim().toLowerCase().replaceAll('-', '_')
+  return (
+    SKILL_LABELS[normalized] ||
+    normalized.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+  )
 }
 
 export default function AnalyticsRecommendations() {
@@ -396,7 +401,9 @@ function RecommendationList({ items, compact = false }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">{item.title}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">{labelFor(item.skill_area)} • {item.source}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {labelFor(item.skill_area)} - {sourceLabel(item.source)}
+              </p>
             </div>
             <PriorityBadge priority={item.priority} />
           </div>
@@ -477,4 +484,10 @@ function priorityWeight(priority) {
   if (priority === 'medium') return 2
   if (priority === 'low') return 1
   return 0
+}
+
+function sourceLabel(source) {
+  if (source === 'llm') return 'LLM'
+  if (source === 'rule_based') return 'Rule based'
+  return source || 'Analytics'
 }

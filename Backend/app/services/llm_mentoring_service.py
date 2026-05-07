@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -20,6 +21,10 @@ RECOMMENDATION_VERSION = "llm-mentoring-v1"
 FALLBACK_MODEL_VERSION = "rule-based-mentoring-v1"
 MAX_RECOMMENDATIONS = 6
 PRIORITY_WEIGHT = {"high": 3, "medium": 2, "low": 1}
+MIN_SCORE = 0.0
+MAX_SCORE = 100.0
+MAX_MENTORING_DELTA = 15.0
+IMPOSSIBLE_NEXT_SCORE_PATTERN = re.compile(r"\bto\s+-\d+(?:\.\d+)?", re.IGNORECASE)
 
 
 def generate_user_mentoring_recommendations(
@@ -95,7 +100,7 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
             for item in _rank_trends(trends.trends)[:7]
         ],
         "predictions": [
-            item.model_dump(mode="json")
+            _compact_prediction(item.model_dump(mode="json"))
             for item in _rank_predictions(predictions.predictions)[:7]
         ],
     }
@@ -109,7 +114,10 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
         "soft-skills learner. Use only the analytics evidence provided. "
         "Return concise, actionable, non-clinical coaching advice. "
         "Prioritize high-risk predictions, blind spots, declining trends, and low scores. "
-        "Do not invent sessions, scores, diagnoses, or private user facts."
+        "Do not invent sessions, scores, diagnoses, or private user facts. "
+        "All score values in the evidence are already normalized to the 0-100 range. "
+        "Never write negative skill scores or a future score outside 0-100. "
+        "When discussing a trend, describe it as a point change, not as a predicted score."
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -257,12 +265,15 @@ def _coerce_recommendations(
         next_action = str(raw.get("next_action") or "").strip()
         if not title or not detail or not next_action:
             continue
+        reason = str(raw.get("reason") or detail).strip()
+        if _contains_impossible_score_text(title, reason, detail, next_action):
+            continue
         items.append(
             MentoringRecommendationItem(
                 priority=priority,
                 skill_area=raw.get("skill_area"),
                 title=title,
-                reason=str(raw.get("reason") or detail).strip(),
+                reason=reason,
                 detail=detail,
                 next_action=next_action,
                 source=source,
@@ -336,16 +347,68 @@ def _compact_feedback(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compact_trend(item: dict[str, Any]) -> dict[str, Any]:
+    first_score = _score_or_none(item.get("first_score"))
+    latest_score = _score_or_none(item.get("latest_score"))
+    delta = _score_delta(first_score, latest_score)
     return {
         "skill_area": item.get("skill_area"),
         "trend_label": item.get("trend_label"),
-        "first_score": item.get("first_score"),
-        "latest_score": item.get("latest_score"),
-        "delta": item.get("delta"),
-        "slope": item.get("slope"),
+        "first_score": first_score,
+        "latest_score": latest_score,
+        "delta": delta,
+        "slope_per_session": _bounded_number(item.get("slope"), -MAX_MENTORING_DELTA, MAX_MENTORING_DELTA),
         "session_count": item.get("session_count"),
         "recommendation": item.get("recommendation"),
     }
+
+
+def _compact_prediction(item: dict[str, Any]) -> dict[str, Any]:
+    current_score = _score_or_none(item.get("current_score"))
+    predicted_score = _score_or_none(item.get("predicted_score"))
+    if current_score is not None and predicted_score is not None:
+        predicted_score = _bounded_prediction(current_score, predicted_score)
+    projected_delta = _score_delta(current_score, predicted_score)
+
+    return {
+        "predicted_skill": item.get("predicted_skill"),
+        "current_score": current_score,
+        "predicted_score": predicted_score,
+        "projected_delta": projected_delta,
+        "trend_label": item.get("trend_label"),
+        "risk_level": item.get("risk_level"),
+        "confidence": _bounded_number(item.get("confidence"), 0.0, 1.0),
+        "evidence_points": item.get("evidence_points"),
+        "recommendation": item.get("recommendation"),
+    }
+
+
+def _contains_impossible_score_text(*values: str) -> bool:
+    text = " ".join(value for value in values if value)
+    return bool(IMPOSSIBLE_NEXT_SCORE_PATTERN.search(text))
+
+
+def _bounded_prediction(current_score: float, predicted_score: float) -> float:
+    lower_bound = current_score - MAX_MENTORING_DELTA
+    upper_bound = current_score + MAX_MENTORING_DELTA
+    return round(_bounded_number(predicted_score, lower_bound, upper_bound), 2)
+
+
+def _score_delta(first_score: float | None, latest_score: float | None) -> float | None:
+    if first_score is None or latest_score is None:
+        return None
+    return round(latest_score - first_score, 2)
+
+
+def _score_or_none(value: Any) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return round(_bounded_number(value, MIN_SCORE, MAX_SCORE), 2)
+
+
+def _bounded_number(value: Any, minimum: float, maximum: float) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return max(minimum, min(maximum, float(value)))
 
 
 def _low_scores(scores: dict[str, float]) -> list[tuple[str, float]]:
