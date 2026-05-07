@@ -57,6 +57,15 @@ export function normalizeComponentSessionOptions(rpeSessions, mcaSessions) {
   ].sort((a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0))
 }
 
+export async function loadComponentSessionOptions(analyticsService) {
+  const [rpeSessions, mcaSessions] = await Promise.all([
+    optionalRequest(() => analyticsService.getComponentRpeSessions()),
+    optionalRequest(() => analyticsService.getComponentMcaSessions()),
+  ])
+
+  return normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+}
+
 export function selectPreferredComponentSession(options) {
   if (!Array.isArray(options) || !options.length) return null
   return (

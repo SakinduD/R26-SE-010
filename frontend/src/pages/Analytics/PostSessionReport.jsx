@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -14,6 +14,8 @@ import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -120,7 +122,8 @@ function labelFor(value) {
 
 export default function PostSessionReport() {
   const params = useParams()
-  const [sessionId, setSessionId] = useState(params.sessionId || 'demo-session')
+  const [sessionId, setSessionId] = useState(params.sessionId || '')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [report, setReport] = useState(DEMO_REPORT)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -132,9 +135,11 @@ export default function PostSessionReport() {
       .map(([key, label]) => ({ key, label, value: Number(scores[key] || 0) }))
   }, [report])
 
-  const loadReport = async () => {
-    if (!sessionId.trim()) {
-      setError('Enter a session id')
+  const loadReport = async (nextSessionId = sessionId) => {
+    const targetSessionId = String(nextSessionId || '').trim()
+
+    if (!targetSessionId) {
+      setError('Select a session before loading the report.')
       return
     }
 
@@ -142,7 +147,7 @@ export default function PostSessionReport() {
     setError('')
 
     try {
-      const nextReport = await analyticsService.getPostSessionReport(sessionId.trim())
+      const nextReport = await analyticsService.getPostSessionReport(targetSessionId)
       setReport(nextReport)
       setStatus('live')
     } catch (err) {
@@ -151,6 +156,30 @@ export default function PostSessionReport() {
       setError('Backend report unavailable. Showing demo report.')
     }
   }
+
+  useEffect(() => {
+    let isActive = true
+
+    async function loadSessions() {
+      const options = await loadComponentSessionOptions(analyticsService)
+      if (!isActive) return
+
+      setSessionOptions(options)
+
+      if (!params.sessionId && !sessionId) {
+        const preferred = selectPreferredComponentSession(options)
+        if (preferred) {
+          setSessionId(preferred.id)
+        }
+      }
+    }
+
+    loadSessions()
+
+    return () => {
+      isActive = false
+    }
+  }, [params.sessionId, sessionId])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -162,15 +191,8 @@ export default function PostSessionReport() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>Session</span>
-              <input
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-                value={sessionId}
-                onChange={(event) => setSessionId(event.target.value)}
-              />
-            </label>
-            <Button className="h-10 self-end" onClick={loadReport}>
+            <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
+            <Button className="h-10 self-end" onClick={() => loadReport()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
