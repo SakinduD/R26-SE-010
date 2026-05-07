@@ -12,6 +12,8 @@ from app.schemas.analytics import (
     FeedbackSentimentRequest,
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
+    AnalyticsComponentIntegrationRequest,
+    AnalyticsSessionIntegrationResult,
     MentoringRecommendationResult,
     PostSessionReportResult,
     ProgressTrendResult,
@@ -25,6 +27,7 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
@@ -37,6 +40,18 @@ from app.services import (
 )
 
 router = APIRouter(tags=["feedback-analytics"])
+
+
+@router.post(
+    "/integrations/session-complete",
+    response_model=AnalyticsSessionIntegrationResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def integrate_completed_session_analytics(
+    payload: AnalyticsComponentIntegrationRequest,
+    db: Session = Depends(get_db),
+):
+    return analytics_integration_service.integrate_component_session_data(db, payload)
 
 
 @router.post(

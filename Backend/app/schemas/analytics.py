@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,6 +75,102 @@ class FeedbackSentimentResult(BaseModel):
     model_version: str
     model_type: str
     source: Literal["ml_model"]
+
+
+class ComponentMcaNudge(BaseModel):
+    emotion: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    nudge: str | None = None
+    nudge_category: str | None = None
+    nudge_severity: str | None = None
+
+
+class ComponentTurnMetric(BaseModel):
+    turn: int | None = None
+    assertiveness_score: Score = Field(default=None, ge=0, le=100)
+    empathy_score: Score = Field(default=None, ge=0, le=100)
+    clarity_score: Score = Field(default=None, ge=0, le=100)
+    response_quality: Score = Field(default=None, ge=0, le=100)
+    flags: list[str] = []
+
+
+class ComponentRpeSession(BaseModel):
+    session_id: str | None = None
+    scenario_id: str | None = None
+    user_id: str | None = None
+    outcome: str | None = None
+    final_trust: Score = Field(default=None, ge=0, le=100)
+    final_escalation: int | None = Field(default=None, ge=0)
+    total_turns: int | None = Field(default=None, ge=0)
+    trust_history: list[float] = []
+    emotion_history: list[str] = []
+
+
+class ComponentRpeFeedback(BaseModel):
+    session_id: str | None = None
+    scenario_id: str | None = None
+    scenario_title: str | None = None
+    user_id: str | None = None
+    outcome: str | None = None
+    final_trust: Score = Field(default=None, ge=0, le=100)
+    final_escalation: int | None = Field(default=None, ge=0)
+    total_turns: int | None = Field(default=None, ge=0)
+    turn_metrics: list[ComponentTurnMetric] = []
+    risk_flags: list[str] = []
+    blind_spots: list[str] = []
+    coaching_advice: list[str] = []
+    viz_payload: dict[str, Any] = {}
+    end_reason: str | None = None
+    recommended_turns: int | None = Field(default=None, ge=0)
+    max_turns: int | None = Field(default=None, ge=0)
+
+
+class ComponentAdaptivePlan(BaseModel):
+    skill: str | None = None
+    strategy: str | None = None
+    difficulty: str | None = None
+    recommended_scenario_ids: list[str] = []
+    primary_scenario: str | None = None
+    generation_source: str | None = None
+    generation_status: str | None = None
+
+
+class ComponentSurveyProfile(BaseModel):
+    profile: dict[str, Any] = {}
+    ocean_scores: dict[str, float] = {}
+    dominant_traits: list[str] = []
+
+
+class ComponentSubmittedFeedback(BaseModel):
+    feedback_type: Literal["self", "peer", "system", "mentor"]
+    skill_area: str | None = Field(default=None, max_length=80)
+    rating: Score = Field(default=None, ge=0, le=100)
+    comment: str | None = None
+    sentiment: Literal["positive", "neutral", "negative"] | None = None
+
+
+class AnalyticsComponentIntegrationRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=64)
+    session_id: str = Field(..., min_length=1, max_length=64)
+    scenario_id: str | None = Field(default=None, max_length=64)
+    skill_type: str | None = Field(default=None, max_length=80)
+    survey_profile: ComponentSurveyProfile | dict[str, Any] | None = None
+    adaptive_plan: ComponentAdaptivePlan | dict[str, Any] | None = None
+    rpe_session: ComponentRpeSession | dict[str, Any] | None = None
+    rpe_feedback: ComponentRpeFeedback | dict[str, Any] | None = None
+    mca_nudges: list[ComponentMcaNudge | dict[str, Any]] = []
+    self_feedback: ComponentSubmittedFeedback | None = None
+    peer_feedback: list[ComponentSubmittedFeedback] = []
+
+
+class AnalyticsIntegrationSourceSummary(BaseModel):
+    has_survey_profile: bool
+    has_adaptive_plan: bool
+    has_rpe_session: bool
+    has_rpe_feedback: bool
+    mca_nudge_count: int
+    submitted_feedback_count: int
+    generated_feedback_count: int
 
 
 class SkillPredictionBase(BaseModel):
@@ -307,6 +403,17 @@ class PredictiveModelingResult(BaseModel):
     summary: PredictiveModelingSummary
     generated_at: datetime
     model_version: str
+
+
+class AnalyticsSessionIntegrationResult(BaseModel):
+    user_id: str
+    session_id: str
+    scenario_id: str | None = None
+    metric: AnalyticsSessionMetricRead
+    feedback_entries: list[FeedbackEntryRead]
+    aggregate: AnalyticsAggregateSummary
+    source_summary: AnalyticsIntegrationSourceSummary
+    mapping_version: str
 
 
 class MentoringRecommendationItem(BaseModel):
