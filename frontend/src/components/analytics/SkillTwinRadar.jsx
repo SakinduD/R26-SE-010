@@ -1,15 +1,18 @@
 import React from 'react'
 
-const clampScore = (value) => Math.max(0, Math.min(100, Number(value || 0)))
+const hasScore = (value) => Number.isFinite(Number(value))
+const clampScore = (value) => Math.max(0, Math.min(100, Number(value)))
 
 export default function SkillTwinRadar({ scores }) {
   const normalizedScores = scores.map((item) => ({
     ...item,
-    value: clampScore(item.value),
+    hasEvidence: hasScore(item.value),
+    value: hasScore(item.value) ? clampScore(item.value) : 0,
   }))
-  const averageScore = normalizedScores.length
-    ? Math.round(normalizedScores.reduce((total, item) => total + item.value, 0) / normalizedScores.length)
-    : 0
+  const measuredScores = normalizedScores.filter((item) => item.hasEvidence)
+  const averageScore = measuredScores.length
+    ? Math.round(measuredScores.reduce((total, item) => total + item.value, 0) / measuredScores.length)
+    : null
 
   return (
     <div className="grid gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
@@ -17,12 +20,12 @@ export default function SkillTwinRadar({ scores }) {
         <RadarSvg scores={normalizedScores} />
         <div className="mt-2 flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Average</span>
-          <span className="font-semibold">{averageScore}</span>
+          <span className="font-semibold">{averageScore ?? 'N/A'}</span>
         </div>
       </div>
       <div className="space-y-3">
         {normalizedScores.map((item) => (
-          <ScoreBar key={item.key} label={item.label} value={item.value} />
+          <ScoreBar key={item.key} label={item.label} value={item.value} hasEvidence={item.hasEvidence} />
         ))}
       </div>
     </div>
@@ -98,7 +101,7 @@ function RadarSvg({ scores }) {
             dominantBaseline="middle"
             className="fill-muted-foreground text-[10px]"
           >
-            {point.value}
+            {point.hasEvidence ? Math.round(point.value) : 'N/A'}
           </text>
         </g>
       ))}
@@ -106,17 +109,17 @@ function RadarSvg({ scores }) {
   )
 }
 
-function ScoreBar({ label, value }) {
+function ScoreBar({ label, value, hasEvidence }) {
   return (
     <div>
       <div className="mb-1 flex justify-between gap-3 text-sm">
         <span className="min-w-0 truncate">{label}</span>
-        <span className="shrink-0 text-muted-foreground">{value}</span>
+        <span className="shrink-0 text-muted-foreground">{hasEvidence ? Math.round(value) : 'N/A'}</span>
       </div>
       <div className="h-2 rounded-full bg-muted">
         <div
           className="h-2 rounded-full bg-secondary"
-          style={{ width: `${value}%` }}
+          style={{ width: `${hasEvidence ? value : 0}%` }}
         />
       </div>
     </div>

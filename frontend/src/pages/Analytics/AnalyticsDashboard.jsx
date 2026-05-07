@@ -165,6 +165,11 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value.replaceAll('_', ' ')
 }
 
+function toScoreValue(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 export default function AnalyticsDashboard() {
   const {
     userId: connectedUserId,
@@ -193,7 +198,7 @@ export default function AnalyticsDashboard() {
       ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
       ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
       ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
-    ].map(([key, value]) => ({ key, label: labelFor(key), value: Number(value || 0) }))
+    ].map(([key, value]) => ({ key, label: labelFor(key), value: toScoreValue(value) }))
   }, [data.aggregate])
 
   const hasLiveData = useMemo(() => {
