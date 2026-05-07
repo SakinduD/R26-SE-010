@@ -23,9 +23,9 @@ import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
 
 // RPE pages
-import ScenarioSelect    from './pages/RPE/ScenarioSelect'
-import RolePlaySession   from './pages/RPE/RolePlaySession'
-import SessionComplete   from './pages/RPE/SessionComplete'
+import ScenarioSelect from './pages/RPE/ScenarioSelect'
+import RolePlaySession from './pages/RPE/RolePlaySession'
+import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
 
 // Existing feature pages
@@ -46,7 +46,7 @@ export default function App() {
       <AuthProvider>
         <Toaster position="top-center" richColors closeButton />
 
-        <div className="min-h-screen bg-background text-foreground antialiased">
+        <div className="min-h-screen dark bg-background text-foreground antialiased">
           <Routes>
             {/* Public landing */}
             <Route path="/" element={<Landing />} />
@@ -70,10 +70,10 @@ export default function App() {
             </Route>
 
             {/* RPE routes */}
-            <Route path="/roleplay"                          element={<ScenarioSelect />}    />
-            <Route path="/roleplay/session"                  element={<RolePlaySession />}   />
-            <Route path="/roleplay/session/complete"         element={<SessionComplete />}   />
-            <Route path="/roleplay/feedback/:sessionId"      element={<FeedbackDashboard />} />
+            <Route path="/roleplay" element={<ScenarioSelect />} />
+            <Route path="/roleplay/session" element={<RolePlaySession />} />
+            <Route path="/roleplay/session/complete" element={<SessionComplete />} />
+            <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
 
             {/* Legacy / feature routes (unchanged) */}
             <Route path="/admin" element={
