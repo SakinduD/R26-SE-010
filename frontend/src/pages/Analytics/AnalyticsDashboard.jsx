@@ -18,6 +18,14 @@ import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import AnalyticsUserField from './AnalyticsUserField'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import {
+  hasPulledComponentData,
+  normalizeAdaptivePlan,
+  normalizeRpeFeedback,
+  normalizeRpeSession,
+  normalizeSurveyProfile,
+  optionalRequest,
+} from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -164,6 +172,7 @@ export default function AnalyticsDashboard() {
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
+  const [integrationMessage, setIntegrationMessage] = useState('')
 
   const radarScores = useMemo(() => {
     const averages = data.aggregate?.scores?.averages || {}
@@ -194,6 +203,7 @@ export default function AnalyticsDashboard() {
 
   const loadDashboard = async (nextUserId = userId) => {
     const targetUserId = nextUserId.trim()
+    const targetSessionId = sessionId.trim()
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -202,14 +212,24 @@ export default function AnalyticsDashboard() {
 
     setStatus('loading')
     setError('')
+    setIntegrationMessage('')
 
     try {
+      if (targetSessionId) {
+        const integrationResult = await pullAndSaveComponentData(targetUserId, targetSessionId)
+        if (integrationResult.integrated) {
+          setIntegrationMessage('Real component data pulled and saved into analytics for this session.')
+        } else if (integrationResult.checked) {
+          setIntegrationMessage('No component session data was found yet for this session ID.')
+        }
+      }
+
       const [aggregate, blindSpots, trends, predictions, sessionScores] = await Promise.all([
         analyticsService.getAggregateByUser(targetUserId),
         analyticsService.getBlindSpotsByUser(targetUserId),
         analyticsService.getProgressTrendsByUser(targetUserId),
         analyticsService.getPredictedOutcomesByUser(targetUserId),
-        sessionId.trim() ? analyticsService.getSkillScoresBySession(sessionId.trim()) : Promise.resolve(null),
+        targetSessionId ? analyticsService.getSkillScoresBySession(targetSessionId) : Promise.resolve(null),
       ])
 
       setData({
@@ -224,6 +244,47 @@ export default function AnalyticsDashboard() {
       setStatus('demo')
       setError('Backend data unavailable. Showing demo analytics.')
     }
+  }
+
+  const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
+    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentSurveyProfile()),
+      optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
+      optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
+      optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
+    ])
+
+    const sources = { surveyProfile, adaptivePlan, rpeSession, rpeFeedback }
+    if (!hasPulledComponentData(sources)) {
+      return { checked: true, integrated: false }
+    }
+
+    const scenarioId =
+      rpeSession.data?.scenario_id ||
+      rpeFeedback.data?.scenario_id ||
+      adaptivePlan.data?.primary_scenario ||
+      adaptivePlan.data?.selected_scenario_id ||
+      adaptivePlan.data?.scenario_id
+
+    const skillType =
+      adaptivePlan.data?.skill ||
+      rpeFeedback.data?.skill_type ||
+      rpeSession.data?.skill_type ||
+      'communication'
+
+    await analyticsService.integrateCompletedSession({
+      user_id: targetUserId,
+      session_id: targetSessionId,
+      scenario_id: scenarioId || undefined,
+      skill_type: skillType,
+      survey_profile: normalizeSurveyProfile(surveyProfile.data),
+      adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
+      rpe_session: normalizeRpeSession(rpeSession.data),
+      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
+      mca_nudges: [],
+    })
+
+    return { checked: true, integrated: true }
   }
 
   useEffect(() => {
@@ -266,6 +327,7 @@ export default function AnalyticsDashboard() {
           <StatusPill status={status} />
           <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
+          {integrationMessage ? <span className="text-sm text-secondary">{integrationMessage}</span> : null}
         </div>
         {!hasLiveData ? (
           <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
