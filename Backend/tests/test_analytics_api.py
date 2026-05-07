@@ -331,6 +331,136 @@ def test_session_aggregate_combines_metrics_feedback_and_predictions(client):
     }
 
 
+def test_component_integration_maps_real_session_data_into_analytics(client):
+    payload = {
+        "user_id": "integration-user",
+        "session_id": "integration-session-1",
+        "scenario_id": "scenario-hr-conflict",
+        "skill_type": "communication",
+        "survey_profile": {
+            "ocean_scores": {"openness": 74, "conscientiousness": 68},
+            "dominant_traits": ["openness", "conscientiousness"],
+        },
+        "adaptive_plan": {
+            "skill": "communication",
+            "strategy": "guided_reflection",
+            "difficulty": "medium",
+            "recommended_scenario_ids": ["scenario-hr-conflict"],
+            "primary_scenario": "scenario-hr-conflict",
+            "generation_source": "adaptive_pedagogy",
+        },
+        "rpe_session": {
+            "session_id": "integration-session-1",
+            "scenario_id": "scenario-hr-conflict",
+            "user_id": "integration-user",
+            "outcome": "resolved",
+            "final_trust": 82,
+            "final_escalation": 1,
+            "total_turns": 3,
+            "trust_history": [68, 76, 82],
+            "emotion_history": ["neutral", "concerned", "satisfied"],
+        },
+        "rpe_feedback": {
+            "session_id": "integration-session-1",
+            "scenario_id": "scenario-hr-conflict",
+            "scenario_title": "Handle a teammate disagreement",
+            "user_id": "integration-user",
+            "outcome": "resolved",
+            "final_trust": 82,
+            "final_escalation": 1,
+            "total_turns": 3,
+            "turn_metrics": [
+                {
+                    "turn": 1,
+                    "assertiveness_score": 70,
+                    "empathy_score": 78,
+                    "clarity_score": 74,
+                    "response_quality": 76,
+                },
+                {
+                    "turn": 2,
+                    "assertiveness_score": 82,
+                    "empathy_score": 84,
+                    "clarity_score": 80,
+                    "response_quality": 82,
+                },
+            ],
+            "risk_flags": ["brief interruption"],
+            "blind_spots": ["confidence"],
+            "coaching_advice": ["Pause before responding and summarize the other person first."],
+        },
+        "mca_nudges": [
+            {
+                "emotion": "calm",
+                "confidence": 0.8,
+                "nudge": "Speech pace stayed clear.",
+                "nudge_category": "pace",
+                "nudge_severity": "info",
+            },
+            {
+                "emotion": "uncertain",
+                "confidence": 0.7,
+                "nudge": "Volume dropped during disagreement.",
+                "nudge_category": "volume",
+                "nudge_severity": "warning",
+            },
+        ],
+        "self_feedback": {
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 86,
+            "comment": "I felt confident during the final response.",
+            "sentiment": "positive",
+        },
+        "peer_feedback": [
+            {
+                "feedback_type": "peer",
+                "skill_area": "confidence",
+                "rating": 72,
+                "comment": "Good structure, but the opening could be calmer.",
+                "sentiment": "neutral",
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/analytics/integrations/session-complete", json=payload)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["mapping_version"] == "component-contract-mapping-v1"
+    assert data["user_id"] == "integration-user"
+    assert data["session_id"] == "integration-session-1"
+    assert data["scenario_id"] == "scenario-hr-conflict"
+    assert data["source_summary"] == {
+        "has_survey_profile": True,
+        "has_adaptive_plan": True,
+        "has_rpe_session": True,
+        "has_rpe_feedback": True,
+        "mca_nudge_count": 2,
+        "submitted_feedback_count": 2,
+        "generated_feedback_count": 5,
+    }
+
+    metric = data["metric"]
+    assert metric["confidence_score"] == 76
+    assert metric["empathy_score"] == 81
+    assert metric["clarity_score"] == 77
+    assert metric["response_quality_score"] == 79
+    assert metric["speech_pace_score"] == 96
+    assert metric["speech_volume_score"] == 61
+    assert metric["overall_score"] is not None
+
+    assert data["aggregate"]["scores"]["metric_count"] == 1
+    assert data["aggregate"]["feedback"]["total_count"] == 7
+    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 3
+    assert data["aggregate"]["feedback"]["by_type"]["self"] == 1
+    assert data["aggregate"]["feedback"]["by_type"]["peer"] == 1
+
+    aggregate_response = client.get("/api/v1/analytics/sessions/integration-session-1/aggregate")
+    assert aggregate_response.status_code == 200
+    assert aggregate_response.json()["data_completeness"]["has_session_metrics"] is True
+
+
 def test_post_session_report_combines_session_analytics(client):
     session_id = "report-session"
     client.post(

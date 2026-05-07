@@ -48,4 +48,19 @@ export const analyticsService = {
 
   createFeedbackEntry: (payload) =>
     api.post('/api/v1/analytics/feedback', payload).then(unwrap),
+
+  integrateCompletedSession: (payload) =>
+    api.post('/api/v1/analytics/integrations/session-complete', payload).then(unwrap),
+
+  getComponentSurveyProfile: () =>
+    api.get('/api/v1/survey/profile/me').then(unwrap),
+
+  getComponentAdaptivePlan: () =>
+    api.get('/api/v1/apa/plan/me').then(unwrap),
+
+  getComponentRpeSession: (sessionId) =>
+    api.get(`/api/v1/rpe/session-summary/${encodeURIComponent(sessionId)}`).then(unwrap),
+
+  getComponentRpeFeedback: (sessionId) =>
+    api.get(`/api/v1/rpe/session-feedback/${encodeURIComponent(sessionId)}`).then(unwrap),
 }
