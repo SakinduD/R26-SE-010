@@ -2,8 +2,8 @@ from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
 
+from app.models.analytics import AnalyticsSessionMetric, FeedbackEntry
 from app.schemas.analytics import (
-    AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
     AnalyticsIntegrationSourceSummary,
     AnalyticsSessionIntegrationResult,
@@ -38,7 +38,7 @@ def integrate_component_session_data(
         adaptive_plan=adaptive_plan,
         mca_nudges=mca_nudges,
     )
-    metric = analytics_service.create_session_metric(db, metric_payload)
+    metric = _upsert_session_metric(db, metric_payload)
 
     generated_feedback = _build_generated_feedback(
         payload=payload,
@@ -50,8 +50,11 @@ def integrate_component_session_data(
     )
     submitted_feedback = _normalize_submitted_feedback(payload)
     feedback_entries = [
-        analytics_service.create_feedback_entry(db, feedback)
-        for feedback in [*generated_feedback, *submitted_feedback]
+        *_replace_generated_feedback(db, payload.user_id, payload.session_id, generated_feedback),
+        *[
+            analytics_service.create_feedback_entry(db, feedback)
+            for feedback in submitted_feedback
+        ],
     ]
 
     aggregate = data_aggregation_service.get_session_aggregate(db, payload.session_id)
@@ -73,6 +76,55 @@ def integrate_component_session_data(
         ),
         mapping_version=MAPPING_VERSION,
     )
+
+
+def _upsert_session_metric(
+    db: Session,
+    payload: AnalyticsSessionMetricCreate,
+) -> AnalyticsSessionMetric:
+    existing_metrics = (
+        db.query(AnalyticsSessionMetric)
+        .filter(
+            AnalyticsSessionMetric.user_id == payload.user_id,
+            AnalyticsSessionMetric.session_id == payload.session_id,
+        )
+        .order_by(AnalyticsSessionMetric.created_at.desc(), AnalyticsSessionMetric.id.desc())
+        .all()
+    )
+
+    if not existing_metrics:
+        return analytics_service.create_session_metric(db, payload)
+
+    metric = existing_metrics[0]
+    for duplicate in existing_metrics[1:]:
+        db.delete(duplicate)
+
+    for field, value in payload.model_dump().items():
+        setattr(metric, field, value)
+
+    db.add(metric)
+    db.commit()
+    db.refresh(metric)
+    return metric
+
+
+def _replace_generated_feedback(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    generated_feedback: list[FeedbackEntryCreate],
+) -> list[FeedbackEntry]:
+    db.query(FeedbackEntry).filter(
+        FeedbackEntry.user_id == user_id,
+        FeedbackEntry.session_id == session_id,
+        FeedbackEntry.feedback_type.in_(["system", "mentor"]),
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    return [
+        analytics_service.create_feedback_entry(db, feedback)
+        for feedback in generated_feedback
+    ]
 
 
 def _build_metric_payload(
