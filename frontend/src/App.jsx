@@ -48,7 +48,7 @@ export default function App() {
       <AuthProvider>
         <Toaster position="top-center" richColors closeButton />
 
-        <div className="min-h-screen bg-background text-foreground antialiased">
+        <div className="min-h-screen dark bg-background text-foreground antialiased">
           <Routes>
             {/* Public landing */}
             <Route path="/" element={<Landing />} />

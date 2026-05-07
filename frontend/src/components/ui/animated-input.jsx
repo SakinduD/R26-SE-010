@@ -2,10 +2,6 @@ import React, { forwardRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * Accessible input with label, error display, and password toggle.
- * Forwards ref so it works seamlessly with react-hook-form's register().
- */
 const AnimatedInput = forwardRef(function AnimatedInput(
   { label, error, type = 'text', className, id, ...props },
   ref
@@ -32,12 +28,12 @@ const AnimatedInput = forwardRef(function AnimatedInput(
           ref={ref}
           type={inputType}
           className={cn(
-            'flex w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm text-foreground',
+            'flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background',
             'placeholder:text-muted-foreground/50',
             'transition-all duration-200 outline-none',
-            'focus:ring-2 focus:ring-ring/70 focus:border-ring',
+            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            error && 'border-destructive focus:ring-destructive/30',
+            error && 'border-destructive focus-visible:ring-destructive',
             isPassword && 'pr-10',
             className
           )}
