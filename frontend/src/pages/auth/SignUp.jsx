@@ -43,7 +43,7 @@ function PasswordStrengthBar({ password }) {
           <div
             key={i}
             className={cn(
-              'h-1 flex-1 rounded-full transition-all duration-300',
+              'h-1 flex-1 rounded-full transition-all duration-500',
               i <= strength ? barColors[strength] : 'bg-muted'
             )}
           />
@@ -134,7 +134,7 @@ export default function SignUp() {
         </motion.div>
 
         <motion.div variants={fadeInUp} className="pt-1">
-          <LoadingButton isLoading={isSubmitting} type="submit">
+          <LoadingButton isLoading={isSubmitting} type="submit" className="w-full">
             Create account
           </LoadingButton>
         </motion.div>
