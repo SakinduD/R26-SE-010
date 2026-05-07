@@ -172,6 +172,7 @@ export default function AnalyticsDashboard() {
   } = useAnalyticsIdentity()
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [data, setData] = useState(DEMO_DATA)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
@@ -204,9 +205,9 @@ export default function AnalyticsDashboard() {
     )
   }, [data, status])
 
-  const loadDashboard = async (nextUserId = userId) => {
+  const loadDashboard = async (nextUserId = userId, nextSessionId = sessionId) => {
     const targetUserId = nextUserId.trim()
-    const targetSessionId = sessionId.trim()
+    const targetSessionId = nextSessionId.trim()
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -299,13 +300,32 @@ export default function AnalyticsDashboard() {
     return { checked: true, integrated: true }
   }
 
-  useEffect(() => {
-    setUserId(connectedUserId)
-  }, [connectedUserId])
+  const loadSessionOptions = async () => {
+    const [rpeSessions, mcaSessions] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentRpeSessions()),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
+    ])
+
+    const options = [
+      ...normalizeSessionOptions(rpeSessions.data, 'rpe'),
+      ...normalizeSessionOptions(mcaSessions.data, 'mca'),
+    ].sort((a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0))
+
+    setSessionOptions(options)
+
+    const preferred = options.find((item) => item.source === 'rpe') || options[0]
+    if (preferred) {
+      setSessionId((current) => current || preferred.id)
+    }
+    return preferred
+  }
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      loadDashboard(connectedUserId)
+      setUserId(connectedUserId)
+      loadSessionOptions()
+        .then((preferred) => loadDashboard(connectedUserId, preferred?.id || ''))
+        .catch(() => loadDashboard(connectedUserId, ''))
     }
   }, [connectedUserId, isAuthLoading, isAuthenticated])
 
@@ -325,8 +345,12 @@ export default function AnalyticsDashboard() {
               isAuthenticated={isAuthenticated}
               onChange={setUserId}
             />
-            <Input label="Session" value={sessionId} onChange={setSessionId} placeholder="optional" />
-            <Button className="h-10 self-end" onClick={() => loadDashboard()}>
+            <SessionSelect
+              value={sessionId}
+              options={sessionOptions}
+              onChange={setSessionId}
+            />
+            <Button className="h-10 self-end" onClick={() => loadDashboard(userId, sessionId)}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -428,6 +452,48 @@ function averageFeedbackBySkill(entries) {
 
 function countFeedbackSessions(entries) {
   return new Set(entries.map((entry) => entry.session_id).filter(Boolean)).size
+}
+
+function normalizeSessionOptions(sessions, source) {
+  if (!Array.isArray(sessions)) return []
+
+  return sessions
+    .map((session) => {
+      const id = source === 'rpe' ? session.session_id : session.id
+      if (!id) return null
+
+      const scenario = session.scenario_id || session.scenarioId || session.skill_type || session.status
+      const startedAt = session.started_at || session.startedAt || session.created_at || session.createdAt
+      const labelDate = startedAt ? new Date(startedAt).toLocaleString() : null
+
+      return {
+        id: String(id),
+        source,
+        startedAt,
+        label: `${source.toUpperCase()} ${scenario ? `- ${scenario}` : ''}${labelDate ? ` - ${labelDate}` : ''}`,
+      }
+    })
+    .filter(Boolean)
+}
+
+function SessionSelect({ value, options, onChange }) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span>Session</span>
+      <select
+        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.length ? null : <option value="">No session yet</option>}
+        {options.map((option) => (
+          <option key={`${option.source}-${option.id}`} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 function Input({ label, value, onChange, placeholder }) {
