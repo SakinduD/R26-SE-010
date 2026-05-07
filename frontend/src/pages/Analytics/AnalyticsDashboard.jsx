@@ -55,7 +55,7 @@ const DEMO_DATA = {
     },
     feedback: {
       total_count: 7,
-      by_type: { self: 3, peer: 3, system: 1 },
+      by_type: { self: 3, system: 4 },
       sentiment_counts: { positive: 4, neutral: 2, negative: 1 },
       average_rating: 76,
     },
@@ -332,7 +332,7 @@ export default function AnalyticsDashboard() {
         {!hasLiveData ? (
           <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
             Live API is connected, but no analytics records were found for this user. Add session metrics,
-            feedback, and predictions for this user, or use demo data before loading.
+            self feedback, component performance evidence, and predictions for this user.
           </div>
         ) : null}
 

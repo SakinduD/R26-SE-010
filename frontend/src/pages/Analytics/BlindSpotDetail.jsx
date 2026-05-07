@@ -9,7 +9,6 @@ import {
   ShieldAlert,
   Target,
   UserCircle,
-  Users,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
@@ -69,40 +68,37 @@ const DEMO_DATA = {
         severity: 'medium',
         self_rating: 64,
         comparison_score: 90,
-        comparison_source: 'peer',
+        comparison_source: 'observed',
         gap: 26,
         confidence: 0.81,
-        recommendation: 'Use positive peer evidence to build confidence and maintain this behaviour.',
+        recommendation: 'Use positive observed evidence to build confidence and maintain this behaviour.',
       },
     ],
   },
   feedbackAnalysis: {
     summary: {
       self_feedback_count: 3,
-      peer_feedback_count: 3,
+      system_evidence_count: 3,
       analyzed_skill_count: 4,
       aligned_count: 2,
       blind_spot_count: 2,
       average_self_rating: 78,
-      average_peer_rating: 72,
+      average_observed_score: 72,
     },
     items: [
-      alignment('confidence', 92, 58, 55, 'self_overestimation', 'high'),
-      alignment('empathy', 64, 88, 90, 'self_underestimation', 'medium'),
-      alignment('communication_clarity', 78, 74, 76, 'aligned', 'none'),
+      alignment('confidence', 92, 55, 'self_overestimation', 'high'),
+      alignment('empathy', 64, 90, 'self_underestimation', 'medium'),
+      alignment('communication_clarity', 78, 76, 'aligned', 'none'),
     ],
   },
 }
 
-function alignment(skillArea, selfRating, peerRating, observedScore, alignmentLabel, severity) {
+function alignment(skillArea, selfRating, observedScore, alignmentLabel, severity) {
   return {
     skill_area: skillArea,
     self_rating: selfRating,
-    peer_rating: peerRating,
     observed_score: observedScore,
-    self_peer_gap: selfRating - peerRating,
     self_observed_gap: selfRating - observedScore,
-    peer_observed_gap: peerRating - observedScore,
     alignment: alignmentLabel,
     severity,
     recommendation: `${labelFor(skillArea)} feedback should be reviewed with evidence from the session.`,
@@ -241,7 +237,7 @@ export default function BlindSpotDetail() {
               </div>
               <h2 className="mt-3 text-xl font-semibold">Self-perception gap analysis</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Blind spots compare self feedback against peer and observed performance evidence to identify overestimation or underestimation.
+                Blind spots compare self feedback against observed performance evidence from role-play, adaptive pedagogy, and multimodal analysis.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -258,7 +254,7 @@ export default function BlindSpotDetail() {
             {strongest ? <BlindSpotCard item={strongest} featured /> : <EmptyState text="No blind spot detected" />}
           </Panel>
 
-          <Panel title="Feedback Alignment Summary" icon={Users}>
+          <Panel title="Evidence Alignment Summary" icon={BarChart3}>
             <AlignmentSummary summary={data.feedbackAnalysis?.summary} />
           </Panel>
         </div>
@@ -267,7 +263,7 @@ export default function BlindSpotDetail() {
           <BlindSpotList items={blindSpots} />
         </Panel>
 
-        <Panel title="Self / Peer / Observed Alignment" icon={BarChart3}>
+        <Panel title="Self / Observed Alignment" icon={BarChart3}>
           <AlignmentTable items={analysisItems} />
         </Panel>
       </section>
@@ -319,9 +315,9 @@ function AlignmentSummary({ summary }) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <Metric icon={UserCircle} label="Self Feedback" value={summary.self_feedback_count || 0} compact />
-      <Metric icon={Users} label="Peer Feedback" value={summary.peer_feedback_count || 0} compact />
+      <Metric icon={BarChart3} label="System Evidence" value={summary.system_evidence_count || 0} compact />
       <Metric icon={Target} label="Self Avg" value={formatScore(summary.average_self_rating)} compact />
-      <Metric icon={BarChart3} label="Peer Avg" value={formatScore(summary.average_peer_rating)} compact />
+      <Metric icon={BarChart3} label="Observed Avg" value={formatScore(summary.average_observed_score)} compact />
       <Metric icon={CheckCircle2} label="Aligned" value={summary.aligned_count || 0} compact />
       <Metric icon={ShieldAlert} label="Blind Spots" value={summary.blind_spot_count || 0} compact />
     </div>
@@ -334,21 +330,19 @@ function AlignmentTable({ items }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <div className="min-w-[760px]">
-        <div className="grid grid-cols-[1.2fr_repeat(4,0.8fr)_1fr] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+        <div className="grid grid-cols-[1.2fr_repeat(3,0.8fr)_1fr] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
           <span>Skill</span>
           <span>Self</span>
-          <span>Peer</span>
           <span>Observed</span>
           <span>Gap</span>
           <span>Alignment</span>
         </div>
         {items.map((item) => (
-          <div key={item.skill_area} className="grid grid-cols-[1.2fr_repeat(4,0.8fr)_1fr] gap-2 border-b border-border px-3 py-3 text-sm last:border-0">
+          <div key={item.skill_area} className="grid grid-cols-[1.2fr_repeat(3,0.8fr)_1fr] gap-2 border-b border-border px-3 py-3 text-sm last:border-0">
             <span className="font-medium">{labelFor(item.skill_area)}</span>
             <span>{formatScore(item.self_rating)}</span>
-            <span>{formatScore(item.peer_rating)}</span>
             <span>{formatScore(item.observed_score)}</span>
-            <span>{formatGap(item.self_observed_gap ?? item.self_peer_gap)}</span>
+            <span>{formatGap(item.self_observed_gap)}</span>
             <span className="truncate text-muted-foreground">{item.alignment}</span>
           </div>
         ))}
