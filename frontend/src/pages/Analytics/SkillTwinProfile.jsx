@@ -49,7 +49,7 @@ const DEMO_PROFILE = {
     feedback: {
       total_count: 9,
       average_rating: 79,
-      by_type: { self: 4, peer: 4, system: 1 },
+      by_type: { self: 4, system: 5 },
     },
     predictions: { total_count: 4 },
   },
@@ -281,7 +281,7 @@ export default function SkillTwinProfile() {
               </div>
               <h2 className="mt-3 text-xl font-semibold">Long-term soft skill profile</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                The skill twin combines observed session metrics, self/peer feedback, blind spots, and predicted outcomes.
+                The skill twin combines observed session metrics, self feedback, system evidence, blind spots, and predicted outcomes.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[520px]">

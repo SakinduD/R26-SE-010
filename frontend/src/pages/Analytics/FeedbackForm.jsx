@@ -8,8 +8,6 @@ import {
   RefreshCw,
   Save,
   Star,
-  User,
-  Users,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
@@ -27,11 +25,6 @@ const SKILL_OPTIONS = [
   { value: 'emotional_control', label: 'Emotional Control' },
   { value: 'professionalism', label: 'Professionalism' },
   { value: 'overall', label: 'Overall' },
-]
-
-const FEEDBACK_TYPES = [
-  { value: 'self', label: 'Self', icon: User },
-  { value: 'peer', label: 'Peer', icon: Users },
 ]
 
 const SENTIMENT_OPTIONS = [
@@ -67,7 +60,7 @@ export default function FeedbackForm() {
   const [createdEntry, setCreatedEntry] = useState(null)
 
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim() && form.skill_area && form.feedback_type,
+    () => form.user_id.trim() && form.session_id.trim() && form.skill_area,
     [form]
   )
 
@@ -79,7 +72,7 @@ export default function FeedbackForm() {
   const submitFeedback = async (event) => {
     event.preventDefault()
     if (!canSubmit) {
-      setMessage('User, session, feedback type, and skill are required.')
+      setMessage('User, session, and skill are required.')
       return
     }
 
@@ -89,7 +82,7 @@ export default function FeedbackForm() {
     const payload = {
       user_id: form.user_id.trim(),
       session_id: form.session_id.trim(),
-      feedback_type: form.feedback_type,
+      feedback_type: 'self',
       skill_area: form.skill_area,
       rating: Number(form.rating),
       sentiment: form.sentiment,
@@ -135,7 +128,7 @@ export default function FeedbackForm() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Self and Peer Feedback</h1>
+            <h1 className="mt-1 text-2xl font-semibold">Self Reflection Feedback</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
@@ -177,21 +170,6 @@ export default function FeedbackForm() {
                 </button>
               }
             />
-          </div>
-
-          <div className="mt-5">
-            <FieldLabel>Feedback Type</FieldLabel>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {FEEDBACK_TYPES.map((item) => (
-                <SegmentButton
-                  key={item.value}
-                  active={form.feedback_type === item.value}
-                  icon={item.icon}
-                  label={item.label}
-                  onClick={() => updateField('feedback_type', item.value)}
-                />
-              ))}
-            </div>
           </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -262,7 +240,7 @@ export default function FeedbackForm() {
             </div>
             <PreviewItem label="User" value={isAuthenticated ? userLabel : form.user_id} />
             <PreviewItem label="Session" value={form.session_id} />
-            <PreviewItem label="Type" value={form.feedback_type} />
+            <PreviewItem label="Type" value="Self reflection" />
             <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
             <PreviewItem label="Rating" value={form.rating} />
             <PreviewItem label="Sentiment" value={form.sentiment} />
@@ -324,23 +302,6 @@ function SelectInput({ label, value, onChange, options }) {
         ))}
       </select>
     </label>
-  )
-}
-
-function SegmentButton({ active, icon: Icon, label, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`flex h-11 items-center justify-center gap-2 rounded-md border text-sm font-medium transition ${
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-background text-muted-foreground hover:text-foreground'
-      }`}
-      onClick={onClick}
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </button>
   )
 }
 

@@ -176,7 +176,7 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
                 title=f"Review {_label(skill)} blind spot",
                 reason=f"{_label(skill)} shows a {blind_spot['blind_spot_type']} gap of {blind_spot['gap']} points.",
                 detail=blind_spot["recommendation"],
-                next_action=f"Compare one self-rating with peer or observed evidence before the next {_label(skill)} practice.",
+                next_action=f"Compare one self-rating with observed performance evidence before the next {_label(skill)} practice.",
                 evidence_sources=["blind_spot_detection", "feedback_analysis"],
             )
         )
@@ -221,7 +221,7 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
                 title=f"Practice {_label(skill)}",
                 reason=f"Average {_label(skill)} score is {round(score)}.",
                 detail=f"{_label(skill)} is below the expected soft-skill benchmark.",
-                next_action=f"Complete one focused drill and request peer feedback on {_label(skill)}.",
+                next_action=f"Complete one focused drill and compare it with the next observed {_label(skill)} score.",
                 evidence_sources=["skill_twin_scores"],
             )
         )

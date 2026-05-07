@@ -51,11 +51,11 @@ const DEMO_REPORT = {
         },
         {
           id: 2,
-          feedback_type: 'peer',
+          feedback_type: 'system',
           skill_area: 'confidence',
           rating: 60,
           sentiment: 'neutral',
-          comment: 'Good attempt, but eye contact and response structure need work.',
+          comment: 'Observed performance shows eye contact and response structure need work.',
         },
       ],
     },
@@ -103,7 +103,7 @@ const DEMO_REPORT = {
       priority: 'high',
       skill_area: 'confidence',
       title: 'Review Confidence blind spot',
-      detail: 'Compare self-rating with observed and peer feedback before the next session.',
+      detail: 'Compare self-rating with observed system evidence before the next session.',
     },
     {
       priority: 'medium',

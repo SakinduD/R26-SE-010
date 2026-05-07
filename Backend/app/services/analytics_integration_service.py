@@ -208,14 +208,6 @@ def _normalize_submitted_feedback(
                 **payload.self_feedback.model_dump(),
             )
         )
-    for item in payload.peer_feedback:
-        entries.append(
-            FeedbackEntryCreate(
-                user_id=payload.user_id,
-                session_id=payload.session_id,
-                **item.model_dump(),
-            )
-        )
     return entries
 
 

@@ -41,8 +41,8 @@ const DEMO_DATA = {
       'confidence',
       'Review confidence blind spot',
       'Confidence has a visible self-perception gap.',
-      'Your self-rating is higher than observed and peer evidence. Rewatch one response and define one measurable confidence behaviour.',
-      'Before the next role-play, compare one self-rating with peer feedback and set one measurable confidence goal.',
+      'Your self-rating is higher than observed system evidence. Rewatch one response and define one measurable confidence behaviour.',
+      'Before the next role-play, compare one self-rating with observed performance evidence and set one measurable confidence goal.',
       'Blind spot detection',
       ['blind_spot_detection', 'feedback_analysis']
     ),
@@ -294,7 +294,7 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         `Review ${labelFor(item.skill_area)} blind spot`,
         item.recommendation,
         item.recommendation,
-        `Compare your self-rating with peer or observed evidence for ${labelFor(item.skill_area)}.`,
+        `Compare your self-rating with observed performance evidence for ${labelFor(item.skill_area)}.`,
         'Blind spot detection',
         ['blind_spot_detection']
       )
@@ -352,7 +352,7 @@ function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
         `Practice ${labelFor(skillArea)}`,
         `Average score is ${Math.round(Number(score))}.`,
         `Average score is ${Math.round(Number(score))}. Add one targeted exercise before the next role-play session.`,
-        `Complete one focused ${labelFor(skillArea)} drill and request peer feedback.`,
+        `Complete one focused ${labelFor(skillArea)} drill and compare it with the next observed performance score.`,
         'Skill twin',
         ['skill_twin_scores']
       )
