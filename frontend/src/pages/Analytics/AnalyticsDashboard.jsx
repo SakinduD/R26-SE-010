@@ -21,10 +21,13 @@ import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData,
   normalizeAdaptivePlan,
+  normalizeMcaNudges,
+  normalizeMcaSessionNudges,
   normalizeRpeFeedback,
   normalizeRpeSession,
   normalizeSurveyProfile,
   optionalRequest,
+  selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
@@ -247,14 +250,23 @@ export default function AnalyticsDashboard() {
   }
 
   const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
-    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback] = await Promise.all([
+    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
       optionalRequest(() => analyticsService.getComponentSurveyProfile()),
       optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
       optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
       optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
     ])
 
-    const sources = { surveyProfile, adaptivePlan, rpeSession, rpeFeedback }
+    const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
+    const mcaNudges = normalizeMcaSessionNudges(mcaSession)
+    const sources = {
+      surveyProfile,
+      adaptivePlan,
+      rpeSession,
+      rpeFeedback,
+      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
+    }
     if (!hasPulledComponentData(sources)) {
       return { checked: true, integrated: false }
     }
@@ -281,7 +293,7 @@ export default function AnalyticsDashboard() {
       adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
       rpe_session: normalizeRpeSession(rpeSession.data),
       rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
-      mca_nudges: [],
+      mca_nudges: normalizeMcaNudges(mcaNudges),
     })
 
     return { checked: true, integrated: true }
