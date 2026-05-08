@@ -26,12 +26,12 @@ export const analyticsService = {
       .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends/${encodeURIComponent(skillArea)}`, { params })
       .then(unwrap),
 
-  getPredictedOutcomesByUser: (userId) =>
-    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes`).then(unwrap),
+  getPredictedOutcomesByUser: (userId, params = {}) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes`, { params }).then(unwrap),
 
-  getPredictedOutcomeBySkill: (userId, skillArea) =>
+  getPredictedOutcomeBySkill: (userId, skillArea, params = {}) =>
     api
-      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes/${encodeURIComponent(skillArea)}`)
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes/${encodeURIComponent(skillArea)}`, { params })
       .then(unwrap),
 
   getMentoringRecommendationsByUser: (userId) =>
