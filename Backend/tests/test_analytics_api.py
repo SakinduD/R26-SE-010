@@ -956,6 +956,35 @@ def test_user_skill_progress_trend_returns_single_skill(client):
     assert data["session_count"] == 2
 
 
+def test_user_progress_trends_can_filter_history_up_to_selected_session(client):
+    for session_id, confidence_score in [
+        ("trend-cutoff-session-1", 40),
+        ("trend-cutoff-session-2", 60),
+        ("trend-cutoff-session-3", 90),
+    ]:
+        response = client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": "trend-cutoff-user",
+                "session_id": session_id,
+                "confidence_score": confidence_score,
+            },
+        )
+        assert response.status_code == 201
+
+    response = client.get(
+        "/api/v1/analytics/users/trend-cutoff-user/progress-trends",
+        params={"session_id": "trend-cutoff-session-2"},
+    )
+
+    assert response.status_code == 200
+    trends = {item["skill_area"]: item for item in response.json()["trends"]}
+    assert trends["confidence"]["session_count"] == 2
+    assert trends["confidence"]["first_score"] == 40
+    assert trends["confidence"]["latest_score"] == 60
+    assert trends["confidence"]["delta"] == 20
+
+
 def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client):
     response = client.get("/api/v1/analytics/users/no-trend-user/progress-trends")
 
