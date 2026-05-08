@@ -1,15 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  Activity,
-  AlertTriangle,
-  BarChart3,
-  BrainCircuit,
-  LineChart,
-  RefreshCw,
-  Search,
-  ShieldAlert,
-  Target,
+  Activity, AlertTriangle, BarChart3, LineChart,
+  RefreshCw, Search, ShieldAlert, Target,
+  TrendingUp, TrendingDown, CheckCircle,
 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { Button } from '../../components/ui/Button'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
@@ -18,562 +13,397 @@ import AnalyticsNav from './AnalyticsNav'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
-  hasPulledComponentData,
-  normalizeComponentSessionOptions,
-  normalizeAdaptivePlan,
-  normalizeMcaNudges,
-  normalizeMcaSessionNudges,
-  normalizeRpeFeedback,
-  normalizeRpeSession,
-  normalizeSurveyProfile,
-  optionalRequest,
-  selectPreferredComponentSession,
-  selectMcaSession,
+  hasPulledComponentData, normalizeComponentSessionOptions,
+  normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaSessionNudges,
+  normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
+  optionalRequest, selectPreferredComponentSession, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
-  confidence: 'Confidence',
-  communication_clarity: 'Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
-  overall: 'Overall',
+  vocal_command: { label: 'Vocal Command', sub: 'Speech Volume' },
+  speech_fluency: { label: 'Speech Fluency', sub: 'Speech Pace & Clarity' },
+  presence_engagement: { label: 'Presence & Engagement', sub: 'Eye Contact & Confidence' },
+  emotional_intelligence: { label: 'Emotional Intelligence', sub: 'Empathy & Emotional Control' },
+  overall: { label: 'Overall Score', sub: 'Calculated Performance' },
+
+  // Live Data Mappings
+  professionalism: 'vocal_command',
+  professionalism_score: 'vocal_command',
+  speech_volume_score: 'vocal_command',
+  communication_clarity: 'speech_fluency',
+  clarity_score: 'speech_fluency',
+  speech_pace_score: 'speech_fluency',
+  confidence: 'presence_engagement',
+  confidence_score: 'presence_engagement',
+  eye_contact_score: 'presence_engagement',
+  eye_contact: 'presence_engagement',
+  empathy: 'emotional_intelligence',
+  empathy_score: 'emotional_intelligence',
+  emotional_control: 'emotional_intelligence',
+  emotional_control_score: 'emotional_intelligence',
+  active_listening: 'emotional_intelligence',
+  adaptability: 'presence_engagement',
+  overall_score: 'overall',
 }
 
-const DEMO_DATA = {
+const getInfo = (v) => {
+  const item = SKILL_LABELS[v]
+  if (!item) return { label: String(v || '').replace(/_/g, ' '), sub: '' }
+  if (typeof item === 'string') return getInfo(item) // Follow mapping
+  return item
+}
+
+const labelFor = (v) => getInfo(v).label
+const subFor = (v) => getInfo(v).sub
+const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
+const fmtScore = (v) => (v == null || isNaN(Number(v))) ? '--' : Math.round(Number(v))
+
+const mkTrend = (skill, label, scores) => ({
+  skill_area: skill, trend_label: label, first_score: scores[0],
+  latest_score: scores[scores.length - 1], delta: scores[scores.length - 1] - scores[0],
+  points: scores.map((s, i) => ({ session_id: 'S'+(i+1), score: s, created_at: '2026-05-0'+(i+1)+'T00:00:00' })),
+})
+const mkPred = (skill, cur, pred, trend, risk) => ({
+  predicted_skill: skill, current_score: cur, predicted_score: pred,
+  trend_label: trend, risk_level: risk, confidence: 0.72,
+  recommendation: 'Focus on improving ' + labelFor(skill) + ' in your next session.',
+})
+
+const DEMO = {
   aggregate: {
-    scores: {
-      metric_count: 4,
-      averages: {
-        confidence_score: 78,
-        clarity_score: 74,
-        empathy_score: 82,
-        listening_score: 76,
-        adaptability_score: 71,
-        emotional_control_score: 69,
-        professionalism_score: 80,
-        overall_score: 76,
-      },
-    },
-    feedback: {
-      total_count: 7,
-      by_type: { self: 3, system: 4 },
-      sentiment_counts: { positive: 4, neutral: 2, negative: 1 },
-      average_rating: 76,
-    },
-    predictions: { total_count: 4 },
-    data_completeness: {
-      has_session_metrics: true,
-      has_feedback: true,
-      has_predictions: true,
-    },
+    scores: { metric_count: 4, averages: { vocal_command: 85, speech_fluency: 70, presence_engagement: 90, emotional_intelligence: 80, overall_score: 81 } },
+    feedback: { total_count: 7, average_rating: 81, sentiment_counts: { positive: 5, neutral: 1, negative: 1 }, skill_rating_averages: { vocal_command: 88, speech_fluency: 75, presence_engagement: 92, emotional_intelligence: 82 } },
   },
   blindSpots: {
-    summary: {
-      total_count: 2,
-      high_count: 1,
-      medium_count: 1,
-      low_count: 0,
-    },
+    summary: { total_count: 2, high_count: 1, medium_count: 1 },
     blind_spots: [
-      {
-        skill_area: 'confidence',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review confidence examples carefully and set one measurable improvement target.',
-      },
-      {
-        skill_area: 'empathy',
-        blind_spot_type: 'underestimation',
-        severity: 'medium',
-        self_rating: 64,
-        comparison_score: 90,
-        comparison_source: 'observed',
-        gap: 26,
-        confidence: 0.81,
-        recommendation: 'Use positive evidence to build confidence and maintain this behaviour.',
-      },
+      { skill_area: 'vocal_command', blind_spot_type: 'overestimation', severity: 'high', self_rating: 95, comparison_score: 85, gap: 10, recommendation: 'You rated your vocal power higher than observed. Try practicing abdominal breathing.' },
+      { skill_area: 'emotional_intelligence', blind_spot_type: 'underestimation', severity: 'medium', self_rating: 70, comparison_score: 80, gap: 10, recommendation: 'You are more empathetic than you think! Your tone shows great care for others.' },
     ],
   },
-  trends: {
-    summary: {
-      improving_count: 3,
-      stable_count: 2,
-      declining_count: 1,
-      insufficient_data_count: 1,
-    },
-    trends: [
-      trend('confidence', 'improving', [55, 65, 78]),
-      trend('communication_clarity', 'stable', [72, 73, 74]),
-      trend('empathy', 'declining', [90, 82, 70]),
-      trend('active_listening', 'improving', [66, 72, 79]),
-      trend('professionalism', 'improving', [70, 75, 80]),
-    ],
-  },
+  trends: { trends: [mkTrend('vocal_command','improving',[70,78,85]), mkTrend('speech_fluency','stable',[68,70,70]), mkTrend('presence_engagement','improving',[80,85,90]), mkTrend('emotional_intelligence','improving',[72,76,80])] },
   predictions: {
-    summary: {
-      predicted_count: 4,
-      low_risk_count: 2,
-      medium_risk_count: 1,
-      high_risk_count: 1,
-    },
-    predictions: [
-      prediction('confidence', 78, 89.5, 'improving', 'low'),
-      prediction('empathy', 70, 58, 'declining', 'medium'),
-      prediction('emotional_control', 48, 39, 'declining', 'high'),
-      prediction('professionalism', 80, 84, 'improving', 'low'),
-    ],
+    summary: { predicted_count: 4, high_risk_count: 0, medium_risk_count: 1, low_risk_count: 3 },
+    predictions: [mkPred('vocal_command',85,92,'improving','low'), mkPred('speech_fluency',70,78,'improving','low'), mkPred('presence_engagement',90,94,'stable','low'), mkPred('emotional_intelligence',80,72,'declining','medium')],
   },
-}
-
-function trend(skillArea, trendLabel, scores) {
-  return {
-    skill_area: skillArea,
-    trend_label: trendLabel,
-    first_score: scores[0],
-    latest_score: scores[scores.length - 1],
-    delta: scores[scores.length - 1] - scores[0],
-    points: scores.map((score, index) => ({
-      session_id: `S${index + 1}`,
-      score,
-      created_at: `2026-05-${String(index + 1).padStart(2, '0')}T00:00:00`,
-    })),
-  }
-}
-
-function prediction(skillArea, currentScore, predictedScore, trendLabel, riskLevel) {
-  return {
-    predicted_skill: skillArea,
-    current_score: currentScore,
-    predicted_score: predictedScore,
-    trend_label: trendLabel,
-    risk_level: riskLevel,
-    confidence: 0.72,
-    recommendation: `${labelFor(skillArea)} should be monitored in the next session.`,
-  }
-}
-
-function labelFor(value) {
-  return SKILL_LABELS[value] || value.replaceAll('_', ' ')
-}
-
-function toScoreValue(value) {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
 }
 
 export default function AnalyticsDashboard() {
-  const {
-    userId: connectedUserId,
-    userLabel,
-    isAuthLoading,
-    isAuthenticated,
-  } = useAnalyticsIdentity()
-  const [userId, setUserId] = useState(connectedUserId)
+  const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
+  const [userId, setUserId] = useState(cid || '')
   const [sessionId, setSessionId] = useState('')
-  const [sessionOptions, setSessionOptions] = useState([])
-  const [data, setData] = useState(DEMO_DATA)
+  const [sessOpts, setSessOpts] = useState([])
+  const [data, setData] = useState(DEMO)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
-  const [integrationMessage, setIntegrationMessage] = useState('')
+  const [msg, setMsg] = useState('')
 
-  const radarScores = useMemo(() => {
-    const averages = data.aggregate?.scores?.averages || {}
-    const feedbackAverages =
-      data.aggregate?.feedback?.skill_rating_averages ||
-      averageFeedbackBySkill(data.aggregate?.feedback?.latest_entries || [])
+  const scores = useMemo(() => {
+    const a = data?.aggregate?.scores?.averages || {}
+    const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     return [
-      ['confidence', averages.confidence_score ?? feedbackAverages.confidence],
-      ['communication_clarity', averages.clarity_score ?? feedbackAverages.communication_clarity],
-      ['empathy', averages.empathy_score ?? feedbackAverages.empathy],
-      ['active_listening', averages.listening_score ?? feedbackAverages.active_listening],
-      ['adaptability', averages.adaptability_score ?? feedbackAverages.adaptability],
-      ['emotional_control', averages.emotional_control_score ?? feedbackAverages.emotional_control],
-      ['professionalism', averages.professionalism_score ?? feedbackAverages.professionalism],
-    ].map(([key, value]) => ({ key, label: labelFor(key), value: toScoreValue(value) }))
-  }, [data.aggregate])
+      ['vocal_command', a.vocal_command ?? a.speech_volume_score ?? a.professionalism_score ?? f.vocal_command],
+      ['speech_fluency', a.speech_fluency ?? a.speech_pace_score ?? a.clarity_score ?? f.speech_fluency],
+      ['presence_engagement', a.presence_engagement ?? a.eye_contact_score ?? a.confidence_score ?? f.presence_engagement],
+      ['emotional_intelligence', a.emotional_intelligence ?? a.empathy_score ?? a.emotional_control_score ?? f.emotional_intelligence],
+    ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
+  }, [data])
 
-  const hasLiveData = useMemo(() => {
-    if (status !== 'live') return true
-    return Boolean(
-      data.aggregate?.scores?.metric_count ||
-        data.aggregate?.feedback?.total_count ||
-        data.blindSpots?.summary?.total_count ||
-        data.trends?.trends?.some((item) => item.points?.length > 1) ||
-        data.predictions?.predictions?.length
-    )
-  }, [data, status])
+  const hasLive = status !== 'live' || Boolean(data?.aggregate?.scores?.metric_count || data?.aggregate?.feedback?.total_count)
 
-  const loadDashboard = async (nextUserId = userId, nextSessionId = sessionId) => {
-    const targetUserId = nextUserId.trim()
-    const targetSessionId = nextSessionId.trim()
-
-    if (!targetUserId) {
-      setError('Enter a user id')
-      return
-    }
-
-    setStatus('loading')
-    setError('')
-    setIntegrationMessage('')
-
+  const load = async (uid, sid) => {
+    const tu = (uid||'').trim(), ts = (sid||'').trim()
+    if (!tu) { setError('Please log in first.'); return }
+    setStatus('loading'); setError(''); setMsg('')
     try {
-      if (targetSessionId) {
-        const integrationResult = await pullAndSaveComponentData(targetUserId, targetSessionId)
-        if (integrationResult.integrated) {
-          setIntegrationMessage('Real component data pulled and saved into analytics for this session.')
-        } else if (integrationResult.checked) {
-          setIntegrationMessage('No component session data was found yet for this session ID.')
-        }
-      }
-
-      const [aggregate, blindSpots, trends, predictions, sessionScores] = await Promise.all([
-        analyticsService.getAggregateByUser(targetUserId),
-        analyticsService.getBlindSpotsByUser(targetUserId),
-        analyticsService.getProgressTrendsByUser(targetUserId),
-        analyticsService.getPredictedOutcomesByUser(targetUserId),
-        targetSessionId ? analyticsService.getSkillScoresBySession(targetSessionId) : Promise.resolve(null),
+      if (ts) { const r = await pull(tu,ts); if(r?.integrated) setMsg('Session data loaded!') }
+      const [ag,bs,tr,pr,ss] = await Promise.all([
+        analyticsService.getAggregateByUser(tu).catch(()=>null),
+        analyticsService.getBlindSpotsByUser(tu).catch(()=>null),
+        analyticsService.getProgressTrendsByUser(tu).catch(()=>null),
+        analyticsService.getPredictedOutcomesByUser(tu).catch(()=>null),
+        ts ? analyticsService.getSkillScoresBySession(ts).catch(()=>null) : null,
       ])
-
-      setData({
-        aggregate: sessionScores ? mergeSessionScores(aggregate, sessionScores) : aggregate,
-        blindSpots,
-        trends,
-        predictions,
-      })
+      setData({ aggregate: ss ? merge(ag,ss) : (ag||DEMO.aggregate), blindSpots: bs||DEMO.blindSpots, trends: tr||DEMO.trends, predictions: pr||DEMO.predictions })
       setStatus('live')
-    } catch (err) {
-      setData(DEMO_DATA)
-      setStatus('demo')
-      setError('Backend data unavailable. Showing demo analytics.')
-    }
+    } catch { setData(DEMO); setStatus('demo'); setError('Could not connect. Showing example data.') }
   }
 
-  const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
-    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
-      optionalRequest(() => analyticsService.getComponentSurveyProfile()),
-      optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
-      optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
-      optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
-      optionalRequest(() => analyticsService.getComponentMcaSessions()),
-    ])
+  const pull = async (tu, ts) => {
+    try {
+      const [sp,ap,rs,rf,ms] = await Promise.all([
+        optionalRequest(()=>analyticsService.getComponentSurveyProfile()),
+        optionalRequest(()=>analyticsService.getComponentAdaptivePlan()),
+        optionalRequest(()=>analyticsService.getComponentRpeSession(ts)),
+        optionalRequest(()=>analyticsService.getComponentRpeFeedback(ts)),
+        optionalRequest(()=>analyticsService.getComponentMcaSessions()),
+      ])
+      const mcs = selectMcaSession(ms.data,ts), nudges = normalizeMcaSessionNudges(mcs)
+      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0,data:nudges} }
+      if (!hasPulledComponentData(src)) return {integrated:false}
+      await analyticsService.integrateCompletedSession({
+        user_id:tu, session_id:ts,
+        scenario_id: rs.data?.scenario_id||rf.data?.scenario_id||ap.data?.primary_scenario,
+        skill_type: ap.data?.skill||rf.data?.skill_type||'communication',
+        survey_profile:normalizeSurveyProfile(sp.data), adaptive_plan:normalizeAdaptivePlan(ap.data),
+        rpe_session:normalizeRpeSession(rs.data), rpe_feedback:normalizeRpeFeedback(rf.data),
+        mca_nudges:normalizeMcaNudges(nudges),
+      })
+      return {integrated:true}
+    } catch { return {integrated:false} }
+  }
 
-    const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
-    const mcaNudges = normalizeMcaSessionNudges(mcaSession)
-    const sources = {
-      surveyProfile,
-      adaptivePlan,
-      rpeSession,
-      rpeFeedback,
-      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
-    }
-    if (!hasPulledComponentData(sources)) {
-      return { checked: true, integrated: false }
-    }
+  const loadSess = async () => {
+    try {
+      const [rs,ms] = await Promise.all([optionalRequest(()=>analyticsService.getComponentRpeSessions()), optionalRequest(()=>analyticsService.getComponentMcaSessions())])
+      const o = normalizeComponentSessionOptions(rs.data,ms.data)||[]
+      setSessOpts(o); const p = selectPreferredComponentSession(o); if(p) setSessionId(p.id); return p
+    } catch { return null }
+  }
 
-    const scenarioId =
-      rpeSession.data?.scenario_id ||
-      rpeFeedback.data?.scenario_id ||
-      adaptivePlan.data?.primary_scenario ||
-      adaptivePlan.data?.selected_scenario_id ||
-      adaptivePlan.data?.scenario_id
+  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess().then(p=>load(cid,p?.id||'')) } }, [cid,isAuthLoading,isAuthenticated])
 
-    const skillType =
-      adaptivePlan.data?.skill ||
-      rpeFeedback.data?.skill_type ||
-      rpeSession.data?.skill_type ||
-      'communication'
+  const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
+  const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
+  const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
+  const overall = fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
 
-    await analyticsService.integrateCompletedSession({
-      user_id: targetUserId,
-      session_id: targetSessionId,
-      scenario_id: scenarioId || undefined,
-      skill_type: skillType,
-      survey_profile: normalizeSurveyProfile(surveyProfile.data),
-      adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
-      rpe_session: normalizeRpeSession(rpeSession.data),
-      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
-      mca_nudges: normalizeMcaNudges(mcaNudges),
+  // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
+  const selfScores = useMemo(() => {
+    const selfMap = {}
+
+    // Source 1: Feedback form self-ratings (per-skill averages from submitted feedback)
+    const feedbackAvgs = data?.aggregate?.feedback?.skill_rating_averages || {}
+    Object.entries(feedbackAvgs).forEach(([skill, rating]) => {
+      if (skill && rating != null) selfMap[skill] = Number(rating)
     })
 
-    return { checked: true, integrated: true }
-  }
-
-  const loadSessionOptions = async () => {
-    const [rpeSessions, mcaSessions] = await Promise.all([
-      optionalRequest(() => analyticsService.getComponentRpeSessions()),
-      optionalRequest(() => analyticsService.getComponentMcaSessions()),
-    ])
-
-    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
-
-    setSessionOptions(options)
-
-    const preferred = selectPreferredComponentSession(options)
-    if (preferred) {
-      setSessionId((current) => current || preferred.id)
+    // Source 2: Blind spot self-ratings (overrides feedback if present)
+    if (Array.isArray(gaps)) {
+      gaps.forEach(b => {
+        if (b.skill_area && b.self_rating != null) selfMap[b.skill_area] = Number(b.self_rating)
+      })
     }
-    return preferred
-  }
 
-  useEffect(() => {
-    if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      setUserId(connectedUserId)
-      loadSessionOptions()
-        .then((preferred) => loadDashboard(connectedUserId, preferred?.id || ''))
-        .catch(() => loadDashboard(connectedUserId, ''))
-    }
-  }, [connectedUserId, isAuthLoading, isAuthenticated])
+    return Object.entries(selfMap)
+      .filter(([, v]) => Number.isFinite(v) && v > 0)
+      .map(([key, value]) => ({ key, label: labelFor(key), value }))
+  }, [data, gaps])
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Analytics Dashboard</h1>
+            <p className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Feedback System & Predictive Analytics</p>
+            <h1 className="text-lg font-bold">My Skills Dashboard</h1>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex items-end gap-3 flex-wrap">
             <AnalyticsNav />
-            <SessionSelect
-              value={sessionId}
-              options={sessionOptions}
-              onChange={setSessionId}
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              <span>Session</span>
+              <select value={sessionId} onChange={e=>setSessionId(e.target.value)}
+                className="h-10 min-w-72 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary">
+                {!sessOpts.length && <option value="">Select a session</option>}
+                {sessOpts.map(o=><option key={o.source+'-'+o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </label>
+            <button onClick={()=>load(userId,sessionId)}
+              className="h-10 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold px-5 rounded-md transition-colors">
+              {status==='loading' ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Search className="h-4 w-4"/>} Load
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+        {/* Status bar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-border bg-muted">
+            <span className={'h-2 w-2 rounded-full '+(status==='live'?'bg-green-500':status==='loading'?'bg-blue-500 animate-pulse':'bg-muted-foreground')}/>
+            {status==='live'?'Live Data':status==='loading'?'Loading...':'Demo Mode'}
+          </span>
+          {error && <span className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 px-3 py-1 rounded-full">{error}</span>}
+          {msg && <span className="text-xs text-green-400 bg-green-400/10 border border-green-400/20 px-3 py-1 rounded-full">{msg}</span>}
+        </div>
+
+        {!hasLive && (
+          <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 rounded-xl px-4 py-3 text-sm text-yellow-300">
+            <AlertTriangle className="h-4 w-4 shrink-0"/>Complete a practice session to see your real results here.
+          </div>
+        )}
+
+        {/* Big Score Banner */}
+        <div className="rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-6" style={{background:'linear-gradient(135deg, #4f46e5, #7c3aed)'}}>
+          <div className="flex-1 text-white">
+            <p className="text-indigo-200 text-sm font-medium mb-1">Your Overall Score</p>
+            <div className="flex items-end gap-2">
+              <span className="text-6xl font-bold">{overall}</span>
+              <span className="text-indigo-200 text-xl mb-2">/100</span>
+            </div>
+            <p className="text-indigo-100 text-sm mt-2">
+              {Number(overall)>=75 ? 'Great job! Keep it up!' : Number(overall)>=50 ? 'Good progress. Keep practising!' : 'Every session makes you better!'}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center text-white">
+            {[{l:'Sessions',v:data?.aggregate?.scores?.metric_count||0,e:'📅'},{l:'Feedback',v:data?.aggregate?.feedback?.total_count||0,e:'💬'},{l:'Insights',v:preds.length,e:'🔍'}].map(x=>
+              <div key={x.l} className="rounded-xl px-4 py-3" style={{background:'rgba(255,255,255,0.15)'}}>
+                <div className="text-xl mb-1">{x.e}</div>
+                <div className="text-xl font-bold">{x.v}</div>
+                <div className="text-indigo-200 text-xs">{x.l}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Skill Score Cards */}
+        <div>
+          <h2 className="text-base font-bold mb-3">📊 Your Skill Scores</h2>
+          <p className="text-xs text-muted-foreground mb-3">Each card shows how well you are doing in a specific skill</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {[...scores, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
+              const v = s.value || 0
+              const isOverall = s.key === 'overall'
+              const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
+              const barColor = isOverall ? '#8b5cf6' : (v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : v > 0 ? '#f59e0b' : '#6b7280')
+              return (
+                <div key={s.key} className={`rounded-xl border border-border bg-card p-4 hover:border-primary/50 transition-colors ${isOverall ? 'ring-2 ring-primary/20' : ''}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-lg">{emoji}</span>
+                    <span className="text-xl font-bold" style={{color: barColor}}>{v > 0 ? v : '--'}</span>
+                  </div>
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold">{s.label}</p>
+                    <p className="text-[10px] text-muted-foreground italic leading-none">{subFor(s.key)}</p>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden bg-muted">
+                    <motion.div initial={{width:0}} animate={{width:v+'%'}} transition={{duration:0.8,delay:i*0.05}}
+                      className="h-full rounded-full" style={{backgroundColor: barColor}}/>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Radar + Blind Spots */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <h2 className="text-base font-bold mb-1">🕸️ Skill Overview Chart</h2>
+            <p className="text-xs text-muted-foreground mb-4">{selfScores.length > 0 ? 'Teal = Observed scores · Amber = Your self-rating' : 'All your skills shown together in one view'}</p>
+            <SkillTwinRadar 
+              scores={scores} 
+              selfScores={selfScores} 
+              overallScore={overall}
             />
-            <Button className="h-10 self-end" onClick={() => loadDashboard(userId, sessionId)}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
+            <p className="text-xs text-muted-foreground mb-4">How you see yourself vs how others see you</p>
+            {gaps.length === 0 ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">🎯</span>
+                <p className="font-semibold">Your self-view matches your performance!</p>
+                <p className="text-muted-foreground text-sm mt-1">No gaps detected. Great self-awareness!</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {gaps.map((b, i) => {
+                  const isOver = b.blind_spot_type === 'overestimation'
+                  return (
+                    <div key={i} className="rounded-xl p-4 border" style={{
+                      borderColor: isOver ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)',
+                      background: isOver ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.08)',
+                    }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-bold text-sm">{isOver ? '⬇️' : '⬆️'} {labelFor(b.skill_area)}</span>
+                        <span className="text-xs font-bold px-2 py-1 rounded-full" style={{
+                          background: isOver ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
+                          color: isOver ? '#fca5a5' : '#93c5fd',
+                        }}>
+                          {isOver ? 'You overestimate' : 'You underestimate'}
+                        </span>
+                      </div>
+                      <div className="flex gap-3 mb-3">
+                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-muted/50">
+                          <p className="text-xs text-muted-foreground mb-1">You Said</p>
+                          <p className="text-2xl font-bold">{b.self_rating}</p>
+                        </div>
+                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-muted/50">
+                          <p className="text-xs text-muted-foreground mb-1">Observed</p>
+                          <p className="text-2xl font-bold">{b.comparison_score}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">💡 {b.recommendation}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
-      </section>
 
-      <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={status} />
-          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
-          {error ? <span className="text-sm text-warning">{error}</span> : null}
-          {integrationMessage ? <span className="text-sm text-secondary">{integrationMessage}</span> : null}
-        </div>
-        {!hasLiveData ? (
-          <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Live API is connected, but no analytics records were found for this user. Add session metrics,
-            self feedback, component performance evidence, and predictions for this user.
+        {/* Progress Trends */}
+        <div className="rounded-2xl border border-border bg-card p-6">
+          <h2 className="text-base font-bold mb-1">📈 How You Are Improving Over Time</h2>
+          <p className="text-xs text-muted-foreground mb-4">See if your skills are going up, staying the same, or need attention</p>
+          <div className="min-h-[280px]">
+            <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
           </div>
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricTile
-            icon={Activity}
-            label="Sessions"
-            value={
-              data.aggregate?.scores?.metric_count ||
-              data.aggregate?.feedback?.session_count ||
-              countFeedbackSessions(data.aggregate?.feedback?.latest_entries || []) ||
-              0
-            }
-          />
-          <MetricTile icon={Target} label="Avg Rating" value={formatScore(data.aggregate?.feedback?.average_rating)} />
-          <MetricTile icon={ShieldAlert} label="Blind Spots" value={data.blindSpots?.summary?.total_count || 0} />
-          <MetricTile icon={BrainCircuit} label="High Risk" value={data.predictions?.summary?.high_risk_count || 0} />
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
-          <Panel title="Skill Twin" icon={BarChart3}>
-            <SkillTwinRadar scores={radarScores} />
-          </Panel>
-
-          <Panel title="Prediction Risk" icon={BrainCircuit}>
-            <RiskList predictions={data.predictions?.predictions || []} />
-          </Panel>
+        {/* Predictions */}
+        <div className="rounded-2xl border border-border bg-card p-6">
+          <h2 className="text-base font-bold mb-1">🔮 What to Expect Next</h2>
+          <p className="text-xs text-muted-foreground mb-4">AI predictions based on your recent sessions</p>
+          {preds.length === 0 ? (
+            <div className="text-center py-8">
+              <span className="text-4xl block mb-2">🤖</span>
+              <p className="text-muted-foreground text-sm">Complete more sessions to get predictions</p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {preds.slice(0, 4).map((p, i) => {
+                const up = p.trend_label === 'improving'
+                const borderColor = up ? 'rgba(16,185,129,0.3)' : p.risk_level === 'high' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'
+                const bgColor = up ? 'rgba(16,185,129,0.08)' : p.risk_level === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'
+                return (
+                  <div key={i} className="rounded-xl p-4 border" style={{borderColor, background: bgColor}}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-2xl">{up ? '📈' : '⚠️'}</span>
+                      <div>
+                        <p className="font-bold text-sm">{labelFor(p.predicted_skill)}</p>
+                        <p className="text-xs text-muted-foreground">{up ? 'Looking good!' : 'Needs attention'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex-1 text-center rounded-lg py-2 border border-border bg-muted/50">
+                        <p className="text-[10px] text-muted-foreground uppercase">Now</p>
+                        <p className="text-lg font-bold">{fmtScore(p.current_score)}</p>
+                      </div>
+                      <span className="text-muted-foreground font-bold">→</span>
+                      <div className="flex-1 text-center rounded-lg py-2 border border-border bg-muted/50">
+                        <p className="text-[10px] text-muted-foreground uppercase">Predicted</p>
+                        <p className="text-lg font-bold" style={{color: up ? '#10b981' : '#ef4444'}}>{fmtScore(p.predicted_score)}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">💡 {p.recommendation}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Progress Trends" icon={LineChart}>
-            <ProgressTrendVisualization trends={data.trends?.trends || []} labelFor={labelFor} />
-          </Panel>
-
-          <Panel title="Blind Spot Detection" icon={AlertTriangle}>
-            <BlindSpotList blindSpots={data.blindSpots?.blind_spots || []} />
-          </Panel>
-        </div>
-      </section>
-    </main>
-  )
-}
-
-function mergeSessionScores(aggregate, sessionScores) {
-  const scores = sessionScores?.skill_scores || {}
-  return {
-    ...aggregate,
-    scores: {
-      ...(aggregate?.scores || {}),
-      averages: {
-        ...(aggregate?.scores?.averages || {}),
-        confidence_score: scores.confidence,
-        clarity_score: scores.communication_clarity,
-        empathy_score: scores.empathy,
-        listening_score: scores.active_listening,
-        adaptability_score: scores.adaptability,
-        emotional_control_score: scores.emotional_control,
-        professionalism_score: scores.professionalism,
-        overall_score: sessionScores.overall_score,
-      },
-    },
-  }
-}
-
-function averageFeedbackBySkill(entries) {
-  const grouped = entries.reduce((acc, entry) => {
-    if (!entry.skill_area || entry.rating === null || entry.rating === undefined) return acc
-    const key = entry.skill_area
-    acc[key] = acc[key] || []
-    acc[key].push(Number(entry.rating))
-    return acc
-  }, {})
-
-  return Object.fromEntries(
-    Object.entries(grouped).map(([skill, ratings]) => [
-      skill,
-      ratings.reduce((total, rating) => total + rating, 0) / ratings.length,
-    ])
-  )
-}
-
-function countFeedbackSessions(entries) {
-  return new Set(entries.map((entry) => entry.session_id).filter(Boolean)).size
-}
-
-function SessionSelect({ value, options, onChange }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>Session</span>
-      <select
-        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.length ? null : <option value="">No session yet</option>}
-        {options.map((option) => (
-          <option key={`${option.source}-${option.id}`} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
-function Input({ label, value, onChange, placeholder }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  )
-}
-
-function StatusPill({ status }) {
-  const label = status === 'live' ? 'Live API data' : status === 'loading' ? 'Loading analytics' : 'Demo data'
-  return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-      {label}
-    </span>
-  )
-}
-
-function MetricTile({ icon: Icon, label, value }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <Icon className="mb-3 h-4 w-4 text-secondary" />
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-    </div>
-  )
-}
-
-function Panel({ title, icon: Icon, children }) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
-        <h2 className="text-base font-semibold">{title}</h2>
       </div>
-      {children}
-    </section>
-  )
-}
-
-function RiskList({ predictions }) {
-  if (!predictions.length) return <EmptyState text="No predictions yet" />
-
-  return (
-    <div className="space-y-3">
-      {predictions.slice(0, 5).map((item) => (
-        <div key={item.predicted_skill} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelFor(item.predicted_skill)}</span>
-            <RiskBadge risk={item.risk_level} />
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-            <span>Current {formatScore(item.current_score)}</span>
-            <span>Next {formatScore(item.predicted_score)}</span>
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">{item.recommendation}</p>
-        </div>
-      ))}
     </div>
   )
 }
 
-function BlindSpotList({ blindSpots }) {
-  if (!blindSpots.length) return <EmptyState text="No blind spots detected" />
-
-  return (
-    <div className="space-y-3">
-      {blindSpots.map((item) => (
-        <div key={item.skill_area} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelFor(item.skill_area)}</span>
-            <SeverityBadge severity={item.severity} />
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {item.blind_spot_type} gap of {item.gap} against {item.comparison_source}
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">{item.recommendation}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function RiskBadge({ risk }) {
-  const className = risk === 'high' ? 'bg-destructive/20 text-destructive' : risk === 'medium' ? 'bg-warning/20 text-warning' : 'bg-success/20 text-success'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{risk}</span>
-}
-
-function SeverityBadge({ severity }) {
-  const className = severity === 'high' ? 'bg-destructive/20 text-destructive' : severity === 'medium' ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{severity}</span>
-}
-
-function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{text}</div>
-}
-
-function formatScore(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
-  return Math.round(Number(value))
+function merge(agg, ss) {
+  if (!ss?.skill_scores) return agg; const s = ss.skill_scores
+  return {...agg, scores:{...agg?.scores, averages:{...agg?.scores?.averages, confidence_score:s.confidence, clarity_score:s.communication_clarity, empathy_score:s.empathy, listening_score:s.active_listening, adaptability_score:s.adaptability, emotional_control_score:s.emotional_control, professionalism_score:s.professionalism, overall_score:ss.overall_score}}}
 }
