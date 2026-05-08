@@ -18,12 +18,12 @@ export const analyticsService = {
   getFeedbackAnalysisBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/feedback-analysis`).then(unwrap),
 
-  getProgressTrendsByUser: (userId) =>
-    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends`).then(unwrap),
+  getProgressTrendsByUser: (userId, params = {}) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends`, { params }).then(unwrap),
 
-  getProgressTrendBySkill: (userId, skillArea) =>
+  getProgressTrendBySkill: (userId, skillArea, params = {}) =>
     api
-      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends/${encodeURIComponent(skillArea)}`)
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/progress-trends/${encodeURIComponent(skillArea)}`, { params })
       .then(unwrap),
 
   getPredictedOutcomesByUser: (userId) =>

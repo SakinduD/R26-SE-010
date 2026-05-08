@@ -42,9 +42,11 @@ def analyze_user_progress_trends(
     db: Session,
     user_id: str,
     limit: int = 100,
+    session_id: str | None = None,
 ) -> ProgressTrendResult:
-    metrics = _query_user_metrics(db, user_id, limit)
-    feedback = _query_user_feedback(db, user_id, limit)
+    cutoff_at = _session_cutoff_at(db, user_id, session_id)
+    metrics = _query_user_metrics(db, user_id, limit, cutoff_at)
+    feedback = _query_user_feedback(db, user_id, limit, cutoff_at)
     trends = [
         _build_skill_trend(skill_area, field, metrics, feedback)
         for skill_area, field in TREND_SCORE_FIELDS.items()
@@ -57,6 +59,7 @@ def analyze_user_skill_trend(
     user_id: str,
     skill_area: str,
     limit: int = 100,
+    session_id: str | None = None,
 ) -> SkillTrendItem:
     normalized_skill = _normalize_skill_area(skill_area)
     if normalized_skill not in TREND_SCORE_FIELDS:
@@ -68,8 +71,9 @@ def analyze_user_skill_trend(
             recommendation=f"No supported score field exists for {normalized_skill}.",
         )
 
-    metrics = _query_user_metrics(db, user_id, limit)
-    feedback = _query_user_feedback(db, user_id, limit)
+    cutoff_at = _session_cutoff_at(db, user_id, session_id)
+    metrics = _query_user_metrics(db, user_id, limit, cutoff_at)
+    feedback = _query_user_feedback(db, user_id, limit, cutoff_at)
     return _build_skill_trend(normalized_skill, TREND_SCORE_FIELDS[normalized_skill], metrics, feedback)
 
 
@@ -77,10 +81,14 @@ def _query_user_metrics(
     db: Session,
     user_id: str,
     limit: int,
+    cutoff_at: datetime | None = None,
 ) -> list[AnalyticsSessionMetric]:
+    query = db.query(AnalyticsSessionMetric).filter(AnalyticsSessionMetric.user_id == user_id)
+    if cutoff_at is not None:
+        query = query.filter(AnalyticsSessionMetric.created_at <= cutoff_at)
+
     return (
-        db.query(AnalyticsSessionMetric)
-        .filter(AnalyticsSessionMetric.user_id == user_id)
+        query
         .order_by(AnalyticsSessionMetric.created_at.asc(), AnalyticsSessionMetric.id.asc())
         .limit(limit)
         .all()
@@ -91,14 +99,43 @@ def _query_user_feedback(
     db: Session,
     user_id: str,
     limit: int,
+    cutoff_at: datetime | None = None,
 ) -> list[FeedbackEntry]:
-    return (
+    query = db.query(FeedbackEntry).filter(FeedbackEntry.user_id == user_id)
+    if cutoff_at is not None:
+        query = query.filter(FeedbackEntry.created_at <= cutoff_at)
+
+    return query.order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc()).limit(limit).all()
+
+
+def _session_cutoff_at(
+    db: Session,
+    user_id: str,
+    session_id: str | None,
+) -> datetime | None:
+    if not session_id:
+        return None
+
+    metric = (
+        db.query(AnalyticsSessionMetric)
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.session_id == session_id)
+        .order_by(AnalyticsSessionMetric.created_at.desc(), AnalyticsSessionMetric.id.desc())
+        .first()
+    )
+    feedback = (
         db.query(FeedbackEntry)
         .filter(FeedbackEntry.user_id == user_id)
-        .order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc())
-        .limit(limit)
-        .all()
+        .filter(FeedbackEntry.session_id == session_id)
+        .order_by(FeedbackEntry.created_at.desc(), FeedbackEntry.id.desc())
+        .first()
     )
+    timestamps = [
+        item.created_at
+        for item in (metric, feedback)
+        if item is not None and item.created_at is not None
+    ]
+    return max(timestamps) if timestamps else None
 
 
 def _build_result(user_id: str, trends: list[SkillTrendItem]) -> ProgressTrendResult:
