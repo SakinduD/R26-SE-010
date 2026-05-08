@@ -148,7 +148,11 @@ def end_session(
     session.mechanical_averages = body.mechanical_averages or {}
     
     # Calculate overall score
-    session.overall_score = calculate_overall_score(nudge_summary, session.emotion_distribution)
+    session.overall_score = calculate_overall_score(
+        nudge_summary, 
+        session.emotion_distribution,
+        duration_seconds=session.duration_seconds
+    )
     
     # Determine dominant emotion
     if session.emotion_distribution:

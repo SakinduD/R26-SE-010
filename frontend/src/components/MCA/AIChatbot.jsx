@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { Mic, Bot, User, Volume2, Activity, X, Play, Square } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -21,11 +22,40 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const [sessionId, setSessionId] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionStarting, setSessionStarting] = useState(false);
+  const [sessionEnding, setSessionEnding] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
 
+  useEffect(() => {
+    if (onSessionStateChange) {
+      onSessionStateChange(sessionActive, sessionStarting, sessionEnding);
+    }
+  }, [sessionActive, sessionStarting, sessionEnding, onSessionStateChange]);
+
+  const lastProcessedStart = useRef(startSignal);
+  const lastProcessedStop = useRef(stopSignal);
+
+  useEffect(() => {
+    if (startSignal && startSignal !== lastProcessedStart.current) {
+      lastProcessedStart.current = startSignal;
+      if (!sessionActive && !sessionStarting) {
+        handleStartSession();
+      }
+    }
+  }, [startSignal, sessionActive, sessionStarting]);
+
+  useEffect(() => {
+    if (stopSignal && stopSignal !== lastProcessedStop.current) {
+      lastProcessedStop.current = stopSignal;
+      if (sessionActive) {
+        handleEndSession();
+      }
+    }
+  }, [stopSignal, sessionActive]);
+
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
+  const emotionCountsRef = useRef({}); // Track distribution for scoring
   const chatTurnsRef = useRef(0);
 
   const isContinuousRef = useRef(false);
@@ -78,23 +108,37 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   const handleStartSession = async () => {
     if (sessionActive || sessionStarting) return;
+    if (!isCameraActive) {
+      toast.error("Please turn on your camera first to start the AI session.", {
+        description: "Intelligence core needs visual metrics for behavioral insights."
+      });
+      return;
+    }
     setSessionStarting(true);
     try {
       const session = await mcaService.startSession('ai');
-      setSessionId(session.id);
-      setSessionActive(true);
-      nudgeLogRef.current = [];
-      chatTurnsRef.current = 0;
-      setSessionDuration(0);
-      
-      // Start duration timer
-      sessionTimerRef.current = setInterval(() => {
-        setSessionDuration(prev => prev + 1);
-      }, 1000);
+      if (session.id && session.status === 'active') {
+        setSessionId(session.id);
+        setSessionActive(true);
+        nudgeLogRef.current = [];
+        emotionCountsRef.current = {};
+        chatTurnsRef.current = 0;
+        setSessionDuration(0);
+        
+        // Start duration timer
+        sessionTimerRef.current = setInterval(() => {
+          setSessionDuration(prev => prev + 1);
+        }, 1000);
 
-      addBotMessage("Great — I've started a new session for you. Let's begin! Tell me something you'd like to work on or talk about.");
+        toast.success("AI session started successfully.");
+        addBotMessage("Great — I've started a new session for you. Let's begin! Tell me something you'd like to work on or talk about.");
+      } else {
+        toast.error("Failed to initialize AI session on server.");
+        setSessionActive(false);
+      }
     } catch (err) {
       console.error('Failed to start MCA session:', err);
+      toast.error("An error occurred while connecting to the AI core.");
       setSessionId(null);
       setSessionActive(false);
     } finally {
@@ -103,7 +147,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   };
 
   const handleEndSession = async () => {
-    if (!sessionActive) return;
+    if (!sessionActive || sessionEnding) return;
+    setSessionEnding(true);
 
     // Stop mic if active
     if (isListening) {
@@ -119,14 +164,33 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
     if (sessionId) {
       try {
+        // Calculate distribution
+        const total = Object.values(emotionCountsRef.current).reduce((a, b) => a + b, 0);
+        const distribution = {};
+        if (total > 0) {
+          Object.entries(emotionCountsRef.current).forEach(([emo, count]) => {
+            distribution[emo.toLowerCase()] = count / total;
+          });
+        }
+
         const resultData = {
           total_nudges: nudgeLogRef.current.length,
           chat_turns: chatTurnsRef.current,
         };
-        await mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current);
+        const res = await mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current, distribution);
+        if (res.id && res.status === 'completed') {
+          toast.success("AI session ended and scores calculated.");
+        } else {
+          toast.error("Session ended but data persistence may be incomplete.");
+        }
       } catch (err) {
         console.error('Failed to end MCA session:', err);
+        toast.error("Failed to formally end session. Please check your connection.");
+      } finally {
+        setSessionEnding(false);
       }
+    } else {
+      setSessionEnding(false);
     }
 
     setSessionActive(false);
@@ -162,6 +226,17 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       sessionTimerRef.current = null;
     }
     window.speechSynthesis.cancel();
+    
+    // Formal end for backend if unmounting during active session
+    if (sessionActive && sessionId) {
+      const resultData = {
+        total_nudges: nudgeLogRef.current.length,
+        chat_turns: chatTurnsRef.current,
+        unmounted: true
+      };
+      mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current)
+        .catch(err => console.error('[AIChatbot] Unmount end failed:', err));
+    }
   };
 
   const startListening = async () => {
@@ -220,6 +295,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         try {
           const data = JSON.parse(event.data);
           // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
+          if (data.metrics.emotion) {
+            const emo = data.metrics.emotion.toLowerCase();
+            emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
+          }
+
           if (data.metrics?.nudge) {
             const nudgeEntry = {
               message: data.metrics.nudge,
@@ -349,10 +429,25 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         }
       });
     } catch (error) {
+      console.error('[AIChatbot] Response Error:', error);
+      
+      let friendlyMsg = "I'm having a little trouble connecting to my intelligence engine right now. Please try again in a moment.";
+      const errText = error.message.toLowerCase();
+
+      if (errText.includes('rate limit') || errText.includes('quota') || errText.includes('429')) {
+        friendlyMsg = "I've been doing a lot of thinking lately! My processing quota is temporarily full. Please wait a minute and try again.";
+      } else if (errText.includes('timeout') || errText.includes('network') || errText.includes('offline')) {
+        friendlyMsg = "It looks like our connection was interrupted. Check your internet and try speaking to me again.";
+      } else if (errText.includes('token') || errText.includes('auth') || errText.includes('401') || errText.includes('403')) {
+        friendlyMsg = "Your secure session has expired. Please refresh the page to keep our conversation going.";
+      } else if (errText.includes('busy') || errText.includes('overloaded') || errText.includes('503')) {
+        friendlyMsg = "My circuits are a bit overloaded with other conversations right now. Give me a few seconds to catch my breath!";
+      }
+
       const errorMsg = {
         id: Date.now() + 1,
         type: 'bot',
-        text: `Error: ${error.message}`,
+        text: friendlyMsg,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -420,28 +515,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           )}
         </div>
 
-        {/* Session Controls */}
+        {/* Session Status & Voice Link */}
         <div className="flex items-center gap-2">
-          {!sessionActive ? (
-            <button
-              id="mca-start-session-btn"
-              onClick={handleStartSession}
-              disabled={sessionStarting}
-              className="flex items-center gap-2 text-[9px] font-black text-white bg-primary px-3 py-1.5 rounded-lg border border-primary/30 uppercase tracking-[0.15em] hover:bg-primary/80 transition-all disabled:opacity-50"
-            >
-              <Play size={10} />
-              {sessionStarting ? 'Starting...' : 'Start Session'}
-            </button>
-          ) : (
-            <button
-              id="mca-end-session-btn"
-              onClick={handleEndSession}
-              className="flex items-center gap-2 text-[9px] font-black text-white bg-destructive/80 px-3 py-1.5 rounded-lg border border-destructive/30 uppercase tracking-[0.15em] hover:bg-destructive transition-all"
-            >
-              <Square size={10} />
-              End Session
-            </button>
-          )}
           <div className="flex items-center gap-2.5 text-[9px] font-black text-primary bg-primary/5 px-3 py-1.5 rounded-lg border border-primary/10 uppercase tracking-[0.2em]">
             <Volume2 size={12} />
             Voice_Link
@@ -503,22 +578,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           <div className="absolute inset-0 bg-primary/5 animate-pulse pointer-events-none"></div>
         )}
 
-        {!sessionActive && (
-          <div className="absolute inset-0 bg-card/70 backdrop-blur-sm flex items-center justify-center z-20 rounded-b-3xl">
-            <div className="text-center">
-              <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mb-3">
-                Start a session to enable voice input
-              </p>
-              <button
-                onClick={handleStartSession}
-                disabled={sessionStarting}
-                className="bg-primary text-white px-5 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-              >
-                {sessionStarting ? 'Starting...' : 'Start Session'}
-              </button>
-            </div>
-          </div>
-        )}
+        {/* No overlay - session managed globally */}
 
         {sessionActive ? (
           <div className="flex items-center gap-6 relative z-10">

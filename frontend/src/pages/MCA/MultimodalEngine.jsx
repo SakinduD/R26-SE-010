@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import ModeSwitcher from '../../components/MCA/ModeSwitcher';
 import AIChatbot from '../../components/MCA/AIChatbot';
 import { useSearchParams } from 'react-router-dom';
@@ -10,6 +11,16 @@ import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
 
 const MultimodalEngine = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,6 +32,9 @@ const MultimodalEngine = () => {
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
   const [aiStopSignal, setAiStopSignal] = useState(0);
+  const [aiStartSignal, setAiStartSignal] = useState(0);
+  const [aiSessionActive, setAiSessionActive] = useState(false);
+  const aiSessionActiveRef = useRef(false);
   const [nudges, setNudges] = useState([]); // State for coaching nudges stack
   const [metrics, setMetrics] = useState({ 
     ear: 0, 
@@ -50,7 +64,40 @@ const MultimodalEngine = () => {
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
   const liveNudgeLogRef = useRef([]);
+  const liveEmotionCountsRef = useRef({}); // Track distribution for scoring
   const activeModeRef = useRef(activeMode);
+  const [aiSessionStarting, setAiSessionStarting] = useState(false);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
+  const [pendingModeSwitch, setPendingModeSwitch] = useState(null);
+  const [isLiveStarting, setIsLiveStarting] = useState(false);
+  const [isLiveEnding, setIsLiveEnding] = useState(false);
+  const [aiSessionEnding, setAiSessionEnding] = useState(false);
+
+  const handleModeChangeRequest = (mode, executeSwitch) => {
+    if (liveSessionIdRef.current || (activeModeRef.current === 'ai' && aiSessionActiveRef.current)) {
+      setPendingModeSwitch(() => executeSwitch);
+      setIsAlertOpen(true);
+    } else {
+      executeSwitch();
+    }
+  };
+
+  const handleConfirmModeSwitch = () => {
+    // Force-end live session without second confirmation
+    if (liveSessionIdRef.current) realEndLiveSession();
+    
+    // For AI mode, the cleanup function in AIChatbot now handles formal end on unmount
+    if (pendingModeSwitch) pendingModeSwitch();
+    
+    setIsAlertOpen(false);
+    setPendingModeSwitch(null);
+  };
+
+  const handleCancelModeSwitch = () => {
+    setIsAlertOpen(false);
+    setPendingModeSwitch(null);
+  };
   
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
 
@@ -135,12 +182,7 @@ const MultimodalEngine = () => {
     canvasCtx.restore();
   }, []);
 
-  useEffect(() => {
-    return () => {
-      stopAudioCapture();
-      endLiveSession();
-    };
-  }, []);
+
 
   const startAudioCapture = async () => {
     try {
@@ -204,6 +246,11 @@ const MultimodalEngine = () => {
               isSyncing: true
             }));
 
+            if (data.metrics.emotion) {
+              const emo = data.metrics.emotion.toLowerCase();
+              liveEmotionCountsRef.current[emo] = (liveEmotionCountsRef.current[emo] || 0) + 1;
+            }
+
             if (data.metrics.nudge) {
               handleNudge(
                 data.metrics.nudge,
@@ -256,23 +303,43 @@ const MultimodalEngine = () => {
   };
 
   const startLiveSession = async () => {
-    if (liveSessionId || sessionTimerRef.current) return;
+    if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
+    
+    if (!isCameraActive || !liveMicActive) {
+      toast.error("Please turn on your camera and microphone first to start the live session.", {
+        description: "Behavioral sensing requires both inputs for real-time analysis."
+      });
+      return;
+    }
+
+    setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
+    liveEmotionCountsRef.current = {};
     setSessionDuration(0);
     try {
       const session = await mcaService.startSession('live');
-      setLiveSessionId(session.id);
-      liveSessionIdRef.current = session.id;
-      sessionTimerRef.current = setInterval(() => {
-        setSessionDuration(prev => prev + 1);
-      }, 1000);
+      if (session.id && session.status === 'active') {
+        setLiveSessionId(session.id);
+        liveSessionIdRef.current = session.id;
+        sessionTimerRef.current = setInterval(() => {
+          setSessionDuration(prev => prev + 1);
+        }, 1000);
+        toast.success("Live session started.");
+      } else {
+        toast.error("Failed to initialize session on server.");
+      }
     } catch (err) {
       console.warn('[Live] Session start failed:', err);
+      toast.error("Failed to start session. Please try again.");
+    } finally {
+      setIsLiveStarting(false);
     }
   };
 
-  const endLiveSession = async () => {
+  const realEndLiveSession = async () => {
     const sid = liveSessionIdRef.current;
+    if (isLiveEnding) return;
+    setIsLiveEnding(true);
     if (sessionTimerRef.current) {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
@@ -285,19 +352,56 @@ const MultimodalEngine = () => {
       setLiveSessionId(null);
       liveSessionIdRef.current = null;
       try {
+        // Calculate distribution
+        const total = Object.values(liveEmotionCountsRef.current).reduce((a, b) => a + b, 0);
+        const distribution = {};
+        if (total > 0) {
+          Object.entries(liveEmotionCountsRef.current).forEach(([emo, count]) => {
+            distribution[emo.toLowerCase()] = count / total;
+          });
+        }
+
         await mcaService.endSession(
           sid,
           liveNudgeLogRef.current,
           { 
             total_nudges: liveNudgeLogRef.current.length,
             final_emotion: metrics.emotion
+          },
+          null,
+          distribution,
+          { 
+            avg_ear: metrics.ear,
+            avg_mar: metrics.mar,
+            avg_pitch: metrics.pose.pitch
           }
         );
+        if (res.id && res.status === 'completed') {
+          toast.success("Live session ended and data saved.");
+        } else {
+          toast.error("Session closed but data persistence may be incomplete.");
+        }
       } catch (err) {
         console.warn('[Live] Session end failed:', err);
+        toast.error("Failed to formally end session. Please check your connection.");
+      } finally {
+        setIsLiveEnding(false);
       }
+    } else {
+      setIsLiveEnding(false);
     }
   };
+
+  const endLiveSession = () => {
+    setIsStopAlertOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopAudioCapture();
+      realEndLiveSession();
+    };
+  }, []);
 
   useEffect(() => {
     if (aiMicActive && liveMicActive) {
@@ -420,8 +524,54 @@ const MultimodalEngine = () => {
 
         {/* Mode Switcher Section */}
         <div className="flex justify-center">
-          <ModeSwitcher />
+          <ModeSwitcher onModeChangeRequest={handleModeChangeRequest} />
         </div>
+
+        <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End Active Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You are currently in an active session. Switching modes will automatically end your session and save your data. Do you want to continue?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={handleCancelModeSwitch}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmModeSwitch} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                End Session & Switch
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Session End Confirmation */}
+        <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to end this session? All behavioral metrics and emotion data will be saved to your dashboard.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={() => {
+                  if (activeMode === 'live') {
+                    // We need a force-end bypass for the confirmation
+                    realEndLiveSession();
+                  } else {
+                    setAiStopSignal(Date.now());
+                  }
+                  setIsStopAlertOpen(false);
+                }} 
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                End Session
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Dynamic Content Layout - Stretches to fill screen */}
         <div className={clsx(
@@ -483,13 +633,22 @@ const MultimodalEngine = () => {
                 {/* Overlay UI (Only for enabling camera when off) */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
                   <div className="flex flex-col gap-4 pointer-events-auto">
-                    {liveSessionId && !isCameraActive && (
+                    {!isCameraActive && (
                       <button
                         onClick={toggleCamera}
-                        className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                        className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
-                        <Video size={18} />
+                        <Video size={14} />
                         Enable Video Sensing
+                      </button>
+                    )}
+                    {!liveMicActive && (
+                      <button
+                        onClick={toggleLiveMic}
+                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                      >
+                        <Mic size={14} />
+                        Enable Audio Sensing
                       </button>
                     )}
                   </div>
@@ -510,72 +669,120 @@ const MultimodalEngine = () => {
 
                   <div className="flex items-center gap-3">
                     {/* Primary Session Controls */}
-                    {activeMode === 'live' && (
+                    {activeMode === 'live' ? (
                       <>
                         {!liveSessionId ? (
                           <button
                             onClick={startLiveSession}
-                            className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2"
+                            disabled={isLiveStarting}
+                            className={clsx(
+                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              isLiveStarting && "opacity-70 cursor-wait"
+                            )}
                           >
-                            <Play size={14} fill="currentColor" />
-                            Start Session
+                            {isLiveStarting ? (
+                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                            ) : (
+                              <Play size={14} fill="currentColor" />
+                            )}
+                            {isLiveStarting ? "Starting..." : "Start Session"}
                           </button>
                         ) : (
                           <button
-                            onClick={endLiveSession}
-                            className="bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2"
-                          >
-                            <Square size={14} fill="currentColor" />
-                            Stop Session
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    {/* Secondary Controls (Tools) - ONLY SHOW IF SESSION IS ACTIVE */}
-                    {liveSessionId && (
-                      <>
-                        <div className="h-6 w-px bg-border/50 mx-2 hidden sm:block"></div>
-                        
-                        {/* Camera Toggle */}
-                        <button
-                          onClick={toggleCamera}
-                          className={clsx(
-                            "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                            isCameraActive ? "bg-success/10 text-success border-success/30 hover:bg-success/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
-                          )}
-                        >
-                          <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
-                          {isCameraActive ? "Stop Cam" : "Start Cam"}
-                        </button>
-
-                        {/* Mesh Overlay Toggle */}
-                        {isCameraActive && (
-                          <button
-                            onClick={toggleMesh}
+                            onClick={() => setIsStopAlertOpen(true)}
+                            disabled={isLiveEnding}
                             className={clsx(
-                              "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                              showMesh ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              isLiveEnding && "opacity-70 cursor-wait"
                             )}
                           >
-                            <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
-                            Mesh
+                            {isLiveEnding ? (
+                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
+                            ) : (
+                              <Square size={14} fill="currentColor" />
+                            )}
+                            {isLiveEnding ? "Ending..." : "Stop Session"}
                           </button>
                         )}
-                        
-                        {/* Audio Toggle */}
-                        <button
-                          onClick={toggleLiveMic}
-                          className={clsx(
-                            "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                            liveMicActive ? "bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
-                          )}
-                        >
-                          <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
-                          {liveMicActive ? "Stop Mic" : "Enable Mic"}
-                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {!aiSessionActive ? (
+                          <button
+                            onClick={() => setAiStartSignal(Date.now())}
+                            disabled={aiSessionStarting}
+                            className={clsx(
+                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              aiSessionStarting && "opacity-70 cursor-wait"
+                            )}
+                          >
+                            {aiSessionStarting ? (
+                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                            ) : (
+                              <Play size={14} fill="currentColor" />
+                            )}
+                            {aiSessionStarting ? "Starting AI..." : "Start AI Session"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setIsStopAlertOpen(true)}
+                            disabled={aiSessionEnding}
+                            className={clsx(
+                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              aiSessionEnding && "opacity-70 cursor-wait"
+                            )}
+                          >
+                            {aiSessionEnding ? (
+                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
+                            ) : (
+                              <Square size={14} fill="currentColor" />
+                            )}
+                            {aiSessionEnding ? "Ending AI..." : "Stop AI Session"}
+                          </button>
+                        )}
                       </>
                     )}
+
+                    {/* Secondary Controls (Tools) - ALWAYS SHOW SO USER CAN ENABLE THEM BEFORE SESSION */}
+                    <div className="h-6 w-px bg-border/50 mx-2 hidden sm:block"></div>
+                    
+                    {/* Camera Toggle */}
+                    <button
+                      onClick={toggleCamera}
+                      className={clsx(
+                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                        isCameraActive ? "bg-success/10 text-success border-success/30 hover:bg-success/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      )}
+                    >
+                      <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
+                      {isCameraActive ? "Stop Cam" : "Start Cam"}
+                    </button>
+
+                    {/* Mesh Overlay Toggle */}
+                    {isCameraActive && (
+                      <button
+                        onClick={toggleMesh}
+                        className={clsx(
+                          "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                          showMesh ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                        )}
+                      >
+                        <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
+                        Mesh
+                      </button>
+                    )}
+                    
+                    {/* Audio Toggle */}
+                    <button
+                      onClick={toggleLiveMic}
+                      className={clsx(
+                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                        liveMicActive ? "bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      )}
+                    >
+                      <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
+                      {liveMicActive ? "Stop Mic" : "Enable Mic"}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -701,6 +908,14 @@ const MultimodalEngine = () => {
                 onNudge={handleNudge}
                 metrics={metrics}
                 stopSignal={aiStopSignal}
+                startSignal={aiStartSignal}
+                isCameraActive={isCameraActive}
+                onSessionStateChange={(isActive, isStarting, isEnding) => {
+                  setAiSessionActive(isActive);
+                  aiSessionActiveRef.current = isActive;
+                  setAiSessionStarting(isStarting);
+                  setAiSessionEnding(isEnding);
+                }}
               />
             </div>
           )}
