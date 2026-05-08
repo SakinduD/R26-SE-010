@@ -17,10 +17,13 @@ import {
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
+  overall: 'Overall',
   confidence: 'Confidence',
   communication_clarity: 'Communication Clarity',
   empathy: 'Empathy',
@@ -28,7 +31,10 @@ const SKILL_LABELS = {
   adaptability: 'Adaptability',
   emotional_control: 'Emotional Control',
   professionalism: 'Professionalism',
-  overall: 'Overall',
+  eye_contact: 'Eye Contact',
+  speech_pace: 'Speech Pace',
+  speech_volume: 'Speech Volume',
+  response_quality: 'Response Quality',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -69,6 +75,16 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+function hasPredictionEvidence(item) {
+  if (!item) return false
+
+  return (
+    Number(item.evidence_points || 0) > 0 ||
+    (item.current_score !== null && item.current_score !== undefined) ||
+    (item.predicted_score !== null && item.predicted_score !== undefined)
+  )
+}
+
 export default function PredictiveAnalytics() {
   const params = useParams()
   const {
@@ -78,7 +94,9 @@ export default function PredictiveAnalytics() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
-  const [selectedSkill, setSelectedSkill] = useState('confidence')
+  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
   const [skillPrediction, setSkillPrediction] = useState(null)
   const [status, setStatus] = useState('demo')
@@ -89,12 +107,18 @@ export default function PredictiveAnalytics() {
     [data.predictions]
   )
 
+  const availablePredictionSkills = useMemo(
+    () => [...new Set((data.predictions || []).map((item) => item.predicted_skill).filter(Boolean))],
+    [data.predictions]
+  )
+
   const highPriority = data.summary?.highest_risk_prediction || sortedPredictions[0]
   const hasLiveData = status !== 'live' || Boolean(data.predictions?.length)
   const isMlModel = data.model_version === 'ml-predictive-behavioral-analytics-v1'
 
-  const loadPredictions = async (nextUserId = userId) => {
+  const loadPredictions = async (nextUserId = userId, nextSessionId = selectedSessionId) => {
     const targetUserId = nextUserId.trim()
+    const requestParams = nextSessionId ? { session_id: nextSessionId } : {}
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -106,8 +130,8 @@ export default function PredictiveAnalytics() {
 
     try {
       const [predictionResult, selectedResult] = await Promise.all([
-        analyticsService.getPredictedOutcomesByUser(targetUserId),
-        analyticsService.getPredictedOutcomeBySkill(targetUserId, selectedSkill),
+        analyticsService.getPredictedOutcomesByUser(targetUserId, requestParams),
+        analyticsService.getPredictedOutcomeBySkill(targetUserId, selectedSkill, requestParams),
       ])
       setData(predictionResult)
       setSkillPrediction(selectedResult)
@@ -125,10 +149,35 @@ export default function PredictiveAnalytics() {
   }, [connectedUserId])
 
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      loadPredictions(connectedUserId)
+    if (isAuthLoading || !isAuthenticated) {
+      setSessionOptions([])
+      setSelectedSessionId('')
+      return undefined
     }
-  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill])
+
+    let active = true
+
+    loadComponentSessionOptions(analyticsService)
+      .then((options) => {
+        if (!active) return
+        setSessionOptions(options)
+        const preferred = selectPreferredComponentSession(options)
+        setSelectedSessionId((current) => current || preferred?.id || '')
+      })
+      .catch(() => {
+        if (active) setSessionOptions([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isAuthLoading, isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadPredictions(connectedUserId, selectedSessionId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill, selectedSessionId])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -140,6 +189,12 @@ export default function PredictiveAnalytics() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
+            <AnalyticsSessionSelect
+              value={selectedSessionId}
+              options={sessionOptions}
+              onChange={setSelectedSessionId}
+              minWidthClass="min-w-[260px]"
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
             <Button className="h-10 self-end" onClick={() => loadPredictions()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
@@ -195,7 +250,11 @@ export default function PredictiveAnalytics() {
           </Panel>
 
           <Panel title="Selected Skill Forecast" icon={Gauge}>
-            <SelectedSkillCard item={skillPrediction} fallbackSkill={selectedSkill} />
+            <SelectedSkillCard
+              item={skillPrediction}
+              fallbackSkill={selectedSkill}
+              availableSkills={availablePredictionSkills}
+            />
           </Panel>
         </div>
 
@@ -261,11 +320,33 @@ function PriorityCard({ item }) {
   )
 }
 
-function SelectedSkillCard({ item, fallbackSkill }) {
+function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
+  const availableLabels = availableSkills
+    .filter((skill) => skill !== fallbackSkill)
+    .map(labelFor)
+
   if (!item) {
     return (
       <div>
-        <EmptyState text={`Load live API data to inspect ${labelFor(fallbackSkill)} individually`} />
+        <EmptyState text={`No live prediction was returned for ${labelFor(fallbackSkill)}.`} />
+      </div>
+    )
+  }
+
+  if (!hasPredictionEvidence(item)) {
+    return (
+      <div className="space-y-3">
+        <EmptyState text={`No real prediction evidence for ${labelFor(fallbackSkill)} in the selected session.`} />
+        {availableLabels.length ? (
+          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Real skills available from component data:</span>{' '}
+            {availableLabels.join(', ')}
+          </div>
+        ) : (
+          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
+            Select a completed session that has role-play or multimodal performance scores.
+          </div>
+        )}
       </div>
     )
   }

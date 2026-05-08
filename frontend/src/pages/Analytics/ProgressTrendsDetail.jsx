@@ -15,8 +15,10 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
   confidence: 'Confidence',
@@ -26,6 +28,10 @@ const SKILL_LABELS = {
   adaptability: 'Adaptability',
   emotional_control: 'Emotional Control',
   professionalism: 'Professionalism',
+  eye_contact: 'Eye Contact',
+  speech_pace: 'Speech Pace',
+  speech_volume: 'Speech Volume',
+  response_quality: 'Response Quality',
   overall: 'Overall',
 }
 
@@ -84,6 +90,8 @@ export default function ProgressTrendsDetail() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
+  const [sessionId, setSessionId] = useState('')
+  const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSkill, setSelectedSkill] = useState('confidence')
   const [data, setData] = useState(DEMO_DATA)
   const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
@@ -97,8 +105,19 @@ export default function ProgressTrendsDetail() {
 
   const hasLiveData = status !== 'live' || Boolean(data.trends?.some((item) => item.points?.length > 1))
 
-  const loadTrends = async (nextUserId = userId) => {
+  const loadSessionOptions = async () => {
+    try {
+      const options = await loadComponentSessionOptions(analyticsService)
+      setSessionOptions(options)
+      setSessionId((current) => current || selectPreferredComponentSession(options)?.id || '')
+    } catch {
+      setSessionOptions([])
+    }
+  }
+
+  const loadTrends = async (nextUserId = userId, nextSessionId = sessionId) => {
     const targetUserId = nextUserId.trim()
+    const selectedSessionId = nextSessionId?.trim()
 
     if (!targetUserId) {
       setError('Enter a user id')
@@ -109,9 +128,10 @@ export default function ProgressTrendsDetail() {
     setError('')
 
     try {
+      const params = selectedSessionId ? { session_id: selectedSessionId } : {}
       const [trendResult, skillResult] = await Promise.all([
-        analyticsService.getProgressTrendsByUser(targetUserId),
-        analyticsService.getProgressTrendBySkill(targetUserId, selectedSkill),
+        analyticsService.getProgressTrendsByUser(targetUserId, params),
+        analyticsService.getProgressTrendBySkill(targetUserId, selectedSkill, params),
       ])
       setData(trendResult)
       setSelectedTrend(skillResult)
@@ -130,9 +150,15 @@ export default function ProgressTrendsDetail() {
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated && connectedUserId) {
-      loadTrends(connectedUserId)
+      loadSessionOptions()
     }
-  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill])
+  }, [connectedUserId, isAuthLoading, isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadTrends(connectedUserId, sessionId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill, sessionId])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -144,8 +170,14 @@ export default function ProgressTrendsDetail() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <AnalyticsNav />
+            <AnalyticsSessionSelect
+              value={sessionId}
+              options={sessionOptions}
+              onChange={setSessionId}
+              minWidthClass="min-w-[260px]"
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
-            <Button className="h-10 self-end" onClick={() => loadTrends()}>
+            <Button className="h-10 self-end" onClick={() => loadTrends(userId, sessionId)}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -219,21 +251,31 @@ export default function ProgressTrendsDetail() {
 function SelectedTrendCard({ item, selectedSkill }) {
   if (!item) return <EmptyState text={`No trend loaded for ${labelFor(selectedSkill)}`} />
 
+  const sessionCount = trendSessionCount(item)
+  const hasTrend = hasTrendEvidence(item)
+  const emptyTrendValue = sessionCount > 0 ? 'Needs 2 sessions' : 'No data'
+
   return (
     <div className="rounded-lg border border-border bg-background/30 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold">{labelFor(item.skill_area || selectedSkill)}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{item.session_count || item.points?.length || 0} sessions</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
+          </p>
         </div>
         <TrendBadge label={item.trend_label} />
       </div>
       <ScoreMovement first={item.first_score} latest={item.latest_score} />
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <InfoBox label="Delta" value={formatDelta(item.delta)} />
-        <InfoBox label="Slope" value={formatDelta(item.slope)} />
+        <InfoBox label="Delta" value={hasTrend ? formatDelta(item.delta) : emptyTrendValue} />
+        <InfoBox label="Slope" value={hasTrend ? formatDelta(item.slope) : emptyTrendValue} />
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
+      <p className="mt-4 text-sm text-muted-foreground">
+        {sessionCount > 0
+          ? item.recommendation
+          : `No ${labelFor(item.skill_area || selectedSkill).toLowerCase()} evidence has been collected yet.`}
+      </p>
     </div>
   )
 }
@@ -258,17 +300,23 @@ function TrendTable({ trends }) {
           <span>Sessions</span>
           <span>Recommendation</span>
         </div>
-        {trends.map((item) => (
-          <div key={item.skill_area} className="grid grid-cols-[1.2fr_repeat(5,0.8fr)_1.4fr] gap-2 border-b border-border px-3 py-3 text-sm last:border-0">
-            <span className="font-medium">{labelFor(item.skill_area)}</span>
-            <span className="text-muted-foreground">{item.trend_label}</span>
-            <span>{formatScore(item.first_score)}</span>
-            <span>{formatScore(item.latest_score)}</span>
-            <span>{formatDelta(item.delta)}</span>
-            <span>{item.session_count || item.points?.length || 0}</span>
-            <span className="truncate text-muted-foreground">{item.recommendation}</span>
-          </div>
-        ))}
+        {trends.map((item) => {
+          const sessionCount = trendSessionCount(item)
+          const hasTrend = hasTrendEvidence(item)
+          const emptyTrendValue = sessionCount > 0 ? 'Needs 2' : 'No data'
+
+          return (
+            <div key={item.skill_area} className="grid grid-cols-[1.2fr_repeat(5,0.8fr)_1.4fr] gap-2 border-b border-border px-3 py-3 text-sm last:border-0">
+              <span className="font-medium">{labelFor(item.skill_area)}</span>
+              <span className="text-muted-foreground">{readableTrendLabel(item.trend_label)}</span>
+              <span>{formatScore(item.first_score)}</span>
+              <span>{formatScore(item.latest_score)}</span>
+              <span>{hasTrend ? formatDelta(item.delta) : emptyTrendValue}</span>
+              <span>{sessionCount}</span>
+              <span className="truncate text-muted-foreground">{item.recommendation}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -375,7 +423,7 @@ function TrendBadge({ label }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
       <Icon className="h-3 w-3" />
-      {label || 'N/A'}
+      {readableTrendLabel(label)}
     </span>
   )
 }
@@ -390,12 +438,25 @@ function normalizeScore(value) {
 }
 
 function formatScore(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'No data'
   return Math.round(Number(value))
 }
 
 function formatDelta(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'No data'
   const rounded = Math.round(Number(value) * 100) / 100
   return `${rounded > 0 ? '+' : ''}${rounded}`
+}
+
+function trendSessionCount(item) {
+  return Number(item?.session_count || item?.points?.length || 0)
+}
+
+function hasTrendEvidence(item) {
+  return trendSessionCount(item) >= 2 && item?.trend_label !== 'insufficient_data'
+}
+
+function readableTrendLabel(label) {
+  if (!label) return 'No data'
+  return label.replaceAll('_', ' ')
 }
