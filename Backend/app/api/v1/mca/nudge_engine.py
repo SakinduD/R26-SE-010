@@ -231,17 +231,31 @@ class AudioFeatureExtractor:
             centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio_data, sr=sr)))
             duration_ms = (len(audio_data) / sr) * 1000
 
-            # This must exactly match the training script: MFCC(40) + Chroma(12) + Mel(128) + Pitch(1)
+            # This must exactly match the training script: MFCC(80) + Chroma(24) + Mel(256) + Pitch(2) = 362
             try:
-                # MFCC (40) - shape of voice
-                mfcc = np.mean(librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40).T, axis=0)
-                # Chroma (12) - pitch and harmony
+                # MFCC (40 mean + 40 std)
+                mfcc_features = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=40).T
+                mfcc_mean = np.mean(mfcc_features, axis=0)
+                mfcc_std = np.std(mfcc_features, axis=0)
+                
+                # Chroma (12 mean + 12 std)
                 stft = np.abs(librosa.stft(audio_data))
-                chroma = np.mean(librosa.feature.chroma_stft(S=stft, sr=sr).T, axis=0)
-                # Mel (128) - vocal energy
-                mel = np.mean(librosa.feature.melspectrogram(y=audio_data, sr=sr).T, axis=0)
-                # Combined into the 181-feature vector
-                feature_vector = np.hstack((mfcc, chroma, mel, np.array([pitch_hz])))
+                chroma_features = librosa.feature.chroma_stft(S=stft, sr=sr).T
+                chroma_mean = np.mean(chroma_features, axis=0)
+                chroma_std = np.std(chroma_features, axis=0)
+                
+                # Mel (128 mean + 128 std)
+                mel_features = librosa.feature.melspectrogram(y=audio_data, sr=sr).T
+                mel_mean = np.mean(mel_features, axis=0)
+                mel_std = np.std(mel_features, axis=0)
+                
+                # Combined into the 362-feature vector
+                feature_vector = np.hstack((
+                    mfcc_mean, mfcc_std,
+                    chroma_mean, chroma_std,
+                    mel_mean, mel_std,
+                    np.array([pitch_hz, pitch_std])
+                ))
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"SVM Feature Extraction Error: {str(e)}")
                 feature_vector = None
