@@ -43,12 +43,14 @@ export const mcaService = {
   },
 
   // End an active session and persist results.
-  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null) => {
+  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null, emotionDistribution = null, mechanicalAverages = null) => {
     try {
       const body = {
         nudge_log: nudgeLog,
         ...(resultData ? { result_data: resultData } : {}),
         ...(chatTurns !== null ? { chat_turns: chatTurns } : {}),
+        ...(emotionDistribution ? { emotion_distribution: emotionDistribution } : {}),
+        ...(mechanicalAverages ? { mechanical_averages: mechanicalAverages } : {}),
       };
       const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body);
       return response.data;
