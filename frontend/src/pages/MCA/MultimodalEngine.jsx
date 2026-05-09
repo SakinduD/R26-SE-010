@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import ModeSwitcher from '../../components/MCA/ModeSwitcher';
 import AIChatbot from '../../components/MCA/AIChatbot';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
@@ -24,6 +24,7 @@ import {
 
 const MultimodalEngine = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeMode = searchParams.get('mode') || 'live';
   const showMesh = searchParams.get('mesh') !== 'false';
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -361,7 +362,7 @@ const MultimodalEngine = () => {
           });
         }
 
-        await mcaService.endSession(
+        const res = await mcaService.endSession(
           sid,
           liveNudgeLogRef.current,
           { 
@@ -378,6 +379,8 @@ const MultimodalEngine = () => {
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
+          // Automatically redirect to feedback form using correct app route
+          setTimeout(() => navigate(`/analytics/sessions/${sid}/feedback`), 1500);
         } else {
           toast.error("Session closed but data persistence may be incomplete.");
         }
