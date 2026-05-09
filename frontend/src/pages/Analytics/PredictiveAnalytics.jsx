@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Activity,
@@ -9,14 +9,21 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
+import AnalyticsUserBadge from './AnalyticsUserBadge'
+import { useAnalyticsIdentity } from './analyticsAuth'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
+  overall: 'Overall',
   confidence: 'Confidence',
   communication_clarity: 'Communication Clarity',
   empathy: 'Empathy',
@@ -24,7 +31,10 @@ const SKILL_LABELS = {
   adaptability: 'Adaptability',
   emotional_control: 'Emotional Control',
   professionalism: 'Professionalism',
-  overall: 'Overall',
+  eye_contact: 'Eye Contact',
+  speech_pace: 'Speech Pace',
+  speech_volume: 'Speech Volume',
+  response_quality: 'Response Quality',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -45,7 +55,7 @@ const DEMO_DATA = {
     highest_risk_prediction: prediction('emotional_control', 48, 39, 'declining', 'high', 0.78, 3),
   },
   generated_at: '2026-05-03T00:00:00',
-  model_version: 'rule-based-baseline-v1',
+  model_version: 'ml-predictive-behavioral-analytics-v1',
 }
 
 function prediction(skillArea, currentScore, predictedScore, trendLabel, riskLevel, confidence, evidencePoints) {
@@ -65,10 +75,28 @@ function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+function hasPredictionEvidence(item) {
+  if (!item) return false
+
+  return (
+    Number(item.evidence_points || 0) > 0 ||
+    (item.current_score !== null && item.current_score !== undefined) ||
+    (item.predicted_score !== null && item.predicted_score !== undefined)
+  )
+}
+
 export default function PredictiveAnalytics() {
   const params = useParams()
-  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthLoading,
+    isAuthenticated,
+  } = useAnalyticsIdentity(params.userId)
+  const [userId, setUserId] = useState(connectedUserId)
   const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
   const [skillPrediction, setSkillPrediction] = useState(null)
   const [status, setStatus] = useState('demo')
@@ -79,11 +107,20 @@ export default function PredictiveAnalytics() {
     [data.predictions]
   )
 
+  const availablePredictionSkills = useMemo(
+    () => [...new Set((data.predictions || []).map((item) => item.predicted_skill).filter(Boolean))],
+    [data.predictions]
+  )
+
   const highPriority = data.summary?.highest_risk_prediction || sortedPredictions[0]
   const hasLiveData = status !== 'live' || Boolean(data.predictions?.length)
+  const isMlModel = data.model_version === 'ml-predictive-behavioral-analytics-v1'
 
-  const loadPredictions = async () => {
-    if (!userId.trim()) {
+  const loadPredictions = async (nextUserId = userId, nextSessionId = selectedSessionId) => {
+    const targetUserId = nextUserId.trim()
+    const requestParams = nextSessionId ? { session_id: nextSessionId } : {}
+
+    if (!targetUserId) {
       setError('Enter a user id')
       return
     }
@@ -93,8 +130,8 @@ export default function PredictiveAnalytics() {
 
     try {
       const [predictionResult, selectedResult] = await Promise.all([
-        analyticsService.getPredictedOutcomesByUser(userId.trim()),
-        analyticsService.getPredictedOutcomeBySkill(userId.trim(), selectedSkill),
+        analyticsService.getPredictedOutcomesByUser(targetUserId, requestParams),
+        analyticsService.getPredictedOutcomeBySkill(targetUserId, selectedSkill, requestParams),
       ])
       setData(predictionResult)
       setSkillPrediction(selectedResult)
@@ -107,6 +144,41 @@ export default function PredictiveAnalytics() {
     }
   }
 
+  useEffect(() => {
+    setUserId(connectedUserId)
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (isAuthLoading || !isAuthenticated) {
+      setSessionOptions([])
+      setSelectedSessionId('')
+      return undefined
+    }
+
+    let active = true
+
+    loadComponentSessionOptions(analyticsService)
+      .then((options) => {
+        if (!active) return
+        setSessionOptions(options)
+        const preferred = selectPreferredComponentSession(options)
+        setSelectedSessionId((current) => current || preferred?.id || '')
+      })
+      .catch(() => {
+        if (active) setSessionOptions([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isAuthLoading, isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && connectedUserId) {
+      loadPredictions(connectedUserId, selectedSessionId)
+    }
+  }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill, selectedSessionId])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card/60">
@@ -116,9 +188,15 @@ export default function PredictiveAnalytics() {
             <h1 className="mt-1 text-2xl font-semibold">Predictive Analytics</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input label="User" value={userId} onChange={setUserId} />
+            <AnalyticsNav />
+            <AnalyticsSessionSelect
+              value={selectedSessionId}
+              options={sessionOptions}
+              onChange={setSelectedSessionId}
+              minWidthClass="min-w-[260px]"
+            />
             <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
-            <Button className="h-10 self-end" onClick={loadPredictions}>
+            <Button className="h-10 self-end" onClick={() => loadPredictions()}>
               {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
               Load
             </Button>
@@ -129,7 +207,8 @@ export default function PredictiveAnalytics() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
-          <span className="text-xs text-muted-foreground">{data.model_version || 'rule-based-baseline-v1'}</span>
+          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
+          <ModelPill modelVersion={data.model_version} isMlModel={isMlModel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 
@@ -144,12 +223,17 @@ export default function PredictiveAnalytics() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <BrainCircuit className="h-4 w-4 text-secondary" />
-                <span>{data.user_id || userId}</span>
+                <span>{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
-              <h2 className="mt-3 text-xl font-semibold">Next-session risk forecast</h2>
+              <h2 className="mt-3 text-xl font-semibold">Live next-session risk forecast</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                The baseline model projects likely next-session scores from recent performance trends and classifies each skill by risk level.
+                The trained predictive model combines recent skill trends, feedback ratings, sentiment, and session evidence to forecast the next score and risk level.
               </p>
+              <div className="mt-4 grid max-w-3xl gap-2 sm:grid-cols-3">
+                <ModelFact label="Runtime" value={isMlModel ? 'Trained ML model' : 'Rule fallback'} />
+                <ModelFact label="Model version" value={data.model_version || 'rule-based-baseline-v1'} />
+                <ModelFact label="Selected skill" value={labelFor(selectedSkill)} />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Metric icon={Target} label="Predicted" value={data.summary?.predicted_count || 0} />
@@ -166,7 +250,11 @@ export default function PredictiveAnalytics() {
           </Panel>
 
           <Panel title="Selected Skill Forecast" icon={Gauge}>
-            <SelectedSkillCard item={skillPrediction} fallbackSkill={selectedSkill} />
+            <SelectedSkillCard
+              item={skillPrediction}
+              fallbackSkill={selectedSkill}
+              availableSkills={availablePredictionSkills}
+            />
           </Panel>
         </div>
 
@@ -232,11 +320,33 @@ function PriorityCard({ item }) {
   )
 }
 
-function SelectedSkillCard({ item, fallbackSkill }) {
+function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
+  const availableLabels = availableSkills
+    .filter((skill) => skill !== fallbackSkill)
+    .map(labelFor)
+
   if (!item) {
     return (
       <div>
-        <EmptyState text={`Load live API data to inspect ${labelFor(fallbackSkill)} individually`} />
+        <EmptyState text={`No live prediction was returned for ${labelFor(fallbackSkill)}.`} />
+      </div>
+    )
+  }
+
+  if (!hasPredictionEvidence(item)) {
+    return (
+      <div className="space-y-3">
+        <EmptyState text={`No real prediction evidence for ${labelFor(fallbackSkill)} in the selected session.`} />
+        {availableLabels.length ? (
+          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Real skills available from component data:</span>{' '}
+            {availableLabels.join(', ')}
+          </div>
+        ) : (
+          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
+            Select a completed session that has role-play or multimodal performance scores.
+          </div>
+        )}
       </div>
     )
   }
@@ -248,10 +358,14 @@ function SelectedSkillCard({ item, fallbackSkill }) {
         <RiskBadge risk={item.risk_level} />
       </div>
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Metric icon={Target} label="Current" value={formatScore(item.current_score)} compact />
+        <Metric icon={BrainCircuit} label="Predicted" value={formatScore(item.predicted_score)} compact />
         <Metric icon={Activity} label="Evidence" value={item.evidence_points || 0} compact />
         <Metric icon={Gauge} label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} compact />
-        <Metric icon={TrendingUp} label="Trend" value={item.trend_label} compact />
+      </div>
+      <div className="mt-2">
+        <InfoBox label="Trend" value={item.trend_label} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
       </div>
       <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
     </div>
@@ -300,6 +414,15 @@ function Metric({ icon: Icon, label, value, compact = false }) {
       <Icon className="mb-2 h-4 w-4 text-secondary" />
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`${compact ? 'text-base' : 'text-xl'} mt-1 truncate font-semibold`}>{value}</p>
+    </div>
+  )
+}
+
+function ModelFact({ label, value }) {
+  return (
+    <div className="rounded-md border border-border bg-background/40 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium">{value}</p>
     </div>
   )
 }
@@ -357,6 +480,21 @@ function StatusPill({ status }) {
   )
 }
 
+function ModelPill({ modelVersion, isMlModel }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${
+        isMlModel
+          ? 'border-secondary/40 bg-secondary/10 text-secondary'
+          : 'border-border bg-card text-muted-foreground'
+      }`}
+    >
+      <Sparkles className="h-3 w-3" />
+      {modelVersion || 'rule-based-baseline-v1'}
+    </span>
+  )
+}
+
 function RiskBadge({ risk }) {
   const className =
     risk === 'high'
@@ -374,6 +512,11 @@ function EmptyState({ text }) {
 function normalizeScore(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return null
   return Math.max(0, Math.min(100, Math.round(Number(value))))
+}
+
+function formatScore(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+  return Math.round(Number(value))
 }
 
 function scoreDelta(current, predicted) {

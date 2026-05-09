@@ -1,0 +1,39 @@
+{
+  "scenario_id": "scenario_004",
+  "title": "Sabotaged from Within",
+  "difficulty": "intermediate",
+  "conflict_type": "peer_sabotage",
+  "npc_role": "Undermining Colleague",
+  "npc_personality": "politically savvy, two-faced, smiles while blocking progress",
+  "context": "A senior peer has been consistently leaving you out of key meetings and feeding wrong information to your manager about your performance.",
+  "opening_npc_line": "Oh, I did not think you needed to be in that meeting. You have been so busy lately.",
+  "recommended_turns": 8,
+  "max_turns": 18,
+  "end_conditions": {
+    "success_trust_threshold": 75,
+    "success_consecutive_turns": 3,
+    "failure_escalation_threshold": 4
+  },
+  "success_criteria": {
+    "min_trust_score": 55,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 75,
+      "neutral": 50,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 5,
+      "irritated": 3,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": ["political_awareness", "assertiveness", "trust_building"],
+    "big_five_relevance": ["openness", "conscientiousness", "agreeableness"],
+    "recommended_for_profile": null,
+    "difficulty_weight": 2.0
+  }
+}

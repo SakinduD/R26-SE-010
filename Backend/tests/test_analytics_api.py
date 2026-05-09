@@ -1,3 +1,8 @@
+from pathlib import Path
+
+import pytest
+
+
 def test_create_and_get_session_metric(client):
     payload = {
         "user_id": "user-1",
@@ -62,6 +67,152 @@ def test_create_and_list_feedback(client):
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["skill_area"] == "active_listening"
+
+
+def test_create_feedback_auto_detects_sentiment_when_missing(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="clear and professional",
+            sentiment="positive",
+            confidence=0.91,
+            sentiment_score=0.91,
+            class_probabilities={"negative": 0.09, "positive": 0.91},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "auto-sentiment-user",
+            "session_id": "auto-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "positive"
+
+
+def test_create_feedback_keeps_manual_sentiment(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fail_if_called(text: str):
+        raise AssertionError("manual sentiment should not call NLP model")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fail_if_called,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "manual-sentiment-user",
+            "session_id": "manual-sentiment-session",
+            "feedback_type": "peer",
+            "comment": "This is mixed feedback.",
+            "sentiment": "neutral",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] == "neutral"
+
+
+def test_create_feedback_saves_when_sentiment_model_is_unavailable(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "missing-model-user",
+            "session_id": "missing-model-session",
+            "feedback_type": "peer",
+            "comment": "Clear and professional response.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sentiment"] is None
+
+
+def test_analyze_feedback_sentiment_returns_model_prediction(client, monkeypatch):
+    from app.schemas.analytics import FeedbackSentimentResult
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        return FeedbackSentimentResult(
+            text=text,
+            cleaned_text="your communication was clear",
+            sentiment="positive",
+            confidence=0.88,
+            sentiment_score=0.88,
+            class_probabilities={"negative": 0.12, "positive": 0.88},
+            model_version="tfidf-sentiment-model-comparison-v1",
+            model_type="TF-IDF + Logistic Regression",
+            source="ml_model",
+        )
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sentiment"] == "positive"
+    assert data["confidence"] == 0.88
+    assert data["model_type"] == "TF-IDF + Logistic Regression"
+
+
+def test_analyze_feedback_sentiment_returns_503_when_model_missing(client, monkeypatch):
+    from app.services import sentiment_analysis_service
+
+    def fake_analyze_feedback_text(text: str):
+        raise sentiment_analysis_service.SentimentModelUnavailableError("model missing")
+
+    monkeypatch.setattr(
+        sentiment_analysis_service,
+        "analyze_feedback_text",
+        fake_analyze_feedback_text,
+    )
+
+    response = client.post(
+        "/api/v1/analytics/feedback/sentiment",
+        json={"text": "Your communication was clear."},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "model missing"
 
 
 def test_create_and_list_predictions(client):
@@ -178,6 +329,136 @@ def test_session_aggregate_combines_metrics_feedback_and_predictions(client):
         "has_feedback": True,
         "has_predictions": True,
     }
+
+
+def test_component_integration_maps_real_session_data_into_analytics(client):
+    payload = {
+        "user_id": "integration-user",
+        "session_id": "integration-session-1",
+        "scenario_id": "scenario-hr-conflict",
+        "skill_type": "communication",
+        "survey_profile": {
+            "ocean_scores": {"openness": 74, "conscientiousness": 68},
+            "dominant_traits": ["openness", "conscientiousness"],
+        },
+        "adaptive_plan": {
+            "skill": "communication",
+            "strategy": "guided_reflection",
+            "difficulty": "medium",
+            "recommended_scenario_ids": ["scenario-hr-conflict"],
+            "primary_scenario": "scenario-hr-conflict",
+            "generation_source": "adaptive_pedagogy",
+        },
+        "rpe_session": {
+            "session_id": "integration-session-1",
+            "scenario_id": "scenario-hr-conflict",
+            "user_id": "integration-user",
+            "outcome": "resolved",
+            "final_trust": 82,
+            "final_escalation": 1,
+            "total_turns": 3,
+            "trust_history": [68, 76, 82],
+            "emotion_history": ["neutral", "concerned", "satisfied"],
+        },
+        "rpe_feedback": {
+            "session_id": "integration-session-1",
+            "scenario_id": "scenario-hr-conflict",
+            "scenario_title": "Handle a teammate disagreement",
+            "user_id": "integration-user",
+            "outcome": "resolved",
+            "final_trust": 82,
+            "final_escalation": 1,
+            "total_turns": 3,
+            "turn_metrics": [
+                {
+                    "turn": 1,
+                    "assertiveness_score": 70,
+                    "empathy_score": 78,
+                    "clarity_score": 74,
+                    "response_quality": 76,
+                },
+                {
+                    "turn": 2,
+                    "assertiveness_score": 82,
+                    "empathy_score": 84,
+                    "clarity_score": 80,
+                    "response_quality": 82,
+                },
+            ],
+            "risk_flags": ["brief interruption"],
+            "blind_spots": ["confidence"],
+            "coaching_advice": ["Pause before responding and summarize the other person first."],
+        },
+        "mca_nudges": [
+            {
+                "emotion": "calm",
+                "confidence": 0.8,
+                "nudge": "Speech pace stayed clear.",
+                "nudge_category": "pace",
+                "nudge_severity": "info",
+            },
+            {
+                "emotion": "uncertain",
+                "confidence": 0.7,
+                "nudge": "Volume dropped during disagreement.",
+                "nudge_category": "volume",
+                "nudge_severity": "warning",
+            },
+        ],
+        "self_feedback": {
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 86,
+            "comment": "I felt confident during the final response.",
+            "sentiment": "positive",
+        },
+        "peer_feedback": [
+            {
+                "feedback_type": "peer",
+                "skill_area": "confidence",
+                "rating": 72,
+                "comment": "Legacy peer payload should not be imported by the integration flow.",
+                "sentiment": "neutral",
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/analytics/integrations/session-complete", json=payload)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["mapping_version"] == "component-contract-mapping-v1"
+    assert data["user_id"] == "integration-user"
+    assert data["session_id"] == "integration-session-1"
+    assert data["scenario_id"] == "scenario-hr-conflict"
+    assert data["source_summary"] == {
+        "has_survey_profile": True,
+        "has_adaptive_plan": True,
+        "has_rpe_session": True,
+        "has_rpe_feedback": True,
+        "mca_nudge_count": 2,
+            "submitted_feedback_count": 1,
+            "generated_feedback_count": 5,
+    }
+
+    metric = data["metric"]
+    assert metric["confidence_score"] == 76
+    assert metric["empathy_score"] == 81
+    assert metric["clarity_score"] == 77
+    assert metric["response_quality_score"] == 79
+    assert metric["speech_pace_score"] == 96
+    assert metric["speech_volume_score"] == 61
+    assert metric["overall_score"] is not None
+
+    assert data["aggregate"]["scores"]["metric_count"] == 1
+    assert data["aggregate"]["feedback"]["total_count"] == 6
+    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 3
+    assert data["aggregate"]["feedback"]["by_type"]["self"] == 1
+    assert "peer" not in data["aggregate"]["feedback"]["by_type"]
+
+    aggregate_response = client.get("/api/v1/analytics/sessions/integration-session-1/aggregate")
+    assert aggregate_response.status_code == 200
+    assert aggregate_response.json()["data_completeness"]["has_session_metrics"] is True
 
 
 def test_post_session_report_combines_session_analytics(client):
@@ -675,6 +956,35 @@ def test_user_skill_progress_trend_returns_single_skill(client):
     assert data["session_count"] == 2
 
 
+def test_user_progress_trends_can_filter_history_up_to_selected_session(client):
+    for session_id, confidence_score in [
+        ("trend-cutoff-session-1", 40),
+        ("trend-cutoff-session-2", 60),
+        ("trend-cutoff-session-3", 90),
+    ]:
+        response = client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": "trend-cutoff-user",
+                "session_id": session_id,
+                "confidence_score": confidence_score,
+            },
+        )
+        assert response.status_code == 201
+
+    response = client.get(
+        "/api/v1/analytics/users/trend-cutoff-user/progress-trends",
+        params={"session_id": "trend-cutoff-session-2"},
+    )
+
+    assert response.status_code == 200
+    trends = {item["skill_area"]: item for item in response.json()["trends"]}
+    assert trends["confidence"]["session_count"] == 2
+    assert trends["confidence"]["first_score"] == 40
+    assert trends["confidence"]["latest_score"] == 60
+    assert trends["confidence"]["delta"] == 20
+
+
 def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client):
     response = client.get("/api/v1/analytics/users/no-trend-user/progress-trends")
 
@@ -734,13 +1044,186 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
 
     predictions = {item["predicted_skill"]: item for item in data["predictions"]}
-    assert predictions["confidence"]["predicted_score"] == 89.5
+    assert predictions["confidence"]["predicted_score"] == 88
     assert predictions["confidence"]["risk_level"] == "low"
     assert predictions["confidence"]["confidence"] == 0.65
-    assert predictions["empathy"]["predicted_score"] == 22.5
+    assert predictions["empathy"]["predicted_score"] == 35
     assert predictions["empathy"]["risk_level"] == "high"
     assert predictions["communication_clarity"]["risk_level"] == "low"
     assert predictions["overall"]["predicted_score"] == 85
+
+
+def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(client, monkeypatch):
+    from app.services import ml_predictive_model_service
+
+    def fake_ml_prediction(features):
+        assert features["current_score"] == 62
+        assert features["previous_score"] == 72
+        assert features["trend_slope"] == -10
+        assert features["average_feedback_rating"] == 58
+        assert features["sentiment_score"] == -1
+        return {
+            "predicted_score": 44.5,
+            "risk_level": "high",
+            "confidence": 0.91,
+            "model_version": "ml-predictive-behavioral-analytics-v1",
+            "model_type": {
+                "regressor": "linear_regression",
+                "classifier": "gradient_boosting_classifier",
+            },
+        }
+
+    monkeypatch.setattr(ml_predictive_model_service, "predict_behavioral_outcome", fake_ml_prediction)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-1",
+            "confidence_score": 72,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "confidence_score": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "ml-prediction-user",
+            "session_id": "ml-prediction-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 58,
+            "comment": "The answer was unclear and needs stronger confidence.",
+            "sentiment": "negative",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/ml-prediction-user/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
+    prediction = data["predictions"][0]
+    assert prediction["predicted_skill"] == "confidence"
+    assert prediction["predicted_score"] == 52
+    assert prediction["risk_level"] == "high"
+    assert prediction["confidence"] == 0.91
+
+
+def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
+    model_path = (
+        Path(__file__).resolve().parents[2]
+        / "training"
+        / "feedback_analytics"
+        / "models"
+        / "predictive_behavior_model.joblib"
+    )
+    if not model_path.exists():
+        pytest.skip("Train predictive_behavior_model.joblib before running the real model API smoke test.")
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-1",
+            "confidence_score": 68,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "confidence_score": 74,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "real-ml-api-user",
+            "session_id": "real-ml-api-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 72,
+            "comment": "The learner showed better confidence and clearer delivery.",
+            "sentiment": "positive",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/confidence")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predicted_skill"] == "confidence"
+    assert data["current_score"] == 74
+    assert data["predicted_score"] is not None
+    assert 0 <= data["predicted_score"] <= 100
+    assert data["risk_level"] in {"low", "medium", "high"}
+
+
+def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkeypatch):
+    from app.services import ml_predictive_model_service
+
+    user_id = "calibrated-ml-user"
+    feedback_payloads = [
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-1",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 84,
+            "sentiment": "positive",
+        },
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-2",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 58,
+            "sentiment": "neutral",
+        },
+        {
+            "user_id": user_id,
+            "session_id": "calibrated-session-3",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 40,
+            "sentiment": "negative",
+        },
+    ]
+    for payload in feedback_payloads:
+        response = client.post("/api/v1/analytics/feedback", json=payload)
+        assert response.status_code == 201
+
+    def fake_extreme_ml_prediction(_features):
+        return {
+            "predicted_score": 100,
+            "risk_level": "high",
+            "confidence": 0.91,
+            "model_version": "fake-extreme-model",
+        }
+
+    monkeypatch.setattr(
+        ml_predictive_model_service,
+        "predict_behavioral_outcome",
+        fake_extreme_ml_prediction,
+    )
+
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/confidence")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["current_score"] == 40
+    assert data["predicted_score"] == 50
+    assert data["risk_level"] == "high"
+    assert 0 <= data["confidence"] <= 1
+    assert data["evidence_points"] == 3
 
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):
@@ -783,3 +1266,118 @@ def test_user_skill_predicted_outcome_handles_insufficient_data(client):
     assert data["risk_level"] == "medium"
     assert data["confidence"] == 0.2
     assert data["evidence_points"] == 0
+
+
+def test_user_mentoring_recommendations_returns_rule_based_fallback(client, monkeypatch):
+    from app.services import llm_mentoring_service
+
+    monkeypatch.setattr(llm_mentoring_service, "_call_openai_mentoring", lambda evidence: None)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-1",
+            "confidence_score": 74,
+            "empathy_score": 88,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "confidence_score": 58,
+            "empathy_score": 80,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "feedback_type": "self",
+            "skill_area": "confidence",
+            "rating": 92,
+            "sentiment": "positive",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "mentor-user",
+            "session_id": "mentor-session-2",
+            "feedback_type": "peer",
+            "skill_area": "confidence",
+            "rating": 60,
+            "sentiment": "neutral",
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/mentor-user/mentoring-recommendations")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "mentor-user"
+    assert data["source"] == "rule_based"
+    assert data["model_version"] == "rule-based-mentoring-v1"
+    assert data["evidence"]["session_count"] == 2
+    assert data["evidence"]["feedback_count"] == 2
+    assert data["recommendations"]
+    assert data["recommendations"][0]["priority"] in {"high", "medium"}
+    assert data["recommendations"][0]["next_action"]
+
+
+def test_user_mentoring_recommendations_can_use_llm_output(client, monkeypatch):
+    from app.schemas.analytics import MentoringRecommendationItem
+    from app.services import llm_mentoring_service
+
+    def fake_llm(evidence):
+        assert evidence["summary"]["session_count"] == 2
+        return [
+            MentoringRecommendationItem(
+                priority="high",
+                skill_area="confidence",
+                title="Practice confident delivery",
+                reason="Confidence evidence is below the target benchmark.",
+                detail="Use shorter answers with clear opening and closing statements.",
+                next_action="Record one response and compare it with peer feedback.",
+                source="llm",
+                evidence_sources=["skill_twin_scores", "feedback_analysis"],
+            )
+        ]
+
+    class FakeSettings:
+        openai_api_key = "test-key"
+        openai_base_url = "https://api.openai.com/v1"
+        openai_mentoring_model = "gpt-test-mentoring"
+        llm_mentoring_timeout_s = 1.0
+
+    monkeypatch.setattr(llm_mentoring_service, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(llm_mentoring_service, "_call_openai_mentoring", fake_llm)
+
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "llm-mentor-user",
+            "session_id": "llm-mentor-session-1",
+            "confidence_score": 62,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "llm-mentor-user",
+            "session_id": "llm-mentor-session-2",
+            "confidence_score": 66,
+        },
+    )
+
+    response = client.get("/api/v1/analytics/users/llm-mentor-user/mentoring-recommendations")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "llm"
+    assert data["model_version"]
+    assert data["recommendations"][0]["source"] == "llm"
+    assert data["recommendations"][0]["title"] == "Practice confident delivery"
