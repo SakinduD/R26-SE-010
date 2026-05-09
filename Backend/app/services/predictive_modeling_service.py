@@ -228,11 +228,23 @@ def _query_relevant_feedback(
     session_id: str | None = None,
 ) -> list[FeedbackEntry]:
     normalized_skill = _normalize_skill_area(skill_area)
+    # Use id-based cutoff (stable on upsert) instead of timestamp-based cutoff
+    # (timestamps are unreliable because feedback is deleted+recreated on each integration).
+    cutoff_id = _session_cutoff_id(db, user_id, session_id)
+    session_ids: set[str] | None = None
+    if cutoff_id is not None:
+        in_scope = (
+            db.query(AnalyticsSessionMetric.session_id)
+            .filter(AnalyticsSessionMetric.user_id == user_id)
+            .filter(AnalyticsSessionMetric.id <= cutoff_id)
+            .all()
+        )
+        session_ids = {row[0] for row in in_scope}
+
     query = db.query(FeedbackEntry).filter(FeedbackEntry.user_id == user_id)
-    cutoff_at = _session_cutoff_at(db, user_id, session_id)
-    if cutoff_at is not None:
-        query = query.filter(FeedbackEntry.created_at <= cutoff_at)
-    feedback_entries = query.order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc()).all()
+    if session_ids is not None:
+        query = query.filter(FeedbackEntry.session_id.in_(session_ids))
+    feedback_entries = query.order_by(FeedbackEntry.id.asc()).all()
     return [
         entry
         for entry in feedback_entries
@@ -242,30 +254,17 @@ def _query_relevant_feedback(
     ]
 
 
-def _session_cutoff_at(db: Session, user_id: str, session_id: str | None) -> datetime | None:
+def _session_cutoff_id(db: Session, user_id: str, session_id: str | None) -> int | None:
     if not session_id:
         return None
-
     metric = (
         db.query(AnalyticsSessionMetric)
         .filter(AnalyticsSessionMetric.user_id == user_id)
         .filter(AnalyticsSessionMetric.session_id == session_id)
-        .order_by(AnalyticsSessionMetric.created_at.desc(), AnalyticsSessionMetric.id.desc())
+        .order_by(AnalyticsSessionMetric.id.asc())
         .first()
     )
-    feedback = (
-        db.query(FeedbackEntry)
-        .filter(FeedbackEntry.user_id == user_id)
-        .filter(FeedbackEntry.session_id == session_id)
-        .order_by(FeedbackEntry.created_at.desc(), FeedbackEntry.id.desc())
-        .first()
-    )
-    timestamps = [
-        item.created_at
-        for item in (metric, feedback)
-        if item is not None and item.created_at is not None
-    ]
-    return max(timestamps, default=None)
+    return metric.id if metric else None
 
 
 def _summarize(predictions: list[PredictiveModelingItem]) -> PredictiveModelingSummary:
