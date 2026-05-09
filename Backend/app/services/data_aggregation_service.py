@@ -130,12 +130,57 @@ def _summarize_scores(metrics: list[AnalyticsSessionMetric]) -> ScoreSummary:
 
 def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
     ratings = [entry.rating for entry in feedback if entry.rating is not None]
+    self_entries = [entry for entry in feedback if entry.feedback_type == "self"]
+
+    skill_rating_averages = {}
+    self_rating_averages = {}
+    skill_areas = sorted({entry.skill_area for entry in feedback if entry.skill_area})
+    for skill_area in skill_areas:
+        skill_ratings = [
+            entry.rating
+            for entry in feedback
+            if entry.skill_area == skill_area and entry.rating is not None
+        ]
+        if skill_ratings:
+            skill_rating_averages[skill_area] = round(mean(skill_ratings), 2)
+
+        self_skill_ratings = [
+            entry.rating
+            for entry in self_entries
+            if entry.skill_area == skill_area and entry.rating is not None
+        ]
+        if self_skill_ratings:
+            self_rating_averages[skill_area] = round(mean(self_skill_ratings), 2)
+
+    # Calculate weighted average for overall rating if MCA skills are present
+    mca_weights = {
+        "emotional_intelligence": 0.30,
+        "presence_engagement": 0.30,
+        "vocal_command": 0.20,
+        "speech_fluency": 0.20
+    }
+
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for skill, weight in mca_weights.items():
+        if skill in skill_rating_averages:
+            weighted_sum += skill_rating_averages[skill] * weight
+            total_weight += weight
+
+    if total_weight > 0:
+        average_rating = round(weighted_sum / total_weight, 2)
+    else:
+        average_rating = round(mean(ratings), 2) if ratings else None
+
     return FeedbackSummary(
         total_count=len(feedback),
+        session_count=len({entry.session_id for entry in feedback if entry.session_id}),
         by_type=dict(Counter(entry.feedback_type for entry in feedback)),
         sentiment_counts=dict(Counter(entry.sentiment for entry in feedback if entry.sentiment)),
-        average_rating=round(mean(ratings), 2) if ratings else None,
-        latest_entries=feedback[:5],
+        skill_rating_averages=skill_rating_averages,
+        self_rating_averages=self_rating_averages,
+        average_rating=average_rating,
+        latest_entries=feedback[:20],
     )
 
 

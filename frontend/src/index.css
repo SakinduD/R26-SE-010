@@ -5,62 +5,97 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root { height: 100%; }
+html,
+body,
+#root {
+  height: 100%;
+}
 
 @layer base {
-  .theme { --font-heading: var(--font-sans); --font-sans: 'Geist Variable', sans-serif; }
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+  }
+
   :root {
-    --background: oklch(0.97 0.01 284); /* Page bg #F5F3FF */
-    --foreground: oklch(0.208 0.01 253); /* Headings #111827 */
-    --card: oklch(1 0 0); /* Pure white cards */
-    --card-foreground: oklch(0.45 0.01 253); /* Body text #6B7280 */
+    --background: oklch(0.97 0.01 284);
+    /* Page bg #F5F3FF */
+    --foreground: oklch(0.208 0.01 253);
+    /* Headings #111827 */
+    --card: oklch(1 0 0);
+    /* Pure white cards */
+    --card-foreground: oklch(0.45 0.01 253);
+    /* Body text #6B7280 */
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.208 0.01 253);
-    --primary: oklch(0.44 0.22 284); /* Violet 700 #5B21B6 */
+    --primary: oklch(0.44 0.22 284);
+    /* Violet 700 #5B21B6 */
     --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.50 0.12 230); /* Teal 700 #0E7490 */
+    --secondary: oklch(0.50 0.12 230);
+    /* Teal 700 #0E7490 */
     --secondary-foreground: oklch(1 0 0);
-    --muted: oklch(0.96 0.01 253); /* Secondary bg #F3F4F6 */
+    --muted: oklch(0.96 0.01 253);
+    /* Secondary bg #F3F4F6 */
     --muted-foreground: oklch(0.45 0.01 253);
-    --accent: oklch(0.92 0.04 284); /* Violet 100 #EDE9FE */
+    --accent: oklch(0.92 0.04 284);
+    /* Violet 100 #EDE9FE */
     --accent-foreground: oklch(0.44 0.22 284);
-    --destructive: oklch(0.40 0.18 0); /* Rose 800 #9D174D */
+    --destructive: oklch(0.40 0.18 0);
+    /* Rose 800 #9D174D */
     --border: oklch(0.92 0.01 253);
     --input: oklch(0.92 0.01 253);
     --ring: oklch(0.44 0.22 284);
     --radius: 0.5rem;
 
     /* Extra EmpowerZ v2 Colors */
-    --success: oklch(0.55 0.15 160); /* Green 700 #059669 */
-    --warning: oklch(0.58 0.15 75);  /* Amber 700 #B45309 */
-    --emotion: oklch(0.40 0.18 0);   /* Rose 800 #9D174D */
+    --success: oklch(0.55 0.15 160);
+    /* Green 700 #059669 */
+    --warning: oklch(0.58 0.15 75);
+    /* Amber 700 #B45309 */
+    --emotion: oklch(0.40 0.18 0);
+    /* Rose 800 #9D174D */
   }
+
   .dark {
-    --background: oklch(0.208 0.01 253); /* Zinc 900 #18181B */
-    --foreground: oklch(0.96 0.01 253); /* Zinc 100 #F4F4F5 */
-    --card: oklch(0.274 0.01 253); /* Zinc 800 #27272A */
-    --card-foreground: oklch(0.697 0.01 253); /* Zinc 400 #A1A1AA */
+    --background: oklch(0.208 0.01 253);
+    /* Zinc 900 #18181B */
+    --foreground: oklch(0.96 0.01 253);
+    /* Zinc 100 #F4F4F5 */
+    --card: oklch(0.274 0.01 253);
+    /* Zinc 800 #27272A */
+    --card-foreground: oklch(0.697 0.01 253);
+    /* Zinc 400 #A1A1AA */
     --popover: oklch(0.274 0.01 253);
     --popover-foreground: oklch(0.96 0.01 253);
-    --primary: oklch(0.44 0.22 284); /* Violet 700 */
+    --primary: oklch(0.44 0.22 284);
+    /* Violet 700 */
     --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.50 0.12 230); /* Teal 700 */
+    --secondary: oklch(0.50 0.12 230);
+    /* Teal 700 */
     --secondary-foreground: oklch(1 0 0);
     --muted: oklch(0.274 0.01 253);
     --muted-foreground: oklch(0.697 0.01 253);
-    --accent: oklch(0.372 0.01 253); /* Zinc 700 */
+    --accent: oklch(0.372 0.01 253);
+    /* Zinc 700 */
     --accent-foreground: oklch(0.96 0.01 253);
     --destructive: oklch(0.40 0.18 0);
-    --border: oklch(0.372 0.01 253); /* Zinc 700 #3F3F46 */
+    --border: oklch(0.372 0.01 253);
+    /* Zinc 700 #3F3F46 */
     --input: oklch(0.372 0.01 253);
     --ring: oklch(0.44 0.22 284);
   }
+
   * {
-    @apply border-border; }
+    @apply border-border;
+  }
+
   body {
-    @apply bg-background text-foreground; }
+    @apply bg-background text-foreground;
+  }
+
   html {
-    @apply font-sans; }
+    @apply font-sans;
+  }
 }
 
 /* Custom Scrollbar Utilities */
@@ -68,21 +103,25 @@ html, body, #root { height: 100%; }
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
   }
+
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 10px;
   }
+
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: var(--muted-foreground);
     opacity: 0.5;
   }
-  
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
