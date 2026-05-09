@@ -10,6 +10,9 @@ import {
   Zap,
   AlertCircle,
   CheckCircle,
+  Award,
+  AlertTriangle,
+  ArrowRight,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
@@ -24,6 +27,7 @@ export default function AnalyticsRecommendationsNew() {
   const [sessions, setSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [recommendations, setRecommendations] = useState([])
+  const [evidence, setEvidence] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -72,10 +76,12 @@ export default function AnalyticsRecommendationsNew() {
       
       setLoading(true)
       setError('')
+      setEvidence(null)
       
       try {
         const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id)
         setRecommendations(data.recommendations || [])
+        setEvidence(data.evidence || null)
       } catch (err) {
         const errorMsg = err.response?.data?.detail || err.message || 'Could not load recommendations'
         setError(errorMsg)
@@ -92,10 +98,12 @@ export default function AnalyticsRecommendationsNew() {
   const loadOverallRecommendations = async () => {
     setLoading(true)
     setError('')
+    setEvidence(null)
     
     try {
       const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId)
       setRecommendations(data.recommendations || [])
+      setEvidence(data.evidence || null)
     } catch (err) {
       setError('Could not load overall recommendations')
     } finally {
@@ -151,56 +159,60 @@ export default function AnalyticsRecommendationsNew() {
         )}
 
         {!isAuthLoading && isAuthenticated && connectedUserId && (
-          <>
-            {/* Mode Selector */}
-            <div className="mb-6 flex gap-2">
-              <button
-                onClick={() => setMode('session')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-colors ${
-                  mode === 'session'
-                    ? 'border-primary bg-primary text-primary-foreground font-semibold'
-                    : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'
-                }`}
-              >
-                <Zap className="h-4 w-4" />
-                This Session
-              </button>
-              <button
-                onClick={() => setMode('overall')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-colors ${
-                  mode === 'overall'
-                    ? 'border-primary bg-primary text-primary-foreground font-semibold'
-                    : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'
-                }`}
-              >
-                <TrendingUp className="h-4 w-4" />
-                Overall Progress
-              </button>
+          <div className="space-y-8">
+            {/* Mode Selector - Modern Segmented Control */}
+            <div className="flex justify-center">
+              <div className="inline-flex items-center p-1 bg-muted/50 rounded-xl border border-border/50 backdrop-blur-sm">
+                <button
+                  onClick={() => setMode('session')}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    mode === 'session'
+                      ? 'bg-background shadow-sm text-foreground ring-1 ring-border/50'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                  }`}
+                >
+                  <Zap className={`h-4 w-4 ${mode === 'session' ? 'text-primary' : ''}`} />
+                  This Session
+                </button>
+                <button
+                  onClick={() => setMode('overall')}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    mode === 'overall'
+                      ? 'bg-background shadow-sm text-foreground ring-1 ring-border/50'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                  }`}
+                >
+                  <TrendingUp className={`h-4 w-4 ${mode === 'overall' ? 'text-primary' : ''}`} />
+                  Overall Progress
+                </button>
+              </div>
             </div>
 
             {/* Session Selector */}
             {mode === 'session' && (
-              <label className="mb-6 grid gap-1 text-xs text-muted-foreground">
-                <span className="font-semibold flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Choose a Practice Session
-                </span>
-                <select 
-                  value={selectedSession?.id || ''} 
-                  onChange={(e) => {
-                    const session = sessions.find(s => s.id === e.target.value)
-                    setSelectedSession(session || null)
-                  }}
-                  className="h-10 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary"
-                >
-                  <option value="">Select a session...</option>
-                  {sessions.map(session => (
-                    <option key={session.id} value={session.id}>
-                      {session.label} • {session.subtitle}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="bg-card/30 border border-border/50 rounded-xl p-5 backdrop-blur-sm">
+                <label className="grid gap-2 text-sm">
+                  <span className="font-semibold text-foreground flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    Which practice session would you like to review?
+                  </span>
+                  <select 
+                    value={selectedSession?.id || ''} 
+                    onChange={(e) => {
+                      const session = sessions.find(s => s.id === e.target.value)
+                      setSelectedSession(session || null)
+                    }}
+                    className="h-11 w-full rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                  >
+                    <option value="" className="bg-background text-foreground">Select a session to see your feedback...</option>
+                    {sessions.map(session => (
+                      <option key={session.id} value={session.id} className="bg-background text-foreground">
+                        {session.label} • {session.subtitle}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             )}
 
             {/* Error Message */}
@@ -224,30 +236,119 @@ export default function AnalyticsRecommendationsNew() {
 
             {/* Recommendations Display */}
             {!loading && (
-              <>
+              <div className="pt-2">
                 {recommendations.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border bg-muted/30 px-8 py-12 text-center">
-                    <Lightbulb className="mx-auto mb-3 h-12 w-12 text-muted-foreground/50" />
-                    <p className="font-semibold text-foreground">No recommendations yet</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {mode === 'session' ? 'Select a session above to see your personalized feedback' : 'Complete more practice sessions to get detailed recommendations'}
+                  <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-8 py-16 text-center">
+                    <div className="mx-auto mb-4 h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center">
+                      <Lightbulb className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-bold text-foreground mb-2">You're all caught up!</h3>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      {mode === 'session' 
+                        ? 'We don\'t have any specific feedback for this session yet. Try selecting another one or complete a new practice session!' 
+                        : 'Complete more practice sessions to unlock personalized coaching tips and insights.'}
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="mb-4">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        {mode === 'session' ? `Session Feedback • ${recommendations.length} Tips` : `Overall Progress • ${recommendations.length} Areas to Focus`}
-                      </p>
+                  <div className="space-y-6">
+                    {/* Summaries Row */}
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* Prioritized Actions Summary */}
+                      <div className="rounded-xl border border-border bg-card p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Zap className="h-5 w-5 text-primary" />
+                          <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-4">
+                          Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
+                        </p>
+                        <div className="flex gap-2">
+                          <div className="flex-1 bg-muted/50 rounded-lg p-3 border border-border/50 text-center">
+                            <span className="block text-xs font-semibold text-muted-foreground mb-1">Actions</span>
+                            <span className="text-lg font-bold text-foreground">{recommendations.length}</span>
+                          </div>
+                          <div className="flex-1 bg-rose-500/10 rounded-lg p-3 border border-rose-500/20 text-center">
+                            <span className="block text-xs font-semibold text-rose-500 mb-1">High</span>
+                            <span className="text-lg font-bold text-rose-500">{recommendations.filter(r => r.priority === 'high').length}</span>
+                          </div>
+                          <div className="flex-1 bg-amber-500/10 rounded-lg p-3 border border-amber-500/20 text-center">
+                            <span className="block text-xs font-semibold text-amber-500 mb-1">Medium</span>
+                            <span className="text-lg font-bold text-amber-500">{recommendations.filter(r => r.priority === 'medium').length}</span>
+                          </div>
+                          <div className="flex-1 bg-emerald-500/10 rounded-lg p-3 border border-emerald-500/20 text-center">
+                            <span className="block text-xs font-semibold text-emerald-500 mb-1">Low</span>
+                            <span className="text-lg font-bold text-emerald-500">{recommendations.filter(r => r.priority === 'low').length}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Evidence Summary */}
+                      {evidence && (
+                        <div className="rounded-xl border border-border bg-card p-5">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Target className="h-5 w-5 text-primary" />
+                            <h3 className="font-bold text-foreground">Evidence Summary</h3>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {evidence.session_count !== undefined && (
+                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Sessions</span>
+                                <span className="text-base font-bold text-foreground">{evidence.session_count}</span>
+                              </div>
+                            )}
+                            <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Feedback</span>
+                              <span className="text-base font-bold text-foreground">{evidence.feedback_count || 0}</span>
+                            </div>
+                            <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Blind Spots</span>
+                              <span className="text-base font-bold text-foreground">{evidence.blind_spot_count || 0}</span>
+                            </div>
+                            {evidence.high_risk_prediction_count !== undefined && (
+                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">High Risk</span>
+                                <span className="text-base font-bold text-foreground">{evidence.high_risk_prediction_count}</span>
+                              </div>
+                            )}
+                            {evidence.improving_count !== undefined && (
+                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Improving</span>
+                                <span className="text-base font-bold text-foreground">{evidence.improving_count}</span>
+                              </div>
+                            )}
+                            {evidence.declining_count !== undefined && (
+                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Declining</span>
+                                <span className="text-base font-bold text-foreground">{evidence.declining_count}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {recommendations.map((rec, idx) => (
-                      <RecommendationCard key={idx} recommendation={rec} />
-                    ))}
+
+                    <div className="flex items-center gap-3 pt-4 pb-2 border-b border-border/50">
+                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Lightbulb className="h-4 w-4 text-primary" />
+                      </div>
+                      <h2 className="text-lg font-bold text-foreground">
+                        {mode === 'session' ? 'Your Session Action Plan' : 'Your Growth Opportunities'}
+                      </h2>
+                      <span className="ml-auto bg-muted px-2.5 py-1 rounded-full text-xs font-semibold text-muted-foreground">
+                        {recommendations.length} {recommendations.length === 1 ? 'Tip' : 'Tips'}
+                      </span>
+                    </div>
+                    
+                    <div className="grid gap-4 mt-4">
+                      {recommendations.map((rec, idx) => (
+                        <RecommendationCard key={idx} recommendation={rec} />
+                      ))}
+                    </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </main>
@@ -259,72 +360,101 @@ function RecommendationCard({ recommendation }) {
   
   const priorityConfig = {
     high: {
-      bg: 'bg-red-50 dark:bg-red-950/30',
-      border: 'border-red-300 dark:border-red-900/50',
-      badge: 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300',
-      icon: '🔴',
-      label: 'High Priority'
+      wrapper: 'from-rose-500/10 to-transparent border-rose-500/20 dark:from-rose-950/30 dark:border-rose-900/40',
+      header: 'bg-rose-500/5',
+      badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+      icon: <AlertTriangle className="h-5 w-5 text-rose-500" />,
+      label: 'Focus Here First',
+      actionBtn: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400'
     },
     medium: {
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
-      border: 'border-amber-300 dark:border-amber-900/50',
-      badge: 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300',
-      icon: '🟡',
-      label: 'Medium Priority'
+      wrapper: 'from-amber-500/10 to-transparent border-amber-500/20 dark:from-amber-950/30 dark:border-amber-900/40',
+      header: 'bg-amber-500/5',
+      badge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+      icon: <Target className="h-5 w-5 text-amber-500" />,
+      label: 'Good to Practice',
+      actionBtn: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
     },
     low: {
-      bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-      border: 'border-emerald-300 dark:border-emerald-900/50',
-      badge: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300',
-      icon: '🟢',
-      label: 'Keep It Up'
+      wrapper: 'from-emerald-500/10 to-transparent border-emerald-500/20 dark:from-emerald-950/30 dark:border-emerald-900/40',
+      header: 'bg-emerald-500/5',
+      badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+      icon: <Award className="h-5 w-5 text-emerald-500" />,
+      label: 'Doing Great!',
+      actionBtn: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'
     },
   }
 
   const config = priorityConfig[recommendation.priority] || priorityConfig.medium
   
   return (
-    <div
-      onClick={() => setExpanded(!expanded)}
-      className={`rounded-xl border ${config.border} ${config.bg} p-4 transition-all cursor-pointer hover:border-opacity-60`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">{config.icon}</span>
-            <span className={`rounded-md px-2 py-1 text-xs font-bold ${config.badge}`}>
+    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${expanded ? 'shadow-md ring-1 ring-foreground/5' : 'hover:shadow-sm'} ${config.wrapper} bg-gradient-to-br`}>
+      {/* Clickable Header */}
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        className={`p-5 cursor-pointer flex gap-4 items-start select-none transition-colors hover:bg-foreground/[0.02] ${expanded ? config.header : ''}`}
+      >
+        <div className="mt-0.5 p-2 rounded-xl bg-background shadow-sm border border-border/50">
+          {config.icon}
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border uppercase tracking-wider ${config.badge}`}>
               {config.label}
             </span>
+            {recommendation.skill_area && recommendation.skill_area !== 'overall' && (
+              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                • {recommendation.skill_area.replace(/_/g, ' ')}
+              </span>
+            )}
           </div>
-          <h3 className="font-bold text-sm text-foreground">{recommendation.title}</h3>
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{recommendation.reason}</p>
+          <h3 className="text-base font-bold text-foreground leading-tight mb-1.5">{recommendation.title}</h3>
+          <p className="text-sm text-muted-foreground line-clamp-2">{recommendation.reason}</p>
         </div>
-        <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform flex-shrink-0 mt-0.5 ${expanded ? 'rotate-90' : ''}`} />
+        
+        <div className="flex-shrink-0 mt-2">
+          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background shadow-sm' : 'hover:bg-muted'}`}>
+            <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${expanded ? 'rotate-90 text-foreground' : ''}`} />
+          </div>
+        </div>
       </div>
 
-      {expanded && (
-        <div className="mt-3 space-y-3 border-t border-current border-opacity-10 pt-3">
-          <div>
-            <h4 className="font-semibold text-sm text-foreground flex items-center gap-2">
-              <Lightbulb className="h-4 w-4" />
-              What This Means
-            </h4>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{recommendation.detail}</p>
+      {/* Expandable Content */}
+      <div className={`grid transition-all duration-300 ease-in-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          <div className="p-5 pt-2 pb-6 border-t border-border/50 space-y-6">
+            
+            {/* Context/Explanation */}
+            <div className="pl-12">
+              <div className="flex items-start gap-3">
+                <Lightbulb className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground mb-1">Why this matters</h4>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{recommendation.detail}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actionable Step */}
+            <div className="pl-12">
+              <div className="rounded-xl bg-background border border-border/60 p-4 shadow-sm relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-1 h-full bg-primary/60"></div>
+                <div className="flex gap-3">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Zap className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground mb-1.5">Your Action Plan</h4>
+                    <p className="text-sm text-muted-foreground leading-relaxed font-medium">{recommendation.next_action}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
-          <div className="rounded-lg bg-muted/50 border border-border p-3">
-            <h4 className="font-semibold text-sm text-foreground mb-1 flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              Your Next Step
-            </h4>
-            <p className="text-xs text-muted-foreground leading-relaxed">{recommendation.next_action}</p>
-          </div>
-          {recommendation.skill_area && (
-            <p className="text-xs text-muted-foreground">
-              <span className="font-semibold">Skill:</span> {recommendation.skill_area}
-            </p>
-          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
