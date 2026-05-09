@@ -17,7 +17,7 @@ from app.api.dependencies import get_db
 from app.core.auth import get_current_user
 from app.models.session_result import SessionResult
 from app.models.user import User
-from app.api.v1.mca.scoring import calculate_overall_score
+from app.api.v1.mca.scoring import calculate_session_metrics
 
 router = APIRouter()
 
@@ -57,6 +57,7 @@ class SessionResponse(BaseModel):
     dominant_emotion: Optional[str] = None
     emotion_distribution: Optional[dict[str, Any]] = None
     nudge_summary: Optional[dict[str, Any]] = None
+    skill_scores: Optional[dict[str, Any]] = None
     mechanical_averages: Optional[dict[str, Any]] = None
 
     @classmethod
@@ -75,6 +76,7 @@ class SessionResponse(BaseModel):
             dominant_emotion=session.dominant_emotion,
             emotion_distribution=session.emotion_distribution,
             nudge_summary=session.nudge_summary,
+            skill_scores=session.skill_scores,
             mechanical_averages=session.mechanical_averages,
         )
 
@@ -147,12 +149,14 @@ def end_session(
     session.emotion_distribution = body.emotion_distribution or {}
     session.mechanical_averages = body.mechanical_averages or {}
     
-    # Calculate overall score
-    session.overall_score = calculate_overall_score(
-        nudge_summary, 
+    # Calculate multi-skill scores
+    metrics = calculate_session_metrics(
+        session.nudge_log, 
         session.emotion_distribution,
         duration_seconds=session.duration_seconds
     )
+    session.overall_score = metrics["overall"]
+    session.skill_scores = metrics["breakdown"]
     
     # Determine dominant emotion
     if session.emotion_distribution:

@@ -1,45 +1,78 @@
 import math
 from typing import Dict, Any
 
-def calculate_overall_score(
-    nudge_summary: Dict[str, int], 
+def calculate_session_metrics(
+    nudge_log: list[dict], 
     emotion_distribution: Dict[str, float],
     duration_seconds: int = 60
-) -> int:
+) -> Dict[str, Any]:
     """
-    Calculates MCA session score based on behavioral control and emotional intelligence.
+    Calculates detailed MCA skill scores and an overall session score.
     """
+    # Initialize Skill Scores (Base 100)
+    vocal_score = 100.0
+    pacing_score = 100.0
+    presence_score = 100.0
+    intelligence_score = 100.0
     
-    # 1. Behavioral Control (Max 50)
-    control_score = 50.0
-    nudge_weights = {"critical": 15.0, "warning": 7.5, "info": 2.5}
+    # Severity Penalties
+    penalties = {"critical": 15.0, "warning": 7.5, "info": 2.5}
     
-    total_penalty = 0.0
-    for severity, count in nudge_summary.items():
-        weight = nudge_weights.get(severity.lower(), 0.0)
-        total_penalty += weight * count
+    # 1. Categorize Nudges and Apply Penalties
+    for nudge in nudge_log:
+        category = nudge.get("category", "unknown").lower()
+        severity = nudge.get("severity", "info").lower()
+        penalty = penalties.get(severity, 2.5)
         
-    # Normalize penalty by duration using square root scaling
+        if category in ["volume", "pitch", "clarity"]:
+            vocal_score -= penalty
+        elif category in ["pace", "silence"]:
+            pacing_score -= penalty
+        elif category == "fusion":
+            # Fusion nudges are split between Presence and Intelligence/Synergy
+            msg = nudge.get("message", "").lower()
+            if any(word in msg for word in ["look", "gaze", "head", "eye", "audience"]):
+                presence_score -= penalty
+            else:
+                intelligence_score -= (penalty * 1.5) # Mismatch/Sarcasm is heavier
+    
+    # 2. Emotional Intelligence (Factor in Emotion Distribution)
+    # Penalize negative states (angry, fearful, disgust) and reward stable states
+    negative_affect = (
+        emotion_distribution.get("angry", 0) + 
+        emotion_distribution.get("fearful", 0) + 
+        emotion_distribution.get("disgust", 0)
+    )
+    # Each % of negative affect reduces intelligence score slightly
+    intelligence_score -= (negative_affect * 0.5)
+    
+    # 3. Normalization and Bounds
+    # Normalize by duration to be fair to longer sessions (square root scaling)
     duration_minutes = max(duration_seconds / 60.0, 0.5)
-    normalized_penalty = total_penalty / math.sqrt(duration_minutes)
+    scale_factor = 1.0 / math.sqrt(duration_minutes)
     
-    control_score = max(0, control_score - normalized_penalty)
-    
-    # 2. Emotional Intelligence (Max 50)
-    # Reward positive/neutral states and penalize aggressive/suboptimal states
-    affect_map = {
-        "neutral": 50.0, "happy": 50.0, "surprised": 35.0, 
-        "sad": 20.0, "fearful": 5.0, "disgust": 0.0, "angry": 0.0
+    def finalize(score):
+        # We don't want to penalize too much for long sessions, so we moderate the drop
+        final = 100 - ((100 - score) * scale_factor)
+        return int(min(100, max(0, final)))
+
+    skills = {
+        "vocal_command": finalize(vocal_score),
+        "speech_fluency": finalize(pacing_score),
+        "presence_engagement": finalize(presence_score),
+        "emotional_intelligence": finalize(intelligence_score)
     }
     
-    weighted_eq = 0.0
-    total_dist = 0.0
-    for emotion, percentage in emotion_distribution.items():
-        weight = affect_map.get(emotion.lower(), 25.0)
-        weighted_eq += (percentage / 100.0) * weight
-        total_dist += percentage
-        
-    eq_score = weighted_eq if total_dist > 0 else 25.0
+    # 4. Overall Score (Weighted Average)
+    # Weights: EQ (30%), Presence (30%), Vocal (20%), Pacing (20%)
+    overall = (
+        skills["vocal_command"] * 0.20 +
+        skills["speech_fluency"] * 0.20 +
+        skills["presence_engagement"] * 0.30 +
+        skills["emotional_intelligence"] * 0.30
+    )
     
-    # 3. Final Scoring
-    return min(100, max(0, int(control_score + eq_score)))
+    return {
+        "overall": int(overall),
+        "breakdown": skills
+    }
