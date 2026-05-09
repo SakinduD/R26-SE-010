@@ -3,6 +3,34 @@ import { getTokens } from '../../lib/auth/storage';
 
 const BASE = '/api/v1/mca';
 
+/**
+ * Helper to extract descriptive error messages from backend responses.
+ */
+const handleApiError = (error, context) => {
+  console.error(`[mcaService:${context}] Error:`, error);
+  
+  if (error.response) {
+    const { status, data } = error.response;
+    const detail = data?.detail || 'An unexpected error occurred.';
+    
+    switch (status) {
+      case 401: return 'Unauthorized. Please log in again.';
+      case 403: return 'Access denied. You may not have permission for this session.';
+      case 404: return 'Resource not found. The session may have expired or was deleted.';
+      case 422: return `Validation error: ${JSON.stringify(detail)}`;
+      case 429: return 'Rate limit exceeded. Please wait a moment.';
+      case 500: return 'Internal server error. Our intelligence engine is having trouble.';
+      default: return detail;
+    }
+  }
+  
+  if (error.request) {
+    return 'The server is unreachable. Please check your connection.';
+  }
+  
+  return error.message || 'Failed to complete request.';
+};
+
 export const mcaService = {
   // Chat 
   chat: async (message, history = [], context = {}, sessionId = null) => {
@@ -15,8 +43,7 @@ export const mcaService = {
       });
       return response.data;
     } catch (error) {
-      console.error('[mcaService:chat] Error processing chat request:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to process chat message. Please try again.');
+      throw new Error(handleApiError(error, 'chat'));
     }
   },
 
@@ -37,8 +64,7 @@ export const mcaService = {
       const response = await authClient.post(`${BASE}/sessions/start`, { mode });
       return response.data;
     } catch (error) {
-      console.error('[mcaService:startSession] Error starting session:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to start MCA session. Server may be unreachable.');
+      throw new Error(handleApiError(error, 'startSession'));
     }
   },
 
@@ -55,8 +81,7 @@ export const mcaService = {
       const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body);
       return response.data;
     } catch (error) {
-      console.error(`[mcaService:endSession] Error ending session ${sessionId}:`, error);
-      throw new Error(error.response?.data?.detail || 'Failed to gracefully end and save the session.');
+      throw new Error(handleApiError(error, 'endSession'));
     }
   },
 
@@ -66,8 +91,7 @@ export const mcaService = {
       const response = await authClient.get(`${BASE}/sessions/`, { params: { limit, offset } });
       return response.data;
     } catch (error) {
-      console.error('[mcaService:getSessions] Error fetching session history:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to fetch session history.');
+      throw new Error(handleApiError(error, 'getSessions'));
     }
   },
 };
