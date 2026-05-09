@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     apm_write_analytics: bool = True      # toggle for analytics_writer
     apm_llm_timeout_s: float = 8.0
     apm_rpe_timeout_s: float = 5.0
+    apm_demo_mode: bool = False           # enables /apa/demo/* endpoints for live demos
 
     model_config = {
         "env_file": ".env",

@@ -8,7 +8,7 @@ meaningfully different teaching strategies from the same engine.
 import pytest
 
 from app.services.pedagogy.strategy_optimizer import optimize_strategy
-from app.services.pedagogy.types import OceanScores
+from app.services.pedagogy.types import BaselineSummary, OceanScores
 
 # Two demo personas for the May-08 presentation
 INTROVERT = OceanScores(
@@ -80,3 +80,58 @@ def test_two_personas_produce_different_strategies():
     assert NPC_ORDER.index(intro_s.npc_personality) < NPC_ORDER.index(
         extro_s.npc_personality
     ), "Introvert NPC must be gentler (lower index) than extrovert NPC"
+
+
+# ---- BASELINE TESTS --------------------------------------------------------
+
+_MID_RANGE = OceanScores(
+    openness=50, conscientiousness=50, extraversion=50, agreeableness=50, neuroticism=50
+)
+
+
+def _baseline(**kwargs) -> BaselineSummary:
+    return BaselineSummary(has_baseline=True, **kwargs)
+
+
+def test_baseline_high_stress_softens_tone_regardless_of_N():
+    """stress_indicator > 0.6 must soften tone one step even when N is low."""
+    scores = OceanScores(
+        openness=50, conscientiousness=50, extraversion=50, agreeableness=50, neuroticism=25
+    )
+    no_baseline = optimize_strategy(scores)
+    assert no_baseline.tone == "challenging"  # confirm baseline-free result
+
+    with_baseline = optimize_strategy(scores, baseline=_baseline(stress_indicator=0.7))
+    from app.services.pedagogy.types import TONE_ORDER
+    assert TONE_ORDER.index(with_baseline.tone) < TONE_ORDER.index(no_baseline.tone), (
+        f"Expected softer tone than {no_baseline.tone!r}, got {with_baseline.tone!r}"
+    )
+
+
+def test_baseline_low_confidence_overrides_npc_choice():
+    """confidence_indicator < 0.3 must force npc to warm_supportive."""
+    scores = OceanScores(
+        openness=50, conscientiousness=75, extraversion=75, agreeableness=20, neuroticism=25
+    )
+    no_baseline = optimize_strategy(scores)
+    assert no_baseline.npc_personality != "warm_supportive"  # confirm OCEAN drives demanding NPC
+
+    with_baseline = optimize_strategy(scores, baseline=_baseline(confidence_indicator=0.2))
+    assert with_baseline.npc_personality == "warm_supportive"
+
+
+def test_baseline_low_skill_score_appears_in_priority_skills():
+    """skill_scores with a value < 0.4 must populate priority_skills."""
+    result = optimize_strategy(
+        _MID_RANGE,
+        baseline=_baseline(skill_scores={"assertiveness": 0.3, "accountability": 0.8}),
+    )
+    assert "assertiveness" in result.priority_skills
+    assert "accountability" not in result.priority_skills
+
+
+def test_no_baseline_produces_identical_strategy_to_before():
+    """Passing baseline=None must be byte-identical to calling without the arg."""
+    without = optimize_strategy(_MID_RANGE)
+    with_none = optimize_strategy(_MID_RANGE, baseline=None)
+    assert without.model_dump() == with_none.model_dump()
