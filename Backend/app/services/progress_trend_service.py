@@ -18,17 +18,10 @@ STABLE_SLOPE_THRESHOLD = 2.0
 
 
 TREND_SCORE_FIELDS = {
-    "confidence": "confidence_score",
-    "communication_clarity": "clarity_score",
-    "empathy": "empathy_score",
-    "active_listening": "listening_score",
-    "adaptability": "adaptability_score",
-    "emotional_control": "emotional_control_score",
-    "professionalism": "professionalism_score",
-    "eye_contact": "eye_contact_score",
-    "speech_pace": "speech_pace_score",
-    "speech_volume": "speech_volume_score",
-    "response_quality": "response_quality_score",
+    "vocal_command": "speech_volume_score",
+    "speech_fluency": "speech_pace_score",
+    "presence_engagement": "eye_contact_score",
+    "emotional_intelligence": "empathy_score",
     "overall": "overall_score",
 }
 
@@ -39,17 +32,20 @@ FEEDBACK_SKILL_ALIASES = {
 
 
 def analyze_user_progress_trends(
-    db: Session,
-    user_id: str,
-    limit: int = 100,
+    db: Session, user_id: str, session_id: str | None = None
 ) -> ProgressTrendResult:
-    metrics = _query_user_metrics(db, user_id, limit)
-    feedback = _query_user_feedback(db, user_id, limit)
+    print(f"--- ANALYZE TRENDS: user={user_id} session={session_id} ---")
+    cutoff_at = _session_cutoff_at(db, user_id, session_id)
+    print(f"--- CUTOFF CALCULATED: {cutoff_at} ---")
+    
+    metrics = _query_user_metrics(db, user_id, limit=100, cutoff_at=cutoff_at)
+    feedback = _query_user_feedback(db, user_id, limit=100, cutoff_at=cutoff_at)
+    print(f"--- DATA FOUND: metrics={len(metrics)} feedback={len(feedback)} ---")
     trends = [
         _build_skill_trend(skill_area, field, metrics, feedback)
         for skill_area, field in TREND_SCORE_FIELDS.items()
     ]
-    return _build_result(user_id=user_id, trends=trends)
+    return _build_result(user_id=user_id, trends=trends, cutoff_at=cutoff_at)
 
 
 def analyze_user_skill_trend(
@@ -57,6 +53,7 @@ def analyze_user_skill_trend(
     user_id: str,
     skill_area: str,
     limit: int = 100,
+    session_id: str | None = None,
 ) -> SkillTrendItem:
     normalized_skill = _normalize_skill_area(skill_area)
     if normalized_skill not in TREND_SCORE_FIELDS:
@@ -68,8 +65,9 @@ def analyze_user_skill_trend(
             recommendation=f"No supported score field exists for {normalized_skill}.",
         )
 
-    metrics = _query_user_metrics(db, user_id, limit)
-    feedback = _query_user_feedback(db, user_id, limit)
+    cutoff_at = _session_cutoff_at(db, user_id, session_id)
+    metrics = _query_user_metrics(db, user_id, limit, cutoff_at)
+    feedback = _query_user_feedback(db, user_id, limit, cutoff_at)
     return _build_skill_trend(normalized_skill, TREND_SCORE_FIELDS[normalized_skill], metrics, feedback)
 
 
@@ -77,10 +75,14 @@ def _query_user_metrics(
     db: Session,
     user_id: str,
     limit: int,
+    cutoff_at: datetime | None = None,
 ) -> list[AnalyticsSessionMetric]:
+    query = db.query(AnalyticsSessionMetric).filter(AnalyticsSessionMetric.user_id == user_id)
+    if cutoff_at is not None:
+        query = query.filter(AnalyticsSessionMetric.created_at <= cutoff_at)
+
     return (
-        db.query(AnalyticsSessionMetric)
-        .filter(AnalyticsSessionMetric.user_id == user_id)
+        query
         .order_by(AnalyticsSessionMetric.created_at.asc(), AnalyticsSessionMetric.id.asc())
         .limit(limit)
         .all()
@@ -91,17 +93,53 @@ def _query_user_feedback(
     db: Session,
     user_id: str,
     limit: int,
+    cutoff_at: datetime | None = None,
 ) -> list[FeedbackEntry]:
-    return (
+    query = db.query(FeedbackEntry).filter(FeedbackEntry.user_id == user_id)
+    if cutoff_at is not None:
+        query = query.filter(FeedbackEntry.created_at <= cutoff_at)
+
+    return query.order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc()).limit(limit).all()
+
+
+def _session_cutoff_at(
+    db: Session,
+    user_id: str,
+    session_id: str | None,
+) -> datetime | None:
+    if not session_id:
+        return None
+
+    print(f"DEBUG: Calculating cutoff for user={user_id} session={session_id}")
+    metric = (
+        db.query(AnalyticsSessionMetric)
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.session_id == session_id)
+        .order_by(AnalyticsSessionMetric.created_at.desc(), AnalyticsSessionMetric.id.desc())
+        .first()
+    )
+    feedback = (
         db.query(FeedbackEntry)
         .filter(FeedbackEntry.user_id == user_id)
-        .order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc())
-        .limit(limit)
-        .all()
+        .filter(FeedbackEntry.session_id == session_id)
+        .order_by(FeedbackEntry.created_at.desc(), FeedbackEntry.id.desc())
+        .first()
     )
+    
+    timestamps = []
+    if metric and metric.created_at: 
+        timestamps.append(metric.created_at)
+        print(f"DEBUG: Found metric at {metric.created_at}")
+    if feedback and feedback.created_at: 
+        timestamps.append(feedback.created_at)
+        print(f"DEBUG: Found feedback at {feedback.created_at}")
+        
+    res = max(timestamps) if timestamps else None
+    print(f"DEBUG: Resulting cutoff_at={res}")
+    return res
 
 
-def _build_result(user_id: str, trends: list[SkillTrendItem]) -> ProgressTrendResult:
+def _build_result(user_id: str, trends: list[SkillTrendItem], cutoff_at: datetime | None = None) -> ProgressTrendResult:
     improving = [item for item in trends if item.trend_label == "improving"]
     stable = [item for item in trends if item.trend_label == "stable"]
     declining = [item for item in trends if item.trend_label == "declining"]
@@ -117,6 +155,7 @@ def _build_result(user_id: str, trends: list[SkillTrendItem]) -> ProgressTrendRe
             insufficient_data_count=len(insufficient),
             strongest_improvement=max(improving, key=lambda item: item.delta or 0, default=None),
             strongest_decline=min(declining, key=lambda item: item.delta or 0, default=None),
+            cutoff_at=cutoff_at,
         ),
         trends=trends,
         generated_at=datetime.utcnow(),
@@ -131,19 +170,34 @@ def _build_skill_trend(
     feedback: list[FeedbackEntry],
 ) -> SkillTrendItem:
     points = _points_for_field(metrics, field)
-    if len(points) < 2:
+    if len(points) < 1:
         points = _feedback_points_for_skill(feedback, skill_area)
+    
     session_count = len(points)
 
-    if session_count < 2:
+    if session_count < 1:
         return SkillTrendItem(
             skill_area=skill_area,
             trend_label="insufficient_data",
-            first_score=points[0].score if points else None,
-            latest_score=points[-1].score if points else None,
-            session_count=session_count,
+            first_score=None,
+            latest_score=None,
+            session_count=0,
+            points=[],
+            recommendation=f"Complete your first session to start tracking {skill_area}.",
+        )
+
+    if session_count == 1:
+        score = points[0].score
+        return SkillTrendItem(
+            skill_area=skill_area,
+            trend_label="stable",
+            first_score=score,
+            latest_score=score,
+            delta=0.0,
+            slope=0.0,
+            session_count=1,
             points=points,
-            recommendation=f"Collect at least two sessions to analyze {skill_area} progress.",
+            recommendation=f"Baseline established for {skill_area}. Keep going to see your growth!",
         )
 
     first_score = points[0].score
@@ -173,10 +227,22 @@ def _points_for_field(
     created_at_by_session = {}
 
     for metric in metrics:
-        value = getattr(metric, field)
-        if value is None:
+        # Priority mapping for MCA skills to ensure consistency with frontend
+        val = None
+        if field == "speech_volume_score": # vocal_command
+            val = metric.speech_volume_score if metric.speech_volume_score is not None else metric.professionalism_score
+        elif field == "speech_pace_score": # speech_fluency
+            val = metric.speech_pace_score if metric.speech_pace_score is not None else metric.clarity_score
+        elif field == "eye_contact_score": # presence_engagement
+            val = metric.eye_contact_score if metric.eye_contact_score is not None else (metric.confidence_score if metric.confidence_score is not None else metric.adaptability_score)
+        elif field == "empathy_score": # emotional_intelligence
+            val = metric.empathy_score if metric.empathy_score is not None else (metric.emotional_control_score if metric.emotional_control_score is not None else metric.listening_score)
+        else:
+            val = getattr(metric, field)
+
+        if val is None:
             continue
-        points_by_session[metric.session_id].append(value)
+        points_by_session[metric.session_id].append(val)
         created_at_by_session.setdefault(metric.session_id, metric.created_at)
 
     return sorted(
@@ -235,6 +301,8 @@ def _feedback_matches_skill(entry_skill: str | None, target_skill: str) -> bool:
 
 def _linear_slope(scores: list[float]) -> float:
     n = len(scores)
+    if n < 2:
+        return 0.0
     x_mean = (n - 1) / 2
     y_mean = sum(scores) / n
     numerator = sum((index - x_mean) * (score - y_mean) for index, score in enumerate(scores))
