@@ -6,6 +6,8 @@ POST /api/v1/mca/sessions/{id}/end → closes the session and persists results
 GET  /api/v1/mca/sessions/        → lists the current user's sessions (paginated)
 """
 import uuid
+import random
+import string
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
@@ -20,6 +22,12 @@ from app.models.user import User
 from app.api.v1.mca.scoring import calculate_session_metrics
 
 router = APIRouter()
+
+def generate_friendly_id(mode: str) -> str:
+    """Generate a human-readable session ID: MCA-MODE-YYYYMMDD-XXXX"""
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    random_str = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    return f"MCA-{mode.upper()}-{date_str}-{random_str}"
 
 
 # Request / Response Schemas
@@ -59,6 +67,7 @@ class SessionResponse(BaseModel):
     nudge_summary: Optional[dict[str, Any]] = None
     skill_scores: Optional[dict[str, Any]] = None
     mechanical_averages: Optional[dict[str, Any]] = None
+    friendly_id: Optional[str] = None
 
     @classmethod
     def from_orm(cls, session: SessionResult) -> "SessionResponse":
@@ -78,6 +87,7 @@ class SessionResponse(BaseModel):
             nudge_summary=session.nudge_summary,
             skill_scores=session.skill_scores,
             mechanical_averages=session.mechanical_averages,
+            friendly_id=session.friendly_id,
         )
 
 
@@ -98,6 +108,7 @@ def start_session(
         user_id=current_user.id,
         session_type=body.mode,
         status="active",
+        friendly_id=generate_friendly_id(body.mode),
         started_at=datetime.now(timezone.utc),
     )
     db.add(session)
