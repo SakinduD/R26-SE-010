@@ -13,14 +13,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
-_merged = Path(__file__).parent / "dataset" / "merged_rpe_dataset.csv"
-_synth  = Path(__file__).parent / "dataset" / "soft_skills_dataset.csv"
-DATASET_PATH = _merged if _merged.exists() else _synth
+DATASET_PATH = Path(__file__).parent / "dataset" / "soft_skills_dataset.csv"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "Backend" / "app" / "models" / "rpe" / "ml"
 
 
 def main() -> None:
-    print(f"Using dataset: {DATASET_PATH.name}")
     df = pd.read_csv(DATASET_PATH)
     df = df.dropna(subset=["user_input", "escalation_label"])
 

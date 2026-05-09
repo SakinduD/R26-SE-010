@@ -1,6 +1,10 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
+/**
+ * Glass-morphism card wrapper for auth pages.
+ * @param {{ title?: string, description?: string, footer?: React.ReactNode, children: React.ReactNode, className?: string }} props
+ */
 export default function AuthCard({ title, description, children, footer, className }) {
   return (
     <motion.div
@@ -9,8 +13,8 @@ export default function AuthCard({ title, description, children, footer, classNa
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className={cn(
         'rounded-2xl border border-border/60',
-        'bg-card text-card-foreground',
-        'shadow-xl dark:shadow-black/40',
+        'bg-white/85 dark:bg-card/85 backdrop-blur-sm',
+        'shadow-xl shadow-violet-500/5 dark:shadow-black/30',
         'p-8',
         className
       )}

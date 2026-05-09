@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -55,29 +54,8 @@ def get_questions() -> list[QuestionOut]:
     return [QuestionOut(**q) for q in BFI44_QUESTIONS]
 
 
-async def _fire_generate_plan(user_id: object) -> None:
-    """Fire-and-forget training plan generation after survey submit."""
-    import uuid as _uuid
-
-    from app.core.llm_client import get_llm_client
-    from app.core.rpe_client import RpeClient
-    from app.db.database import SessionLocal
-    from app.services.pedagogy import orchestrator
-
-    db = SessionLocal()
-    try:
-        await orchestrator.generate_training_plan(
-            _uuid.UUID(str(user_id)), db, RpeClient(), get_llm_client()
-        )
-        logger.info("Training plan generated for user %s", user_id)
-    except Exception:
-        logger.exception("Background plan generation failed for user %s", user_id)
-    finally:
-        db.close()
-
-
 @router.post("/submit", response_model=PersonalityProfileOut)
-async def submit_survey(
+def submit_survey(
     payload: SurveySubmitIn,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -121,9 +99,6 @@ async def submit_survey(
 
     db.commit()
     db.refresh(profile)
-
-    asyncio.create_task(_fire_generate_plan(current_user.id))
-
     return _build_profile_out(profile)
 
 
