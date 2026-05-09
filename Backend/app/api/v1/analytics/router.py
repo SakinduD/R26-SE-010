@@ -298,7 +298,7 @@ def get_user_skill_progress_trend(
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id)
+    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id=session_id)
 
 
 @router.get(
