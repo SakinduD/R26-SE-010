@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowRight, Brain, ChevronDown, ChevronUp,
+  Activity, ArrowRight, Brain, ChevronDown, ChevronUp,
   Loader2, RefreshCw, Sparkles, Target, TrendingUp,
 } from 'lucide-react'
 import { getMyTrainingPlan, generateTrainingPlan, getAdjustmentHistory } from '@/lib/api/pedagogy'
@@ -224,6 +224,119 @@ function HistoryEntry({ entry, index }) {
   )
 }
 
+function PersonalizationBriefCard({ brief }) {
+  if (!brief) return null
+  return (
+    <motion.div
+      variants={fadeInUp}
+      className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-3.5"
+    >
+      <div className="flex items-center gap-2">
+        <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+          <Sparkles className="size-4 text-primary" />
+        </div>
+        <h2 className="text-sm font-semibold text-foreground">Why this plan?</h2>
+        {brief.has_baseline_evidence && (
+          <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+            Baseline calibrated
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-foreground leading-relaxed">{brief.summary}</p>
+
+      {brief.drivers?.length > 0 && (
+        <div className="space-y-1.5 border-t border-border/40 pt-3">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
+            Key factors
+          </p>
+          <ul className="space-y-1">
+            {brief.drivers.map((d, i) => (
+              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                <span className="text-primary mt-0.5 shrink-0">·</span>
+                {d}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {brief.priority_skills?.length > 0 && (
+        <div className="border-t border-border/40 pt-3 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
+            Focus skills
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {brief.priority_skills.map((s) => (
+              <span
+                key={s}
+                className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary capitalize"
+              >
+                {s.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground border-t border-border/40 pt-3">
+        {brief.difficulty_rationale}
+      </p>
+    </motion.div>
+  )
+}
+
+function BaselineEvidenceCard({ baseline }) {
+  if (!baseline?.has_baseline) return null
+  const stressColor = baseline.stress_indicator > 0.6 ? 'text-orange-500' : 'text-emerald-500'
+  const confColor = baseline.confidence_indicator < 0.3 ? 'text-orange-500' : 'text-emerald-500'
+
+  return (
+    <motion.div
+      variants={fadeInUp}
+      className="rounded-xl border border-emerald-400/30 bg-emerald-500/5 p-5 shadow-sm space-y-3"
+    >
+      <div className="flex items-center gap-2">
+        <div className="flex size-7 items-center justify-center rounded-md bg-emerald-500/10">
+          <Activity className="size-4 text-emerald-600" />
+        </div>
+        <h2 className="text-sm font-semibold text-foreground">Baseline evidence</h2>
+        <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+          Used in calibration
+        </span>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="flex-1 text-center rounded-lg bg-card border border-border/60 p-2.5 space-y-0.5">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Stress</p>
+          <p className={cn('text-lg font-bold tabular-nums', stressColor)}>
+            {Math.round((baseline.stress_indicator ?? 0) * 100)}%
+          </p>
+        </div>
+        <div className="flex-1 text-center rounded-lg bg-card border border-border/60 p-2.5 space-y-0.5">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Confidence</p>
+          <p className={cn('text-lg font-bold tabular-nums', confColor)}>
+            {Math.round((baseline.confidence_indicator ?? 0) * 100)}%
+          </p>
+        </div>
+      </div>
+
+      {baseline.dominant_emotions?.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {baseline.dominant_emotions.map((e) => (
+            <span
+              key={e}
+              className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground capitalize"
+            >
+              {e}
+            </span>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  )
+}
+
 function AdjustmentHistorySection({ history }) {
   if (!history?.length) {
     return (
@@ -369,6 +482,8 @@ export default function TrainingPlan() {
             </motion.div>
           )}
 
+          <PersonalizationBriefCard brief={plan.brief_json} />
+          <BaselineEvidenceCard baseline={plan.baseline_summary_json} />
           <StrategyCard strategy={plan.strategy} difficulty={plan.difficulty} />
           <ScenarioCard scenario={plan.primary_scenario} generationSource={plan.generation_source} />
           <AdjustmentHistorySection history={history} />
