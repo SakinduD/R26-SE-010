@@ -11,7 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.session_result import SessionResult
     from app.models.personality_profile import PersonalityProfile
 
 
@@ -36,11 +35,4 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
-    )
-
-    session_results: Mapped[list["SessionResult"]] = relationship(
-        "SessionResult",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        order_by="SessionResult.created_at.desc()",
     )

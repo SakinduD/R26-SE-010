@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-import logging
 
 from app.api.dependencies import get_db
-from app.models.analytics import MentoringRecommendation
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
@@ -11,13 +9,7 @@ from app.schemas.analytics import (
     FeedbackEntryCreate,
     FeedbackEntryRead,
     FeedbackAnalysisResult,
-    FeedbackSentimentRequest,
-    FeedbackSentimentResult,
     AnalyticsAggregateSummary,
-    AnalyticsComponentIntegrationRequest,
-    AnalyticsSessionIntegrationResult,
-    MentoringRecommendationItem,
-    MentoringRecommendationResult,
     PostSessionReportResult,
     ProgressTrendResult,
     PredictiveModelingItem,
@@ -30,32 +22,16 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
-    analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
-    llm_mentoring_service,
     post_session_report_service,
     predictive_modeling_service,
     progress_trend_service,
-    sentiment_analysis_service,
     skill_scoring_service,
 )
 
 router = APIRouter(tags=["feedback-analytics"])
-logger = logging.getLogger(__name__)
-
-
-@router.post(
-    "/integrations/session-complete",
-    response_model=AnalyticsSessionIntegrationResult,
-    status_code=status.HTTP_201_CREATED,
-)
-def integrate_completed_session_analytics(
-    payload: AnalyticsComponentIntegrationRequest,
-    db: Session = Depends(get_db),
-):
-    return analytics_integration_service.integrate_component_session_data(db, payload)
 
 
 @router.post(
@@ -138,20 +114,6 @@ def list_session_feedback(
     db: Session = Depends(get_db),
 ):
     return analytics_service.list_feedback_by_session(db, session_id, limit)
-
-
-@router.post(
-    "/feedback/sentiment",
-    response_model=FeedbackSentimentResult,
-)
-def analyze_feedback_sentiment(payload: FeedbackSentimentRequest):
-    try:
-        return sentiment_analysis_service.analyze_feedback_text(payload.text)
-    except sentiment_analysis_service.SentimentModelUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
 
 
 @router.post(
@@ -282,10 +244,10 @@ def get_user_blind_spots(
 )
 def get_user_progress_trends(
     user_id: str,
-    session_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=2, le=500),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_progress_trends(db, user_id, session_id)
+    return progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
 
 
 @router.get(
@@ -295,10 +257,10 @@ def get_user_progress_trends(
 def get_user_skill_progress_trend(
     user_id: str,
     skill_area: str,
-    session_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=2, le=500),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id)
+    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, limit)
 
 
 @router.get(
@@ -307,10 +269,10 @@ def get_user_skill_progress_trend(
 )
 def get_user_predicted_outcomes(
     user_id: str,
-    session_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=2, le=500),
     db: Session = Depends(get_db),
 ):
-    return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, session_id)
+    return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
 
 
 @router.get(
@@ -320,131 +282,7 @@ def get_user_predicted_outcomes(
 def get_user_skill_predicted_outcome(
     user_id: str,
     skill_area: str,
-    session_id: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
-
-
-@router.get(
-    "/users/{user_id}/mentoring-recommendations",
-    response_model=MentoringRecommendationResult,
-)
-def get_user_mentoring_recommendations(
-    user_id: str,
     limit: int = Query(default=100, ge=2, le=500),
-    force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
-    try:
-        logger.info(f"Fetching user recommendations for user_id: {user_id}, limit: {limit}, force_refresh: {force_refresh}")
-
-        # Load saved recommendations from database unless a refresh is explicitly requested
-        if not force_refresh:
-            cached_recs = db.query(MentoringRecommendation).filter(
-                MentoringRecommendation.user_id == user_id,
-                MentoringRecommendation.session_id.is_(None),
-                MentoringRecommendation.recommendation_type == "overall_user",
-            ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
-            ).limit(limit).all()
-
-            if cached_recs:
-                logger.info(f"Using saved recommendations for user {user_id}")
-                recommendations = [
-                    MentoringRecommendationItem(
-                        priority=rec.priority,
-                        skill_area=rec.skill_area,
-                        title=rec.title,
-                        reason=rec.reason or rec.description,
-                        detail=rec.detail or "",
-                        next_action=rec.next_action or "",
-                        source=rec.source,
-                        evidence_sources=[]
-                    )
-                    for rec in cached_recs
-                ]
-                return MentoringRecommendationResult(
-                    user_id=user_id,
-                    recommendations=recommendations,
-                    evidence=cached_recs[0].evidence or {},
-                    generated_at=cached_recs[0].created_at,
-                    recommendation_version="cached",
-                    model_version=cached_recs[0].model_version,
-                    source=cached_recs[0].source,
-                    recommendation_type="overall_user",
-                )
-
-        # Generate new recommendations (first time or explicit refresh)
-        result = llm_mentoring_service.generate_user_mentoring_recommendations(db, user_id, limit)
-        logger.info(f"Successfully generated user recommendations: {len(result.recommendations)} items")
-        return result
-    except Exception as e:
-        logger.error(f"Error generating user recommendations: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate user recommendations: {str(e)}"
-        )
-
-
-@router.get(
-    "/sessions/{session_id}/mentoring-recommendations",
-    response_model=MentoringRecommendationResult,
-)
-def get_session_mentoring_recommendations(
-    session_id: str,
-    force_refresh: bool = Query(default=False),
-    db: Session = Depends(get_db),
-):
-    try:
-        logger.info(f"Fetching session recommendations for session_id: {session_id}, force_refresh: {force_refresh}")
-
-        # Load saved recommendations from database unless a refresh is explicitly requested
-        if not force_refresh:
-            cached_recs = db.query(MentoringRecommendation).filter(
-                MentoringRecommendation.session_id == session_id,
-                MentoringRecommendation.recommendation_type == "session_specific",
-            ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
-            ).all()
-
-            if cached_recs:
-                logger.info(f"Using saved recommendations for session {session_id}")
-                user_id = cached_recs[0].user_id
-                recommendations = [
-                    MentoringRecommendationItem(
-                        priority=rec.priority,
-                        skill_area=rec.skill_area,
-                        title=rec.title,
-                        reason=rec.reason or rec.description,
-                        detail=rec.detail or "",
-                        next_action=rec.next_action or "",
-                        source=rec.source,
-                        evidence_sources=[]
-                    )
-                    for rec in cached_recs
-                ]
-                return MentoringRecommendationResult(
-                    user_id=user_id,
-                    session_id=session_id,
-                    recommendations=recommendations,
-                    evidence=cached_recs[0].evidence or {},
-                    generated_at=cached_recs[0].created_at,
-                    recommendation_version="cached",
-                    model_version=cached_recs[0].model_version,
-                    source=cached_recs[0].source,
-                    recommendation_type="session_specific",
-                )
-
-        # Generate new recommendations (first time or explicit refresh)
-        result = llm_mentoring_service.generate_session_mentoring_recommendations(db, session_id)
-        logger.info(f"Successfully generated recommendations: {len(result.recommendations)} items")
-        return result
-    except Exception as e:
-        logger.error(f"Error generating session recommendations: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate session recommendations: {str(e)}"
-        )
+    return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, limit)

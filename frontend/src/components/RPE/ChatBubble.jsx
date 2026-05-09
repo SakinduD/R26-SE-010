@@ -1,17 +1,17 @@
 import { cn } from '@/lib/utils'
 
-const EMOTION_STYLES = {
-  calm:       'bg-emerald-100 text-emerald-700',
-  assertive:  'bg-violet-100 text-violet-700',
-  anxious:    'bg-amber-100 text-amber-700',
+const EMOTION_COLORS = {
+  calm:       'bg-green-100 text-green-700',
+  assertive:  'bg-blue-100 text-blue-700',
+  anxious:    'bg-yellow-100 text-yellow-700',
   frustrated: 'bg-red-100 text-red-700',
-  confused:   'bg-slate-100 text-slate-600',
+  confused:   'bg-gray-100 text-gray-700',
 }
 
-const NPC_TONE_GLOW = {
-  cooperative: 'from-emerald-500 to-teal-400',
-  neutral:     'from-amber-400 to-yellow-300',
-  hostile:     'from-red-500 to-rose-400',
+const NPC_BORDER = {
+  cooperative: 'border-l-4 border-green-400',
+  neutral:     'border-l-4 border-yellow-400',
+  hostile:     'border-l-4 border-red-400',
 }
 
 export default function ChatBubble({ role, message, emotion, trustDelta, npcTone, npcRole }) {
@@ -19,34 +19,24 @@ export default function ChatBubble({ role, message, emotion, trustDelta, npcTone
 
   return (
     <div className={cn('flex', isNpc ? 'justify-start' : 'justify-end')}>
-      <div className={cn('flex flex-col max-w-[78%]', isNpc ? 'items-start' : 'items-end')}>
-
+      <div className={cn('flex flex-col max-w-[75%]', isNpc ? 'items-start' : 'items-end')}>
         {isNpc && npcRole && (
-          <span className="text-[10px] text-muted-foreground mb-1.5 ml-1 font-semibold uppercase tracking-widest">
-            {npcRole}
-          </span>
+          <span className="text-xs text-gray-400 mb-1 ml-1 font-medium">{npcRole}</span>
         )}
 
         <div className={cn(
-          'relative rounded-2xl px-4 py-3 text-sm leading-relaxed',
+          'rounded-2xl px-4 py-3 text-sm leading-relaxed',
           isNpc
-            ? 'bg-slate-900 text-slate-100 border border-slate-700/60 shadow-md overflow-hidden'
-            : 'bg-gradient-to-br from-primary to-violet-600 text-white shadow-lg shadow-primary/25'
+            ? cn('bg-gray-800 text-white', NPC_BORDER[npcTone] ?? 'border-l-4 border-gray-300')
+            : 'bg-blue-600 text-white'
         )}>
-          {/* NPC tone accent bar */}
-          {isNpc && (
-            <div className={cn(
-              'absolute left-0 inset-y-0 w-[3px] rounded-l-2xl bg-gradient-to-b',
-              NPC_TONE_GLOW[npcTone] ?? 'from-slate-500 to-slate-600'
-            )} />
-          )}
-          <span className={isNpc ? 'pl-1' : ''}>{message}</span>
+          {message}
         </div>
 
         {!isNpc && emotion && (
           <span className={cn(
-            'mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-            EMOTION_STYLES[emotion] ?? EMOTION_STYLES.confused
+            'mt-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
+            EMOTION_COLORS[emotion] ?? EMOTION_COLORS.confused
           )}>
             {emotion}
           </span>
@@ -54,13 +44,12 @@ export default function ChatBubble({ role, message, emotion, trustDelta, npcTone
 
         {!isNpc && trustDelta != null && (
           <span className={cn(
-            'text-xs mt-0.5 font-medium tabular-nums',
-            trustDelta > 0 ? 'text-emerald-600' : trustDelta < 0 ? 'text-red-500' : 'text-muted-foreground'
+            'text-xs mt-1 text-right',
+            trustDelta > 0 ? 'text-green-600' : trustDelta < 0 ? 'text-red-500' : 'text-gray-400'
           )}>
             {trustDelta > 0 ? `↑ Trust +${trustDelta}` : trustDelta < 0 ? `↓ Trust ${trustDelta}` : '→ Trust ±0'}
           </span>
         )}
-
       </div>
     </div>
   )

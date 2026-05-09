@@ -1,495 +1,398 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
+  AlertTriangle,
+  BrainCircuit,
+  CheckCircle2,
+  ClipboardList,
   Lightbulb,
   RefreshCw,
-  ChevronRight,
+  Search,
+  ShieldAlert,
   Target,
-  Calendar,
+  TrendingDown,
   TrendingUp,
-  Zap,
-  AlertCircle,
-  CheckCircle,
-  Award,
-  AlertTriangle,
-  ArrowRight,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
-import { useAnalyticsIdentity } from './analyticsAuth'
 
-export default function AnalyticsRecommendationsNew() {
+const SKILL_LABELS = {
+  confidence: 'Confidence',
+  communication_clarity: 'Communication Clarity',
+  empathy: 'Empathy',
+  active_listening: 'Active Listening',
+  adaptability: 'Adaptability',
+  emotional_control: 'Emotional Control',
+  professionalism: 'Professionalism',
+  overall: 'Overall',
+}
+
+const DEMO_DATA = {
+  userId: 'demo-user',
+  recommendations: [
+    recommendation(
+      'high',
+      'confidence',
+      'Review confidence blind spot',
+      'Your self-rating is higher than observed and peer evidence. Rewatch one response and define one measurable confidence behaviour.',
+      'Blind spot detection'
+    ),
+    recommendation(
+      'high',
+      'emotional_control',
+      'Reduce emotional-control risk',
+      'Predicted score is declining. Practice a pause-breathe-answer routine before the next role-play.',
+      'Predictive analytics'
+    ),
+    recommendation(
+      'medium',
+      'empathy',
+      'Protect empathy progress',
+      'Empathy is showing decline. Add one reflective listening prompt in the next scenario.',
+      'Progress trend'
+    ),
+    recommendation(
+      'low',
+      'professionalism',
+      'Maintain professionalism strength',
+      'Professionalism is stable and strong. Continue using clear openings and concise closing summaries.',
+      'Skill twin'
+    ),
+  ],
+  aggregate: {
+    scores: { metric_count: 4 },
+    feedback: { total_count: 7, average_rating: 76 },
+  },
+  predictions: {
+    summary: { high_risk_count: 1, medium_risk_count: 1, low_risk_count: 2 },
+  },
+  blindSpots: {
+    summary: { total_count: 2, high_count: 1, medium_count: 1, low_count: 0 },
+  },
+  trends: {
+    summary: { improving_count: 2, stable_count: 2, declining_count: 1 },
+  },
+}
+
+function recommendation(priority, skillArea, title, detail, source) {
+  return {
+    priority,
+    skill_area: skillArea,
+    title,
+    detail,
+    source,
+  }
+}
+
+function labelFor(value) {
+  return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
+}
+
+export default function AnalyticsRecommendations() {
   const params = useParams()
-  const { userId: connectedUserId, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity(params.userId)
-  
-  const [mode, setMode] = useState('session')
-  const [sessions, setSessions] = useState([])
-  const [selectedSession, setSelectedSession] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [userId, setUserId] = useState(params.userId || 'demo-user')
+  const [data, setData] = useState(DEMO_DATA)
+  const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
 
-  // Cache: avoid re-fetching on tab switch
-  const [overallCache, setOverallCache] = useState(null) // { recommendations, evidence }
-  const [sessionCache, setSessionCache] = useState({})   // { [sessionId]: { recommendations, evidence } }
+  const groupedRecommendations = useMemo(
+    () => ({
+      high: data.recommendations.filter((item) => item.priority === 'high'),
+      medium: data.recommendations.filter((item) => item.priority === 'medium'),
+      low: data.recommendations.filter((item) => item.priority === 'low'),
+    }),
+    [data.recommendations]
+  )
 
-  // Refs track whether a fetch has started — avoids including cache objects in effect deps
-  const hasFetchedOverall = useRef(false)
-  const hasFetchedSession = useRef({})  // { [sessionId]: true }
+  const hasLiveData = status !== 'live' || data.recommendations.length > 0
 
-  // Derive display data from caches
-  const recommendations = mode === 'overall'
-    ? (overallCache?.recommendations || [])
-    : (sessionCache[selectedSession?.id]?.recommendations || [])
-  const evidence = mode === 'overall'
-    ? (overallCache?.evidence || null)
-    : (sessionCache[selectedSession?.id]?.evidence || null)
-
-  // Clear caches and fetch flags when user identity changes
-  useEffect(() => {
-    setOverallCache(null)
-    setSessionCache({})
-    hasFetchedOverall.current = false
-    hasFetchedSession.current = {}
-  }, [connectedUserId])
-
-  useEffect(() => {
-    if (!isAuthenticated || !connectedUserId) return
-
-    const loadSessions = async () => {
-      try {
-        const rpeData = await analyticsService.getComponentRpeSessions()
-        const mcaData = await analyticsService.getComponentMcaSessions(50, 0)
-
-        const allSessions = [
-          ...(Array.isArray(rpeData) ? rpeData : []).map(s => ({
-            id: s.session_id,
-            label: `${s.scenario_id || 'Practice Session'}`,
-            subtitle: `Role-Play Exercise • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'rpe',
-            timestamp: s.started_at,
-          })),
-          ...(Array.isArray(mcaData) ? mcaData : []).map(s => ({
-            id: s.id,
-            label: `${s.mode || 'Conversation'} Session`,
-            subtitle: `Interview Practice • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'mca',
-            timestamp: s.started_at,
-          })),
-        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-
-        setSessions(allSessions)
-        if (allSessions.length > 0) setSelectedSession(allSessions[0])
-      } catch (err) {
-        console.error('Failed to load sessions:', err)
-      }
+  const loadRecommendations = async () => {
+    if (!userId.trim()) {
+      setError('Enter a user id')
+      return
     }
 
-    loadSessions()
-  }, [isAuthenticated, connectedUserId, isAuthLoading])
-
-  // Load session recommendations only when session changes AND not yet fetched
-  useEffect(() => {
-    if (mode !== 'session' || !selectedSession) return
-    if (hasFetchedSession.current[selectedSession.id]) return
-
-    hasFetchedSession.current[selectedSession.id] = true
-
-    const fetchSession = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, false)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
-      } catch (err) {
-        hasFetchedSession.current[selectedSession.id] = false // allow retry
-        setError(err.response?.data?.detail || err.message || 'Could not load recommendations')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchSession()
-  }, [selectedSession, mode])
-
-  // Load overall recommendations only once per user session (ref prevents re-fetch on tab switch)
-  useEffect(() => {
-    if (mode !== 'overall' || !isAuthenticated || !connectedUserId) return
-    if (hasFetchedOverall.current) return
-
-    hasFetchedOverall.current = true
-
-    const fetchOverall = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, false)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
-      } catch (err) {
-        hasFetchedOverall.current = false // allow retry
-        setError(err.response?.data?.detail || err.message || 'Could not load overall recommendations')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchOverall()
-  }, [mode, isAuthenticated, connectedUserId])
-
-  const handleRefresh = async () => {
-    setLoading(true)
+    setStatus('loading')
     setError('')
+
     try {
-      if (mode === 'session' && selectedSession) {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, true)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
-      } else if (mode === 'overall') {
-        const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, true)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
-      }
+      const [aggregate, blindSpots, trends, predictions] = await Promise.all([
+        analyticsService.getAggregateByUser(userId.trim()),
+        analyticsService.getBlindSpotsByUser(userId.trim()),
+        analyticsService.getProgressTrendsByUser(userId.trim()),
+        analyticsService.getPredictedOutcomesByUser(userId.trim()),
+      ])
+
+      setData({
+        userId: userId.trim(),
+        aggregate,
+        blindSpots,
+        trends,
+        predictions,
+        recommendations: buildRecommendations({ aggregate, blindSpots, trends, predictions }),
+      })
+      setStatus('live')
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Could not refresh recommendations')
-    } finally {
-      setLoading(false)
+      setData(DEMO_DATA)
+      setStatus('demo')
+      setError('Backend analytics unavailable. Showing demo recommendations.')
     }
   }
 
   return (
-    <main className="min-h-screen">
-      {/* Header */}
-      <header className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-end justify-between gap-4 flex-wrap">
+    <main className="min-h-screen bg-background text-foreground">
+      <section className="border-b border-border bg-card/60">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Feedback & Recommendations</p>
-            <h1 className="text-lg font-bold">Your Coaching Insights</h1>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
+            <h1 className="mt-1 text-2xl font-semibold">Analytics Recommendations</h1>
           </div>
-          <div className="flex items-end gap-3 flex-wrap">
-            <AnalyticsNav />
-            <Button
-              onClick={handleRefresh}
-              className="h-10 px-5 text-sm font-semibold"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              <span>User</span>
+              <input
+                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+                value={userId}
+                onChange={(event) => setUserId(event.target.value)}
+              />
+            </label>
+            <Button className="h-10 self-end" onClick={loadRecommendations}>
+              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
+              Load
             </Button>
           </div>
         </div>
-      </header>
+      </section>
 
-      {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        {isAuthLoading && (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium text-muted-foreground">Loading your data...</p>
+      <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status={status} />
+          {error ? <span className="text-sm text-warning">{error}</span> : null}
+        </div>
+
+        {!hasLiveData ? (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+            Live API is connected, but no recommendation evidence was found for this user.
           </div>
-        )}
+        ) : null}
 
-        {!isAuthLoading && !isAuthenticated && (
-          <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 px-4 py-3 flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+        <section className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_520px]">
             <div>
-              <p className="font-semibold text-red-300">Not Logged In</p>
-              <p className="text-red-400 text-xs mt-0.5">Please sign in to see your personalized coaching recommendations.</p>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Lightbulb className="h-4 w-4 text-secondary" />
+                <span>{data.userId || userId}</span>
+              </div>
+              <h2 className="mt-3 text-xl font-semibold">Prioritized mentoring actions</h2>
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                Recommendations combine blind spots, predicted risks, progress trends, feedback volume, and session evidence into one action plan.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Metric icon={ClipboardList} label="Actions" value={data.recommendations.length} />
+              <Metric icon={AlertTriangle} label="High" value={groupedRecommendations.high.length} />
+              <Metric icon={Target} label="Medium" value={groupedRecommendations.medium.length} />
+              <Metric icon={CheckCircle2} label="Low" value={groupedRecommendations.low.length} />
             </div>
           </div>
-        )}
+        </section>
 
-        {!isAuthLoading && isAuthenticated && connectedUserId && (
-          <div className="space-y-8">
-            {/* Mode Selector - Modern Segmented Control */}
-            <div className="flex justify-center">
-              <div className="inline-flex items-center p-1 bg-muted/50 rounded-xl border border-border/50 backdrop-blur-sm">
-                <button
-                  onClick={() => setMode('session')}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                    mode === 'session'
-                      ? 'bg-background shadow-sm text-foreground ring-1 ring-border/50'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
-                  }`}
-                >
-                  <Zap className={`h-4 w-4 ${mode === 'session' ? 'text-primary' : ''}`} />
-                  This Session
-                </button>
-                <button
-                  onClick={() => setMode('overall')}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                    mode === 'overall'
-                      ? 'bg-background shadow-sm text-foreground ring-1 ring-border/50'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
-                  }`}
-                >
-                  <TrendingUp className={`h-4 w-4 ${mode === 'overall' ? 'text-primary' : ''}`} />
-                  Overall Progress
-                </button>
-              </div>
-            </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <Panel title="Priority Action Plan" icon={ClipboardList}>
+            <RecommendationList items={data.recommendations} />
+          </Panel>
 
-            {/* Session Selector */}
-            {mode === 'session' && (
-              <div className="bg-card/30 border border-border/50 rounded-xl p-5 backdrop-blur-sm">
-                <label className="grid gap-2 text-sm">
-                  <span className="font-semibold text-foreground flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    Which practice session would you like to review?
-                  </span>
-                  <select 
-                    value={selectedSession?.id || ''} 
-                    onChange={(e) => {
-                      const session = sessions.find(s => s.id === e.target.value)
-                      setSelectedSession(session || null)
-                    }}
-                    className="h-11 w-full rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
-                  >
-                    <option value="" className="bg-background text-foreground">Select a session to see your feedback...</option>
-                    {sessions.map(session => (
-                      <option key={session.id} value={session.id} className="bg-background text-foreground">
-                        {session.label} • {session.subtitle}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
+          <Panel title="Evidence Summary" icon={BrainCircuit}>
+            <EvidenceSummary data={data} />
+          </Panel>
+        </div>
 
-            {/* Error Message */}
-            {error && (
-              <div className="mb-6 rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-3 flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-destructive text-sm">Error Loading Recommendations</p>
-                  <p className="text-destructive/80 text-xs mt-0.5">{error}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Loading State */}
-            {loading && (
-              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card py-12">
-                <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm font-medium text-muted-foreground">Loading your recommendations...</p>
-              </div>
-            )}
-
-            {/* Recommendations Display */}
-            {!loading && (
-              <div className="pt-2">
-                {recommendations.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-8 py-16 text-center">
-                    <div className="mx-auto mb-4 h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center">
-                      <Lightbulb className="h-8 w-8 text-primary" />
-                    </div>
-                    <h3 className="text-lg font-bold text-foreground mb-2">You're all caught up!</h3>
-                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                      {mode === 'session' 
-                        ? 'We don\'t have any specific feedback for this session yet. Try selecting another one or complete a new practice session!' 
-                        : 'Complete more practice sessions to unlock personalized coaching tips and insights.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* Summaries Row */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {/* Prioritized Actions Summary */}
-                      <div className="rounded-xl border border-border bg-card p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Zap className="h-5 w-5 text-primary" />
-                          <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
-                        </div>
-                        <p className="text-xs text-muted-foreground mb-4">
-                          Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
-                        </p>
-                        <div className="flex gap-2">
-                          <div className="flex-1 bg-muted/50 rounded-lg p-3 border border-border/50 text-center">
-                            <span className="block text-xs font-semibold text-muted-foreground mb-1">Actions</span>
-                            <span className="text-lg font-bold text-foreground">{recommendations.length}</span>
-                          </div>
-                          <div className="flex-1 bg-rose-500/10 rounded-lg p-3 border border-rose-500/20 text-center">
-                            <span className="block text-xs font-semibold text-rose-500 mb-1">High</span>
-                            <span className="text-lg font-bold text-rose-500">{recommendations.filter(r => r.priority === 'high').length}</span>
-                          </div>
-                          <div className="flex-1 bg-amber-500/10 rounded-lg p-3 border border-amber-500/20 text-center">
-                            <span className="block text-xs font-semibold text-amber-500 mb-1">Medium</span>
-                            <span className="text-lg font-bold text-amber-500">{recommendations.filter(r => r.priority === 'medium').length}</span>
-                          </div>
-                          <div className="flex-1 bg-emerald-500/10 rounded-lg p-3 border border-emerald-500/20 text-center">
-                            <span className="block text-xs font-semibold text-emerald-500 mb-1">Low</span>
-                            <span className="text-lg font-bold text-emerald-500">{recommendations.filter(r => r.priority === 'low').length}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Evidence Summary */}
-                      {evidence && (
-                        <div className="rounded-xl border border-border bg-card p-5">
-                          <div className="flex items-center gap-2 mb-4">
-                            <Target className="h-5 w-5 text-primary" />
-                            <h3 className="font-bold text-foreground">Evidence Summary</h3>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2">
-                            {evidence.session_count !== undefined && (
-                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Sessions</span>
-                                <span className="text-base font-bold text-foreground">{evidence.session_count}</span>
-                              </div>
-                            )}
-                            <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Feedback</span>
-                              <span className="text-base font-bold text-foreground">{evidence.feedback_count || 0}</span>
-                            </div>
-                            <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Blind Spots</span>
-                              <span className="text-base font-bold text-foreground">{evidence.blind_spot_count || 0}</span>
-                            </div>
-                            {evidence.high_risk_prediction_count !== undefined && (
-                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">High Risk</span>
-                                <span className="text-base font-bold text-foreground">{evidence.high_risk_prediction_count}</span>
-                              </div>
-                            )}
-                            {evidence.improving_count !== undefined && (
-                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Improving</span>
-                                <span className="text-base font-bold text-foreground">{evidence.improving_count}</span>
-                              </div>
-                            )}
-                            {evidence.declining_count !== undefined && (
-                              <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Declining</span>
-                                <span className="text-base font-bold text-foreground">{evidence.declining_count}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-4 pb-2 border-b border-border/50">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Lightbulb className="h-4 w-4 text-primary" />
-                      </div>
-                      <h2 className="text-lg font-bold text-foreground">
-                        {mode === 'session' ? 'Your Session Action Plan' : 'Your Growth Opportunities'}
-                      </h2>
-                      <span className="ml-auto bg-muted px-2.5 py-1 rounded-full text-xs font-semibold text-muted-foreground">
-                        {recommendations.length} {recommendations.length === 1 ? 'Tip' : 'Tips'}
-                      </span>
-                    </div>
-                    
-                    <div className="grid gap-4 mt-4">
-                      {recommendations.map((rec, idx) => (
-                        <RecommendationCard key={idx} recommendation={rec} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Panel title="High Priority" icon={AlertTriangle}>
+            <RecommendationList items={groupedRecommendations.high} compact />
+          </Panel>
+          <Panel title="Medium Priority" icon={Target}>
+            <RecommendationList items={groupedRecommendations.medium} compact />
+          </Panel>
+          <Panel title="Maintenance" icon={CheckCircle2}>
+            <RecommendationList items={groupedRecommendations.low} compact />
+          </Panel>
+        </div>
+      </section>
     </main>
   )
 }
 
-function RecommendationCard({ recommendation }) {
-  const [expanded, setExpanded] = useState(false)
-  
-  const priorityConfig = {
-    high: {
-      wrapper: 'from-rose-500/10 to-transparent border-rose-500/20 dark:from-rose-950/30 dark:border-rose-900/40',
-      header: 'bg-rose-500/5',
-      badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
-      icon: <AlertTriangle className="h-5 w-5 text-rose-500" />,
-      label: 'Focus Here First',
-      actionBtn: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400'
-    },
-    medium: {
-      wrapper: 'from-amber-500/10 to-transparent border-amber-500/20 dark:from-amber-950/30 dark:border-amber-900/40',
-      header: 'bg-amber-500/5',
-      badge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-      icon: <Target className="h-5 w-5 text-amber-500" />,
-      label: 'Good to Practice',
-      actionBtn: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
-    },
-    low: {
-      wrapper: 'from-emerald-500/10 to-transparent border-emerald-500/20 dark:from-emerald-950/30 dark:border-emerald-900/40',
-      header: 'bg-emerald-500/5',
-      badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-      icon: <Award className="h-5 w-5 text-emerald-500" />,
-      label: 'Doing Great!',
-      actionBtn: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'
-    },
+function buildRecommendations({ aggregate, blindSpots, trends, predictions }) {
+  const actions = []
+
+  for (const item of blindSpots?.blind_spots || []) {
+    actions.push(
+      recommendation(
+        item.severity,
+        item.skill_area,
+        `Review ${labelFor(item.skill_area)} blind spot`,
+        item.recommendation,
+        'Blind spot detection'
+      )
+    )
   }
 
-  const config = priorityConfig[recommendation.priority] || priorityConfig.medium
-  
+  for (const item of predictions?.predictions || []) {
+    if (item.risk_level === 'low') continue
+    actions.push(
+      recommendation(
+        item.risk_level,
+        item.predicted_skill,
+        `Reduce ${labelFor(item.predicted_skill)} risk`,
+        item.recommendation,
+        'Predictive analytics'
+      )
+    )
+  }
+
+  for (const item of trends?.trends || []) {
+    if (item.trend_label !== 'declining') continue
+    actions.push(
+      recommendation(
+        'medium',
+        item.skill_area,
+        `Reverse ${labelFor(item.skill_area)} decline`,
+        item.recommendation,
+        'Progress trend'
+      )
+    )
+  }
+
+  const averages = aggregate?.scores?.averages || {}
+  const lowScores = [
+    ['confidence', averages.confidence_score],
+    ['communication_clarity', averages.clarity_score],
+    ['empathy', averages.empathy_score],
+    ['active_listening', averages.listening_score],
+    ['adaptability', averages.adaptability_score],
+    ['emotional_control', averages.emotional_control_score],
+    ['professionalism', averages.professionalism_score],
+  ].filter(([, score]) => Number(score) > 0 && Number(score) < 70)
+
+  for (const [skillArea, score] of lowScores) {
+    actions.push(
+      recommendation(
+        Number(score) < 60 ? 'high' : 'medium',
+        skillArea,
+        `Practice ${labelFor(skillArea)}`,
+        `Average score is ${Math.round(Number(score))}. Add one targeted exercise before the next role-play session.`,
+        'Skill twin'
+      )
+    )
+  }
+
+  const deduped = []
+  const seen = new Set()
+  for (const item of actions) {
+    const key = `${item.priority}-${item.skill_area}-${item.title}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(item)
+  }
+
+  if (!deduped.length && aggregate?.scores?.metric_count) {
+    deduped.push(
+      recommendation(
+        'low',
+        'overall',
+        'Maintain current progress',
+        'Continue practicing at the current difficulty and review post-session feedback after each role-play.',
+        'Analytics summary'
+      )
+    )
+  }
+
+  return deduped.sort((a, b) => priorityWeight(b.priority) - priorityWeight(a.priority)).slice(0, 8)
+}
+
+function RecommendationList({ items, compact = false }) {
+  if (!items.length) return <EmptyState text="No recommendations yet" />
+
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${expanded ? 'shadow-md ring-1 ring-foreground/5' : 'hover:shadow-sm'} ${config.wrapper} bg-gradient-to-br`}>
-      {/* Clickable Header */}
-      <div 
-        onClick={() => setExpanded(!expanded)}
-        className={`p-5 cursor-pointer flex gap-4 items-start select-none transition-colors hover:bg-foreground/[0.02] ${expanded ? config.header : ''}`}
-      >
-        <div className="mt-0.5 p-2 rounded-xl bg-background shadow-sm border border-border/50">
-          {config.icon}
-        </div>
-        
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1.5">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border uppercase tracking-wider ${config.badge}`}>
-              {config.label}
-            </span>
-            {recommendation.skill_area && recommendation.skill_area !== 'overall' && (
-              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                • {recommendation.skill_area.replace(/_/g, ' ')}
-              </span>
-            )}
-          </div>
-          <h3 className="text-base font-bold text-foreground leading-tight mb-1.5">{recommendation.title}</h3>
-          <p className="text-sm text-muted-foreground line-clamp-2">{recommendation.reason}</p>
-        </div>
-        
-        <div className="flex-shrink-0 mt-2">
-          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background shadow-sm' : 'hover:bg-muted'}`}>
-            <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${expanded ? 'rotate-90 text-foreground' : ''}`} />
-          </div>
-        </div>
-      </div>
-
-      {/* Expandable Content */}
-      <div className={`grid transition-all duration-300 ease-in-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-        <div className="overflow-hidden">
-          <div className="p-5 pt-2 pb-6 border-t border-border/50 space-y-6">
-            
-            {/* Context/Explanation */}
-            <div className="pl-12">
-              <div className="flex items-start gap-3">
-                <Lightbulb className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground mb-1">Why this matters</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{recommendation.detail}</p>
-                </div>
-              </div>
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div key={`${item.title}-${index}`} className="rounded-lg border border-border bg-background/30 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">{item.title}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{labelFor(item.skill_area)} • {item.source}</p>
             </div>
-
-            {/* Actionable Step */}
-            <div className="pl-12">
-              <div className="rounded-xl bg-background border border-border/60 p-4 shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 left-0 w-1 h-full bg-primary/60"></div>
-                <div className="flex gap-3">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Zap className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-foreground mb-1.5">Your Action Plan</h4>
-                    <p className="text-sm text-muted-foreground leading-relaxed font-medium">{recommendation.next_action}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
+            <PriorityBadge priority={item.priority} />
           </div>
+          <p className={`mt-3 text-sm text-muted-foreground ${compact ? 'line-clamp-3' : ''}`}>{item.detail}</p>
         </div>
-      </div>
+      ))}
     </div>
   )
+}
+
+function EvidenceSummary({ data }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Metric icon={BrainCircuit} label="Sessions" value={data.aggregate?.scores?.metric_count || 0} compact />
+      <Metric icon={ClipboardList} label="Feedback" value={data.aggregate?.feedback?.total_count || 0} compact />
+      <Metric icon={ShieldAlert} label="Blind Spots" value={data.blindSpots?.summary?.total_count || 0} compact />
+      <Metric icon={AlertTriangle} label="High Risk" value={data.predictions?.summary?.high_risk_count || 0} compact />
+      <Metric icon={TrendingUp} label="Improving" value={data.trends?.summary?.improving_count || 0} compact />
+      <Metric icon={TrendingDown} label="Declining" value={data.trends?.summary?.declining_count || 0} compact />
+    </div>
+  )
+}
+
+function Metric({ icon: Icon, label, value, compact = false }) {
+  return (
+    <div className="rounded-md border border-border bg-background/40 p-3">
+      <Icon className="mb-2 h-4 w-4 text-secondary" />
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`${compact ? 'text-base' : 'text-xl'} mt-1 truncate font-semibold`}>{value}</p>
+    </div>
+  )
+}
+
+function Panel({ title, icon: Icon, children }) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-4">
+      <div className="mb-4 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-secondary" />
+        <h2 className="text-base font-semibold">{title}</h2>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function StatusPill({ status }) {
+  const label = status === 'live' ? 'Live API recommendations' : status === 'loading' ? 'Loading recommendations' : 'Demo recommendations'
+  return (
+    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
+      {label}
+    </span>
+  )
+}
+
+function PriorityBadge({ priority }) {
+  const className =
+    priority === 'high'
+      ? 'bg-destructive/20 text-destructive'
+      : priority === 'medium'
+        ? 'bg-warning/20 text-warning'
+        : 'bg-success/20 text-success'
+  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{priority}</span>
+}
+
+function EmptyState({ text }) {
+  return <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{text}</div>
+}
+
+function priorityWeight(priority) {
+  if (priority === 'high') return 3
+  if (priority === 'medium') return 2
+  if (priority === 'low') return 1
+  return 0
 }
