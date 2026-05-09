@@ -118,6 +118,91 @@ def test_history_requires_auth():
     assert resp.status_code in (401, 403)
 
 
+def test_baseline_skip_requires_auth():
+    with TestClient(app) as c:
+        resp = c.post("/api/v1/apa/baseline-skip")
+    assert resp.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------
+# POST /apa/baseline-skip — authenticated path (mocked orchestrator)
+# --------------------------------------------------------------------------
+
+def test_baseline_skip_returns_201_when_plan_generated(db_session):
+    import uuid
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+    from app.core.auth import get_current_user
+    from app.models.training_plan import TrainingPlan
+    from app.models.user import User
+
+    now = datetime.now(timezone.utc)
+    uid = uuid.uuid4()
+    user = User(id=uid, email=f"skip_{uid.hex[:6]}@test.skip", created_at=now, updated_at=now)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    mock_plan = TrainingPlan(
+        user_id=user.id,
+        skill="job_interview",
+        strategy_json={
+            "tone": "direct", "pacing": "moderate", "complexity": "moderate",
+            "npc_personality": "professional", "feedback_style": "balanced",
+            "rationale": [], "priority_skills": [],
+        },
+        difficulty=5,
+        recommended_scenario_ids=[],
+        primary_scenario_json={"scenario_id": "none"},
+        generation_source="gemini_fallback",
+        generation_status="completed",
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(mock_plan)
+    db_session.commit()
+    db_session.refresh(mock_plan)
+
+    try:
+        app.dependency_overrides[get_current_user] = lambda: user
+        with patch(
+            "app.services.pedagogy.orchestrator.generate_training_plan",
+            new=AsyncMock(return_value=mock_plan),
+        ):
+            with TestClient(app) as c:
+                resp = c.post("/api/v1/apa/baseline-skip")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "strategy" in data
+    assert "difficulty" in data
+
+
+def test_baseline_skip_returns_404_when_no_profile(db_session):
+    import uuid
+    from datetime import datetime, timezone
+    from app.core.auth import get_current_user
+    from app.models.user import User
+
+    now = datetime.now(timezone.utc)
+    uid = uuid.uuid4()
+    user = User(id=uid, email=f"noprofile_{uid.hex[:6]}@test.skip", created_at=now, updated_at=now)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    try:
+        app.dependency_overrides[get_current_user] = lambda: user
+        with TestClient(app) as c:
+            resp = c.post("/api/v1/apa/baseline-skip")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 404
+
+
 def test_live_signals_requires_auth():
     with TestClient(app) as c:
         resp = c.post("/api/v1/apa/live-signals", json={"nudges": []})
