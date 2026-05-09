@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, ShieldAlert } from 'lucide-react'
 import ChatBubble from '@/components/RPE/ChatBubble'
 import MetricsHUD from '@/components/RPE/MetricsHUD'
 import { rpeService } from '@/services/rpe/rpeService'
@@ -12,36 +12,58 @@ const computeNpcTone = (trust) =>
 const computeEscalationTone = (level) =>
   level >= 4 ? 'furious' : level >= 2 ? 'irritated' : 'controlled'
 
+const DIFFICULTY_STYLES = {
+  beginner:     'bg-emerald-100 text-emerald-700',
+  intermediate: 'bg-amber-100 text-amber-700',
+  advanced:     'bg-red-100 text-red-700',
+}
+
 export default function RolePlaySession() {
   const location = useLocation()
   const navigate = useNavigate()
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
     conflictType, totalTurns, npcRole,
+    recommendedTurns:          recommendedTurnsFromState,
+    maxTurns:                  maxTurnsFromState,
+    failureEscalationThreshold,
   } = location.state || {}
 
-  const bottomRef    = useRef(null)
-  const textareaRef  = useRef(null)
+  const bottomRef   = useRef(null)
+  const textareaRef = useRef(null)
 
-  const [messages, setMessages]             = useState([])
-  const [userInput, setUserInput]           = useState('')
-  const [trustScore, setTrustScore]         = useState(50)
+  const [messages, setMessages]               = useState([])
+  const [userInput, setUserInput]             = useState('')
+  const [trustScore, setTrustScore]           = useState(50)
   const [escalationLevel, setEscalationLevel] = useState(0)
-  const [currentEmotion, setCurrentEmotion] = useState('calm')
-  const [currentTurn, setCurrentTurn]       = useState(0)
-  const [isLoading, setIsLoading]           = useState(false)
+  const [currentEmotion, setCurrentEmotion]   = useState('calm')
+  const [currentTurn, setCurrentTurn]         = useState(0)
+  const [isLoading, setIsLoading]             = useState(false)
   const [sessionComplete, setSessionComplete] = useState(false)
-  const [outcome, setOutcome]               = useState(null)
+  const [outcome, setOutcome]                 = useState(null)
+  const [endReason, setEndReason]             = useState(null)
 
-  // Phase 2 state
-  const [trustDelta, setTrustDelta]           = useState(null)
-  const [npcTone, setNpcTone]                 = useState('hostile')
-  const [escalationTone, setEscalationTone]   = useState('controlled')
-  const [previousTrust, setPreviousTrust]     = useState(50)
+  const [trustDelta, setTrustDelta]         = useState(null)
+  const [npcTone, setNpcTone]               = useState('neutral')
+  const [escalationTone, setEscalationTone] = useState('controlled')
+  const [previousTrust, setPreviousTrust]   = useState(50)
+
+  const [recommendedTurns, setRecommendedTurns] = useState(
+    recommendedTurnsFromState || totalTurns || 6
+  )
+  const [maxTurns, setMaxTurns] = useState(maxTurnsFromState || null)
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     setMessages([{ role: 'npc', message: openingNpcLine, npcTone: 'hostile' }])
+    if (!maxTurnsFromState) {
+      rpeService.getSessionSummary(sessionId)
+        .then((data) => {
+          if (data.recommended_turns) setRecommendedTurns(data.recommended_turns)
+          if (data.max_turns)         setMaxTurns(data.max_turns)
+        })
+        .catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
@@ -60,8 +82,8 @@ export default function RolePlaySession() {
     try {
       const response = await rpeService.sendTurn(sessionId, input)
 
-      const delta    = response.trust_score - previousTrust
-      const newTone  = computeNpcTone(response.trust_score)
+      const delta      = response.trust_score - previousTrust
+      const newTone    = computeNpcTone(response.trust_score)
       const newEscTone = computeEscalationTone(response.escalation_level)
 
       setTrustScore(response.trust_score)
@@ -77,7 +99,7 @@ export default function RolePlaySession() {
         const updated = [...prev]
         updated[updated.length - 1] = {
           ...updated[updated.length - 1],
-          emotion: response.emotion,
+          emotion:    response.emotion,
           trustDelta: delta,
         }
         return [
@@ -89,19 +111,24 @@ export default function RolePlaySession() {
       if (response.session_complete) {
         setSessionComplete(true)
         setOutcome(response.outcome)
+        setEndReason(response.end_reason)
+
         setTimeout(() => {
           navigate('/roleplay/session/complete', {
             state: {
               sessionId,
-              trustScore:      response.trust_score,
-              escalationLevel: response.escalation_level,
-              outcome:         response.outcome,
+              trustScore:       response.trust_score,
+              escalationLevel:  response.escalation_level,
+              outcome:          response.outcome,
+              endReason:        response.end_reason,
+              recommendedTurns,
+              maxTurns,
               totalTurns,
               scenarioTitle,
-              currentTurn:     response.turn,
+              currentTurn:      response.turn,
             },
           })
-        }, 1500)
+        }, 2000)
       }
     } catch (err) {
       setMessages(prev => [
@@ -120,23 +147,54 @@ export default function RolePlaySession() {
     }
   }
 
+  /* ── turn counter sub-label ─────────────────────────────── */
+  const turnLabel = (() => {
+    if (!maxTurns) return `Recommended: ${recommendedTurns} turns`
+    if (currentTurn < recommendedTurns) return `Recommended: ${recommendedTurns} turns`
+    if (currentTurn < maxTurns) return `Extended — Max: ${maxTurns} turns`
+    return 'Final turns ⚠'
+  })()
+
+  const turnLabelColor = (() => {
+    if (!maxTurns || currentTurn < recommendedTurns) return 'text-muted-foreground'
+    if (currentTurn < maxTurns) return 'text-amber-500'
+    return 'text-red-500'
+  })()
+
+  /* ── escalation warning threshold ──────────────────────── */
+  const warnAt = failureEscalationThreshold != null
+    ? Math.max(1, failureEscalationThreshold - 2)
+    : 3
+
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+    <div className="h-[calc(100vh-3.5rem)] bg-background flex flex-col overflow-hidden">
 
       {/* Top bar */}
-      <header className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3">
-        <h1 className="font-semibold text-gray-900 truncate">{scenarioTitle}</h1>
-        <span className={cn(
-          'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-          difficulty === 'beginner'     ? 'bg-green-100 text-green-700'   :
-          difficulty === 'intermediate' ? 'bg-yellow-100 text-yellow-700' :
-                                          'bg-red-100 text-red-700'
-        )}>
-          {difficulty}
-        </span>
-        <span className="ml-auto shrink-0 text-sm text-gray-400 tabular-nums">
-          Turn {currentTurn} / {totalTurns}
-        </span>
+      <header className="shrink-0 bg-card border-b border-border px-6 py-3 flex items-center gap-3 shadow-sm">
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="font-bold text-foreground truncate">{scenarioTitle}</h1>
+          {difficulty && (
+            <span className={cn(
+              'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
+              DIFFICULTY_STYLES[difficulty] ?? 'bg-muted text-muted-foreground'
+            )}>
+              {difficulty}
+            </span>
+          )}
+        </div>
+
+        {/* Turn counter */}
+        <div className="ml-auto shrink-0 flex flex-col items-end">
+          {currentTurn === 0
+            ? <span className="text-muted-foreground text-sm">Not started</span>
+            : <span className="text-sm font-bold text-foreground tabular-nums">Turn {currentTurn}</span>
+          }
+          {currentTurn > 0 && (
+            <span className={cn('text-xs tabular-nums', turnLabelColor)}>
+              {turnLabel}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Body */}
@@ -146,7 +204,7 @@ export default function RolePlaySession() {
         <div className="flex flex-1 flex-col overflow-hidden">
 
           {/* Messages scroll area */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 custom-scrollbar">
             {messages.map((msg, i) => (
               <ChatBubble
                 key={i}
@@ -162,12 +220,12 @@ export default function RolePlaySession() {
             {/* NPC typing indicator */}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-gray-800 rounded-2xl px-4 py-3 border-l-4 border-gray-300">
-                  <span className="flex gap-1 items-center">
+                <div className="bg-slate-900 border border-slate-700/60 rounded-2xl px-4 py-3 shadow-md">
+                  <span className="flex gap-1.5 items-center">
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
                         style={{ animationDelay: `${i * 150}ms` }}
                       />
                     ))}
@@ -178,32 +236,43 @@ export default function RolePlaySession() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Session complete banner */}
-          {sessionComplete && (
+          {/* Session complete banners */}
+          {sessionComplete && endReason === 'trust_sustained' && (
+            <div className="mx-6 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm font-semibold text-emerald-700">
+              You built strong trust — the situation has been resolved!
+            </div>
+          )}
+          {sessionComplete && endReason === 'npc_exit' && (
+            <div className="mx-6 mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold text-red-700">
+              The conversation broke down — the NPC ended the session.
+            </div>
+          )}
+          {sessionComplete && endReason === 'max_turns_reached' && (
             <div className={cn(
-              'mx-6 mb-3 rounded-lg px-4 py-3 text-sm font-medium text-center border',
+              'mx-6 mb-3 rounded-xl px-4 py-3 text-sm font-semibold border',
               outcome === 'success'
-                ? 'bg-green-50 border-green-200 text-green-700'
-                : 'bg-red-50 border-red-200 text-red-700'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : 'bg-amber-50 border-amber-200 text-amber-700'
             )}>
               {outcome === 'success'
-                ? '🎉 Session Complete — Success!'
-                : 'Session Complete — Keep Practicing!'}
+                ? 'Session complete — well handled!'
+                : 'Maximum turns reached — review your feedback.'}
             </div>
           )}
 
           {/* Escalation warning banner */}
           <div className={cn(
             'mx-6 overflow-hidden transition-all duration-300',
-            escalationLevel >= 3 ? 'max-h-16 mb-2' : 'max-h-0'
+            escalationLevel >= warnAt ? 'max-h-16 mb-2' : 'max-h-0'
           )}>
-            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
-              ⚠ Tension is rising. Try to de-escalate your response.
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-600 font-medium">
+              <ShieldAlert size={15} className="shrink-0" />
+              Tension is rising. Try to de-escalate your response.
             </div>
           </div>
 
           {/* Input bar */}
-          <div className="shrink-0 border-t border-gray-200 bg-white px-6 py-4">
+          <div className="shrink-0 border-t border-border bg-card px-6 py-4">
             <div className="flex gap-3 items-end">
               <textarea
                 ref={textareaRef}
@@ -213,12 +282,12 @@ export default function RolePlaySession() {
                 onKeyDown={handleKeyDown}
                 disabled={isLoading || sessionComplete}
                 placeholder="Type your response… (Enter to send, Shift+Enter for newline)"
-                className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 resize-none rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
               <button
                 onClick={handleSend}
                 disabled={!userInput.trim() || isLoading || sessionComplete}
-                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/25"
               >
                 {isLoading
                   ? <Loader2 size={16} className="animate-spin" />
@@ -229,8 +298,8 @@ export default function RolePlaySession() {
           </div>
         </div>
 
-        {/* Sidebar — hidden on mobile */}
-        <aside className="hidden md:flex w-72 shrink-0 flex-col gap-4 border-l border-gray-200 bg-white overflow-y-auto p-4">
+        {/* Sidebar */}
+        <aside className="hidden md:flex w-72 shrink-0 flex-col gap-4 border-l border-border bg-card overflow-y-auto p-4 custom-scrollbar">
           <MetricsHUD
             trustScore={trustScore}
             escalationLevel={escalationLevel}
@@ -238,25 +307,32 @@ export default function RolePlaySession() {
             trustDelta={trustDelta}
             npcTone={npcTone}
             escalationTone={escalationTone}
+            failureEscalationThreshold={failureEscalationThreshold}
           />
 
-          {/* Session info */}
-          <div className="rounded-xl border border-gray-200 p-4 space-y-2">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Session Info
-            </h3>
-            <dl className="space-y-1.5 text-sm">
+          {/* Session info card */}
+          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="px-4 pt-3 pb-2.5 bg-gradient-to-r from-secondary/8 to-transparent border-b border-border/60">
+              <p className="text-[10px] font-semibold text-secondary uppercase tracking-widest">Session Info</p>
+            </div>
+            <dl className="p-4 space-y-3">
               {[
                 ['Scenario',  scenarioTitle],
                 ['NPC Role',  npcRole],
                 ['Conflict',  conflictType],
-                ['Progress',  `Turn ${currentTurn} of ${totalTurns}`],
+                ['Progress',  currentTurn === 0 ? 'Not started' : `Turn ${currentTurn} of ${recommendedTurns}`],
               ].map(([label, value]) => (
-                <div key={label} className="flex flex-col">
-                  <dt className="text-xs text-gray-400">{label}</dt>
-                  <dd className="text-gray-700 font-medium">{value}</dd>
+                <div key={label} className="flex flex-col gap-0.5">
+                  <dt className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">{label}</dt>
+                  <dd className="text-sm text-foreground font-medium">{value}</dd>
                 </div>
               ))}
+              {maxTurns && (
+                <div className="flex flex-col gap-0.5">
+                  <dt className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Max turns</dt>
+                  <dd className="text-sm text-muted-foreground">{maxTurns} (hard cap)</dd>
+                </div>
+              )}
             </dl>
           </div>
         </aside>

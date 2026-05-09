@@ -1,339 +1,327 @@
-import React, { useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CheckCircle2,
-  ClipboardCheck,
   MessageSquare,
   RefreshCw,
   Save,
   Star,
+  ShieldCheck,
   User,
-  Users,
+  Layout,
+  Activity,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsNav from './AnalyticsNav'
+import { useAnalyticsIdentity } from './analyticsAuth'
+import {
+  normalizeComponentSessionOptions,
+  optionalRequest,
+  selectPreferredComponentSession,
+} from './analyticsIntegrationUtils'
 
 const SKILL_OPTIONS = [
-  { value: 'confidence', label: 'Confidence' },
-  { value: 'communication_clarity', label: 'Communication Clarity' },
-  { value: 'empathy', label: 'Empathy' },
-  { value: 'active_listening', label: 'Active Listening' },
-  { value: 'adaptability', label: 'Adaptability' },
-  { value: 'emotional_control', label: 'Emotional Control' },
-  { value: 'professionalism', label: 'Professionalism' },
-  { value: 'overall', label: 'Overall' },
+  { value: 'vocal_command', label: 'Vocal Command', sub: 'Speech Volume' },
+  { value: 'speech_fluency', label: 'Speech Fluency', sub: 'Pace & Clarity' },
+  { value: 'presence_engagement', label: 'Presence & Engagement', sub: 'Eye Contact & Confidence' },
+  { value: 'emotional_intelligence', label: 'Emotional Intelligence', sub: 'Empathy & Control' },
 ]
-
-const FEEDBACK_TYPES = [
-  { value: 'self', label: 'Self', icon: User },
-  { value: 'peer', label: 'Peer', icon: Users },
-]
-
-const SENTIMENT_OPTIONS = [
-  { value: 'positive', label: 'Positive' },
-  { value: 'neutral', label: 'Neutral' },
-  { value: 'negative', label: 'Negative' },
-]
-
-const INITIAL_FORM = {
-  user_id: 'demo-user',
-  session_id: '',
-  feedback_type: 'self',
-  skill_area: 'overall',
-  rating: 75,
-  sentiment: 'neutral',
-  comment: '',
-}
 
 export default function FeedbackForm() {
   const params = useParams()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const friendlyId = searchParams.get('friendlyId')
+  const {
+    userId: connectedUserId,
+    userLabel,
+    isAuthenticated,
+  } = useAnalyticsIdentity(null, 'user-123')
+
   const [form, setForm] = useState({
-    ...INITIAL_FORM,
-    session_id: params.sessionId || 'demo-session',
+    user_id: connectedUserId,
+    session_id: params.sessionId || '',
+    ratings: {
+      vocal_command: 75,
+      speech_fluency: 75,
+      presence_engagement: 75,
+      emotional_intelligence: 75,
+    },
+    sentiment: 'neutral',
+    comment: '',
   })
+
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
-  const [createdEntry, setCreatedEntry] = useState(null)
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [sessionStatus, setSessionStatus] = useState('loading')
+
+  // Use the exact weights from the backend for consistency
+  const avgRating = useMemo(() => {
+    const r = form.ratings;
+    const weighted = (
+      (r.vocal_command || 0) * 0.20 +
+      (r.speech_fluency || 0) * 0.20 +
+      (r.presence_engagement || 0) * 0.30 +
+      (r.emotional_intelligence || 0) * 0.30
+    );
+    return Math.round(weighted);
+  }, [form.ratings])
+
+  // Try to find the friendly ID from either URL or loaded session options
+  const displayFriendlyId = useMemo(() => {
+    if (friendlyId) return friendlyId;
+    const session = sessionOptions.find(s => String(s.id) === String(form.session_id));
+    return session?.friendlyId || null;
+  }, [friendlyId, sessionOptions, form.session_id]);
 
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim() && form.skill_area && form.feedback_type,
+    () => form.user_id.trim() && form.session_id.trim(),
     [form]
   )
 
-  const updateField = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }))
+  const updateRating = (skill, value) => {
+    setForm(prev => ({
+      ...prev,
+      ratings: { ...prev.ratings, [skill]: Number(value) }
+    }))
     setMessage('')
   }
 
   const submitFeedback = async (event) => {
     event.preventDefault()
     if (!canSubmit) {
-      setMessage('User, session, feedback type, and skill are required.')
+      setMessage('Session ID is required.')
       return
     }
 
     setStatus('saving')
     setMessage('')
 
-    const payload = {
-      user_id: form.user_id.trim(),
-      session_id: form.session_id.trim(),
-      feedback_type: form.feedback_type,
-      skill_area: form.skill_area,
-      rating: Number(form.rating),
-      sentiment: form.sentiment,
-      comment: form.comment.trim() || null,
-    }
-
     try {
-      const entry = await analyticsService.createFeedbackEntry(payload)
-      setCreatedEntry(entry)
+      const promises = Object.entries(form.ratings).map(([skill, val]) => {
+        return analyticsService.createFeedbackEntry({
+          user_id: form.user_id.trim(),
+          session_id: form.session_id.trim(),
+          feedback_type: 'self',
+          skill_area: skill,
+          rating: val,
+          sentiment: form.sentiment,
+          comment: skill === 'vocal_command' ? form.comment : null
+        })
+      })
+
+      await Promise.all(promises)
       setStatus('success')
-      setMessage('Feedback saved successfully.')
+      setMessage('Self-evaluation completed!')
+      if (params.sessionId) {
+        setTimeout(() => navigate('/analytics-dashboard'), 2000)
+      }
     } catch (error) {
       setStatus('error')
-      setMessage('Could not save feedback. Check that the backend is running and try again.')
+      setMessage('Error saving feedback.')
     }
   }
 
-  const resetForm = () => {
-    setForm({
-      ...INITIAL_FORM,
-      session_id: params.sessionId || 'demo-session',
-    })
-    setCreatedEntry(null)
-    setStatus('idle')
-    setMessage('')
-  }
+  useEffect(() => {
+    setForm((current) => ({ ...current, user_id: connectedUserId }))
+  }, [connectedUserId])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadCompletedSessions = async () => {
+      setSessionStatus('loading')
+      const [rpeSessions, mcaSessions] = await Promise.all([
+        optionalRequest(() => analyticsService.getComponentRpeSessions()),
+        optionalRequest(() => analyticsService.getComponentMcaSessions()),
+      ])
+      if (cancelled) return
+      const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+      const preferred = selectPreferredComponentSession(options)
+      setSessionOptions(options)
+      setSessionStatus(options.length ? 'ready' : 'empty')
+
+      setForm((current) => {
+        if (params.sessionId) return { ...current, session_id: params.sessionId }
+        if (preferred) return { ...current, session_id: preferred.id }
+        return current
+      })
+    }
+    loadCompletedSessions().catch(() => { if (!cancelled) setSessionStatus('error') })
+    return () => { cancelled = true }
+  }, [params.sessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 md:px-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-          <h1 className="text-2xl font-semibold">Self and Peer Feedback</h1>
+    <main className="min-h-screen bg-background text-foreground pb-12">
+      <section className="border-b border-border bg-card/60 sticky top-0 z-10 backdrop-blur-md">
+        <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-indigo-500 mb-1">Post-Session Evaluation</p>
+          <h1 className="text-2xl font-black text-white">Self-Reflection Form</h1>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <form onSubmit={submitFeedback} className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-5 flex items-center gap-2">
-            <ClipboardCheck className="h-4 w-4 text-secondary" />
-            <h2 className="text-base font-semibold">Submit Feedback</h2>
+      <div className="max-w-7xl mx-auto px-4 mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
+
+        {/* Left Side: The Form */}
+        <form onSubmit={submitFeedback} className="space-y-6">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-indigo-500/10 p-2 rounded-lg">
+                <ShieldCheck className="h-5 w-5 text-indigo-500" />
+              </div>
+              <div>
+                <h2 className="font-bold">Session Verification</h2>
+                <p className="text-xs text-muted-foreground">This form is compulsory to finalize your analytics</p>
+              </div>
+            </div>
+
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-tight">Active Session ID</span>
+              <div className="h-12 flex items-center px-4 rounded-xl border border-border bg-background text-sm font-medium text-indigo-400">
+                {displayFriendlyId || form.session_id || 'Waiting for session...'}
+              </div>
+            </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextInput
-              label="User ID"
-              value={form.user_id}
-              onChange={(value) => updateField('user_id', value)}
-              placeholder="user-123"
-            />
-            <TextInput
-              label="Session ID"
-              value={form.session_id}
-              onChange={(value) => updateField('session_id', value)}
-              placeholder="session-123"
-            />
-          </div>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h3 className="font-bold mb-1 flex items-center gap-2">
+              <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
+              Rate Your Performance
+            </h3>
+            <p className="text-xs text-muted-foreground mb-8">How do you feel you performed in each area? (0-100)</p>
 
-          <div className="mt-5">
-            <FieldLabel>Feedback Type</FieldLabel>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {FEEDBACK_TYPES.map((item) => (
-                <SegmentButton
-                  key={item.value}
-                  active={form.feedback_type === item.value}
-                  icon={item.icon}
-                  label={item.label}
-                  onClick={() => updateField('feedback_type', item.value)}
-                />
+            <div className="space-y-10">
+              {SKILL_OPTIONS.map((skill) => (
+                <div key={skill.value}>
+                  <div className="flex justify-between items-end mb-3">
+                    <div>
+                      <span className="text-sm font-bold block text-slate-100">{skill.label}</span>
+                      <span className="text-[10px] text-slate-500 italic">{skill.sub}</span>
+                    </div>
+                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-full text-sm font-bold ring-1 ring-indigo-400">
+                      {form.ratings[skill.value]}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={form.ratings[skill.value]}
+                    onChange={(e) => updateRating(skill.value, e.target.value)}
+                    className="w-full h-2 bg-slate-700 rounded-full cursor-pointer accent-indigo-500 appearance-none [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:mt-[-4px]"
+                  />
+                </div>
               ))}
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <SelectInput
-              label="Skill Area"
-              value={form.skill_area}
-              onChange={(value) => updateField('skill_area', value)}
-              options={SKILL_OPTIONS}
-            />
-            <SelectInput
-              label="Sentiment"
-              value={form.sentiment}
-              onChange={(value) => updateField('sentiment', value)}
-              options={SENTIMENT_OPTIONS}
-            />
-          </div>
-
-          <div className="mt-5 rounded-lg border border-border bg-background/40 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Rating</FieldLabel>
-              <span className="rounded-full bg-muted px-3 py-1 text-sm font-medium">{form.rating}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={form.rating}
-              onChange={(event) => updateField('rating', event.target.value)}
-              className="mt-3 w-full accent-cyan-600"
-            />
-            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>Needs work</span>
-              <span>Excellent</span>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h3 className="font-bold mb-4 flex items-center gap-2">
+              <Star className="h-4 w-4 text-indigo-500" />
+              Overall Sentiment
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { val: 'positive', label: 'Positive', emoji: '😊', color: 'bg-green-500/10 border-green-500/20 text-green-500' },
+                { val: 'neutral', label: 'Neutral', emoji: '😐', color: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500' },
+                { val: 'negative', label: 'Negative', emoji: '☹️', color: 'bg-red-500/10 border-red-500/20 text-red-500' },
+              ].map((opt) => (
+                <button
+                  key={opt.val}
+                  type="button"
+                  onClick={() => setForm(p => ({ ...p, sentiment: opt.val }))}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${form.sentiment === opt.val ? opt.color + ' ring-2 ring-current' : 'border-border bg-background/40 hover:bg-background'
+                    }`}
+                >
+                  <span className="text-2xl">{opt.emoji}</span>
+                  <span className="text-[10px] font-bold uppercase">{opt.label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="mt-5">
-            <FieldLabel>Comment</FieldLabel>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h3 className="font-bold mb-4 flex items-center gap-2 text-slate-100">
+              <MessageSquare className="h-4 w-4 text-indigo-400" />
+              Additional Observations
+            </h3>
             <textarea
-              className="mt-2 min-h-32 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+              className="w-full min-h-[120px] rounded-xl border border-border bg-background p-4 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+              placeholder="What specific moment in the session made you feel this way? (Optional)"
               value={form.comment}
-              placeholder="Write specific evidence from the session..."
-              onChange={(event) => updateField('comment', event.target.value)}
+              onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
             />
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 items-center">
             <StatusMessage status={status} message={message} />
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={resetForm}>
-                <RefreshCw />
-                Reset
-              </Button>
-              <Button type="submit" disabled={!canSubmit || status === 'saving'}>
-                {status === 'saving' ? <RefreshCw className="animate-spin" /> : <Save />}
-                Save Feedback
-              </Button>
-            </div>
+            <Button
+              type="submit"
+              className="px-8 h-11 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20"
+              disabled={!canSubmit || status === 'saving'}
+            >
+              {status === 'saving' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Complete Evaluation
+            </Button>
           </div>
         </form>
 
-        <aside className="space-y-4">
-          <section className="rounded-lg border border-border bg-card p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <Star className="h-4 w-4 text-secondary" />
-              <h2 className="text-base font-semibold">Current Entry</h2>
+        {/* Right Side: Current Entry Preview */}
+        <aside className="hidden lg:block sticky top-28 h-fit">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-6 text-indigo-400">
+              <Star className="h-4 w-4" />
+              <h2 className="font-bold text-sm tracking-tight uppercase">Current Entry</h2>
             </div>
-            <PreviewItem label="User" value={form.user_id} />
-            <PreviewItem label="Session" value={form.session_id} />
-            <PreviewItem label="Type" value={form.feedback_type} />
-            <PreviewItem label="Skill" value={labelForSkill(form.skill_area)} />
-            <PreviewItem label="Rating" value={form.rating} />
-            <PreviewItem label="Sentiment" value={form.sentiment} />
-          </section>
 
-          <section className="rounded-lg border border-border bg-card p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-secondary" />
-              <h2 className="text-base font-semibold">Saved Result</h2>
+            <div className="divide-y divide-border text-sm">
+              <PreviewItem icon={<User className="h-3 w-3" />} label="User" value={userLabel || connectedUserId} />
+              <PreviewItem icon={<Layout className="h-3 w-3" />} label="Session" value={displayFriendlyId || form.session_id} isMono />
+              <PreviewItem icon={<Activity className="h-3 w-3" />} label="Type" value="Self reflection" />
+              <PreviewItem icon={<Star className="h-3 w-3" />} label="Skills" value="4 Real Skills" />
+              <PreviewItem icon={<CheckCircle2 className="h-3 w-3" />} label="Avg Rating" value={avgRating} isHighlight />
+              <PreviewItem icon={<MessageSquare className="h-3 w-3" />} label="Sentiment" value={form.sentiment} isCapitalized />
             </div>
-            {createdEntry ? (
-              <div className="space-y-3 text-sm">
-                <PreviewItem label="Feedback ID" value={createdEntry.id} />
-                <PreviewItem label="Created" value={formatDate(createdEntry.created_at)} />
-                <p className="rounded-md border border-success/30 bg-success/10 p-3 text-success">
-                  This feedback is now available for post-session reports, blind spot detection, and feedback analysis.
-                </p>
-              </div>
-            ) : (
-              <EmptyState text="No feedback saved in this form yet" />
-            )}
-          </section>
+
+            <div className="mt-6 p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10">
+              <p className="text-[10px] text-indigo-400 font-medium leading-relaxed">
+                Confirm your ratings before submitting. Your self-reflection will be compared with AI-observed metrics to detect blind spots.
+              </p>
+            </div>
+          </div>
         </aside>
-      </section>
+
+      </div>
     </main>
   )
 }
 
-function TextInput({ label, value, onChange, placeholder }) {
+function PreviewItem({ icon, label, value, isMono, isHighlight, isCapitalized }) {
   return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  )
-}
-
-function SelectInput({ label, value, onChange, options }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <select
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
-function SegmentButton({ active, icon: Icon, label, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`flex h-11 items-center justify-center gap-2 rounded-md border text-sm font-medium transition ${
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-background text-muted-foreground hover:text-foreground'
-      }`}
-      onClick={onClick}
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </button>
-  )
-}
-
-function FieldLabel({ children }) {
-  return <span className="text-xs font-medium text-muted-foreground">{children}</span>
-}
-
-function StatusMessage({ status, message }) {
-  if (!message) return <span className="text-sm text-muted-foreground">Ready to save feedback</span>
-
-  const className =
-    status === 'success' ? 'text-success' : status === 'error' ? 'text-destructive' : 'text-warning'
-  return (
-    <span className={`inline-flex items-center gap-2 text-sm ${className}`}>
-      {status === 'success' ? <CheckCircle2 className="h-4 w-4" /> : null}
-      {message}
-    </span>
-  )
-}
-
-function PreviewItem({ label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border py-2 text-sm last:border-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="max-w-[220px] truncate font-medium">{value || 'N/A'}</span>
+    <div className="flex items-center justify-between py-3 gap-4">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        {icon}
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <span className={`text-xs font-bold truncate max-w-[180px] ${isMono ? 'font-mono bg-muted px-1.5 py-0.5 rounded' : ''} ${isHighlight ? 'text-indigo-400' : 'text-slate-200'} ${isCapitalized ? 'capitalize' : ''}`}>
+        {value || 'N/A'}
+      </span>
     </div>
   )
 }
 
-function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{text}</div>
-}
-
-function labelForSkill(value) {
-  return SKILL_OPTIONS.find((option) => option.value === value)?.label || value
-}
-
-function formatDate(value) {
-  if (!value) return 'N/A'
-  return new Date(value).toLocaleString()
+function StatusMessage({ status, message }) {
+  if (!message) return null
+  const colors = {
+    success: 'bg-green-500/10 text-green-500 border-green-500/20',
+    error: 'bg-red-500/10 text-red-500 border-red-500/20',
+    saving: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
+  }
+  return (
+    <div className={`px-4 py-3 rounded-xl border text-sm font-medium flex items-center gap-2 ${colors[status]}`}>
+      {message}
+    </div>
+  )
 }
