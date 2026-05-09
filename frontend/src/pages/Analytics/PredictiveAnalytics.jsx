@@ -18,23 +18,20 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
-import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
+// Only the 5 composite skills the backend trend/prediction engine supports.
+// vocal_command   → speech_volume_score
+// speech_fluency  → avg(speech_pace_score, clarity_score)
+// presence_engagement → avg(eye_contact_score, confidence_score)
+// emotional_intelligence → avg(empathy_score, emotional_control_score)
 const SKILL_LABELS = {
+  vocal_command: 'Vocal Command',
+  speech_fluency: 'Speech Fluency',
+  presence_engagement: 'Presence & Engagement',
+  emotional_intelligence: 'Emotional Intelligence',
   overall: 'Overall',
-  confidence: 'Confidence',
-  communication_clarity: 'Communication Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Active Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
-  eye_contact: 'Eye Contact',
-  speech_pace: 'Speech Pace',
-  speech_volume: 'Speech Volume',
-  response_quality: 'Response Quality',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -42,17 +39,17 @@ const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ va
 const DEMO_DATA = {
   user_id: 'demo-user',
   predictions: [
-    prediction('emotional_control', 48, 39, 'declining', 'high', 0.78, 3),
-    prediction('empathy', 70, 58, 'declining', 'medium', 0.72, 3),
-    prediction('confidence', 78, 90, 'improving', 'low', 0.65, 3),
-    prediction('professionalism', 80, 84, 'improving', 'low', 0.61, 2),
+    prediction('emotional_intelligence', 48, 39, 'declining', 'high', 0.78, 3),
+    prediction('speech_fluency', 70, 58, 'declining', 'medium', 0.72, 3),
+    prediction('vocal_command', 78, 90, 'improving', 'low', 0.65, 3),
+    prediction('presence_engagement', 80, 84, 'improving', 'low', 0.61, 2),
   ],
   summary: {
     predicted_count: 4,
     low_risk_count: 2,
     medium_risk_count: 1,
     high_risk_count: 1,
-    highest_risk_prediction: prediction('emotional_control', 48, 39, 'declining', 'high', 0.78, 3),
+    highest_risk_prediction: prediction('emotional_intelligence', 48, 39, 'declining', 'high', 0.78, 3),
   },
   generated_at: '2026-05-03T00:00:00',
   model_version: 'ml-predictive-behavioral-analytics-v1',
@@ -207,7 +204,6 @@ export default function PredictiveAnalytics() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
-          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           <ModelPill modelVersion={data.model_version} isMlModel={isMlModel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
