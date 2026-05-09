@@ -368,6 +368,7 @@ class ProgressTrendSummary(BaseModel):
     insufficient_data_count: int
     strongest_improvement: SkillTrendItem | None = None
     strongest_decline: SkillTrendItem | None = None
+    cutoff_at: datetime | None = None
 
 
 class ProgressTrendResult(BaseModel):

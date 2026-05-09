@@ -18,6 +18,13 @@ HIGH_GAP_THRESHOLD = 30.0
 
 
 OBSERVED_SCORE_FIELDS = {
+    # Primary MCA Skills
+    "vocal_command": "speech_volume_score",
+    "speech_fluency": "speech_pace_score",
+    "presence_engagement": "eye_contact_score",
+    "emotional_intelligence": "empathy_score",
+    
+    # Legacy / Alternate Mappings
     "confidence": "confidence_score",
     "communication_clarity": "clarity_score",
     "clarity": "clarity_score",

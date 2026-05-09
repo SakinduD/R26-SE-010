@@ -48,9 +48,12 @@ const SKILL_LABELS = {
 
 const getInfo = (v) => {
   const item = SKILL_LABELS[v]
-  if (!item) return { label: String(v || '').replace(/_/g, ' '), sub: '' }
-  if (typeof item === 'string') return getInfo(item) // Follow mapping
-  return item
+  if (!item) return { key: v, label: String(v || '').replace(/_/g, ' '), sub: '' }
+  if (typeof item === 'string') {
+    const res = getInfo(item)
+    return { ...res, key: item } // Return the target key
+  }
+  return { ...item, key: v }
 }
 
 const labelFor = (v) => getInfo(v).label
@@ -69,32 +72,13 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
   recommendation: 'Focus on improving ' + labelFor(skill) + ' in your next session.',
 })
 
-const DEMO = {
-  aggregate: {
-    scores: { metric_count: 4, averages: { vocal_command: 85, speech_fluency: 70, presence_engagement: 90, emotional_intelligence: 80, overall_score: 81 } },
-    feedback: { total_count: 7, average_rating: 81, sentiment_counts: { positive: 5, neutral: 1, negative: 1 }, skill_rating_averages: { vocal_command: 88, speech_fluency: 75, presence_engagement: 92, emotional_intelligence: 82 } },
-  },
-  blindSpots: {
-    summary: { total_count: 2, high_count: 1, medium_count: 1 },
-    blind_spots: [
-      { skill_area: 'vocal_command', blind_spot_type: 'overestimation', severity: 'high', self_rating: 95, comparison_score: 85, gap: 10, recommendation: 'You rated your vocal power higher than observed. Try practicing abdominal breathing.' },
-      { skill_area: 'emotional_intelligence', blind_spot_type: 'underestimation', severity: 'medium', self_rating: 70, comparison_score: 80, gap: 10, recommendation: 'You are more empathetic than you think! Your tone shows great care for others.' },
-    ],
-  },
-  trends: { trends: [mkTrend('vocal_command','improving',[70,78,85]), mkTrend('speech_fluency','stable',[68,70,70]), mkTrend('presence_engagement','improving',[80,85,90]), mkTrend('emotional_intelligence','improving',[72,76,80])] },
-  predictions: {
-    summary: { predicted_count: 4, high_risk_count: 0, medium_risk_count: 1, low_risk_count: 3 },
-    predictions: [mkPred('vocal_command',85,92,'improving','low'), mkPred('speech_fluency',70,78,'improving','low'), mkPred('presence_engagement',90,94,'stable','low'), mkPred('emotional_intelligence',80,72,'declining','medium')],
-  },
-}
-
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
   const [userId, setUserId] = useState(cid || '')
   const [sessionId, setSessionId] = useState('')
   const [sessOpts, setSessOpts] = useState([])
-  const [data, setData] = useState(DEMO)
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(null)
+  const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
@@ -114,19 +98,60 @@ export default function AnalyticsDashboard() {
   const load = async (uid, sid) => {
     const tu = (uid||'').trim(), ts = (sid||'').trim()
     if (!tu) { setError('Please log in first.'); return }
-    setStatus('loading'); setError(''); setMsg('')
     try {
-      if (ts) { const r = await pull(tu,ts); if(r?.integrated) setMsg('Session data loaded!') }
-      const [ag,bs,tr,pr,ss] = await Promise.all([
-        analyticsService.getAggregateByUser(tu).catch(()=>null),
-        analyticsService.getBlindSpotsByUser(tu).catch(()=>null),
-        analyticsService.getProgressTrendsByUser(tu).catch(()=>null),
-        analyticsService.getPredictedOutcomesByUser(tu).catch(()=>null),
-        ts ? analyticsService.getSkillScoresBySession(ts).catch(()=>null) : null,
-      ])
-      setData({ aggregate: ss ? merge(ag,ss) : (ag||DEMO.aggregate), blindSpots: bs||DEMO.blindSpots, trends: tr||DEMO.trends, predictions: pr||DEMO.predictions })
+      setStatus('loading')
+      setError('')
+      setMsg('')
+
+      // 1. If a session is selected, trigger integration first to calculate real system scores
+      if (ts) {
+        const integrated = await pull(tu, ts)
+        if (integrated) setMsg('Session data integrated!')
+      }
+
+      // 2. Fetch user-level totals
+      const ag = await analyticsService.getAggregateByUser(tu).catch(() => null)
+      let finalData = { 
+        aggregate: ag || { scores: { averages: {} }, feedback: { skill_rating_averages: {} } },
+        blindSpots: { summary: { total_count: 0 }, blind_spots: [] },
+        trends: { trends: [] },
+        predictions: { predictions: [] }
+      }
+
+      // 3. If a session is selected, fetch the newly calculated session aggregate
+      if (ts) {
+        const [sessAg, bs, tr, pr] = await Promise.all([
+          analyticsService.getAggregateBySession(ts).catch(() => null),
+          analyticsService.getBlindSpotsBySession(ts).catch(() => null),
+          analyticsService.getProgressTrendsByUser(tu, { session_id: ts }).catch(() => null),
+          analyticsService.getPredictedOutcomesByUser(tu, { session_id: ts }).catch(() => null),
+        ])
+
+        finalData = {
+          aggregate: sessAg || ag || finalData.aggregate,
+          blindSpots: bs || { summary: { total_count: 0 }, blind_spots: [] },
+          trends: tr || { trends: [] },
+          predictions: pr || { predictions: [] }
+        }
+      } else {
+        const [bs, tr, pr] = await Promise.all([
+          analyticsService.getBlindSpotsByUser(tu).catch(() => null),
+          analyticsService.getProgressTrendsByUser(tu).catch(() => null),
+          analyticsService.getPredictedOutcomesByUser(tu).catch(() => null),
+        ])
+        finalData.blindSpots = bs || { summary: { total_count: 0 }, blind_spots: [] }
+        finalData.trends = tr || { trends: [] }
+        finalData.predictions = pr || { predictions: [] }
+      }
+
+      setData(finalData)
       setStatus('live')
-    } catch { setData(DEMO); setStatus('demo'); setError('Could not connect. Showing example data.') }
+    } catch (error) {
+      console.error('Load error:', error)
+      setData(null)
+      setStatus('error')
+      setError('Could not connect to the real data API. Please check your backend connection.')
+    }
   }
 
   const pull = async (tu, ts) => {
@@ -170,25 +195,18 @@ export default function AnalyticsDashboard() {
 
   // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
   const selfScores = useMemo(() => {
-    const selfMap = {}
-
-    // Source 1: Feedback form self-ratings (per-skill averages from submitted feedback)
-    const feedbackAvgs = data?.aggregate?.feedback?.skill_rating_averages || {}
-    Object.entries(feedbackAvgs).forEach(([skill, rating]) => {
-      if (skill && rating != null) selfMap[skill] = Number(rating)
-    })
-
-    // Source 2: Blind spot self-ratings (overrides feedback if present)
-    if (Array.isArray(gaps)) {
-      gaps.forEach(b => {
-        if (b.skill_area && b.self_rating != null) selfMap[b.skill_area] = Number(b.self_rating)
-      })
-    }
-
-    return Object.entries(selfMap)
-      .filter(([, v]) => Number.isFinite(v) && v > 0)
-      .map(([key, value]) => ({ key, label: labelFor(key), value }))
-  }, [data, gaps])
+    const f = data?.aggregate?.feedback?.skill_rating_averages || {}
+    const b = data?.blindSpots?.blind_spots || []
+    
+    // Normalize self-ratings to the primary keys
+    return [
+      ['vocal_command', f.vocal_command ?? f.speech_volume_score ?? f.professionalism_score ?? (b.find(x=>getInfo(x.skill_area).key==='vocal_command')?.self_rating)],
+      ['speech_fluency', f.speech_fluency ?? f.speech_pace_score ?? f.clarity_score ?? (b.find(x=>getInfo(x.skill_area).key==='speech_fluency')?.self_rating)],
+      ['presence_engagement', f.presence_engagement ?? f.eye_contact_score ?? f.confidence_score ?? (b.find(x=>getInfo(x.skill_area).key==='presence_engagement')?.self_rating)],
+      ['emotional_intelligence', f.emotional_intelligence ?? f.empathy_score ?? f.emotional_control_score ?? (b.find(x=>getInfo(x.skill_area).key==='emotional_intelligence')?.self_rating)],
+    ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
+     .filter(s => s.value !== null)
+  }, [data])
 
   return (
     <div className="min-h-screen">
@@ -306,38 +324,39 @@ export default function AnalyticsDashboard() {
             {gaps.length === 0 ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">🎯</span>
-                <p className="font-semibold">Your self-view matches your performance!</p>
-                <p className="text-muted-foreground text-sm mt-1">No gaps detected. Great self-awareness!</p>
+                <p className="font-semibold text-slate-200">Your self-view matches your performance!</p>
+                <p className="text-muted-foreground text-sm mt-1">No gaps detected for this session. Great self-awareness!</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {gaps.map((b, i) => {
                   const isOver = b.blind_spot_type === 'overestimation'
+                  const selfVal = selfScores.find(s => getInfo(s.key).key === getInfo(b.skill_area).key)?.value || b.self_rating
                   return (
                     <div key={i} className="rounded-xl p-4 border" style={{
                       borderColor: isOver ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)',
                       background: isOver ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.08)',
                     }}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className="font-bold text-sm">{isOver ? '⬇️' : '⬆️'} {labelFor(b.skill_area)}</span>
-                        <span className="text-xs font-bold px-2 py-1 rounded-full" style={{
+                        <span className="font-bold text-sm text-slate-100">{isOver ? '⬇️' : '⬆️'} {labelFor(b.skill_area)}</span>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-tight" style={{
                           background: isOver ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
                           color: isOver ? '#fca5a5' : '#93c5fd',
                         }}>
-                          {isOver ? 'You overestimate' : 'You underestimate'}
+                          {isOver ? 'Overestimated' : 'Underestimated'}
                         </span>
                       </div>
                       <div className="flex gap-3 mb-3">
-                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-muted/50">
-                          <p className="text-xs text-muted-foreground mb-1">You Said</p>
-                          <p className="text-2xl font-bold">{b.self_rating}</p>
+                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-background/50">
+                          <p className="text-[10px] text-muted-foreground uppercase mb-1">Your Rating</p>
+                          <p className="text-2xl font-bold text-amber-400">{fmtScore(selfVal)}</p>
                         </div>
-                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-muted/50">
-                          <p className="text-xs text-muted-foreground mb-1">Observed</p>
-                          <p className="text-2xl font-bold">{b.comparison_score}</p>
+                        <div className="flex-1 rounded-lg p-3 text-center border border-border bg-background/50">
+                          <p className="text-[10px] text-muted-foreground uppercase mb-1">AI Observed</p>
+                          <p className="text-2xl font-bold text-cyan-400">{fmtScore(b.comparison_score)}</p>
                         </div>
                       </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">💡 {b.recommendation}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed italic">" {b.recommendation} "</p>
                     </div>
                   )
                 })}
