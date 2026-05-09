@@ -37,9 +37,9 @@ const MultimodalEngine = () => {
   const [aiSessionActive, setAiSessionActive] = useState(false);
   const aiSessionActiveRef = useRef(false);
   const [nudges, setNudges] = useState([]); // State for coaching nudges stack
-  const [metrics, setMetrics] = useState({ 
-    ear: 0, 
-    mar: 0, 
+  const [metrics, setMetrics] = useState({
+    ear: 0,
+    mar: 0,
     pose: { yaw: 0, pitch: 0, roll: 0 },
     emotion: 'Sensing...',
     confidence: 0,
@@ -49,7 +49,7 @@ const MultimodalEngine = () => {
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
   const showMeshRef = useRef(showMesh);
-  
+
   // Keep a mutable ref of latest metrics for the WebSocket closure
   const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
 
@@ -74,6 +74,7 @@ const MultimodalEngine = () => {
   const [isLiveStarting, setIsLiveStarting] = useState(false);
   const [isLiveEnding, setIsLiveEnding] = useState(false);
   const [aiSessionEnding, setAiSessionEnding] = useState(false);
+  const [friendlyId, setFriendlyId] = useState(null);
 
   const handleModeChangeRequest = (mode, executeSwitch) => {
     if (liveSessionIdRef.current || (activeModeRef.current === 'ai' && aiSessionActiveRef.current)) {
@@ -87,10 +88,10 @@ const MultimodalEngine = () => {
   const handleConfirmModeSwitch = () => {
     // Force-end live session without second confirmation
     if (liveSessionIdRef.current) realEndLiveSession();
-    
+
     // For AI mode, the cleanup function in AIChatbot now handles formal end on unmount
     if (pendingModeSwitch) pendingModeSwitch();
-    
+
     setIsAlertOpen(false);
     setPendingModeSwitch(null);
   };
@@ -99,7 +100,7 @@ const MultimodalEngine = () => {
     setIsAlertOpen(false);
     setPendingModeSwitch(null);
   };
-  
+
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
 
   const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
@@ -164,7 +165,7 @@ const MultimodalEngine = () => {
       const ear = calculateEAR(landmarks);
       const mar = calculateMAR(landmarks);
       const pose = estimateHeadPose(landmarks);
-      
+
       const newMetrics = { ear, mar, pose };
       setMetrics(prev => ({ ...prev, ...newMetrics }));
       metricsRef.current = { ...metricsRef.current, ...newMetrics }; // ref for WebSocket
@@ -305,7 +306,7 @@ const MultimodalEngine = () => {
 
   const startLiveSession = async () => {
     if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
-    
+
     if (!isCameraActive || !liveMicActive) {
       toast.error("Please turn on your camera and microphone first to start the live session.", {
         description: "Behavioral sensing requires both inputs for real-time analysis."
@@ -322,6 +323,7 @@ const MultimodalEngine = () => {
       if (session.id && session.status === 'active') {
         setLiveSessionId(session.id);
         liveSessionIdRef.current = session.id;
+        setFriendlyId(session.friendly_id);
         sessionTimerRef.current = setInterval(() => {
           setSessionDuration(prev => prev + 1);
         }, 1000);
@@ -367,13 +369,13 @@ const MultimodalEngine = () => {
         const res = await mcaService.endSession(
           sid,
           liveNudgeLogRef.current,
-          { 
+          {
             total_nudges: liveNudgeLogRef.current.length,
             final_emotion: metrics.emotion
           },
           null,
           distribution,
-          { 
+          {
             avg_ear: metrics.ear,
             avg_mar: metrics.mar,
             avg_pitch: metrics.pose.pitch
@@ -382,7 +384,8 @@ const MultimodalEngine = () => {
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
           // Automatically redirect to feedback form using correct app route
-          setTimeout(() => navigate(`/analytics/sessions/${sid}/feedback`), 1500);
+          const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
+          setTimeout(() => navigate(redirectUrl), 1500);
         } else {
           toast.error("Session closed but data persistence may be incomplete.");
         }
@@ -481,8 +484,8 @@ const MultimodalEngine = () => {
             className={clsx(
               "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
               nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
-              nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
-              "bg-primary/95 border-white/20 text-white",
+                nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
+                  "bg-primary/95 border-white/20 text-white",
               index > 0 && "scale-90 opacity-40 hover:opacity-100"
             )}
           >
@@ -522,7 +525,7 @@ const MultimodalEngine = () => {
               <div className="px-3 py-1 bg-secondary/10 border border-secondary/20 rounded-full flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
                 <span className="text-[10px] font-black text-secondary tracking-widest uppercase">
-                  Session Active: {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
+                  {friendlyId || 'SESSION'} • {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
                 </span>
               </div>
             </div>
@@ -562,7 +565,7 @@ const MultimodalEngine = () => {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Cancel</AlertDialogCancel>
-              <AlertDialogAction 
+              <AlertDialogAction
                 onClick={() => {
                   if (activeMode === 'live') {
                     // We need a force-end bypass for the confirmation
@@ -571,7 +574,7 @@ const MultimodalEngine = () => {
                     setAiStopSignal(Date.now());
                   }
                   setIsStopAlertOpen(false);
-                }} 
+                }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 End Session
@@ -752,7 +755,7 @@ const MultimodalEngine = () => {
 
                     {/* Secondary Controls (Tools) - ALWAYS SHOW SO USER CAN ENABLE THEM BEFORE SESSION */}
                     <div className="h-6 w-px bg-border/50 mx-2 hidden sm:block"></div>
-                    
+
                     {/* Camera Toggle */}
                     <button
                       onClick={toggleCamera}
@@ -778,7 +781,7 @@ const MultimodalEngine = () => {
                         Mesh
                       </button>
                     )}
-                    
+
                     {/* Audio Toggle */}
                     <button
                       onClick={toggleLiveMic}
@@ -890,10 +893,10 @@ const MultimodalEngine = () => {
                       </span>
                     </div>
                     <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
-                       <div 
-                         className="h-full bg-primary transition-all duration-700" 
-                         style={{ width: `${metrics.confidence * 100}%` }}
-                       ></div>
+                      <div
+                        className="h-full bg-primary transition-all duration-700"
+                        style={{ width: `${metrics.confidence * 100}%` }}
+                      ></div>
                     </div>
                     <p className="text-[9px] text-card-foreground/60 font-medium">
                       The Affect Fusion engine is currently cross-checking your {(metrics.emotion || 'sensing').toLowerCase()} vocal tone with your facial geometry.

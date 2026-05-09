@@ -63,6 +63,8 @@ class SessionResult(Base):
     skill_scores: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    
+    friendly_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

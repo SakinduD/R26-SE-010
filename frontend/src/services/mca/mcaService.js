@@ -8,11 +8,11 @@ const BASE = '/api/v1/mca';
  */
 const handleApiError = (error, context) => {
   console.error(`[mcaService:${context}] Error:`, error);
-  
+
   if (error.response) {
     const { status, data } = error.response;
     const detail = data?.detail || 'An unexpected error occurred.';
-    
+
     switch (status) {
       case 401: return 'Unauthorized. Please log in again.';
       case 403: return 'Access denied. You may not have permission for this session.';
@@ -23,11 +23,11 @@ const handleApiError = (error, context) => {
       default: return detail;
     }
   }
-  
+
   if (error.request) {
     return 'The server is unreachable. Please check your connection.';
   }
-  
+
   return error.message || 'Failed to complete request.';
 };
 
