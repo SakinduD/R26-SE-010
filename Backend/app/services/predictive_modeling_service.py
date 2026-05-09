@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.analytics import FeedbackEntry
+from app.models.analytics import AnalyticsSessionMetric, FeedbackEntry
 from app.schemas.analytics import (
     PredictiveModelingItem,
     PredictiveModelingResult,
@@ -24,16 +24,20 @@ SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
 def predict_user_skill_outcomes(
     db: Session,
     user_id: str,
-    limit: int = 100,
+    session_id: str | None = None,
 ) -> PredictiveModelingResult:
-    trend_result = progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+    trend_result = progress_trend_service.analyze_user_progress_trends(
+        db,
+        user_id,
+        session_id=session_id,
+    )
     predictions: list[PredictiveModelingItem] = []
     used_ml_model = False
 
     for trend in trend_result.trends:
         if trend.latest_score is None:
             continue
-        prediction, source = _prediction_from_trend(db, user_id, trend)
+        prediction, source = _prediction_from_trend(db, user_id, trend, session_id=session_id)
         predictions.append(prediction)
         used_ml_model = used_ml_model or source == "ml"
 
@@ -50,10 +54,15 @@ def predict_user_skill_outcome(
     db: Session,
     user_id: str,
     skill_area: str,
-    limit: int = 100,
+    session_id: str | None = None,
 ) -> PredictiveModelingItem:
-    trend = progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, limit)
-    prediction, _source = _prediction_from_trend(db, user_id, trend)
+    trend = progress_trend_service.analyze_user_skill_trend(
+        db,
+        user_id,
+        skill_area,
+        session_id=session_id,
+    )
+    prediction, _source = _prediction_from_trend(db, user_id, trend, session_id=session_id)
     return prediction
 
 
@@ -61,6 +70,7 @@ def _prediction_from_trend(
     db: Session,
     user_id: str,
     trend: SkillTrendItem,
+    session_id: str | None = None,
 ) -> tuple[PredictiveModelingItem, str]:
     if trend.latest_score is None:
         return (
@@ -77,23 +87,39 @@ def _prediction_from_trend(
             "rule",
         )
 
-    if trend.session_count < 2:
+    if trend.session_count < 1:
+        return (
+            PredictiveModelingItem(
+                predicted_skill=trend.skill_area,
+                current_score=trend.latest_score,
+                predicted_score=None,
+                trend_label=trend.trend_label,
+                risk_level="medium",
+                confidence=0.1,
+                evidence_points=trend.session_count,
+                recommendation=f"Complete your first session to see {trend.skill_area} predictions.",
+            ),
+            "rule",
+        )
+
+    # For 1 session, we can still provide a baseline prediction
+    if trend.session_count == 1:
         risk_level = _single_session_risk_level(trend.latest_score)
         return (
             PredictiveModelingItem(
                 predicted_skill=trend.skill_area,
                 current_score=trend.latest_score,
-                predicted_score=trend.latest_score,
-                trend_label="insufficient_data",
+                predicted_score=trend.latest_score, # Baseline prediction
+                trend_label="stable",
                 risk_level=risk_level,
-                confidence=0.3,
+                confidence=0.4,
                 evidence_points=trend.session_count,
                 recommendation=_single_session_recommendation(trend.skill_area, risk_level),
             ),
             "rule",
         )
 
-    ml_prediction = _try_ml_prediction(db, user_id, trend)
+    ml_prediction = _try_ml_prediction(db, user_id, trend, session_id=session_id)
     if ml_prediction is not None:
         predicted_score = _calibrate_ml_predicted_score(
             raw_prediction=ml_prediction["predicted_score"],
@@ -146,8 +172,9 @@ def _try_ml_prediction(
     db: Session,
     user_id: str,
     trend: SkillTrendItem,
+    session_id: str | None = None,
 ) -> dict | None:
-    features = _build_ml_features(db, user_id, trend)
+    features = _build_ml_features(db, user_id, trend, session_id=session_id)
     if features is None:
         return None
 
@@ -161,8 +188,9 @@ def _build_ml_features(
     db: Session,
     user_id: str,
     trend: SkillTrendItem,
+    session_id: str | None = None,
 ) -> dict[str, float] | None:
-    feedback_entries = _query_relevant_feedback(db, user_id, trend.skill_area)
+    feedback_entries = _query_relevant_feedback(db, user_id, trend.skill_area, session_id=session_id)
     if not feedback_entries:
         return None
 
@@ -197,14 +225,14 @@ def _query_relevant_feedback(
     db: Session,
     user_id: str,
     skill_area: str,
+    session_id: str | None = None,
 ) -> list[FeedbackEntry]:
     normalized_skill = _normalize_skill_area(skill_area)
-    feedback_entries = (
-        db.query(FeedbackEntry)
-        .filter(FeedbackEntry.user_id == user_id)
-        .order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc())
-        .all()
-    )
+    query = db.query(FeedbackEntry).filter(FeedbackEntry.user_id == user_id)
+    cutoff_at = _session_cutoff_at(db, user_id, session_id)
+    if cutoff_at is not None:
+        query = query.filter(FeedbackEntry.created_at <= cutoff_at)
+    feedback_entries = query.order_by(FeedbackEntry.created_at.asc(), FeedbackEntry.id.asc()).all()
     return [
         entry
         for entry in feedback_entries
@@ -212,6 +240,32 @@ def _query_relevant_feedback(
         or _normalize_skill_area(entry.skill_area) in {normalized_skill, "overall"}
         or normalized_skill == "overall"
     ]
+
+
+def _session_cutoff_at(db: Session, user_id: str, session_id: str | None) -> datetime | None:
+    if not session_id:
+        return None
+
+    metric = (
+        db.query(AnalyticsSessionMetric)
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.session_id == session_id)
+        .order_by(AnalyticsSessionMetric.created_at.desc(), AnalyticsSessionMetric.id.desc())
+        .first()
+    )
+    feedback = (
+        db.query(FeedbackEntry)
+        .filter(FeedbackEntry.user_id == user_id)
+        .filter(FeedbackEntry.session_id == session_id)
+        .order_by(FeedbackEntry.created_at.desc(), FeedbackEntry.id.desc())
+        .first()
+    )
+    timestamps = [
+        item.created_at
+        for item in (metric, feedback)
+        if item is not None and item.created_at is not None
+    ]
+    return max(timestamps, default=None)
 
 
 def _summarize(predictions: list[PredictiveModelingItem]) -> PredictiveModelingSummary:
@@ -317,13 +371,20 @@ def _confidence(session_count: int, trend_label: str) -> float:
 
 
 def _recommendation(skill_area: str, risk_level: str, trend_label: str) -> str:
+    # Convert technical key to friendly label
+    label = skill_area.replace("_", " ").title()
+    if skill_area == "vocal_command": label = "Vocal Command"
+    if skill_area == "speech_fluency": label = "Speech Fluency"
+    if skill_area == "presence_engagement": label = "Presence & Engagement"
+    if skill_area == "emotional_intelligence": label = "Emotional Intelligence"
+
     if risk_level == "high":
-        return f"{skill_area} is at high risk. Assign focused practice before the next session."
+        return f"{label} is at high risk. Assign focused practice before the next session."
     if risk_level == "medium":
-        return f"{skill_area} needs monitoring. Use targeted feedback to prevent decline."
+        return f"{label} needs monitoring. Use targeted feedback to prevent decline."
     if trend_label == "improving":
-        return f"{skill_area} is predicted to improve. Continue the current strategy."
-    return f"{skill_area} is low risk. Maintain consistent practice."
+        return f"{label} is predicted to improve. Continue the current strategy."
+    return f"{label} is low risk. Maintain consistent practice."
 
 
 def _clamp(value: float) -> float:

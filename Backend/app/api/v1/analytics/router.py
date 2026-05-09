@@ -278,10 +278,10 @@ def get_user_blind_spots(
 )
 def get_user_progress_trends(
     user_id: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+    return progress_trend_service.analyze_user_progress_trends(db, user_id, session_id)
 
 
 @router.get(
@@ -291,10 +291,10 @@ def get_user_progress_trends(
 def get_user_skill_progress_trend(
     user_id: str,
     skill_area: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, limit)
+    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id)
 
 
 @router.get(
@@ -303,10 +303,10 @@ def get_user_skill_progress_trend(
 )
 def get_user_predicted_outcomes(
     user_id: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+    return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, session_id)
 
 
 @router.get(
@@ -316,10 +316,10 @@ def get_user_predicted_outcomes(
 def get_user_skill_predicted_outcome(
     user_id: str,
     skill_area: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, limit)
+    return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
 
 
 @router.get(
