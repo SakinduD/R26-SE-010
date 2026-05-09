@@ -22,15 +22,18 @@ from app.contracts.mca import McaNudge
 from app.contracts.rpe import FeedbackResponse
 from app.core.llm_client import GeminiClient
 from app.core.rpe_client import RpeClient
+from app.models.baseline_snapshot import BaselineSnapshot
 from app.models.personality_profile import PersonalityProfile
 from app.models.training_plan import AdjustmentHistory, TrainingPlan
 from app.services.pedagogy import analytics_writer
 from app.services.pedagogy.aggregator import PerformanceAggregator
+from app.services.pedagogy.baseline_summarizer import summarize as summarize_baseline
+from app.services.pedagogy.brief_generator import generate_brief
 from app.services.pedagogy.dda_engine import initial_difficulty
 from app.services.pedagogy.dynamic_adjuster import adjust
 from app.services.pedagogy.scenario_selector import select_scenarios
 from app.services.pedagogy.strategy_optimizer import optimize_strategy
-from app.services.pedagogy.types import OceanScores, TeachingStrategy
+from app.services.pedagogy.types import BaselineSummary, OceanScores, TeachingStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,16 @@ def _load_plan(user_id: uuid.UUID, db: Session) -> Optional[TrainingPlan]:
     )
 
 
+def _load_baseline_summary(user_id: uuid.UUID, db: Session) -> BaselineSummary:
+    """Return a BaselineSummary for the user; has_baseline=False if none exists."""
+    snapshot = (
+        db.query(BaselineSnapshot)
+        .filter(BaselineSnapshot.user_id == user_id)
+        .first()
+    )
+    return summarize_baseline(snapshot)
+
+
 async def generate_training_plan(
     user_id: uuid.UUID,
     db: Session,
@@ -71,6 +84,8 @@ async def generate_training_plan(
     Generate (or regenerate) a training plan for the user.
 
     Raises ValueError if no PersonalityProfile exists for the user.
+    When a BaselineSnapshot exists for the user, the plan is adjusted to
+    reflect measured vocal/emotional evidence from the baseline session.
     """
     scores = _load_ocean(user_id, db)
     if scores is None:
@@ -78,11 +93,25 @@ async def generate_training_plan(
             f"No personality profile for user {user_id}. Submit the survey first."
         )
 
-    strategy = optimize_strategy(scores)
-    difficulty, _rationale = initial_difficulty(scores)
+    baseline = _load_baseline_summary(user_id, db)
+    if baseline.has_baseline:
+        logger.info(
+            "Baseline available for user %s (stress=%.2f, confidence=%.2f)",
+            user_id,
+            baseline.stress_indicator or 0.0,
+            baseline.confidence_indicator or 0.0,
+        )
+
+    strategy = optimize_strategy(scores, baseline=baseline)
+    difficulty, _rationale = initial_difficulty(scores, baseline=baseline)
+    brief = generate_brief(scores, strategy, baseline, difficulty)
 
     now = datetime.now(timezone.utc)
     plan = _load_plan(user_id, db)
+
+    baseline_json: Optional[dict] = (
+        baseline.model_dump() if baseline.has_baseline else None
+    )
 
     if plan is None:
         plan = TrainingPlan(
@@ -94,6 +123,8 @@ async def generate_training_plan(
             primary_scenario_json=None,
             generation_source="gemini_fallback",  # placeholder, updated below
             generation_status="pending",
+            baseline_summary_json=baseline_json,
+            brief_json=brief.model_dump(),
             created_at=now,
             updated_at=now,
         )
@@ -103,6 +134,8 @@ async def generate_training_plan(
         plan.strategy_json = strategy.model_dump()
         plan.difficulty = difficulty
         plan.generation_status = "pending"
+        plan.baseline_summary_json = baseline_json
+        plan.brief_json = brief.model_dump()
         plan.updated_at = now
 
     db.commit()

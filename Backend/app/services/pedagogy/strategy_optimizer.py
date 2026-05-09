@@ -12,11 +12,23 @@ and NPC toward demanding) keeps the gentle/encouraging axis. Agreeableness
 may still influence NPC personality, but never overrides safety on tone or
 feedback. This precedence is documented because it is the single most
 load-bearing rule the thesis depends on.
+
+Baseline rules (only active when baseline.has_baseline is True)
+---------------------------------------------------------------
+These fire AFTER all OCEAN rules, so they can soften an already-derived
+strategy based on measured vocal/emotional evidence:
+  stress_indicator > 0.6  → tone steps softer by one level
+  confidence_indicator < 0.3 → npc overridden to warm_supportive
+  skill_scores has any value < 0.4 → those skill names added to priority_skills
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from app.services.pedagogy.types import (
     COMPLEXITY_ORDER,
+    TONE_ORDER,
+    BaselineSummary,
     Complexity,
     FeedbackStyle,
     NpcPersonality,
@@ -30,9 +42,15 @@ LOW = 40
 HIGH = 60
 
 
-def optimize_strategy(scores: OceanScores) -> TeachingStrategy:
+def optimize_strategy(
+    scores: OceanScores,
+    baseline: Optional[BaselineSummary] = None,
+) -> TeachingStrategy:
     """
     Map OCEAN (0-100) to a TeachingStrategy via documented threshold rules.
+
+    When baseline is None the output is byte-identical to the pre-baseline
+    behaviour — existing tests must not be affected.
 
     Rules (per RESEARCH_BRIEF, with Neuroticism precedence on tone/feedback):
       Neuroticism > HIGH  → tone=gentle, feedback=encouraging  (overrides A-low)
@@ -45,6 +63,11 @@ def optimize_strategy(scores: OceanScores) -> TeachingStrategy:
       Agreeableness < LOW → npc demanding/analytical, feedback=blunt
                             (UNLESS Neuroticism > HIGH — N wins)
       Agreeableness > HIGH AND Neuroticism > HIGH → npc=warm_supportive (compounding)
+
+    Additional baseline rules (fire only when baseline.has_baseline is True):
+      stress_indicator > 0.6       → tone steps softer one level
+      confidence_indicator < 0.3   → npc forced to warm_supportive
+      skill_scores[k] < 0.4        → k added to priority_skills
     """
     # mid-range defaults
     tone: Tone = "direct"
@@ -53,6 +76,7 @@ def optimize_strategy(scores: OceanScores) -> TeachingStrategy:
     npc: NpcPersonality = "professional"
     feedback: FeedbackStyle = "balanced"
     rationale: list[str] = []
+    priority_skills: list[str] = []
 
     n = scores.neuroticism
     e = scores.extraversion
@@ -137,6 +161,48 @@ def optimize_strategy(scores: OceanScores) -> TeachingStrategy:
             "All OCEAN traits in mid-range — using neutral defaults"
         )
 
+    # -----------------------------------------------------------------------
+    # Baseline rules — only active when measured vocal evidence is available.
+    # These run AFTER all OCEAN rules and may tighten the strategy further.
+    # -----------------------------------------------------------------------
+    if baseline is not None and baseline.has_baseline:
+        si = baseline.stress_indicator
+        ci = baseline.confidence_indicator
+
+        if si is not None and si > 0.6:
+            # Soften tone one step (gentle is the floor — no-op if already there)
+            idx = TONE_ORDER.index(tone)
+            softer = TONE_ORDER[max(0, idx - 1)]
+            if softer != tone:
+                rationale.append(
+                    f"baseline stress_indicator={si:.2f} > 0.6 → "
+                    f"tone softened from {tone!r} to {softer!r} "
+                    "(regardless of N score)"
+                )
+                tone = softer
+            else:
+                rationale.append(
+                    f"baseline stress_indicator={si:.2f} > 0.6 → "
+                    f"tone already at floor ({tone!r}), no change"
+                )
+
+        if ci is not None and ci < 0.3:
+            rationale.append(
+                f"baseline confidence_indicator={ci:.2f} < 0.3 → "
+                "npc overridden to warm_supportive"
+            )
+            npc = "warm_supportive"
+
+        if baseline.skill_scores:
+            priority_skills = [
+                k for k, v in baseline.skill_scores.items() if v < 0.4
+            ]
+            if priority_skills:
+                rationale.append(
+                    f"baseline skill_scores has weak areas "
+                    f"({', '.join(priority_skills)}) → added to priority_skills"
+                )
+
     return TeachingStrategy(
         tone=tone,
         pacing=pacing,
@@ -144,4 +210,5 @@ def optimize_strategy(scores: OceanScores) -> TeachingStrategy:
         npc_personality=npc,
         feedback_style=feedback,
         rationale=rationale,
+        priority_skills=priority_skills,
     )
