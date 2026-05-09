@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+import logging
 
 from app.api.dependencies import get_db
 from app.schemas.analytics import (
@@ -40,6 +41,7 @@ from app.services import (
 )
 
 router = APIRouter(tags=["feedback-analytics"])
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -331,4 +333,35 @@ def get_user_mentoring_recommendations(
     limit: int = Query(default=100, ge=2, le=500),
     db: Session = Depends(get_db),
 ):
-    return llm_mentoring_service.generate_user_mentoring_recommendations(db, user_id, limit)
+    try:
+        logger.info(f"Fetching user recommendations for user_id: {user_id}, limit: {limit}")
+        result = llm_mentoring_service.generate_user_mentoring_recommendations(db, user_id, limit)
+        logger.info(f"Successfully generated user recommendations: {len(result.recommendations)} items")
+        return result
+    except Exception as e:
+        logger.error(f"Error generating user recommendations: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate user recommendations: {str(e)}"
+        )
+
+
+@router.get(
+    "/sessions/{session_id}/mentoring-recommendations",
+    response_model=MentoringRecommendationResult,
+)
+def get_session_mentoring_recommendations(
+    session_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        logger.info(f"Fetching session recommendations for session_id: {session_id}")
+        result = llm_mentoring_service.generate_session_mentoring_recommendations(db, session_id)
+        logger.info(f"Successfully generated recommendations: {len(result.recommendations)} items")
+        return result
+    except Exception as e:
+        logger.error(f"Error generating session recommendations: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate session recommendations: {str(e)}"
+        )
