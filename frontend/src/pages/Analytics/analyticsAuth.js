@@ -4,10 +4,11 @@ export function getAnalyticsUserId(user) {
   return user?.id || user?.user_id || user?.sub || user?.email || ''
 }
 
-export function useAnalyticsIdentity(routeUserId, fallbackUserId = 'demo-user') {
+export function useAnalyticsIdentity(routeUserId) {
   const { user, isLoading, isAuthenticated } = useAuth()
   const authenticatedUserId = getAnalyticsUserId(user)
-  const userId = routeUserId || authenticatedUserId || fallbackUserId
+  // ALWAYS use real authenticated user - NO FALLBACK TO TEST DATA
+  const userId = routeUserId || authenticatedUserId
   const userLabel = user?.display_name || user?.email || userId
 
   return {
