@@ -77,6 +77,12 @@ class TrainingPlan(Base):
     generation_status: Mapped[str] = mapped_column(
         String(40), nullable=False, default="pending"
     )
+    baseline_summary_json: Mapped[Optional[dict]] = mapped_column(
+        json_column_type(), nullable=True
+    )
+    brief_json: Mapped[Optional[dict]] = mapped_column(
+        json_column_type(), nullable=True
+    )
     last_adjusted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

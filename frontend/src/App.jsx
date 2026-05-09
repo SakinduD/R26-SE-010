@@ -18,6 +18,7 @@ import VerifyEmail from './pages/auth/VerifyEmail'
 import AuthCallback from './pages/auth/AuthCallback'
 
 // Protected app pages
+import Baseline from './pages/app/Baseline'
 import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
@@ -69,6 +70,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/survey" element={<Survey />} />
               <Route path="/survey/results" element={<SurveyResults />} />
+              <Route path="/baseline" element={<Baseline />} />
               <Route path="/training-plan" element={<TrainingPlan />} />
               <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
               <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
