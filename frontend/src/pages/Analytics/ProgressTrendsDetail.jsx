@@ -16,22 +16,19 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
-import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
+// Only the 5 composite skills the backend trend engine supports.
+// vocal_command        → speech_volume_score
+// speech_fluency       → avg(speech_pace_score, clarity_score)
+// presence_engagement  → avg(eye_contact_score, confidence_score)
+// emotional_intelligence → avg(empathy_score, emotional_control_score)
 const SKILL_LABELS = {
-  confidence: 'Confidence',
-  communication_clarity: 'Communication Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Active Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
-  eye_contact: 'Eye Contact',
-  speech_pace: 'Speech Pace',
-  speech_volume: 'Speech Volume',
-  response_quality: 'Response Quality',
+  vocal_command: 'Vocal Command',
+  speech_fluency: 'Speech Fluency',
+  presence_engagement: 'Presence & Engagement',
+  emotional_intelligence: 'Emotional Intelligence',
   overall: 'Overall',
 }
 
@@ -40,20 +37,20 @@ const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ va
 const DEMO_DATA = {
   user_id: 'demo-user',
   summary: {
-    analyzed_skill_count: 8,
-    improving_count: 3,
+    analyzed_skill_count: 5,
+    improving_count: 2,
     stable_count: 2,
     declining_count: 1,
-    insufficient_data_count: 2,
-    strongest_improvement: trend('confidence', 'improving', [55, 65, 78]),
-    strongest_decline: trend('empathy', 'declining', [90, 82, 70]),
+    insufficient_data_count: 0,
+    strongest_improvement: trend('vocal_command', 'improving', [55, 65, 78]),
+    strongest_decline: trend('overall', 'declining', [90, 82, 70]),
   },
   trends: [
-    trend('confidence', 'improving', [55, 65, 78]),
-    trend('communication_clarity', 'stable', [72, 73, 74]),
-    trend('empathy', 'declining', [90, 82, 70]),
-    trend('active_listening', 'improving', [66, 72, 79]),
-    trend('professionalism', 'improving', [70, 75, 80]),
+    trend('vocal_command', 'improving', [55, 65, 78]),
+    trend('speech_fluency', 'stable', [72, 73, 74]),
+    trend('presence_engagement', 'improving', [66, 72, 79]),
+    trend('emotional_intelligence', 'stable', [70, 75, 80]),
+    trend('overall', 'declining', [90, 82, 70]),
   ],
   generated_at: '2026-05-03T00:00:00',
   trend_version: 'rule-based-v1',
@@ -92,7 +89,7 @@ export default function ProgressTrendsDetail() {
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [selectedSkill, setSelectedSkill] = useState('confidence')
+  const [selectedSkill, setSelectedSkill] = useState('vocal_command')
   const [data, setData] = useState(DEMO_DATA)
   const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
   const [status, setStatus] = useState('demo')
@@ -188,7 +185,6 @@ export default function ProgressTrendsDetail() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
-          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           <span className="text-xs text-muted-foreground">{data.trend_version || 'rule-based-v1'}</span>
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
