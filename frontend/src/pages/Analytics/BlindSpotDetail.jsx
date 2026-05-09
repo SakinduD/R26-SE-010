@@ -14,18 +14,14 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
-import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
-  confidence: 'Confidence',
-  communication_clarity: 'Communication Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Active Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
+  vocal_command: 'Vocal Command',
+  speech_fluency: 'Speech Fluency',
+  presence_engagement: 'Presence & Engagement',
+  emotional_intelligence: 'Emotional Intelligence',
   overall: 'Overall',
 }
 
@@ -40,7 +36,7 @@ const DEMO_DATA = {
       medium_count: 1,
       low_count: 0,
       strongest_blind_spot: {
-        skill_area: 'confidence',
+        skill_area: 'presence_engagement',
         blind_spot_type: 'overestimation',
         severity: 'high',
         self_rating: 92,
@@ -48,12 +44,12 @@ const DEMO_DATA = {
         comparison_source: 'observed',
         gap: 37,
         confidence: 0.92,
-        recommendation: 'Review confidence evidence and set one measurable improvement target.',
+        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
       },
     },
     blind_spots: [
       {
-        skill_area: 'confidence',
+        skill_area: 'presence_engagement',
         blind_spot_type: 'overestimation',
         severity: 'high',
         self_rating: 92,
@@ -61,10 +57,10 @@ const DEMO_DATA = {
         comparison_source: 'observed',
         gap: 37,
         confidence: 0.92,
-        recommendation: 'Review confidence evidence and set one measurable improvement target.',
+        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
       },
       {
-        skill_area: 'empathy',
+        skill_area: 'emotional_intelligence',
         blind_spot_type: 'underestimation',
         severity: 'medium',
         self_rating: 64,
@@ -72,14 +68,14 @@ const DEMO_DATA = {
         comparison_source: 'observed',
         gap: 26,
         confidence: 0.81,
-        recommendation: 'Use positive observed evidence to build confidence and maintain this behaviour.',
+        recommendation: 'Your Emotional Intelligence performance appears stronger than your self-rating. Build confidence with evidence.',
       },
     ],
   },
   feedbackAnalysis: {
     summary: {
       self_feedback_count: 3,
-      system_evidence_count: 3,
+      peer_feedback_count: 0,
       analyzed_skill_count: 4,
       aligned_count: 2,
       blind_spot_count: 2,
@@ -87,9 +83,9 @@ const DEMO_DATA = {
       average_observed_score: 72,
     },
     items: [
-      alignment('confidence', 92, 55, 'self_overestimation', 'high'),
-      alignment('empathy', 64, 90, 'self_underestimation', 'medium'),
-      alignment('communication_clarity', 78, 76, 'aligned', 'none'),
+      alignment('presence_engagement', 92, 55, 'self_overestimation', 'high'),
+      alignment('emotional_intelligence', 64, 90, 'self_underestimation', 'medium'),
+      alignment('vocal_command', 78, 76, 'aligned', 'none'),
     ],
   },
 }
@@ -248,7 +244,6 @@ export default function BlindSpotDetail() {
       <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
-          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
           {error ? <span className="text-sm text-warning">{error}</span> : null}
         </div>
 
@@ -345,7 +340,7 @@ function AlignmentSummary({ summary }) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <Metric icon={UserCircle} label="Self Feedback" value={summary.self_feedback_count || 0} compact />
-      <Metric icon={BarChart3} label="System Evidence" value={summary.system_evidence_count || 0} compact />
+      <Metric icon={BarChart3} label="Skills Analyzed" value={summary.analyzed_skill_count || 0} compact />
       <Metric icon={Target} label="Self Avg" value={formatScore(summary.average_self_rating)} compact />
       <Metric icon={BarChart3} label="Observed Avg" value={formatScore(summary.average_observed_score)} compact />
       <Metric icon={CheckCircle2} label="Aligned" value={summary.aligned_count || 0} compact />

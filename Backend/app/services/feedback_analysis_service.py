@@ -17,28 +17,12 @@ MEDIUM_GAP_THRESHOLD = 20.0
 HIGH_GAP_THRESHOLD = 30.0
 
 
-OBSERVED_SCORE_FIELDS = {
-    # Primary MCA Skills
-    "vocal_command": "speech_volume_score",
-    "speech_fluency": "speech_pace_score",
-    "presence_engagement": "eye_contact_score",
-    "emotional_intelligence": "empathy_score",
-    
-    # Legacy / Alternate Mappings
-    "confidence": "confidence_score",
-    "communication_clarity": "clarity_score",
-    "clarity": "clarity_score",
-    "empathy": "empathy_score",
-    "active_listening": "listening_score",
-    "listening": "listening_score",
-    "adaptability": "adaptability_score",
-    "emotional_control": "emotional_control_score",
-    "professionalism": "professionalism_score",
-    "eye_contact": "eye_contact_score",
-    "speech_pace": "speech_pace_score",
-    "speech_volume": "speech_volume_score",
-    "response_quality": "response_quality_score",
-    "overall": "overall_score",
+OBSERVED_SCORE_FIELDS: dict[str, list[str]] = {
+    "vocal_command": ["speech_volume_score"],
+    "speech_fluency": ["speech_pace_score", "clarity_score"],
+    "presence_engagement": ["eye_contact_score", "confidence_score"],
+    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
+    "overall": ["overall_score"],
 }
 
 
@@ -127,6 +111,7 @@ def _build_result(
     blind_spot_count = sum(
         1 for item in items if item.alignment in {"self_overestimation", "self_underestimation"}
     )
+    observed_scores_list = [item.observed_score for item in items if item.observed_score is not None]
 
     return FeedbackAnalysisResult(
         scope=scope,
@@ -140,6 +125,7 @@ def _build_result(
             blind_spot_count=blind_spot_count,
             average_self_rating=_average(self_ratings),
             average_peer_rating=_average(peer_ratings),
+            average_observed_score=_average(observed_scores_list),
         ),
         items=items,
         generated_at=datetime.utcnow(),
@@ -235,8 +221,14 @@ def _group_feedback_by_skill(feedback: list[FeedbackEntry]) -> dict[str, dict[st
 
 def _observed_scores(metrics: list[AnalyticsSessionMetric]) -> dict[str, float]:
     scores = {}
-    for skill_area, field in OBSERVED_SCORE_FIELDS.items():
-        value = _average([getattr(metric, field) for metric in metrics])
+    for skill_area, fields in OBSERVED_SCORE_FIELDS.items():
+        all_values = [
+            getattr(metric, field)
+            for metric in metrics
+            for field in fields
+            if getattr(metric, field) is not None
+        ]
+        value = _average(all_values)
         if value is not None:
             scores[skill_area] = value
     return scores
