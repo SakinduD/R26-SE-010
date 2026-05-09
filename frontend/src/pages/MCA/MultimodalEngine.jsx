@@ -330,8 +330,10 @@ const MultimodalEngine = () => {
         toast.error("Failed to initialize session on server.");
       }
     } catch (err) {
-      console.warn('[Live] Session start failed:', err);
-      toast.error("Failed to start session. Please try again.");
+      const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred.";
+      toast.error("Session Startup Failed", {
+        description: errorMsg
+      });
     } finally {
       setIsLiveStarting(false);
     }
@@ -385,8 +387,10 @@ const MultimodalEngine = () => {
           toast.error("Session closed but data persistence may be incomplete.");
         }
       } catch (err) {
-        console.warn('[Live] Session end failed:', err);
-        toast.error("Failed to formally end session. Please check your connection.");
+        const errorMsg = err instanceof Error ? err.message : "Connection interrupted.";
+        toast.error("Session Sync Failed", {
+          description: errorMsg
+        });
       } finally {
         setIsLiveEnding(false);
       }
