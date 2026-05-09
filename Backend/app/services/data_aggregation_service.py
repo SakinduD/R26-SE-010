@@ -152,6 +152,26 @@ def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
         if self_skill_ratings:
             self_rating_averages[skill_area] = round(mean(self_skill_ratings), 2)
 
+    # Calculate weighted average for overall rating if MCA skills are present
+    mca_weights = {
+        "emotional_intelligence": 0.30,
+        "presence_engagement": 0.30,
+        "vocal_command": 0.20,
+        "speech_fluency": 0.20
+    }
+
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for skill, weight in mca_weights.items():
+        if skill in skill_rating_averages:
+            weighted_sum += skill_rating_averages[skill] * weight
+            total_weight += weight
+
+    if total_weight > 0:
+        average_rating = round(weighted_sum / total_weight, 2)
+    else:
+        average_rating = round(mean(ratings), 2) if ratings else None
+
     return FeedbackSummary(
         total_count=len(feedback),
         session_count=len({entry.session_id for entry in feedback if entry.session_id}),
@@ -159,7 +179,7 @@ def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
         sentiment_counts=dict(Counter(entry.sentiment for entry in feedback if entry.sentiment)),
         skill_rating_averages=skill_rating_averages,
         self_rating_averages=self_rating_averages,
-        average_rating=round(mean(ratings), 2) if ratings else None,
+        average_rating=average_rating,
         latest_entries=feedback[:20],
     )
 

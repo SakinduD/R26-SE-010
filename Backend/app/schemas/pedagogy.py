@@ -29,6 +29,8 @@ class TrainingPlanOut(BaseModel):
     last_adjusted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    baseline_summary_json: Optional[dict] = None
+    brief_json: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

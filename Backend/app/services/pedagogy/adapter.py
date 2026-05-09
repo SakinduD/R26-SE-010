@@ -10,8 +10,10 @@ Backend/app/models/rpe/scenarios/scenario_*.json on 2026-05-04.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from app.contracts.rpe import ApaLearnerProfile, DifficultyLabel
-from app.services.pedagogy.types import OceanScores, TeachingStrategy
+from app.services.pedagogy.types import BaselineSummary, OceanScores, TeachingStrategy
 
 # ---------------------------------------------------------------------------
 # RPE skill vocabulary (citations to the scenario JSON files)
@@ -58,7 +60,8 @@ def difficulty_label_to_int(label: str) -> int:
 
 def infer_weak_skills(
     profile: OceanScores,
-    strategy: TeachingStrategy | None = None,
+    strategy: Optional[TeachingStrategy] = None,
+    baseline: Optional[BaselineSummary] = None,
 ) -> list[str]:
     """
     Infer weak-skill hints that APM passes to RPE's scenario recommender.
@@ -67,7 +70,13 @@ def infer_weak_skills(
     scenario JSONs). If a teammate adds a new skill upstream, add a row here
     with a citation comment.
 
-    Mapping:
+    Baseline precedence: when baseline.has_baseline is True and
+    baseline.skill_scores contains skills within RPE_SKILL_VOCABULARY with a
+    score < 0.4, those skills take precedence over the OCEAN-derived list.
+    This reflects measured performance evidence over trait inference. Capped
+    at 5 skills.
+
+    OCEAN mapping (fallback when no baseline evidence):
       Neuroticism > 60        → emotional_regulation, boundary_setting
       Agreeableness < 40      → conflict_resolution, professional_communication
       Conscientiousness < 40  → accountability, professional_assertiveness
@@ -76,6 +85,21 @@ def infer_weak_skills(
       Agreeableness > 60 AND Neuroticism > 60
                               → trust_building, client_management
     """
+    # Baseline evidence takes precedence over trait inference
+    if (
+        baseline is not None
+        and baseline.has_baseline
+        and baseline.skill_scores
+    ):
+        baseline_weak = [
+            k
+            for k, v in baseline.skill_scores.items()
+            if v < 0.4 and k in RPE_SKILL_VOCABULARY
+        ]
+        if baseline_weak:
+            return baseline_weak[:5]
+
+    # Fall back to OCEAN-derived inference
     skills: list[str] = []
 
     if profile.neuroticism > HIGH:
