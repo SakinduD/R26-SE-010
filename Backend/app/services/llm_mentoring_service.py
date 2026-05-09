@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db.database import SessionLocal
+from app.models.analytics import MentoringRecommendation
 from app.schemas.analytics import MentoringRecommendationItem, MentoringRecommendationResult
 from app.services import (
     blind_spot_service,
@@ -48,7 +51,7 @@ def generate_user_mentoring_recommendations(
 
     llm_items = _call_openai_mentoring(evidence_bundle) if settings.openai_api_key else None
     if llm_items:
-        return MentoringRecommendationResult(
+        result = MentoringRecommendationResult(
             user_id=user_id,
             recommendations=llm_items[:MAX_RECOMMENDATIONS],
             evidence=evidence_bundle["summary"],
@@ -56,10 +59,14 @@ def generate_user_mentoring_recommendations(
             recommendation_version=RECOMMENDATION_VERSION,
             model_version=settings.openai_mentoring_model,
             source="llm",
+            recommendation_type="overall_user",
         )
+        # Save to database
+        _save_recommendations_to_db(db, result)
+        return result
 
     fallback_items = _build_rule_based_recommendations(evidence_bundle)
-    return MentoringRecommendationResult(
+    result = MentoringRecommendationResult(
         user_id=user_id,
         recommendations=fallback_items[:MAX_RECOMMENDATIONS],
         evidence=evidence_bundle["summary"],
@@ -69,6 +76,9 @@ def generate_user_mentoring_recommendations(
         source="rule_based",
         recommendation_type="overall_user",
     )
+    # Save to database
+    _save_recommendations_to_db(db, result)
+    return result
 
 
 def generate_session_mentoring_recommendations(
@@ -83,7 +93,7 @@ def generate_session_mentoring_recommendations(
 
     llm_items = _call_openai_session_mentoring(evidence_bundle) if settings.openai_api_key else None
     if llm_items:
-        return MentoringRecommendationResult(
+        result = MentoringRecommendationResult(
             user_id=evidence_bundle.get("user_id", "unknown"),
             session_id=session_id,
             recommendations=llm_items[:MAX_RECOMMENDATIONS],
@@ -94,9 +104,12 @@ def generate_session_mentoring_recommendations(
             source="llm",
             recommendation_type="session_specific",
         )
+        # Save to database
+        _save_recommendations_to_db(db, result)
+        return result
 
     fallback_items = _build_session_rule_based_recommendations(evidence_bundle)
-    return MentoringRecommendationResult(
+    result = MentoringRecommendationResult(
         user_id=evidence_bundle.get("user_id", "unknown"),
         session_id=session_id,
         recommendations=fallback_items[:MAX_RECOMMENDATIONS],
@@ -107,6 +120,9 @@ def generate_session_mentoring_recommendations(
         source="rule_based",
         recommendation_type="session_specific",
     )
+    # Save to database
+    _save_recommendations_to_db(db, result)
+    return result
 
 
 def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
@@ -708,3 +724,66 @@ def _recommendation_json_schema() -> dict[str, Any]:
         },
         "required": ["recommendations"],
     }
+
+
+_svc_logger = logging.getLogger(__name__)
+
+
+def _save_recommendations_to_db(
+    _unused_db: Session,
+    result: MentoringRecommendationResult,
+) -> None:
+    """Save generated recommendations using a fresh session to avoid stale-connection failures after long LLM calls."""
+    save_db = SessionLocal()
+    try:
+        _svc_logger.info(
+            "Saving %d recommendations for user %s session %s",
+            len(result.recommendations), result.user_id, result.session_id,
+        )
+
+        evidence_data = result.evidence if isinstance(result.evidence, dict) else {}
+
+        if result.session_id:
+            deleted = save_db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.user_id == result.user_id,
+                MentoringRecommendation.session_id == result.session_id,
+                MentoringRecommendation.recommendation_type == "session_specific",
+            ).delete(synchronize_session=False)
+        else:
+            deleted = save_db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.user_id == result.user_id,
+                MentoringRecommendation.session_id.is_(None),
+                MentoringRecommendation.recommendation_type == "overall_user",
+            ).delete(synchronize_session=False)
+
+        _svc_logger.info("Deleted %d old recommendations", deleted)
+
+        rec_type = result.recommendation_type or "overall_user"
+        source = result.source or "llm"
+        model_ver = (result.model_version or RECOMMENDATION_VERSION)[:40]
+
+        for rec in result.recommendations:
+            save_db.add(MentoringRecommendation(
+                user_id=result.user_id,
+                session_id=result.session_id,
+                recommendation_type=rec_type,
+                title=(rec.title or "Untitled")[:255],
+                description=rec.reason or "",
+                reason=rec.reason,
+                detail=rec.detail,
+                next_action=rec.next_action,
+                priority=rec.priority or "medium",
+                skill_area=rec.skill_area,
+                confidence=None,
+                evidence=evidence_data,
+                source=source,
+                model_version=model_ver,
+            ))
+
+        save_db.commit()
+        _svc_logger.info("Saved %d recommendations to database", len(result.recommendations))
+    except Exception as exc:
+        save_db.rollback()
+        _svc_logger.error("Failed to save recommendations: %s", exc, exc_info=True)
+    finally:
+        save_db.close()

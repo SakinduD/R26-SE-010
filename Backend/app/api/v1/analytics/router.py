@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from app.api.dependencies import get_db
+from app.models.analytics import MentoringRecommendation
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
@@ -15,6 +16,7 @@ from app.schemas.analytics import (
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
     AnalyticsSessionIntegrationResult,
+    MentoringRecommendationItem,
     MentoringRecommendationResult,
     PostSessionReportResult,
     ProgressTrendResult,
@@ -331,10 +333,50 @@ def get_user_skill_predicted_outcome(
 def get_user_mentoring_recommendations(
     user_id: str,
     limit: int = Query(default=100, ge=2, le=500),
+    force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     try:
-        logger.info(f"Fetching user recommendations for user_id: {user_id}, limit: {limit}")
+        logger.info(f"Fetching user recommendations for user_id: {user_id}, limit: {limit}, force_refresh: {force_refresh}")
+
+        # Load saved recommendations from database unless a refresh is explicitly requested
+        if not force_refresh:
+            cached_recs = db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.user_id == user_id,
+                MentoringRecommendation.session_id.is_(None),
+                MentoringRecommendation.recommendation_type == "overall_user",
+            ).order_by(
+                MentoringRecommendation.priority.desc(),
+                MentoringRecommendation.created_at.desc()
+            ).limit(limit).all()
+
+            if cached_recs:
+                logger.info(f"Using saved recommendations for user {user_id}")
+                recommendations = [
+                    MentoringRecommendationItem(
+                        priority=rec.priority,
+                        skill_area=rec.skill_area,
+                        title=rec.title,
+                        reason=rec.reason or rec.description,
+                        detail=rec.detail or "",
+                        next_action=rec.next_action or "",
+                        source=rec.source,
+                        evidence_sources=[]
+                    )
+                    for rec in cached_recs
+                ]
+                return MentoringRecommendationResult(
+                    user_id=user_id,
+                    recommendations=recommendations,
+                    evidence=cached_recs[0].evidence or {},
+                    generated_at=cached_recs[0].created_at,
+                    recommendation_version="cached",
+                    model_version=cached_recs[0].model_version,
+                    source=cached_recs[0].source,
+                    recommendation_type="overall_user",
+                )
+
+        # Generate new recommendations (first time or explicit refresh)
         result = llm_mentoring_service.generate_user_mentoring_recommendations(db, user_id, limit)
         logger.info(f"Successfully generated user recommendations: {len(result.recommendations)} items")
         return result
@@ -352,10 +394,51 @@ def get_user_mentoring_recommendations(
 )
 def get_session_mentoring_recommendations(
     session_id: str,
+    force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     try:
-        logger.info(f"Fetching session recommendations for session_id: {session_id}")
+        logger.info(f"Fetching session recommendations for session_id: {session_id}, force_refresh: {force_refresh}")
+
+        # Load saved recommendations from database unless a refresh is explicitly requested
+        if not force_refresh:
+            cached_recs = db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.session_id == session_id,
+                MentoringRecommendation.recommendation_type == "session_specific",
+            ).order_by(
+                MentoringRecommendation.priority.desc(),
+                MentoringRecommendation.created_at.desc()
+            ).all()
+
+            if cached_recs:
+                logger.info(f"Using saved recommendations for session {session_id}")
+                user_id = cached_recs[0].user_id
+                recommendations = [
+                    MentoringRecommendationItem(
+                        priority=rec.priority,
+                        skill_area=rec.skill_area,
+                        title=rec.title,
+                        reason=rec.reason or rec.description,
+                        detail=rec.detail or "",
+                        next_action=rec.next_action or "",
+                        source=rec.source,
+                        evidence_sources=[]
+                    )
+                    for rec in cached_recs
+                ]
+                return MentoringRecommendationResult(
+                    user_id=user_id,
+                    session_id=session_id,
+                    recommendations=recommendations,
+                    evidence=cached_recs[0].evidence or {},
+                    generated_at=cached_recs[0].created_at,
+                    recommendation_version="cached",
+                    model_version=cached_recs[0].model_version,
+                    source=cached_recs[0].source,
+                    recommendation_type="session_specific",
+                )
+
+        # Generate new recommendations (first time or explicit refresh)
         result = llm_mentoring_service.generate_session_mentoring_recommendations(db, session_id)
         logger.info(f"Successfully generated recommendations: {len(result.recommendations)} items")
         return result

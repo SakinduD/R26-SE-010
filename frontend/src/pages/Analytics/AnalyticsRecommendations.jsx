@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Lightbulb,
@@ -26,15 +26,35 @@ export default function AnalyticsRecommendationsNew() {
   const [mode, setMode] = useState('session')
   const [sessions, setSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
-  const [recommendations, setRecommendations] = useState([])
-  const [evidence, setEvidence] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Cache: avoid re-fetching on tab switch
+  const [overallCache, setOverallCache] = useState(null) // { recommendations, evidence }
+  const [sessionCache, setSessionCache] = useState({})   // { [sessionId]: { recommendations, evidence } }
+
+  // Refs track whether a fetch has started — avoids including cache objects in effect deps
+  const hasFetchedOverall = useRef(false)
+  const hasFetchedSession = useRef({})  // { [sessionId]: true }
+
+  // Derive display data from caches
+  const recommendations = mode === 'overall'
+    ? (overallCache?.recommendations || [])
+    : (sessionCache[selectedSession?.id]?.recommendations || [])
+  const evidence = mode === 'overall'
+    ? (overallCache?.evidence || null)
+    : (sessionCache[selectedSession?.id]?.evidence || null)
+
+  // Clear caches and fetch flags when user identity changes
   useEffect(() => {
-    if (!isAuthenticated || !connectedUserId) {
-      return
-    }
+    setOverallCache(null)
+    setSessionCache({})
+    hasFetchedOverall.current = false
+    hasFetchedSession.current = {}
+  }, [connectedUserId])
+
+  useEffect(() => {
+    if (!isAuthenticated || !connectedUserId) return
 
     const loadSessions = async () => {
       try {
@@ -59,9 +79,7 @@ export default function AnalyticsRecommendationsNew() {
         ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
 
         setSessions(allSessions)
-        if (allSessions.length > 0) {
-          setSelectedSession(allSessions[0])
-        }
+        if (allSessions.length > 0) setSelectedSession(allSessions[0])
       } catch (err) {
         console.error('Failed to load sessions:', err)
       }
@@ -70,52 +88,69 @@ export default function AnalyticsRecommendationsNew() {
     loadSessions()
   }, [isAuthenticated, connectedUserId, isAuthLoading])
 
+  // Load session recommendations only when session changes AND not yet fetched
   useEffect(() => {
-    const loadSessionRecommendations = async () => {
-      if (!selectedSession) return
-      
+    if (mode !== 'session' || !selectedSession) return
+    if (hasFetchedSession.current[selectedSession.id]) return
+
+    hasFetchedSession.current[selectedSession.id] = true
+
+    const fetchSession = async () => {
       setLoading(true)
       setError('')
-      setEvidence(null)
-      
       try {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id)
-        setRecommendations(data.recommendations || [])
-        setEvidence(data.evidence || null)
+        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, false)
+        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
       } catch (err) {
-        const errorMsg = err.response?.data?.detail || err.message || 'Could not load recommendations'
-        setError(errorMsg)
+        hasFetchedSession.current[selectedSession.id] = false // allow retry
+        setError(err.response?.data?.detail || err.message || 'Could not load recommendations')
       } finally {
         setLoading(false)
       }
     }
-
-    if (mode === 'session') {
-      loadSessionRecommendations()
-    }
+    fetchSession()
   }, [selectedSession, mode])
 
-  const loadOverallRecommendations = async () => {
+  // Load overall recommendations only once per user session (ref prevents re-fetch on tab switch)
+  useEffect(() => {
+    if (mode !== 'overall' || !isAuthenticated || !connectedUserId) return
+    if (hasFetchedOverall.current) return
+
+    hasFetchedOverall.current = true
+
+    const fetchOverall = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, false)
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+      } catch (err) {
+        hasFetchedOverall.current = false // allow retry
+        setError(err.response?.data?.detail || err.message || 'Could not load overall recommendations')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchOverall()
+  }, [mode, isAuthenticated, connectedUserId])
+
+  const handleRefresh = async () => {
     setLoading(true)
     setError('')
-    setEvidence(null)
-    
     try {
-      const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId)
-      setRecommendations(data.recommendations || [])
-      setEvidence(data.evidence || null)
+      if (mode === 'session' && selectedSession) {
+        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, true)
+        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+      } else if (mode === 'overall') {
+        const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, true)
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+      }
     } catch (err) {
-      setError('Could not load overall recommendations')
+      setError(err.response?.data?.detail || err.message || 'Could not refresh recommendations')
     } finally {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    if (mode === 'overall' && isAuthenticated) {
-      loadOverallRecommendations()
-    }
-  }, [mode, isAuthenticated, connectedUserId])
 
   return (
     <main className="min-h-screen">
@@ -128,8 +163,8 @@ export default function AnalyticsRecommendationsNew() {
           </div>
           <div className="flex items-end gap-3 flex-wrap">
             <AnalyticsNav />
-            <Button 
-              onClick={() => mode === 'overall' ? loadOverallRecommendations() : undefined}
+            <Button
+              onClick={handleRefresh}
               className="h-10 px-5 text-sm font-semibold"
             >
               <RefreshCw className="mr-2 h-4 w-4" />
