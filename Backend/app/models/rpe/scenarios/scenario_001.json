@@ -7,13 +7,7 @@
   "npc_personality": "impatient, demanding, dismissive",
   "context": "You are a new employee. Your manager is pressuring you to submit a report by EOD even though you were given incomplete data.",
   "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
-  "recommended_turns": 6,
-  "max_turns": 15,
-  "end_conditions": {
-    "success_trust_threshold": 70,
-    "success_consecutive_turns": 2,
-    "failure_escalation_threshold": 4
-  },
+  "turns": 6,
   "success_criteria": {
     "min_trust_score": 40,
     "max_escalation_level": 2

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, JSON, Enum
+from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -115,30 +115,4 @@ class SkillPrediction(Base):
             name="ck_skill_predictions_risk_level",
         ),
         Index("ix_skill_predictions_user_skill", "user_id", "predicted_skill"),
-    )
-
-
-class MentoringRecommendation(Base):
-    __tablename__ = "mentoring_recommendations"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    recommendation_type: Mapped[str] = mapped_column(Enum('session_specific', 'overall_user', name='recommendation_type_enum'), nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
-    priority: Mapped[str] = mapped_column(Enum('high', 'medium', 'low', name='recommendation_priority_enum'), nullable=False, default="medium")
-    skill_area: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    evidence: Mapped[dict] = mapped_column(JSON, nullable=True)  # Store supporting evidence
-    source: Mapped[str] = mapped_column(Enum('llm', 'rule_based', 'cached', name='recommendation_source_enum'), nullable=False, default="llm")
-    model_version: Mapped[str] = mapped_column(String(40), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    __table_args__ = (
-        Index("ix_mentoring_recommendations_user_session", "user_id", "session_id"),
-        Index("ix_mentoring_recommendations_user_type", "user_id", "recommendation_type"),
     )

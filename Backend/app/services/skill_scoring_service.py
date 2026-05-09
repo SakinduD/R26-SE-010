@@ -105,28 +105,8 @@ def _calculate_result(
             inputs_used=input_names,
         )
 
-    # Calculate weighted overall score based on specific skill areas
-    # Weights: EQ (30%), Presence (30%), Vocal (20%), Pacing (20%)
-    mca_mapping = {
-        "empathy": 0.30,           # EQ
-        "confidence": 0.30,        # Presence
-        "professionalism": 0.20,   # Vocal
-        "communication_clarity": 0.20 # Pacing
-    }
-    
-    weighted_sum = 0.0
-    total_weight = 0.0
-    for skill_key, weight in mca_mapping.items():
-        val = skill_scores.get(skill_key)
-        if val is not None:
-            weighted_sum += val * weight
-            total_weight += weight
-            
-    if total_weight > 0:
-        overall_score = round(weighted_sum / total_weight, 2)
-    else:
-        available_scores = [score for score in skill_scores.values() if score is not None]
-        overall_score = round(sum(available_scores) / len(available_scores), 2) if available_scores else None
+    available_scores = [score for score in skill_scores.values() if score is not None]
+    overall_score = round(sum(available_scores) / len(available_scores), 2) if available_scores else None
 
     return SkillScoreResult(
         user_id=user_id,

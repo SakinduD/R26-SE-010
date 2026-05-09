@@ -134,7 +134,7 @@ def _recommendation(
     severity: str,
     comparison_source: str,
 ) -> str:
-    source_label = "observed performance" if comparison_source == "observed" else "external feedback"
+    source_label = "observed performance" if comparison_source == "observed" else "peer feedback"
     if blind_spot_type == "overestimation":
         return (
             f"Your self-rating for {skill_area} is higher than {source_label}. "

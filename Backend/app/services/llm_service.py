@@ -1,13 +1,11 @@
 import google.generativeai as genai
-from app.config import get_settings
-
-_settings = get_settings()
+from app.core.config import settings
 
 ## gemini-flash-latest or gemini-3.1-flash-lite-preview
 class LLMService:
     def __init__(self):
-        if _settings.gemini_api_key:
-            genai.configure(api_key=_settings.gemini_api_key)
+        if settings.GEMINI_API_KEY:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
             self.model = genai.GenerativeModel(
                 model_name='gemini-3.1-flash-lite-preview',
                 system_instruction=(

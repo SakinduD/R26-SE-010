@@ -7,8 +7,6 @@ export const authClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-export default authClient;
-
 // Attach Bearer token to every request
 authClient.interceptors.request.use((config) => {
   const tokens = getTokens();

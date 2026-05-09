@@ -16,8 +16,7 @@ class DistractedPresenterRule(FusionRule):
     def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
         visual = features.visual_metrics
         yaw = abs(visual.get("pose", {}).get("yaw", 0))
-        # TRIGGER SOLELY ON NEUTRAL AS PER HARMONIZATION PIVOT
-        if features.emotion_label == "neutral" and yaw > 0.2:
+        if features.emotion_label in ["happy", "calm", "neutral"] and yaw > 0.2:
             return Nudge(
                 message="Your voice is calm, but you are looking away from the audience.",
                 category="fusion",

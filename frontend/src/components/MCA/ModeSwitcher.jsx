@@ -3,24 +3,14 @@ import { Users, Bot } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 
-const ModeSwitcher = ({ onModeChangeRequest }) => {
+const ModeSwitcher = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeMode = searchParams.get('mode') || 'live';
 
   const onModeChange = (mode) => {
-    if (activeMode === mode) return;
-
-    const executeSwitch = () => {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set('mode', mode);
-      setSearchParams(newParams);
-    };
-
-    if (onModeChangeRequest) {
-      onModeChangeRequest(mode, executeSwitch);
-    } else {
-      executeSwitch();
-    }
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('mode', mode);
+    setSearchParams(newParams);
   };
 
   return (
