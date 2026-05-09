@@ -301,6 +301,7 @@ class FeedbackAnalysisSummary(BaseModel):
     blind_spot_count: int
     average_self_rating: float | None = None
     average_peer_rating: float | None = None
+    average_observed_score: float | None = None
 
 
 class FeedbackAnalysisResult(BaseModel):
