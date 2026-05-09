@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CheckCircle2,
   MessageSquare,
@@ -31,6 +31,8 @@ const SKILL_OPTIONS = [
 export default function FeedbackForm() {
   const params = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const friendlyId = searchParams.get('friendlyId')
   const {
     userId: connectedUserId,
     userLabel,
@@ -55,10 +57,24 @@ export default function FeedbackForm() {
   const [sessionOptions, setSessionOptions] = useState([])
   const [sessionStatus, setSessionStatus] = useState('loading')
 
+  // Use the exact weights from the backend for consistency
   const avgRating = useMemo(() => {
-    const vals = Object.values(form.ratings)
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+    const r = form.ratings;
+    const weighted = (
+      (r.vocal_command || 0) * 0.20 +
+      (r.speech_fluency || 0) * 0.20 +
+      (r.presence_engagement || 0) * 0.30 +
+      (r.emotional_intelligence || 0) * 0.30
+    );
+    return Math.round(weighted);
   }, [form.ratings])
+
+  // Try to find the friendly ID from either URL or loaded session options
+  const displayFriendlyId = useMemo(() => {
+    if (friendlyId) return friendlyId;
+    const session = sessionOptions.find(s => String(s.id) === String(form.session_id));
+    return session?.friendlyId || null;
+  }, [friendlyId, sessionOptions, form.session_id]);
 
   const canSubmit = useMemo(
     () => form.user_id.trim() && form.session_id.trim(),
@@ -146,7 +162,7 @@ export default function FeedbackForm() {
       </section>
 
       <div className="max-w-7xl mx-auto px-4 mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
-        
+
         {/* Left Side: The Form */}
         <form onSubmit={submitFeedback} className="space-y-6">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
@@ -162,8 +178,8 @@ export default function FeedbackForm() {
 
             <label className="grid gap-2">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-tight">Active Session ID</span>
-              <div className="h-12 flex items-center px-4 rounded-xl border border-border bg-background text-sm font-medium text-slate-300">
-                {form.session_id || 'Waiting for session...'}
+              <div className="h-12 flex items-center px-4 rounded-xl border border-border bg-background text-sm font-medium text-indigo-400">
+                {displayFriendlyId || form.session_id || 'Waiting for session...'}
               </div>
             </label>
           </div>
@@ -216,9 +232,8 @@ export default function FeedbackForm() {
                   key={opt.val}
                   type="button"
                   onClick={() => setForm(p => ({ ...p, sentiment: opt.val }))}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${
-                    form.sentiment === opt.val ? opt.color + ' ring-2 ring-current' : 'border-border bg-background/40 hover:bg-background'
-                  }`}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${form.sentiment === opt.val ? opt.color + ' ring-2 ring-current' : 'border-border bg-background/40 hover:bg-background'
+                    }`}
                 >
                   <span className="text-2xl">{opt.emoji}</span>
                   <span className="text-[10px] font-bold uppercase">{opt.label}</span>
@@ -241,15 +256,15 @@ export default function FeedbackForm() {
           </div>
 
           <div className="flex flex-col gap-4 items-center">
-             <StatusMessage status={status} message={message} />
-             <Button 
-               type="submit" 
-               className="px-8 h-11 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20"
-               disabled={!canSubmit || status === 'saving'}
-             >
-                {status === 'saving' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Complete Evaluation
-             </Button>
+            <StatusMessage status={status} message={message} />
+            <Button
+              type="submit"
+              className="px-8 h-11 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20"
+              disabled={!canSubmit || status === 'saving'}
+            >
+              {status === 'saving' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Complete Evaluation
+            </Button>
           </div>
         </form>
 
@@ -260,10 +275,10 @@ export default function FeedbackForm() {
               <Star className="h-4 w-4" />
               <h2 className="font-bold text-sm tracking-tight uppercase">Current Entry</h2>
             </div>
-            
+
             <div className="divide-y divide-border text-sm">
               <PreviewItem icon={<User className="h-3 w-3" />} label="User" value={userLabel || connectedUserId} />
-              <PreviewItem icon={<Layout className="h-3 w-3" />} label="Session" value={form.session_id} isMono />
+              <PreviewItem icon={<Layout className="h-3 w-3" />} label="Session" value={displayFriendlyId || form.session_id} isMono />
               <PreviewItem icon={<Activity className="h-3 w-3" />} label="Type" value="Self reflection" />
               <PreviewItem icon={<Star className="h-3 w-3" />} label="Skills" value="4 Real Skills" />
               <PreviewItem icon={<CheckCircle2 className="h-3 w-3" />} label="Avg Rating" value={avgRating} isHighlight />
