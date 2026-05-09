@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db.database import SessionLocal
+from app.models.analytics import MentoringRecommendation
 from app.schemas.analytics import MentoringRecommendationItem, MentoringRecommendationResult
 from app.services import (
     blind_spot_service,
@@ -48,7 +51,7 @@ def generate_user_mentoring_recommendations(
 
     llm_items = _call_openai_mentoring(evidence_bundle) if settings.openai_api_key else None
     if llm_items:
-        return MentoringRecommendationResult(
+        result = MentoringRecommendationResult(
             user_id=user_id,
             recommendations=llm_items[:MAX_RECOMMENDATIONS],
             evidence=evidence_bundle["summary"],
@@ -56,10 +59,14 @@ def generate_user_mentoring_recommendations(
             recommendation_version=RECOMMENDATION_VERSION,
             model_version=settings.openai_mentoring_model,
             source="llm",
+            recommendation_type="overall_user",
         )
+        # Save to database
+        _save_recommendations_to_db(db, result)
+        return result
 
     fallback_items = _build_rule_based_recommendations(evidence_bundle)
-    return MentoringRecommendationResult(
+    result = MentoringRecommendationResult(
         user_id=user_id,
         recommendations=fallback_items[:MAX_RECOMMENDATIONS],
         evidence=evidence_bundle["summary"],
@@ -67,54 +74,277 @@ def generate_user_mentoring_recommendations(
         recommendation_version=RECOMMENDATION_VERSION,
         model_version=FALLBACK_MODEL_VERSION,
         source="rule_based",
+        recommendation_type="overall_user",
     )
+    # Save to database
+    _save_recommendations_to_db(db, result)
+    return result
+
+
+def generate_session_mentoring_recommendations(
+    db: Session,
+    session_id: str,
+) -> MentoringRecommendationResult:
+    """Generate session-specific recommendations after a single session."""
+    from uuid import UUID
+    
+    evidence_bundle = _collect_session_evidence(db, session_id)
+    settings = get_settings()
+
+    llm_items = _call_openai_session_mentoring(evidence_bundle) if settings.openai_api_key else None
+    if llm_items:
+        result = MentoringRecommendationResult(
+            user_id=evidence_bundle.get("user_id", "unknown"),
+            session_id=session_id,
+            recommendations=llm_items[:MAX_RECOMMENDATIONS],
+            evidence=evidence_bundle["summary"],
+            generated_at=datetime.utcnow(),
+            recommendation_version=RECOMMENDATION_VERSION,
+            model_version=settings.openai_mentoring_model,
+            source="llm",
+            recommendation_type="session_specific",
+        )
+        # Save to database
+        _save_recommendations_to_db(db, result)
+        return result
+
+    fallback_items = _build_session_rule_based_recommendations(evidence_bundle)
+    result = MentoringRecommendationResult(
+        user_id=evidence_bundle.get("user_id", "unknown"),
+        session_id=session_id,
+        recommendations=fallback_items[:MAX_RECOMMENDATIONS],
+        evidence=evidence_bundle["summary"],
+        generated_at=datetime.utcnow(),
+        recommendation_version=RECOMMENDATION_VERSION,
+        model_version=FALLBACK_MODEL_VERSION,
+        source="rule_based",
+        recommendation_type="session_specific",
+    )
+    # Save to database
+    _save_recommendations_to_db(db, result)
+    return result
 
 
 def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
-    aggregate = data_aggregation_service.get_user_aggregate(db, user_id, limit)
-    feedback_analysis = feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
-    blind_spots = blind_spot_service.detect_user_blind_spots(db, user_id, limit)
-    trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
-    predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+    try:
+        aggregate = data_aggregation_service.get_user_aggregate(db, user_id, limit)
+    except Exception:
+        aggregate = None
+    
+    try:
+        feedback_analysis = feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
+    except Exception:
+        feedback_analysis = None
+    
+    try:
+        blind_spots = blind_spot_service.detect_user_blind_spots(db, user_id, limit)
+    except Exception:
+        blind_spots = None
+    
+    try:
+        trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+    except Exception:
+        trends = None
+    
+    try:
+        predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+    except Exception:
+        predictions = None
 
     return {
         "user_id": user_id,
         "summary": {
-            "session_count": aggregate.scores.metric_count,
-            "feedback_count": aggregate.feedback.total_count,
-            "average_feedback_rating": aggregate.feedback.average_rating,
-            "blind_spot_count": blind_spots.summary.total_count,
-            "high_blind_spot_count": blind_spots.summary.high_count,
-            "prediction_count": predictions.summary.predicted_count,
-            "high_risk_prediction_count": predictions.summary.high_risk_count,
-            "medium_risk_prediction_count": predictions.summary.medium_risk_count,
-            "improving_count": trends.summary.improving_count,
-            "declining_count": trends.summary.declining_count,
-            "sentiment_positive_count": aggregate.feedback.sentiment_counts.get("positive", 0),
-            "sentiment_negative_count": aggregate.feedback.sentiment_counts.get("negative", 0),
+            "session_count": aggregate.scores.metric_count if aggregate else 0,
+            "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+            "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
+            "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
+            "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,
+            "prediction_count": predictions.summary.predicted_count if predictions else 0,
+            "high_risk_prediction_count": predictions.summary.high_risk_count if predictions else 0,
+            "medium_risk_prediction_count": predictions.summary.medium_risk_count if predictions else 0,
+            "improving_count": trends.summary.improving_count if trends else 0,
+            "declining_count": trends.summary.declining_count if trends else 0,
+            "sentiment_positive_count": aggregate.feedback.sentiment_counts.get("positive", 0) if aggregate else 0,
+            "sentiment_negative_count": aggregate.feedback.sentiment_counts.get("negative", 0) if aggregate else 0,
         },
-        "scores": aggregate.scores.averages,
+        "scores": aggregate.scores.averages if aggregate else {},
         "latest_feedback": [
             _compact_feedback(entry.model_dump(mode="json"))
-            for entry in aggregate.feedback.latest_entries[:5]
+            for entry in (aggregate.feedback.latest_entries[:5] if aggregate else [])
         ],
         "feedback_alignment": [
             item.model_dump(mode="json")
-            for item in _rank_feedback_items(feedback_analysis.items)[:6]
+            for item in (_rank_feedback_items(feedback_analysis.items)[:6] if feedback_analysis else [])
         ],
         "blind_spots": [
             item.model_dump(mode="json")
-            for item in blind_spots.blind_spots[:6]
+            for item in (blind_spots.blind_spots[:6] if blind_spots else [])
         ],
         "trends": [
             _compact_trend(item.model_dump(mode="json"))
-            for item in _rank_trends(trends.trends)[:7]
+            for item in (_rank_trends(trends.trends)[:7] if trends else [])
         ],
         "predictions": [
             _compact_prediction(item.model_dump(mode="json"))
-            for item in _rank_predictions(predictions.predictions)[:7]
+            for item in (_rank_predictions(predictions.predictions)[:7] if predictions else [])
         ],
     }
+
+
+def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
+    """Collect evidence specific to a single session."""
+    try:
+        aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
+    except Exception:
+        aggregate = None
+    
+    try:
+        feedback_analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
+    except Exception:
+        feedback_analysis = None
+    
+    try:
+        blind_spots = blind_spot_service.detect_session_blind_spots(db, session_id)
+    except Exception:
+        blind_spots = None
+
+    user_id = aggregate.user_id if aggregate and aggregate.user_id else "unknown"
+
+    summary_data = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+        "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
+        "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
+        "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,
+    }
+
+    return {
+        "user_id": user_id,
+        "session_id": session_id,
+        "summary": summary_data,
+        "scores": aggregate.scores.averages if aggregate and aggregate.scores else {},
+        "latest_feedback": [
+            _compact_feedback(entry.model_dump(mode="json"))
+            for entry in (aggregate.feedback.latest_entries[:3] if aggregate else [])
+        ],
+        "feedback_alignment": [
+            item.model_dump(mode="json")
+            for item in (feedback_analysis.items[:3] if feedback_analysis else [])
+        ],
+        "blind_spots": [
+            item.model_dump(mode="json")
+            for item in (blind_spots.blind_spots[:3] if blind_spots else [])
+        ],
+    }
+
+
+def _call_openai_session_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRecommendationItem] | None:
+    settings = get_settings()
+    schema = _recommendation_json_schema()
+    prompt = (
+        "Generate immediate post-session mentoring feedback for a Gen Z workplace soft-skills learner. "
+        "Focus only on what happened in this specific session. "
+        "Use only the analytics evidence provided. "
+        "Return concise, actionable coaching advice for their next attempt. "
+        "Prioritize blind spots and low feedback ratings. "
+        "Do not invent session details or private user facts. "
+        "All score values are normalized to 0-100. "
+        "Do not ask the learner to collect peer feedback or peer ratings. "
+        "Use terms such as observed performance evidence or system evidence instead."
+    )
+    payload = {
+        "model": settings.openai_mentoring_model,
+        "reasoning": {"effort": "low"},
+        "input": [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": (
+                    "Session analytics evidence JSON:\n"
+                    f"{json.dumps(evidence_bundle, ensure_ascii=True)}"
+                ),
+            },
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "mentoring_recommendations",
+                "schema": schema,
+                "strict": True,
+            }
+        },
+    }
+
+    try:
+        with httpx.Client(timeout=settings.llm_mentoring_timeout_s) as client:
+            response = client.post(
+                f"{settings.openai_base_url.rstrip('/')}/responses",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+        parsed = _parse_openai_json(response.json())
+        items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
+        return _coerce_recommendations(items, source="llm")
+    except Exception:
+        return None
+
+
+def _build_session_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[MentoringRecommendationItem]:
+    """Build rule-based recommendations for a single session."""
+    items: list[MentoringRecommendationItem] = []
+
+    # Prioritize blind spots from this session
+    for blind_spot in evidence_bundle.get("blind_spots", []):
+        skill = blind_spot["skill_area"]
+        items.append(
+            _recommendation(
+                priority=blind_spot["severity"],
+                skill_area=skill,
+                title=f"Work on {_label(skill)} in next session",
+                reason=f"This session showed a {blind_spot['blind_spot_type']} gap in {_label(skill)}.",
+                detail=f"You rated yourself {blind_spot['self_rating']} but observed performance was {blind_spot['observed_rating']}. "
+                       f"Practice this skill specifically before your next session.",
+                next_action=f"Focus on {_label(skill)} during your next practice session. Ask for feedback on this specific area.",
+                evidence_sources=["blind_spot_detection", "session_feedback"],
+            )
+        )
+
+    # Add feedback-based recommendations if average is low
+    if evidence_bundle["summary"]["feedback_count"] > 0:
+        avg_rating = evidence_bundle["summary"]["average_feedback_rating"]
+        if avg_rating and float(avg_rating) < 70:
+            items.append(
+                _recommendation(
+                    priority="high" if float(avg_rating) < 60 else "medium",
+                    skill_area="overall",
+                    title="Session performance feedback below target",
+                    reason=f"Your session feedback rating was {round(float(avg_rating), 1)}/100.",
+                    detail="Review the specific feedback provided and identify the key areas to improve for your next session.",
+                    next_action="Read through all session feedback carefully and select one key action to practice before your next session.",
+                    evidence_sources=["session_feedback"],
+                )
+            )
+
+    # If no recommendations were generated, provide default suggestions
+    if not items:
+        items.append(
+            _recommendation(
+                priority="low",
+                skill_area="overall",
+                title="Session complete - continue your practice",
+                reason="No critical issues detected in this session.",
+                detail="Keep practicing at your current level and focus on consistent improvement.",
+                next_action="Schedule your next practice session soon to build on today's progress.",
+                evidence_sources=["session_summary"],
+            )
+        )
+
+    return items
 
 
 def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRecommendationItem] | None:
@@ -494,3 +724,66 @@ def _recommendation_json_schema() -> dict[str, Any]:
         },
         "required": ["recommendations"],
     }
+
+
+_svc_logger = logging.getLogger(__name__)
+
+
+def _save_recommendations_to_db(
+    _unused_db: Session,
+    result: MentoringRecommendationResult,
+) -> None:
+    """Save generated recommendations using a fresh session to avoid stale-connection failures after long LLM calls."""
+    save_db = SessionLocal()
+    try:
+        _svc_logger.info(
+            "Saving %d recommendations for user %s session %s",
+            len(result.recommendations), result.user_id, result.session_id,
+        )
+
+        evidence_data = result.evidence if isinstance(result.evidence, dict) else {}
+
+        if result.session_id:
+            deleted = save_db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.user_id == result.user_id,
+                MentoringRecommendation.session_id == result.session_id,
+                MentoringRecommendation.recommendation_type == "session_specific",
+            ).delete(synchronize_session=False)
+        else:
+            deleted = save_db.query(MentoringRecommendation).filter(
+                MentoringRecommendation.user_id == result.user_id,
+                MentoringRecommendation.session_id.is_(None),
+                MentoringRecommendation.recommendation_type == "overall_user",
+            ).delete(synchronize_session=False)
+
+        _svc_logger.info("Deleted %d old recommendations", deleted)
+
+        rec_type = result.recommendation_type or "overall_user"
+        source = result.source or "llm"
+        model_ver = (result.model_version or RECOMMENDATION_VERSION)[:40]
+
+        for rec in result.recommendations:
+            save_db.add(MentoringRecommendation(
+                user_id=result.user_id,
+                session_id=result.session_id,
+                recommendation_type=rec_type,
+                title=(rec.title or "Untitled")[:255],
+                description=rec.reason or "",
+                reason=rec.reason,
+                detail=rec.detail,
+                next_action=rec.next_action,
+                priority=rec.priority or "medium",
+                skill_area=rec.skill_area,
+                confidence=None,
+                evidence=evidence_data,
+                source=source,
+                model_version=model_ver,
+            ))
+
+        save_db.commit()
+        _svc_logger.info("Saved %d recommendations to database", len(result.recommendations))
+    except Exception as exc:
+        save_db.rollback()
+        _svc_logger.error("Failed to save recommendations: %s", exc, exc_info=True)
+    finally:
+        save_db.close()

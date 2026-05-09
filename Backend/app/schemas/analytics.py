@@ -430,12 +430,14 @@ class MentoringRecommendationItem(BaseModel):
 
 class MentoringRecommendationResult(BaseModel):
     user_id: str
+    session_id: str | None = None
     recommendations: list[MentoringRecommendationItem]
     evidence: dict[str, int | float | str | None]
     generated_at: datetime
     recommendation_version: str
     model_version: str
     source: Literal["llm", "rule_based"]
+    recommendation_type: Literal["overall_user", "session_specific"] = "overall_user"
 
 
 class PostSessionActionItem(BaseModel):

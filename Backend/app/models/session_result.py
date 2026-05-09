@@ -4,9 +4,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+
+def _json_col():
+    """Use JSONB on PostgreSQL, plain JSON on SQLite (test DB)."""
+    return JSON().with_variant(JSONB(), "postgresql")
 
 from app.db.base import Base
 
@@ -54,16 +59,16 @@ class SessionResult(Base):
 
     dominant_emotion: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    emotion_distribution: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    emotion_distribution: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
 
-    nudge_summary: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
-    
-    nudge_log: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    nudge_summary: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
 
-    skill_scores: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    nudge_log: Mapped[Optional[Any]] = mapped_column(_json_col(), nullable=True)
 
-    mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
-    
+    skill_scores: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
+
+    mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
+
     friendly_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
