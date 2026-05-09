@@ -60,6 +60,8 @@ class SessionResult(Base):
     
     nudge_log: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
 
+    skill_scores: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+
     mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

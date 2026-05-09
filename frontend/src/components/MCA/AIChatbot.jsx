@@ -137,8 +137,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         setSessionActive(false);
       }
     } catch (err) {
-      console.error('Failed to start MCA session:', err);
-      toast.error("An error occurred while connecting to the AI core.");
+      const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred while connecting to the AI core.";
+      toast.error("AI Core Connection Failed", {
+        description: errorMsg
+      });
       setSessionId(null);
       setSessionActive(false);
     } finally {
@@ -184,8 +186,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           toast.error("Session ended but data persistence may be incomplete.");
         }
       } catch (err) {
-        console.error('Failed to end MCA session:', err);
-        toast.error("Failed to formally end session. Please check your connection.");
+        const errorMsg = err instanceof Error ? err.message : "Network synchronization failed.";
+        toast.error("Session Finalization Failed", {
+          description: errorMsg
+        });
       } finally {
         setSessionEnding(false);
       }
