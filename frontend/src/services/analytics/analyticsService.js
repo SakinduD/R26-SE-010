@@ -37,6 +37,9 @@ export const analyticsService = {
   getMentoringRecommendationsByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/mentoring-recommendations`).then(unwrap),
 
+  getMentoringRecommendationsBySession: (sessionId) =>
+    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/mentoring-recommendations`).then(unwrap),
+
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
 
