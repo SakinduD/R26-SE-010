@@ -34,11 +34,15 @@ export const analyticsService = {
       .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/predicted-outcomes/${encodeURIComponent(skillArea)}`, { params })
       .then(unwrap),
 
-  getMentoringRecommendationsByUser: (userId) =>
-    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/mentoring-recommendations`).then(unwrap),
+  getMentoringRecommendationsByUser: (userId, forceRefresh = false) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/mentoring-recommendations`, {
+      params: forceRefresh ? { force_refresh: true } : {},
+    }).then(unwrap),
 
-  getMentoringRecommendationsBySession: (sessionId) =>
-    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/mentoring-recommendations`).then(unwrap),
+  getMentoringRecommendationsBySession: (sessionId, forceRefresh = false) =>
+    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/mentoring-recommendations`, {
+      params: forceRefresh ? { force_refresh: true } : {},
+    }).then(unwrap),
 
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
