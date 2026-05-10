@@ -16,6 +16,18 @@ MIN_BLIND_SPOT_GAP = 10.0
 MEDIUM_BLIND_SPOT_GAP = 20.0
 HIGH_BLIND_SPOT_GAP = 30.0
 
+SKILL_LABELS = {
+    "vocal_command": "Vocal Command",
+    "speech_fluency": "Speech Fluency",
+    "presence_engagement": "Presence & Engagement",
+    "emotional_intelligence": "Emotional Intelligence",
+    "overall": "Overall",
+}
+
+
+def _label(skill_area: str) -> str:
+    return SKILL_LABELS.get(skill_area, skill_area.replace("_", " ").title())
+
 
 def detect_session_blind_spots(db: Session, session_id: str) -> BlindSpotDetectionResult:
     analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
@@ -134,13 +146,14 @@ def _recommendation(
     severity: str,
     comparison_source: str,
 ) -> str:
+    label = _label(skill_area)
     source_label = "observed performance" if comparison_source == "observed" else "external feedback"
     if blind_spot_type == "overestimation":
         return (
-            f"Your self-rating for {skill_area} is higher than {source_label}. "
+            f"Your self-rating for {label} is higher than {source_label}. "
             "Review evidence from the session and set one measurable improvement target."
         )
     return (
-        f"Your self-rating for {skill_area} is lower than {source_label}. "
+        f"Your self-rating for {label} is lower than {source_label}. "
         "Use the positive evidence to build confidence and maintain this behaviour."
     )

@@ -9,46 +9,137 @@ from app.schemas.analytics import (
     PostSessionReportResult,
     PostSessionReportSummary,
     SkillPredictionRead,
+    SkillScoreBreakdown,
     SkillScoreResult,
 )
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
-    skill_scoring_service,
+    predictive_modeling_service,
 )
 
 
 REPORT_VERSION = "rule-based-report-v1"
 SKILL_LABELS = {
-    "confidence": "Confidence",
-    "communication_clarity": "Communication clarity",
-    "empathy": "Empathy",
-    "active_listening": "Active listening",
-    "adaptability": "Adaptability",
-    "emotional_control": "Emotional control",
-    "professionalism": "Professionalism",
+    "vocal_command": "Vocal Command",
+    "speech_fluency": "Speech Fluency",
+    "presence_engagement": "Presence & Engagement",
+    "emotional_intelligence": "Emotional Intelligence",
     "overall": "Overall",
+}
+
+# Maps each composite MCA skill → the raw DB metric fields that contribute to it.
+# Scores are averaged across whichever fields are present in the session aggregate.
+COMPOSITE_SCORE_FIELDS: dict[str, list[str]] = {
+    "vocal_command": ["speech_volume_score", "professionalism_score"],
+    "speech_fluency": ["speech_pace_score", "clarity_score"],
+    "presence_engagement": ["eye_contact_score", "confidence_score"],
+    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
+}
+
+MCA_WEIGHTS: dict[str, float] = {
+    "emotional_intelligence": 0.30,
+    "presence_engagement": 0.30,
+    "vocal_command": 0.20,
+    "speech_fluency": 0.20,
 }
 
 
 def generate_session_report(db: Session, session_id: str) -> PostSessionReportResult:
     aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
-    skill_scores = skill_scoring_service.calculate_session_skill_scores(db, session_id)
+    skill_scores = _compute_skill_scores(aggregate)
     feedback_analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
     blind_spots = blind_spot_service.detect_session_blind_spots(db, session_id)
+    user_id = aggregate.user_id or feedback_analysis.user_id
+
+    computed_predictions = []
+    if user_id:
+        try:
+            pred_result = predictive_modeling_service.predict_user_skill_outcomes(
+                db, user_id, session_id
+            )
+            computed_predictions = pred_result.predictions
+        except Exception:
+            pass
 
     return PostSessionReportResult(
         session_id=session_id,
-        user_id=aggregate.user_id or skill_scores.user_id or feedback_analysis.user_id,
+        user_id=user_id,
         summary=_build_summary(aggregate, skill_scores, blind_spots),
         aggregate=aggregate,
         skill_scores=skill_scores,
         feedback_analysis=feedback_analysis,
         blind_spots=blind_spots,
         action_items=_build_action_items(skill_scores, blind_spots, aggregate.predictions.latest_predictions),
+        computed_predictions=computed_predictions,
         generated_at=datetime.utcnow(),
         report_version=REPORT_VERSION,
+    )
+
+
+def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreResult:
+    """Build composite MCA skill scores from the session aggregate.
+
+    Priority order (same as Analytics Dashboard):
+    1. Average the raw DB metric fields that belong to each composite skill.
+    2. If no metric fields are present, fall back to skill_rating_averages from feedback.
+    Overall score uses the stored overall_score from the DB metric if available,
+    so it matches the Dashboard exactly.
+    """
+    averages = aggregate.scores.averages
+    feedback_avgs = aggregate.feedback.skill_rating_averages
+
+    skill_scores: dict[str, float | None] = {}
+    breakdown: dict[str, SkillScoreBreakdown] = {}
+    available_scores: list[float] = []
+
+    for skill_name, fields in COMPOSITE_SCORE_FIELDS.items():
+        vals = [(f, averages[f]) for f in fields if f in averages and averages[f] is not None]
+        if vals:
+            score = round(sum(v for _, v in vals) / len(vals), 2)
+            inputs_used = [f for f, _ in vals]
+        elif skill_name in feedback_avgs and feedback_avgs[skill_name] is not None:
+            # Fall back to overall feedback average for this skill (matches Dashboard)
+            score = round(feedback_avgs[skill_name], 2)
+            inputs_used = [f"feedback:{skill_name}"]
+        else:
+            score = None
+            inputs_used = []
+
+        skill_scores[skill_name] = score
+        breakdown[skill_name] = SkillScoreBreakdown(score=score, inputs_used=inputs_used)
+        if score is not None:
+            available_scores.append(score)
+
+    # Use the stored overall_score from the DB metric first (matches Dashboard)
+    if "overall_score" in averages and averages["overall_score"] is not None:
+        overall_score = round(averages["overall_score"], 2)
+    else:
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for skill_key, weight in MCA_WEIGHTS.items():
+            val = skill_scores.get(skill_key)
+            if val is not None:
+                weighted_sum += val * weight
+                total_weight += weight
+        if total_weight > 0:
+            overall_score = round(weighted_sum / total_weight, 2)
+        elif aggregate.feedback.average_rating is not None:
+            overall_score = round(aggregate.feedback.average_rating, 2)
+        else:
+            overall_score = round(sum(available_scores) / len(available_scores), 2) if available_scores else None
+
+    completeness = round(len(available_scores) / len(COMPOSITE_SCORE_FIELDS), 2)
+
+    return SkillScoreResult(
+        user_id=aggregate.user_id,
+        session_id=aggregate.session_id,
+        skill_scores=skill_scores,
+        breakdown=breakdown,
+        overall_score=overall_score,
+        completeness=completeness,
+        scoring_version="composite-from-aggregate-v1",
     )
 
 
@@ -61,12 +152,17 @@ def _build_summary(
     improvement_areas = _improvement_areas(skill_scores, blind_spots)
     completion_status = _completion_status(aggregate)
 
+    overestimation_count = sum(
+        1 for item in blind_spots.blind_spots if item.blind_spot_type == "overestimation"
+    )
     if completion_status == "empty":
         headline = "No post-session analytics are available yet."
-    elif blind_spots.summary.high_count:
+    elif overestimation_count > 0 and blind_spots.summary.high_count:
         headline = "Session completed with high-priority blind spots to review."
     elif improvement_areas:
         headline = "Session completed with focused improvement areas."
+    elif any(item.blind_spot_type == "underestimation" for item in blind_spots.blind_spots):
+        headline = "Session completed with strong performance — build on your confidence."
     else:
         headline = "Session completed with steady skill performance."
 
@@ -97,6 +193,8 @@ def _improvement_areas(
 ) -> list[str]:
     areas = []
     for item in blind_spots.blind_spots:
+        if item.blind_spot_type != "overestimation":
+            continue
         label = _label(item.skill_area)
         if label not in areas:
             areas.append(label)
@@ -105,7 +203,7 @@ def _improvement_areas(
         [
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 70
+            if score is not None and score < 75
         ],
         key=lambda item: item[1],
     )
@@ -141,11 +239,17 @@ def _build_action_items(
     actions: list[PostSessionActionItem] = []
 
     for item in blind_spots.blind_spots[:3]:
+        if item.blind_spot_type == "overestimation":
+            title = f"Review {_label(item.skill_area)} blind spot"
+            priority = item.severity
+        else:
+            title = f"Build confidence in {_label(item.skill_area)}"
+            priority = "low"
         actions.append(
             PostSessionActionItem(
-                priority=item.severity,
+                priority=priority,
                 skill_area=item.skill_area,
-                title=f"Review {_label(item.skill_area)} blind spot",
+                title=title,
                 detail=item.recommendation,
             )
         )
