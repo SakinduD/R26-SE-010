@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CheckCircle2,
   MessageSquare,
@@ -36,6 +36,8 @@ const SKILL_OPTIONS = [
 export default function FeedbackForm() {
   const params = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const friendlyId = searchParams.get('friendlyId')
   const {
     userId: connectedUserId,
     userLabel,
@@ -63,10 +65,24 @@ export default function FeedbackForm() {
   // eslint-disable-next-line no-unused-vars
   const [sessionStatus, setSessionStatus] = useState('loading')
 
+  // Use the exact weights from the backend for consistency
   const avgRating = useMemo(() => {
-    const vals = Object.values(form.ratings)
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+    const r = form.ratings;
+    const weighted = (
+      (r.vocal_command || 0) * 0.20 +
+      (r.speech_fluency || 0) * 0.20 +
+      (r.presence_engagement || 0) * 0.30 +
+      (r.emotional_intelligence || 0) * 0.30
+    );
+    return Math.round(weighted);
   }, [form.ratings])
+
+  // Try to find the friendly ID from either URL or loaded session options
+  const displayFriendlyId = useMemo(() => {
+    if (friendlyId) return friendlyId;
+    const session = sessionOptions.find(s => String(s.id) === String(form.session_id));
+    return session?.friendlyId || null;
+  }, [friendlyId, sessionOptions, form.session_id]);
 
   const canSubmit = useMemo(
     () => form.user_id.trim() && form.session_id.trim(),

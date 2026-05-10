@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Mic, Bot, User, Volume2, Activity, X, Play, Square } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
 const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -24,6 +26,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const [sessionStarting, setSessionStarting] = useState(false);
   const [sessionEnding, setSessionEnding] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
+  const [friendlyId, setFriendlyId] = useState(null);
   const sessionTimerRef = useRef(null);
 
   useEffect(() => {
@@ -119,12 +122,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       const session = await mcaService.startSession('ai');
       if (session.id && session.status === 'active') {
         setSessionId(session.id);
+        setFriendlyId(session.friendly_id);
         setSessionActive(true);
         nudgeLogRef.current = [];
         emotionCountsRef.current = {};
         chatTurnsRef.current = 0;
         setSessionDuration(0);
-        
+
         // Start duration timer
         sessionTimerRef.current = setInterval(() => {
           setSessionDuration(prev => prev + 1);
@@ -178,10 +182,29 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         const resultData = {
           total_nudges: nudgeLogRef.current.length,
           chat_turns: chatTurnsRef.current,
+          final_emotion: metrics.emotion
         };
-        const res = await mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current, distribution);
+
+        const mechanicalAverages = {
+          avg_ear: metrics.ear,
+          avg_mar: metrics.mar,
+          avg_pitch: metrics.pose.pitch
+        };
+
+        const res = await mcaService.endSession(
+          sessionId,
+          nudgeLogRef.current,
+          resultData,
+          chatTurnsRef.current,
+          distribution,
+          mechanicalAverages
+        );
+
         if (res.id && res.status === 'completed') {
           toast.success("AI session ended and scores calculated.");
+          // Redirect to self-rating feedback form (same as live session)
+          const redirectUrl = `/analytics/sessions/${sessionId}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
+          setTimeout(() => navigate(redirectUrl), 1500);
         } else {
           toast.error("Session ended but data persistence may be incomplete.");
         }
@@ -230,7 +253,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       sessionTimerRef.current = null;
     }
     window.speechSynthesis.cancel();
-    
+
     // Formal end for backend if unmounting during active session
     if (sessionActive && sessionId) {
       const resultData = {
@@ -395,7 +418,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   };
 
-  // ── Chat response ──────────────────────────────────────────────────────────
+  // Chat response
 
   const handleBotResponse = async (userMessage) => {
     const newUserMsg = {
@@ -434,7 +457,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       });
     } catch (error) {
       console.error('[AIChatbot] Response Error:', error);
-      
+
       let friendlyMsg = "I'm having a little trouble connecting to my intelligence engine right now. Please try again in a moment.";
       const errText = error.message.toLowerCase();
 
@@ -471,7 +494,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     window.speechSynthesis.speak(utterance);
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // Render
 
   return (
     <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative">
@@ -513,7 +536,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full animate-in fade-in zoom-in duration-500">
               <div className="w-1 h-1 rounded-full bg-primary animate-pulse" />
               <span className="text-[9px] font-black text-primary tracking-widest">
-                {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
+                {friendlyId || 'SESSION'} • {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
               </span>
             </div>
           )}

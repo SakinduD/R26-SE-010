@@ -208,6 +208,7 @@ class FeedbackSummary(BaseModel):
     by_type: dict[str, int]
     sentiment_counts: dict[str, int]
     skill_rating_averages: dict[str, float] = {}
+    self_rating_averages: dict[str, float] = {}
     average_rating: float | None = None
     latest_entries: list[FeedbackEntryRead]
 
@@ -300,6 +301,7 @@ class FeedbackAnalysisSummary(BaseModel):
     blind_spot_count: int
     average_self_rating: float | None = None
     average_peer_rating: float | None = None
+    average_observed_score: float | None = None
 
 
 class FeedbackAnalysisResult(BaseModel):
@@ -463,5 +465,6 @@ class PostSessionReportResult(BaseModel):
     feedback_analysis: FeedbackAnalysisResult
     blind_spots: BlindSpotDetectionResult
     action_items: list[PostSessionActionItem]
+    computed_predictions: list[PredictiveModelingItem] = []
     generated_at: datetime
     report_version: str

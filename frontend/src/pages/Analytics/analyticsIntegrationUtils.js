@@ -111,14 +111,14 @@ export function normalizeMcaSessionNudges(session) {
   const overallEntry =
     session.overall_score !== null && session.overall_score !== undefined
       ? [
-          {
-            emotion: session.dominant_emotion || null,
-            confidence: normalizeConfidence(session.overall_score),
-            nudge: `Multimodal communication overall score was ${formatValue(session.overall_score)}.`,
-            nudge_category: 'fusion',
-            nudge_severity: Number(session.overall_score) < 50 ? 'warning' : 'info',
-          },
-        ]
+        {
+          emotion: session.dominant_emotion || null,
+          confidence: normalizeConfidence(session.overall_score),
+          nudge: `Multimodal communication overall score was ${formatValue(session.overall_score)}.`,
+          nudge_category: 'fusion',
+          nudge_severity: Number(session.overall_score) < 50 ? 'warning' : 'info',
+        },
+      ]
       : []
 
   return [...nudgeEntries, ...mechanicalEntries, ...emotionEntries, ...overallEntry]
@@ -127,10 +127,10 @@ export function normalizeMcaSessionNudges(session) {
 export function hasPulledComponentData(sources) {
   return Boolean(
     sources?.surveyProfile?.ok ||
-      sources?.adaptivePlan?.ok ||
-      sources?.rpeSession?.ok ||
-      sources?.rpeFeedback?.ok ||
-      sources?.mcaNudges?.ok
+    sources?.adaptivePlan?.ok ||
+    sources?.rpeSession?.ok ||
+    sources?.rpeFeedback?.ok ||
+    sources?.mcaNudges?.ok
   )
 }
 
@@ -216,6 +216,7 @@ function normalizeSessionOptions(sessions, source) {
 
       return {
         id: String(id),
+        friendlyId: session.friendly_id,
         source,
         status,
         startedAt,

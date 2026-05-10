@@ -1,4 +1,4 @@
-Genz SoftSkills Training
+Genz SoftSkills Training Platform
 
 ## Run locally (Backend)
 

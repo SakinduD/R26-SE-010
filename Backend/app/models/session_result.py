@@ -69,6 +69,8 @@ class SessionResult(Base):
 
     mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
 
+    friendly_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
