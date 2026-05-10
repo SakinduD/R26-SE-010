@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Mic, Bot, User, Volume2, Activity, X, Play, Square } from 'lucide-react';
+import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, setMetrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -31,9 +31,9 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   useEffect(() => {
     if (onSessionStateChange) {
-      onSessionStateChange(sessionActive, sessionStarting, sessionEnding);
+      onSessionStateChange(sessionActive, sessionStarting, sessionEnding, isSpeaking);
     }
-  }, [sessionActive, sessionStarting, sessionEnding, onSessionStateChange]);
+  }, [sessionActive, sessionStarting, sessionEnding, isSpeaking, onSessionStateChange]);
 
   const lastProcessedStart = useRef(startSignal);
   const lastProcessedStop = useRef(stopSignal);
@@ -64,13 +64,22 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const isContinuousRef = useRef(false);
   const [stableVoice, setStableVoice] = useState(null);
   const chatEndRef = useRef(null);
+  const transcriptEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const transcriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const sessionTranscriptRef = useRef('');
+  const currentInstanceFinalRef = useRef('');
   const recordRestartTimeoutRef = useRef(null);
   const streamRef = useRef(null);
+  const metricsRef = useRef(metrics);
+
+  useEffect(() => {
+    metricsRef.current = metrics;
+  }, [metrics]);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -79,6 +88,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [transcript]);
 
   // Load and lock in a high-quality TTS voice
   useEffect(() => {
@@ -99,13 +114,22 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     };
   }, []);
 
-  // React to stopSignal (e.g. when the user switches to Live mode)
+  // React to stopSignal
   useEffect(() => {
     if (stopSignal && isListening) {
       isContinuousRef.current = false;
       stopListening(false);
     }
   }, [stopSignal]);
+
+  // Sync internal listening state with prop from parent engine
+  useEffect(() => {
+    if (isListening && !streamRef.current && sessionActive) {
+      startListening();
+    } else if (!isListening && streamRef.current) {
+      stopListening(true);
+    }
+  }, [isListening, sessionActive, sessionId]);
 
   // Session helpers
 
@@ -254,6 +278,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
     window.speechSynthesis.cancel();
 
+    // Stop audio tracks to release hardware
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
     // Formal end for backend if unmounting during active session
     if (sessionActive && sessionId) {
       const resultData = {
@@ -272,6 +302,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       streamRef.current = stream;
       setHasPermission(true);
       setTranscript('');
+      transcriptRef.current = '';
+      interimTranscriptRef.current = '';
+      sessionTranscriptRef.current = '';
+      currentInstanceFinalRef.current = '';
       isContinuousRef.current = true;
 
       // Build WS URL with real JWT token
@@ -289,10 +323,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
               // Send visual metrics first to enable Affect Fusion
-              if (metrics) {
+              if (metricsRef.current) {
                 socket.send(JSON.stringify({
                   type: 'visual_metrics',
-                  metrics: { ear: metrics.ear, mar: metrics.mar, pose: metrics.pose },
+                  metrics: { ear: metricsRef.current.ear, mar: metricsRef.current.mar, pose: metricsRef.current.pose },
+                  session_id: sessionId
                 }));
               }
               socket.send(event.data);
@@ -321,23 +356,37 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
-          if (data.metrics.emotion) {
-            const emo = data.metrics.emotion.toLowerCase();
-            emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
-          }
 
-          if (data.metrics?.nudge) {
-            const nudgeEntry = {
-              message: data.metrics.nudge,
-              category: data.metrics.nudge_category || 'fusion',
-              severity: data.metrics.nudge_severity || 'info',
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            };
-            // Accumulate in log for session persistence
-            nudgeLogRef.current = [...nudgeLogRef.current, nudgeEntry];
-            // Fire the visual nudge toast in the parent
-            onNudge(nudgeEntry.message, nudgeEntry.category, nudgeEntry.severity);
+          if (data.metrics) {
+            // Update parent metrics for SVM dashboard
+            setMetrics(prev => ({
+              ...prev,
+              emotion: data.metrics.emotion
+                ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
+                : 'Neutral',
+              confidence: data.metrics.confidence || 0,
+              isSyncing: true
+            }));
+
+            // Track distribution for scoring
+            if (data.metrics.emotion) {
+              const emo = data.metrics.emotion.toLowerCase();
+              emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
+            }
+
+            // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
+            if (data.metrics.nudge) {
+              const nudgeEntry = {
+                message: data.metrics.nudge,
+                category: data.metrics.nudge_category || 'fusion',
+                severity: data.metrics.nudge_severity || 'info',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              };
+              // Accumulate in log for session persistence
+              nudgeLogRef.current = [...nudgeLogRef.current, nudgeEntry];
+              // Fire the visual nudge toast in the parent
+              onNudge(nudgeEntry.message, nudgeEntry.category, nudgeEntry.severity);
+            }
           }
         } catch (err) {
           console.error('Error parsing socket message:', err);
@@ -354,23 +403,50 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
         recognition.onresult = (event) => {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            stopListening(true); // Auto-submit after 2s silence
-          }, 2000);
 
-          let interimTranscript = '';
-          let finalTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interimTranscript += event.results[i][0].transcript;
+          let instanceFinal = '';
+          let interim = '';
+          
+          // Process all results to ensure consistency
+          for (let i = 0; i < event.results.length; ++i) {
+            const transcriptChunk = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              instanceFinal += transcriptChunk + ' ';
+            } else {
+              interim += transcriptChunk;
+            }
           }
-          const current = finalTranscript + interimTranscript;
-          transcriptRef.current = current;
-          setTranscript(current);
+          
+          currentInstanceFinalRef.current = instanceFinal;
+          interimTranscriptRef.current = interim;
+          
+          const currentDisplay = sessionTranscriptRef.current + instanceFinal + interim;
+          
+          // Auto-submission disabled
+          if (currentDisplay !== transcriptRef.current) {
+            transcriptRef.current = currentDisplay;
+            setTranscript(currentDisplay);
+          }
+        };
+
+        recognition.onend = () => {
+          sessionTranscriptRef.current += (currentInstanceFinalRef.current + interimTranscriptRef.current).trim() + ' ';
+          currentInstanceFinalRef.current = '';
+          interimTranscriptRef.current = '';
+
+          // Restart if still active to support long talking sessions
+          if (isContinuousRef.current && !isSpeaking && isListening) {
+            try {
+              recognition.start();
+            } catch (err) {
+              // Silently ignore if already started or blocked
+            }
+          }
         };
 
         recognition.onerror = (e) => {
-          console.error(e);
+          if (e.error === 'no-speech') return;
+          console.error('[SpeechRecognition] Error:', e.error);
           stopListening(false);
         };
 
@@ -378,7 +454,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         recognitionRef.current = recognition;
       }
     } catch (err) {
-      console.error(err);
+      console.error('[AIChatbot] startListening failed:', err);
     }
   };
 
@@ -400,19 +476,21 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     if (shouldSubmit) {
       const finalVal = transcriptRef.current;
       if (finalVal.trim()) handleBotResponse(finalVal);
-      setTranscript('');
-      transcriptRef.current = '';
     }
+    setTranscript('');
+    transcriptRef.current = '';
+    interimTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
+    currentInstanceFinalRef.current = '';
   };
 
   const toggleListening = () => {
     if (!sessionActive) {
-      // Prompt user to start a session first
       return;
     }
     if (isListening) {
       isContinuousRef.current = false;
-      stopListening(false);
+      stopListening(true); // Submit on manual stop
     } else {
       startListening();
     }
@@ -497,7 +575,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   // Render
 
   return (
-    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative">
+    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative min-h-0">
 
       {/* Chat Header */}
       <div className="px-8 py-4 border-b border-border flex items-center justify-between bg-muted/30 backdrop-blur-md z-10">
@@ -552,7 +630,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -623,13 +701,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 )}
               >
                 {isListening ? (
-                  <div className="w-5 h-5 bg-destructive rounded-md animate-pulse shadow-sm"></div>
+                  <Send size={24} className="relative z-10 drop-shadow-md animate-pulse" />
                 ) : (
                   <Mic size={24} className="relative z-10 drop-shadow-md" />
                 )}
               </button>
               <span className="text-[8px] font-black text-card-foreground/60 uppercase tracking-[0.2em]">
-                {isListening ? 'STOP' : 'TALK'}
+                {isListening ? 'SUBMIT' : 'TALK'}
               </span>
             </div>
 
@@ -663,13 +741,28 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 </div>
               </div>
 
-              <div className="bg-background/40 p-3 rounded-xl border border-border/50 min-h-[50px] flex items-center">
-                <p className={clsx(
-                  'text-[13px] font-medium leading-relaxed italic transition-all duration-300 line-clamp-2',
-                  isListening ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'
-                )}>
-                  {isListening ? (transcript || "I'm listening...") : 'Awaiting input...'}
-                </p>
+              <div className="bg-background/40 p-3 rounded-xl border border-border/50 h-[80px] overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 flex flex-col justify-end">
+                  <div className={clsx(
+                    'text-[13px] font-medium leading-relaxed transition-all duration-300',
+                    isListening ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'
+                  )}>
+                    {transcript ? (
+                      <>
+                        <span className="text-foreground">{transcript.substring(0, transcript.length - (interimTranscriptRef.current || '').length)}</span>
+                        <span className="text-foreground/50 italic">{interimTranscriptRef.current}</span>
+                        {isListening && (
+                          <span className="inline-block w-1 h-4 bg-primary ml-1 animate-[pulse_0.8s_infinite] align-middle" />
+                        )}
+                      </>
+                    ) : (
+                      <span className="italic opacity-60">
+                        {isListening ? "I'm listening..." : 'Awaiting input...'}
+                      </span>
+                    )}
+                  </div>
+                  <div ref={transcriptEndRef} />
+                </div>
               </div>
             </div>
           </div>

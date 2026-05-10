@@ -3,9 +3,9 @@ import { Users, Bot } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 
-const ModeSwitcher = ({ onModeChangeRequest }) => {
+const ModeSwitcher = ({ activeMode: propActiveMode, onModeChangeRequest }) => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeMode = searchParams.get('mode') || 'live';
+  const activeMode = propActiveMode || searchParams.get('mode') || 'live';
 
   const onModeChange = (mode) => {
     if (activeMode === mode) return;
@@ -30,7 +30,7 @@ const ModeSwitcher = ({ onModeChangeRequest }) => {
         className={clsx(
           "absolute inset-y-1.5 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] rounded-lg shadow-sm",
           activeMode === 'live' 
-            ? "left-1.5 w-[calc(50%-6px)] bg-secondary" 
+            ? "left-1.5 w-[calc(50%-6px)] bg-primary" 
             : "left-[calc(50%+3px)] w-[calc(50%-6px)] bg-primary"
         )}
       />

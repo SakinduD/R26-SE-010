@@ -27,13 +27,20 @@ const MultimodalEngine = () => {
   const navigate = useNavigate();
   const activeMode = searchParams.get('mode') || 'live';
   const showMesh = searchParams.get('mesh') !== 'false';
-  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isLiveCameraActive, setIsLiveCameraActive] = useState(false);
+  const [isAiCameraActive, setIsAiCameraActive] = useState(false);
   const [liveMicActive, setLiveMicActive] = useState(false);
-  const [liveHasMicPermission, setLiveHasMicPermission] = useState(false);
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
   const [aiStopSignal, setAiStopSignal] = useState(0);
   const [aiStartSignal, setAiStartSignal] = useState(0);
+
+  const isCameraActive = activeMode === 'live' ? isLiveCameraActive : isAiCameraActive;
+  const setIsCameraActive = activeMode === 'live' ? setIsLiveCameraActive : setIsAiCameraActive;
+
+  const [liveSessionId, setLiveSessionId] = useState(null);
+  const [isLiveStarting, setIsLiveStarting] = useState(false);
+
   const [aiSessionActive, setAiSessionActive] = useState(false);
   const aiSessionActiveRef = useRef(false);
   const [nudges, setNudges] = useState([]); // State for coaching nudges stack
@@ -59,8 +66,6 @@ const MultimodalEngine = () => {
   const audioStreamRef = useRef(null);
   const recordRestartTimeoutRef = useRef(null);
 
-  // Live session tracking
-  const [liveSessionId, setLiveSessionId] = useState(null);
   const liveSessionIdRef = useRef(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
@@ -71,9 +76,9 @@ const MultimodalEngine = () => {
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
   const [pendingModeSwitch, setPendingModeSwitch] = useState(null);
-  const [isLiveStarting, setIsLiveStarting] = useState(false);
   const [isLiveEnding, setIsLiveEnding] = useState(false);
   const [aiSessionEnding, setAiSessionEnding] = useState(false);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [friendlyId, setFriendlyId] = useState(null);
 
   const handleModeChangeRequest = (mode, executeSwitch) => {
@@ -104,8 +109,9 @@ const MultimodalEngine = () => {
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
 
   const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
-    // Only fire nudges if a Live Session is active (AI session is managed locally in AIChatbot)
+    // Only fire nudges if a session is active (Live or AI)
     if (activeModeRef.current === 'live' && !liveSessionIdRef.current) return;
+    if (activeModeRef.current === 'ai' && !aiSessionActiveRef.current) return;
 
     const id = Date.now();
     const newNudge = {
@@ -116,16 +122,19 @@ const MultimodalEngine = () => {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setNudges(prev => [newNudge, ...prev].slice(0, 5));
-    // Accumulate for session persistence
-    liveNudgeLogRef.current = [
-      ...liveNudgeLogRef.current,
-      { message: text, category, severity, timestamp: newNudge.timestamp }
-    ];
 
-    // Auto-disappear after 8 seconds
+    // Accumulate for session persistence (Live mode only - AI mode logs locally in AIChatbot)
+    if (activeModeRef.current === 'live') {
+      liveNudgeLogRef.current = [
+        ...liveNudgeLogRef.current,
+        { message: text, category, severity, timestamp: newNudge.timestamp }
+      ];
+    }
+
+    // Auto-disappear after 10 seconds
     setTimeout(() => {
       setNudges(prev => prev.filter(n => n.id !== id));
-    }, 8000);
+    }, 10000);
   }, []);
 
   // Update ref when showMesh changes
@@ -190,7 +199,6 @@ const MultimodalEngine = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
-      setLiveHasMicPermission(true);
 
       // Mic capture only — session is now manual
       setLiveMicActive(true);
@@ -419,6 +427,19 @@ const MultimodalEngine = () => {
     }
   }, [aiMicActive, liveMicActive]);
 
+  // Handle hardware cleanup when switching modes to prevent resource conflicts
+  useEffect(() => {
+    if (activeMode === 'live') {
+      // Transitioning to Live mode: Kill AI hardware state
+      setAiMicActive(false);
+      setIsAiCameraActive(false);
+    } else {
+      // Transitioning to AI mode: Kill Live hardware state
+      if (liveMicActive) stopAudioCapture();
+      setIsLiveCameraActive(false);
+    }
+  }, [activeMode]);
+
   useEffect(() => {
     let faceMeshModel = null;
 
@@ -509,9 +530,9 @@ const MultimodalEngine = () => {
         ))}
       </div>
       <div className={clsx(
-        "w-full h-full flex flex-col gap-6 py-6 transition-all duration-700 ease-in-out",
+        "w-full flex-1 min-h-0 flex flex-col gap-6 py-6 transition-all duration-700 ease-in-out",
         activeMode === 'ai' ? "max-w-[1600px]" : "max-w-6xl"
-      )}>
+      )} style={{ height: 'calc(100vh - 20px)' }}> {/* Explicitly constrain height to viewport minus small buffer */}
         {/* Header Section - Compact */}
         <div className="text-center space-y-1">
           {/* REDESIGN: header restyled to match prototype's calmer typography */}
@@ -533,9 +554,8 @@ const MultimodalEngine = () => {
           )}
         </div>
 
-        {/* Mode Switcher Section */}
         <div className="flex justify-center">
-          <ModeSwitcher onModeChangeRequest={handleModeChangeRequest} />
+          <ModeSwitcher activeMode={activeMode} onModeChangeRequest={handleModeChangeRequest} />
         </div>
 
         <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
@@ -596,7 +616,7 @@ const MultimodalEngine = () => {
             activeMode === 'ai' ? "lg:col-span-2" : "col-span-1"
           )}>
             {/* REDESIGN: outer panel uses .card style (no shadow, prototype rounded-lg) */}
-            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full overflow-y-auto custom-scrollbar">
+            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full min-h-0 overflow-y-auto custom-scrollbar">
 
               {/* Capturing Window (Webcam Area) */}
               <div className={clsx(
@@ -654,9 +674,9 @@ const MultimodalEngine = () => {
                         Enable Video Sensing
                       </button>
                     )}
-                    {!liveMicActive && (
+                    {((activeMode === 'live' && !liveMicActive) || (activeMode === 'ai' && !aiMicActive && !aiSessionActive && !isAiSpeaking)) && (
                       <button
-                        onClick={toggleLiveMic}
+                        onClick={activeMode === 'live' ? toggleLiveMic : () => setAiMicActive(true)}
                         className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
@@ -667,134 +687,97 @@ const MultimodalEngine = () => {
                 </div>
 
                 {/* Persistent Control Bar */}
-                {/* REDESIGN: control bar uses bg-surface + border-subtle instead of shadow-2xl/backdrop-blur-xl */}
-                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-6 py-3 bg-surface border border-border-subtle rounded-2xl z-20 transition-all duration-500" style={{ backdropFilter: 'blur(8px)' }}>
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-medium tracking-wide uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", isCameraActive ? "bg-success animate-pulse " : "bg-muted-foreground/30")}></div>
-                      <span className="opacity-80">Video</span>
+                {/* Unified Control Bar (Matches Reference Image) */}
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-8 py-4 bg-surface/80 border border-border-subtle rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+
+                  {/* Left: Status Labels */}
+                  <div className="flex items-center gap-10">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Video</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[11px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-muted-foreground/40")}>
+                          {isCameraActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-medium tracking-wide uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", liveMicActive ? "bg-secondary animate-pulse " : "bg-muted-foreground/30")}></div>
-                      <span className="opacity-80">Audio</span>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", (activeMode === 'live' ? liveMicActive : aiMicActive) ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[11px] font-black uppercase tracking-widest", (activeMode === 'live' ? liveMicActive : aiMicActive) ? "text-info" : "text-muted-foreground/40")}>
+                          {(activeMode === 'live' ? liveMicActive : aiMicActive) ? "Active" : "Disabled"}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    {/* Primary Session Controls */}
+                  {/* Center: Primary Session Action */}
+                  <div className="absolute left-1/2 -translate-x-1/2">
                     {activeMode === 'live' ? (
-                      <>
-                        {!liveSessionId ? (
-                          <button
-                            onClick={startLiveSession}
-                            disabled={isLiveStarting}
-                            className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              isLiveStarting && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {isLiveStarting ? (
-                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Play size={14} fill="currentColor" />
-                            )}
-                            {isLiveStarting ? "Starting..." : "Start Session"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsStopAlertOpen(true)}
-                            disabled={isLiveEnding}
-                            className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              isLiveEnding && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {isLiveEnding ? (
-                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Square size={14} fill="currentColor" />
-                            )}
-                            {isLiveEnding ? "Ending..." : "Stop Session"}
-                          </button>
-                        )}
-                      </>
+                      !liveSessionId ? (
+                        <button
+                          onClick={startLiveSession}
+                          disabled={isLiveStarting}
+                          className="bg-primary text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50"
+                        >
+                          {isLiveStarting ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                          Start Session
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setIsStopAlertOpen(true)}
+                          disabled={isLiveEnding}
+                          className="bg-destructive text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50"
+                        >
+                          {isLiveEnding ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Square size={14} fill="currentColor" />}
+                          Stop Session
+                        </button>
+                      )
                     ) : (
-                      <>
-                        {!aiSessionActive ? (
-                          <button
-                            onClick={() => setAiStartSignal(Date.now())}
-                            disabled={aiSessionStarting}
-                            className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              aiSessionStarting && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {aiSessionStarting ? (
-                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Play size={14} fill="currentColor" />
-                            )}
-                            {aiSessionStarting ? "Starting AI..." : "Start AI Session"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsStopAlertOpen(true)}
-                            disabled={aiSessionEnding}
-                            className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              aiSessionEnding && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {aiSessionEnding ? (
-                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Square size={14} fill="currentColor" />
-                            )}
-                            {aiSessionEnding ? "Ending AI..." : "Stop AI Session"}
-                          </button>
-                        )}
-                      </>
+                      !aiSessionActive ? (
+                        <button
+                          onClick={() => setAiStartSignal(Date.now())}
+                          disabled={aiSessionStarting}
+                          className="bg-primary text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50"
+                        >
+                          {aiSessionStarting ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                          Start AI Session
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setAiStopSignal(Date.now())}
+                          disabled={aiSessionEnding}
+                          className="bg-destructive text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50"
+                        >
+                          {aiSessionEnding ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Square size={14} fill="currentColor" />}
+                          Stop AI Session
+                        </button>
+                      )
                     )}
+                  </div>
 
-                    {/* Secondary Controls (Tools) - ALWAYS SHOW SO USER CAN ENABLE THEM BEFORE SESSION */}
-                    <div className="h-6 w-px bg-border/50 mx-2 hidden sm:block"></div>
-
-                    {/* Camera Toggle */}
+                  {/* Right: Hardware Toggles */}
+                  <div className="flex items-center gap-4">
                     <button
                       onClick={toggleCamera}
                       className={clsx(
-                        "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                        isCameraActive ? "bg-success/10 text-success border-success/30 hover:bg-success/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                        "flex items-center gap-3 px-6 py-3 rounded-2xl border transition-all uppercase text-[10px] font-black tracking-[0.15em]",
+                        isCameraActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
                       )}
                     >
-                      <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
+                      <Video size={16} className={clsx(isCameraActive && "animate-pulse")} />
                       {isCameraActive ? "Stop Cam" : "Start Cam"}
                     </button>
-
-                    {/* Mesh Overlay Toggle */}
-                    {isCameraActive && (
-                      <button
-                        onClick={toggleMesh}
-                        className={clsx(
-                          "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                          showMesh ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:bg-muted"
-                        )}
-                      >
-                        <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
-                        Mesh
-                      </button>
-                    )}
-
-                    {/* Audio Toggle */}
                     <button
-                      onClick={toggleLiveMic}
+                      onClick={activeMode === 'live' ? toggleLiveMic : () => setAiMicActive(!aiMicActive)}
                       className={clsx(
-                        "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                        liveMicActive ? "bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                        "flex items-center gap-3 px-6 py-3 rounded-2xl border transition-all uppercase text-[10px] font-black tracking-[0.15em]",
+                        (activeMode === 'live' ? liveMicActive : aiMicActive) ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
                       )}
                     >
-                      <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
-                      {liveMicActive ? "Stop Mic" : "Enable Mic"}
+                      <Mic size={16} className={clsx((activeMode === 'live' ? liveMicActive : aiMicActive) && "animate-pulse")} />
+                      {(activeMode === 'live' ? liveMicActive : aiMicActive) ? "Stop Mic" : "Start Mic"}
                     </button>
                   </div>
                 </div>
@@ -802,14 +785,14 @@ const MultimodalEngine = () => {
 
               {/* Bottom Meta Info */}
               <div className="mt-6 flex flex-wrap justify-center gap-4">
-                <div className="flex items-center gap-2.5 text-[10px] font-medium text-secondary bg-secondary/10 px-4 py-2 rounded-lg border border-secondary/20 uppercase tracking-widest">
-                  <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
+                <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
                   Privacy: Edge_Only
                 </div>
                 <div className={clsx(
                   "flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest",
                   activeMode === 'live'
-                    ? "bg-secondary/10 text-secondary border-secondary/20"
+                    ? "bg-info/10 text-info border-info/20"
                     : "bg-primary/10 text-primary border-primary/20"
                 )}>
                   Module: {activeMode === 'live' ? 'Multimodal_Sensing' : 'Intelligence_Core'}
@@ -912,7 +895,7 @@ const MultimodalEngine = () => {
 
           {/* AI Chatbot Section (Only in AI mode) */}
           {activeMode === 'ai' && (
-            <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full max-h-[calc(100vh-160px)]">
+            <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full min-h-0 flex flex-col">
               <AIChatbot
                 isListening={aiMicActive}
                 setIsListening={setAiMicActive}
@@ -920,14 +903,16 @@ const MultimodalEngine = () => {
                 setHasPermission={setAiHasMicPermission}
                 onNudge={handleNudge}
                 metrics={metrics}
+                setMetrics={setMetrics}
                 stopSignal={aiStopSignal}
                 startSignal={aiStartSignal}
                 isCameraActive={isCameraActive}
-                onSessionStateChange={(isActive, isStarting, isEnding) => {
+                onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
                   setAiSessionActive(isActive);
                   aiSessionActiveRef.current = isActive;
                   setAiSessionStarting(isStarting);
                   setAiSessionEnding(isEnding);
+                  setIsAiSpeaking(isSpeaking);
                 }}
               />
             </div>
