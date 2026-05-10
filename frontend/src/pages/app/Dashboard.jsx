@@ -1,67 +1,111 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Brain, ArrowRight, Clock, BarChart2 } from 'lucide-react';
+import { Brain, ArrowRight, CheckCircle2, Clock, ClipboardList, Mic, Target } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { getMyProfile } from '@/lib/api/survey';
-import { TRAIT_META, OCEAN_ORDER, LEVEL_STYLES } from '@/lib/survey/trait-copy';
-import { cn } from '@/lib/utils';
+import { getMyBaseline } from '@/lib/api/baseline';
+import { TRAIT_META, OCEAN_ORDER } from '@/lib/survey/trait-copy';
+import PageHead from '@/components/ui/PageHead';
+import Card from '@/components/ui/Card';
+import StatCard from '@/components/ui/StatCard';
+import EmptyState from '@/components/ui/EmptyState';
+import ScoreBarRow from '@/components/ui/ScoreBarRow';
+import KeyValuePair from '@/components/ui/KeyValuePair';
+import Button from '@/components/ui/Button';
 
 /** Compact OCEAN summary shown once the user has a profile. */
 function OceanSummaryCard({ profile }) {
+  const updated = new Date(profile.updated_at).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-5 space-y-3.5 max-w-lg shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Brain className="size-4.5 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Personality profile</p>
-            <p className="text-xs text-muted-foreground">
-              Last updated {new Date(profile.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            </p>
-          </div>
+    <Card>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <div>
+          <div className="t-over">Personality profile</div>
+          <div className="t-cap">Last updated {updated}</div>
         </div>
         <Link
           to="/survey/results"
-          className="shrink-0 flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          className="t-cap"
+          style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
         >
-          View full results
-          <ArrowRight className="size-3" />
+          View full profile
+          <ArrowRight size={12} strokeWidth={1.8} />
         </Link>
       </div>
 
-      {/* Trait chips row */}
-      <div className="flex flex-wrap gap-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {OCEAN_ORDER.map((key) => {
           const { score, level } = profile.scores[key];
           const meta = TRAIT_META[key];
-          const styles = LEVEL_STYLES[level];
           return (
-            <span
+            <ScoreBarRow
               key={key}
-              title={`${meta.label}: ${score.toFixed(1)}`}
-              className={cn(
-                'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium',
-                styles.badge,
-              )}
-            >
-              <span className="font-bold">{meta.letter}</span>
-              <span className="opacity-75">{Math.round(score)}</span>
-            </span>
+              letter={meta.letter}
+              label={meta.label}
+              value={score}
+              level={level}
+              gradient
+            />
           );
         })}
       </div>
 
+      <div style={{ marginTop: 18 }}>
+        <Link to="/survey" className="t-cap" style={{ color: 'var(--text-tertiary)' }}>
+          Retake assessment →
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+// undefined = loading, null = not taken/not found, object = exists
+function BaselineStatusRow({ baseline }) {
+  if (baseline === undefined) {
+    return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>…</span>;
+  }
+  if (!baseline) {
+    return (
       <Link
-        to="/survey"
-        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        to="/baseline/consent"
+        style={{ fontSize: 12, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
       >
-        Retake assessment →
+        <Mic size={10} strokeWidth={2} />
+        Start baseline
+        <ArrowRight size={10} strokeWidth={2} />
       </Link>
-    </div>
+    );
+  }
+  if (baseline.mca_session_id === 'skipped') {
+    return (
+      <Link
+        to="/baseline"
+        style={{ fontSize: 12, color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      >
+        Skipped · redo?
+        <ArrowRight size={10} strokeWidth={2} />
+      </Link>
+    );
+  }
+  return (
+    <span style={{ fontSize: 12, color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <CheckCircle2 size={11} strokeWidth={2} />
+      Complete
+    </span>
   );
 }
 
@@ -69,91 +113,151 @@ export default function Dashboard() {
   const { user } = useAuth();
   const displayName = user?.display_name || user?.email?.split('@')[0] || 'there';
   const [profile, setProfile] = useState(undefined); // undefined = loading, null = not taken
+  const [baseline, setBaseline] = useState(undefined); // undefined = loading, null = none
 
   useEffect(() => {
     getMyProfile()
       .then(setProfile)
       .catch(() => setProfile(null));
+    getMyBaseline()
+      .then(setBaseline)
+      .catch(() => setBaseline(null));
   }, []);
+
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  // Profile completion summary for the StatCard row
+  const profileComplete =
+    profile === undefined ? '…' : profile ? '100' : '0';
 
   return (
     <motion.div
       variants={staggerContainer}
       initial="initial"
       animate="animate"
-      className="space-y-8"
+      className="page page-wide"
     >
-      {/* Greeting */}
-      <motion.div variants={fadeInUp} className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Welcome back, {displayName} 👋
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Here's where you left off on your training journey.
-        </p>
+      <PageHead
+        eyebrow={today}
+        title={`Welcome back, ${displayName}.`}
+        sub="Your training is calibrated to your current profile. Continue where you left off."
+      />
+
+      {/* Top stat row */}
+      <motion.div variants={fadeInUp} className="grid-3" style={{ marginBottom: 16 }}>
+        <StatCard
+          label="OCEAN Profile"
+          value={profileComplete}
+          unit="%"
+          hint={
+            profile === undefined
+              ? 'Loading…'
+              : profile
+                ? 'Complete · BFI-44'
+                : 'Take the assessment'
+          }
+        />
+        <StatCard
+          label="Training Plan"
+          value={profile ? 'Active' : '—'}
+          mono={false}
+          hint={profile ? 'Generated from profile' : 'Generate after assessment'}
+        />
+        <StatCard
+          label="Sessions this week"
+          value={0}
+          hint="vs last week"
+        />
       </motion.div>
 
-      {/* Assessment section — CTA when not taken, summary when taken */}
-      <motion.div variants={fadeInUp}>
+      {/* Main two-column area */}
+      <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
+        {/* Profile card or empty state */}
         {profile ? (
           <OceanSummaryCard profile={profile} />
+        ) : profile === undefined ? (
+          <Card>
+            <div className="t-over" style={{ marginBottom: 8 }}>Personality profile</div>
+            <div className="t-body" style={{ color: 'var(--text-tertiary)' }}>Loading your profile…</div>
+          </Card>
         ) : (
-          /* Unchanged original CTA — only shown when profile is null or still loading */
-          <div className="rounded-xl border border-border/60 bg-card p-6 space-y-4 max-w-lg">
-            <div className="flex items-start gap-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                <Brain className="size-5 text-primary" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Personality assessment
-                </h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {profile === undefined
-                    ? 'Loading your profile…'
-                    : "You haven't taken the Big Five assessment yet. Complete it to unlock adaptive training scenarios tailored to your personality."}
-                </p>
-              </div>
-            </div>
-
-            {profile === null && (
-              <div className="flex items-center gap-3 pl-14">
-                <Link
-                  to="/survey"
-                  className="group flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-all duration-200"
-                >
-                  Take the assessment
-                  <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+          <Card>
+            <EmptyState
+              icon={ClipboardList}
+              title="Begin assessment to unlock your training plan"
+              description="44 statements. About 5 minutes. Results power your personalised AI training scenarios."
+              action={
+                <Link to="/survey" className="btn btn-primary btn-lg">
+                  <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    Take the assessment
+                    <ArrowRight size={14} strokeWidth={1.8} />
+                  </span>
                 </Link>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="size-3" />
-                  ~5 minutes
-                </span>
-              </div>
-            )}
-          </div>
+              }
+            />
+          </Card>
         )}
+
+        {/* Continue training card */}
+        <Card variant="accent">
+          <div className="t-over" style={{ marginBottom: 8, color: 'var(--accent)' }}>Continue training</div>
+          <div className="t-h3" style={{ marginBottom: 4 }}>
+            {profile ? 'Start your next session' : 'Profile required'}
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
+            {profile
+              ? 'Your training plan is calibrated to your OCEAN profile.'
+              : 'Complete the assessment to unlock personalised practice scenarios.'}
+          </p>
+
+          {profile ? (
+            <Link to="/training-plan" className="btn btn-primary">
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Target size={14} strokeWidth={1.8} />
+                Open training plan
+              </span>
+            </Link>
+          ) : (
+            <Link to="/survey" className="btn btn-primary">
+              <span className="btn-label">Begin assessment</span>
+            </Link>
+          )}
+
+          <div className="divider" style={{ margin: '20px 0 14px' }} />
+          <div className="t-over" style={{ marginBottom: 8 }}>Next milestones</div>
+          <KeyValuePair k="Voice baseline" v={profile ? <BaselineStatusRow baseline={baseline} /> : '—'} />
+          <KeyValuePair k="First role-play" v={profile ? 'Pending' : '—'} />
+          <KeyValuePair k="Multimodal session" v={profile ? 'Pending' : '—'} />
+        </Card>
       </motion.div>
 
       {/* Account info */}
       <motion.div variants={fadeInUp}>
-        <div className="rounded-xl border border-border/50 bg-muted/30 p-5 max-w-lg space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Your account
-          </p>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Email</span>
-              <span className="font-medium">{user?.email}</span>
-            </div>
-            {user?.display_name && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Name</span>
-                <span className="font-medium">{user.display_name}</span>
-              </div>
+        <Card>
+          <div className="t-over" style={{ marginBottom: 12 }}>Your account</div>
+          <KeyValuePair k="Email" v={user?.email || '—'} />
+          {user?.display_name && <KeyValuePair k="Name" v={user.display_name} />}
+          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Clock size={12} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+            <span className="t-cap">~5 minutes to complete the assessment</span>
+            <span style={{ flex: 1 }} />
+            {profile === null && (
+              <Link to="/survey">
+                <Button variant="secondary" size="sm">
+                  <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Brain size={12} strokeWidth={1.8} />
+                    Take assessment
+                  </span>
+                </Button>
+              </Link>
             )}
           </div>
-        </div>
+        </Card>
       </motion.div>
     </motion.div>
   );

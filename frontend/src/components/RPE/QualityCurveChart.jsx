@@ -1,54 +1,29 @@
+// REDESIGN: bg-white/gray/blue/green/yellow/red → semantic tokens (dark-mode safe)
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
-/* ── colour helpers ─────────────────────────────────────────── */
 function qualityColor(v) {
-  if (v < 4) return 'bg-red-400'
-  if (v < 7) return 'bg-yellow-400'
-  return 'bg-blue-500'
+  if (v < 4) return 'bg-danger'
+  if (v < 7) return 'bg-warning'
+  return 'bg-info'
 }
 
 function trustColor(v) {
-  if (v >= 70) return 'bg-green-500'
-  if (v >= 40) return 'bg-yellow-400'
-  return 'bg-red-500'
+  if (v >= 70) return 'bg-success'
+  if (v >= 40) return 'bg-warning'
+  return 'bg-danger'
 }
 
 function escalationColor(v) {
-  if (v <= 1) return 'bg-green-400'
-  if (v <= 3) return 'bg-yellow-400'
-  return 'bg-red-500'
+  if (v <= 1) return 'bg-success'
+  if (v <= 3) return 'bg-warning'
+  return 'bg-danger'
 }
 
-/* ── tab config ─────────────────────────────────────────────── */
 const TABS = [
-  {
-    id:        'quality',
-    label:     'Response Quality',
-    dataKey:   'qualityCurve',
-    maxScale:  10,
-    refLine:   7,
-    refLabel:  'Target',
-    colorFn:   qualityColor,
-  },
-  {
-    id:        'trust',
-    label:     'Trust Score',
-    dataKey:   'trustCurve',
-    maxScale:  100,
-    refLine:   50,
-    refLabel:  'Baseline',
-    colorFn:   trustColor,
-  },
-  {
-    id:        'escalation',
-    label:     'Escalation',
-    dataKey:   'escalationCurve',
-    maxScale:  5,
-    refLine:   2,
-    refLabel:  'Safe zone',
-    colorFn:   escalationColor,
-  },
+  { id: 'quality',    label: 'Response Quality', dataKey: 'qualityCurve',    maxScale: 10,  refLine: 7,  refLabel: 'Target',    colorFn: qualityColor   },
+  { id: 'trust',      label: 'Trust Score',       dataKey: 'trustCurve',      maxScale: 100, refLine: 50, refLabel: 'Baseline',  colorFn: trustColor     },
+  { id: 'escalation', label: 'Escalation',        dataKey: 'escalationCurve', maxScale: 5,   refLine: 2,  refLabel: 'Safe zone', colorFn: escalationColor },
 ]
 
 function calcStats(data) {
@@ -60,13 +35,6 @@ function calcStats(data) {
   return { min, avg: Math.round(avg * 10) / 10, max }
 }
 
-/**
- * QualityCurveChart
- * Props:
- *   qualityCurve:    [{turn, value}]  — 0-10
- *   trustCurve:      [{turn, value}]  — 0-100
- *   escalationCurve: [{turn, value}]  — 0-5
- */
 export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], escalationCurve = [] }) {
   const [activeTab, setActiveTab] = useState('quality')
 
@@ -77,10 +45,9 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
   const refPct = (tab.refLine / tab.maxScale) * 100
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-card rounded-xl border border-border p-6">
 
-      {/* Tab bar */}
-      <div className="flex gap-6 border-b border-gray-100 mb-5">
+      <div className="flex gap-6 border-b border-border mb-5">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -88,8 +55,8 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
             className={cn(
               'pb-2 text-sm transition-colors',
               activeTab === t.id
-                ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
-                : 'text-gray-400 hover:text-gray-600'
+                ? 'border-b-2 border-primary text-primary font-medium'
+                : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {t.label}
@@ -97,24 +64,18 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
         ))}
       </div>
 
-      {/* Chart area */}
       <div className="relative" style={{ height: '160px' }}>
-
-        {/* Reference line */}
         <div
-          className="absolute left-0 right-0 border-t-2 border-dashed border-gray-300 pointer-events-none z-10"
+          className="absolute left-0 right-0 border-t-2 border-dashed border-border-strong pointer-events-none z-10"
           style={{ bottom: `${(refPct / 100) * 128}px` }}
         >
-          <span
-            className="absolute right-0 -top-4 text-[10px] text-gray-400 bg-white px-1"
-          >
+          <span className="absolute right-0 -top-4 text-[10px] text-muted-foreground bg-card px-1">
             {tab.refLabel}
           </span>
         </div>
 
-        {/* Bars */}
         {data.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+          <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
             No data available
           </div>
         ) : (
@@ -123,19 +84,16 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
               const heightPct = Math.max(2, (point.value / tab.maxScale) * 100)
               return (
                 <div key={i} className="flex flex-col items-center gap-1 flex-shrink-0" style={{ minWidth: '32px' }}>
-                  {/* Value label */}
-                  <span className="text-xs text-gray-500 font-medium tabular-nums leading-none">
+                  <span className="text-xs text-muted-foreground font-medium tabular-nums leading-none">
                     {point.value}
                   </span>
-                  {/* Bar */}
                   <div className="w-8 flex flex-col justify-end" style={{ height: '96px' }}>
                     <div
                       className={cn('w-full rounded-t-sm transition-all duration-500', tab.colorFn(point.value))}
                       style={{ height: `${(heightPct / 100) * 96}px` }}
                     />
                   </div>
-                  {/* Turn label */}
-                  <span className="text-xs text-gray-400 tabular-nums leading-none">{point.turn}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums leading-none">{point.turn}</span>
                 </div>
               )
             })}
@@ -143,15 +101,14 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
         )}
       </div>
 
-      {/* Footer stats */}
       <div className="flex gap-6 justify-center mt-3">
         {[
           { label: 'Min', value: stats.min },
           { label: 'Avg', value: stats.avg },
           { label: 'Max', value: stats.max },
         ].map(({ label, value }) => (
-          <span key={label} className="text-xs text-gray-400">
-            <span className="font-medium text-gray-600">{label}:</span> {value}
+          <span key={label} className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{label}:</span> {value}
           </span>
         ))}
       </div>

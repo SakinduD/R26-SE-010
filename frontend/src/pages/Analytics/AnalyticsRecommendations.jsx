@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 export default function AnalyticsRecommendationsNew() {
@@ -162,7 +162,6 @@ export default function AnalyticsRecommendationsNew() {
             <h1 className="text-lg font-bold">Your Coaching Insights</h1>
           </div>
           <div className="flex items-end gap-3 flex-wrap">
-            <AnalyticsNav />
             <Button
               onClick={handleRefresh}
               className="h-10 px-5 text-sm font-semibold"
@@ -183,12 +182,13 @@ export default function AnalyticsRecommendationsNew() {
           </div>
         )}
 
+        {/* REDESIGN: not-logged-in state — border-red-500/50 → border-danger/50, bg-red-500/10 → bg-danger/10, text-red-300 → text-danger */}
         {!isAuthLoading && !isAuthenticated && (
-          <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 px-4 py-3 flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+          <div className="rounded-xl border-2 border-danger/50 bg-danger/10 px-4 py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-danger mt-0.5 flex-shrink-0" />
             <div>
-              <p className="font-semibold text-red-300">Not Logged In</p>
-              <p className="text-red-400 text-xs mt-0.5">Please sign in to see your personalized coaching recommendations.</p>
+              <p className="font-semibold text-danger">Not Logged In</p>
+              <p className="text-t-secondary text-xs mt-0.5">Please sign in to see your personalized coaching recommendations.</p>
             </div>
           </div>
         )}
@@ -302,17 +302,18 @@ export default function AnalyticsRecommendationsNew() {
                             <span className="block text-xs font-semibold text-muted-foreground mb-1">Actions</span>
                             <span className="text-lg font-bold text-foreground">{recommendations.length}</span>
                           </div>
-                          <div className="flex-1 bg-rose-500/10 rounded-lg p-3 border border-rose-500/20 text-center">
-                            <span className="block text-xs font-semibold text-rose-500 mb-1">High</span>
-                            <span className="text-lg font-bold text-rose-500">{recommendations.filter(r => r.priority === 'high').length}</span>
+                          {/* REDESIGN: rose/amber/emerald priority pills → danger/warning/success tokens */}
+                          <div className="flex-1 bg-danger/10 rounded-lg p-3 border border-danger/20 text-center">
+                            <span className="block text-xs font-semibold text-danger mb-1">High</span>
+                            <span className="text-lg font-bold text-danger">{recommendations.filter(r => r.priority === 'high').length}</span>
                           </div>
-                          <div className="flex-1 bg-amber-500/10 rounded-lg p-3 border border-amber-500/20 text-center">
-                            <span className="block text-xs font-semibold text-amber-500 mb-1">Medium</span>
-                            <span className="text-lg font-bold text-amber-500">{recommendations.filter(r => r.priority === 'medium').length}</span>
+                          <div className="flex-1 bg-warning/10 rounded-lg p-3 border border-warning/20 text-center">
+                            <span className="block text-xs font-semibold text-warning mb-1">Medium</span>
+                            <span className="text-lg font-bold text-warning">{recommendations.filter(r => r.priority === 'medium').length}</span>
                           </div>
-                          <div className="flex-1 bg-emerald-500/10 rounded-lg p-3 border border-emerald-500/20 text-center">
-                            <span className="block text-xs font-semibold text-emerald-500 mb-1">Low</span>
-                            <span className="text-lg font-bold text-emerald-500">{recommendations.filter(r => r.priority === 'low').length}</span>
+                          <div className="flex-1 bg-success/10 rounded-lg p-3 border border-success/20 text-center">
+                            <span className="block text-xs font-semibold text-success mb-1">Low</span>
+                            <span className="text-lg font-bold text-success">{recommendations.filter(r => r.priority === 'low').length}</span>
                           </div>
                         </div>
                       </div>
@@ -393,43 +394,45 @@ export default function AnalyticsRecommendationsNew() {
 function RecommendationCard({ recommendation }) {
   const [expanded, setExpanded] = useState(false)
   
+  // REDESIGN: rose/amber/emerald → danger/warning/success semantic tokens
   const priorityConfig = {
     high: {
-      wrapper: 'from-rose-500/10 to-transparent border-rose-500/20 dark:from-rose-950/30 dark:border-rose-900/40',
-      header: 'bg-rose-500/5',
-      badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
-      icon: <AlertTriangle className="h-5 w-5 text-rose-500" />,
+      wrapper: 'from-danger/10 to-transparent border-danger/20',
+      header: 'bg-danger/5',
+      badge: 'bg-danger/10 text-danger border-danger/20',
+      icon: <AlertTriangle className="h-5 w-5 text-danger" />,
       label: 'Focus Here First',
-      actionBtn: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400'
+      actionBtn: 'bg-danger/10 text-danger hover:bg-danger/20'
     },
     medium: {
-      wrapper: 'from-amber-500/10 to-transparent border-amber-500/20 dark:from-amber-950/30 dark:border-amber-900/40',
-      header: 'bg-amber-500/5',
-      badge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-      icon: <Target className="h-5 w-5 text-amber-500" />,
+      wrapper: 'from-warning/10 to-transparent border-warning/20',
+      header: 'bg-warning/5',
+      badge: 'bg-warning/10 text-warning border-warning/20',
+      icon: <Target className="h-5 w-5 text-warning" />,
       label: 'Good to Practice',
-      actionBtn: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
+      actionBtn: 'bg-warning/10 text-warning hover:bg-warning/20'
     },
     low: {
-      wrapper: 'from-emerald-500/10 to-transparent border-emerald-500/20 dark:from-emerald-950/30 dark:border-emerald-900/40',
-      header: 'bg-emerald-500/5',
-      badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-      icon: <Award className="h-5 w-5 text-emerald-500" />,
+      wrapper: 'from-success/10 to-transparent border-success/20',
+      header: 'bg-success/5',
+      badge: 'bg-success/10 text-success border-success/20',
+      icon: <Award className="h-5 w-5 text-success" />,
       label: 'Doing Great!',
-      actionBtn: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'
+      actionBtn: 'bg-success/10 text-success hover:bg-success/20'
     },
   }
 
   const config = priorityConfig[recommendation.priority] || priorityConfig.medium
   
+  // REDESIGN: removed shadow-md/shadow-sm from card — borders + gradient wrapper provide depth
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${expanded ? 'shadow-md ring-1 ring-foreground/5' : 'hover:shadow-sm'} ${config.wrapper} bg-gradient-to-br`}>
+    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${config.wrapper} bg-gradient-to-br`}>
       {/* Clickable Header */}
       <div 
         onClick={() => setExpanded(!expanded)}
         className={`p-5 cursor-pointer flex gap-4 items-start select-none transition-colors hover:bg-foreground/[0.02] ${expanded ? config.header : ''}`}
       >
-        <div className="mt-0.5 p-2 rounded-xl bg-background shadow-sm border border-border/50">
+        <div className="mt-0.5 p-2 rounded-xl bg-background border border-border/50">
           {config.icon}
         </div>
         
@@ -449,7 +452,7 @@ function RecommendationCard({ recommendation }) {
         </div>
         
         <div className="flex-shrink-0 mt-2">
-          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background shadow-sm' : 'hover:bg-muted'}`}>
+          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background' : 'hover:bg-muted'}`}>
             <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${expanded ? 'rotate-90 text-foreground' : ''}`} />
           </div>
         </div>
@@ -473,7 +476,7 @@ function RecommendationCard({ recommendation }) {
 
             {/* Actionable Step */}
             <div className="pl-12">
-              <div className="rounded-xl bg-background border border-border/60 p-4 shadow-sm relative overflow-hidden group">
+              <div className="rounded-xl bg-background border border-border/60 p-4 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-1 h-full bg-primary/60"></div>
                 <div className="flex gap-3">
                   <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">

@@ -30,7 +30,14 @@ from app.models.personality_profile import PersonalityProfile
 from app.models.session_result import SessionResult
 from app.models.training_plan import AdjustmentHistory, TrainingPlan
 from app.models.user import User
-from app.schemas.baseline import BaselineCompleteIn, BaselineCompleteOut, BaselineSnapshotOut
+from app.schemas.baseline import (
+    BaselineChatIn,
+    BaselineChatOut,
+    BaselineCompleteIn,
+    BaselineCompleteOut,
+    BaselineSnapshotOut,
+)
+from app.services.baseline_llm import baseline_llm_service
 from app.schemas.pedagogy import (
     AdjustmentHintOut,
     AdjustmentHistoryEntryOut,
@@ -363,6 +370,100 @@ async def baseline_skip(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return _plan_to_out(plan)
+
+
+# ---------------------------------------------------------------------------
+# Baseline skip (slash path) — records a minimal snapshot then generates plan
+# ---------------------------------------------------------------------------
+
+
+@router.post("/baseline/skip", response_model=BaselineCompleteOut, status_code=201)
+async def baseline_skip_with_snapshot(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BaselineCompleteOut:
+    """
+    Record a skipped baseline, then generate a training plan.
+
+    Unlike POST /apa/baseline-skip (hyphen), this writes a BaselineSnapshot row
+    with mca_session_id='skipped' so the frontend can distinguish "never started"
+    from "explicitly skipped".  A real completed snapshot is never overwritten.
+    """
+    profile = (
+        db.query(PersonalityProfile)
+        .filter(PersonalityProfile.user_id == current_user.id)
+        .first()
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No personality profile found. Complete the survey first.",
+        )
+
+    now = datetime.now(timezone.utc)
+    snapshot = (
+        db.query(BaselineSnapshot)
+        .filter(BaselineSnapshot.user_id == current_user.id)
+        .first()
+    )
+    if snapshot is None:
+        snapshot = BaselineSnapshot(
+            user_id=current_user.id,
+            mca_session_id="skipped",
+            skill_scores=None,
+            emotion_distribution=None,
+            overall_score=None,
+            duration_seconds=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(snapshot)
+    elif snapshot.mca_session_id == "skipped":
+        snapshot.updated_at = now
+    # If a real session exists, leave it untouched
+
+    db.commit()
+    db.refresh(snapshot)
+    logger.info("BaselineSnapshot (skipped) upserted for user %s", current_user.id)
+
+    rpe = get_rpe_client()
+    llm = get_llm_client()
+    try:
+        plan = await orchestrator.generate_training_plan(current_user.id, db, rpe, llm)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return BaselineCompleteOut(
+        baseline=BaselineSnapshotOut.model_validate(snapshot),
+        plan_id=plan.id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Baseline chat — guided LLM conversation during baseline session
+# ---------------------------------------------------------------------------
+
+
+@router.post("/baseline/chat", response_model=BaselineChatOut)
+async def baseline_chat(
+    body: BaselineChatIn,
+    current_user: User = Depends(get_current_user),
+) -> BaselineChatOut:
+    """
+    Thin LLM chat for the guided baseline voice session.
+
+    Uses a baseline assessor persona distinct from the MCA chat persona.
+    Returns should_end=True when turn >= 5 so the frontend can end the session.
+    """
+    response_text = await baseline_llm_service.get_response(
+        prompt=body.message,
+        history=body.history,
+        context=body.context,
+    )
+    return BaselineChatOut(
+        response=response_text,
+        should_end=body.turn >= 5,
+    )
 
 
 # ---------------------------------------------------------------------------

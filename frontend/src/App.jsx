@@ -19,10 +19,13 @@ import AuthCallback from './pages/auth/AuthCallback'
 
 // Protected app pages
 import Baseline from './pages/app/Baseline'
+import BaselineConsent from './pages/app/BaselineConsent'
 import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
 import TrainingPlan from './pages/app/TrainingPlan'
+import Styleguide from './pages/app/Styleguide'
+import Settings from './pages/app/Settings'
 
 // RPE pages
 import RPELayout from './pages/RPE/RPELayout'
@@ -70,6 +73,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/survey" element={<Survey />} />
               <Route path="/survey/results" element={<SurveyResults />} />
+              <Route path="/baseline/consent" element={<BaselineConsent />} />
               <Route path="/baseline" element={<Baseline />} />
               <Route path="/training-plan" element={<TrainingPlan />} />
               <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
@@ -88,6 +92,10 @@ export default function App() {
               <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
               <Route path="/analytics-session-report" element={<PostSessionReport />} />
               <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
+              {/* Settings — Phase 6.10 */}
+              <Route path="/settings" element={<Settings />} />
+              {/* Styleguide — every component in every state, used during redesign */}
+              <Route path="/styleguide" element={<Styleguide />} />
             </Route>
 
             {/* RPE routes - all share the RPELayout navbar */}

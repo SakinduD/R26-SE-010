@@ -493,7 +493,7 @@ const MultimodalEngine = () => {
               <Activity size={20} />
             </div>
             <div className="flex flex-col min-w-[120px]">
-              <p className="text-[11px] font-black tracking-widest uppercase leading-none">{nudge.text}</p>
+              <p className="text-[11px] font-medium tracking-wide uppercase leading-none">{nudge.text}</p>
               <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
             </div>
             <button
@@ -511,17 +511,18 @@ const MultimodalEngine = () => {
       )}>
         {/* Header Section - Compact */}
         <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-4xl font-extrabold text-foreground tracking-tight">
-            EmpowerZ <span className="text-primary font-black">MCA</span>
+          {/* REDESIGN: header restyled to match prototype's calmer typography */}
+          <h1 className="t-h1" style={{ fontSize: 28 }}>
+            EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>MCA</span>
           </h1>
-          <p className="text-card-foreground text-[10px] md:text-xs font-bold opacity-60 uppercase tracking-[0.3em]">
-            Behavioral Intelligence • Real-time Fusion
+          <p className="t-over" style={{ marginTop: 4 }}>
+            Behavioral Intelligence · Real-time Fusion
           </p>
           {liveSessionId && activeMode === 'live' && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
               <div className="px-3 py-1 bg-secondary/10 border border-secondary/20 rounded-full flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-                <span className="text-[10px] font-black text-secondary tracking-widest uppercase">
+                <span className="text-[10px] font-medium text-secondary tracking-widest uppercase">
                   Session Active: {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
                 </span>
               </div>
@@ -591,7 +592,8 @@ const MultimodalEngine = () => {
             "relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0",
             activeMode === 'ai' ? "lg:col-span-2" : "col-span-1"
           )}>
-            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-3xl flex flex-col items-center h-full overflow-y-auto custom-scrollbar">
+            {/* REDESIGN: outer panel uses .card style (no shadow, prototype rounded-lg) */}
+            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full overflow-y-auto custom-scrollbar">
 
               {/* Capturing Window (Webcam Area) */}
               <div className={clsx(
@@ -662,14 +664,15 @@ const MultimodalEngine = () => {
                 </div>
 
                 {/* Persistent Control Bar */}
-                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-6 py-3 bg-card/95 backdrop-blur-xl border border-border/60 rounded-2xl shadow-2xl z-20 transition-all duration-500">
+                {/* REDESIGN: control bar uses bg-surface + border-subtle instead of shadow-2xl/backdrop-blur-xl */}
+                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-6 py-3 bg-surface border border-border-subtle rounded-2xl z-20 transition-all duration-500" style={{ backdropFilter: 'blur(8px)' }}>
                   <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-black tracking-widest uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", isCameraActive ? "bg-success animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")}></div>
+                    <div className="flex items-center gap-3 text-[11px] text-foreground font-medium tracking-wide uppercase">
+                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", isCameraActive ? "bg-success animate-pulse " : "bg-muted-foreground/30")}></div>
                       <span className="opacity-80">Video</span>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-black tracking-widest uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", liveMicActive ? "bg-secondary animate-pulse shadow-[0_0_8px_rgba(14,165,233,0.6)]" : "bg-muted-foreground/30")}></div>
+                    <div className="flex items-center gap-3 text-[11px] text-foreground font-medium tracking-wide uppercase">
+                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", liveMicActive ? "bg-secondary animate-pulse " : "bg-muted-foreground/30")}></div>
                       <span className="opacity-80">Audio</span>
                     </div>
                   </div>
@@ -683,7 +686,7 @@ const MultimodalEngine = () => {
                             onClick={startLiveSession}
                             disabled={isLiveStarting}
                             className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
                               isLiveStarting && "opacity-70 cursor-wait"
                             )}
                           >
@@ -699,7 +702,7 @@ const MultimodalEngine = () => {
                             onClick={() => setIsStopAlertOpen(true)}
                             disabled={isLiveEnding}
                             className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
                               isLiveEnding && "opacity-70 cursor-wait"
                             )}
                           >
@@ -719,7 +722,7 @@ const MultimodalEngine = () => {
                             onClick={() => setAiStartSignal(Date.now())}
                             disabled={aiSessionStarting}
                             className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
                               aiSessionStarting && "opacity-70 cursor-wait"
                             )}
                           >
@@ -735,7 +738,7 @@ const MultimodalEngine = () => {
                             onClick={() => setIsStopAlertOpen(true)}
                             disabled={aiSessionEnding}
                             className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-medium text-[10px] uppercase tracking-wide shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
                               aiSessionEnding && "opacity-70 cursor-wait"
                             )}
                           >
@@ -757,7 +760,7 @@ const MultimodalEngine = () => {
                     <button
                       onClick={toggleCamera}
                       className={clsx(
-                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                        "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
                         isCameraActive ? "bg-success/10 text-success border-success/30 hover:bg-success/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
                       )}
                     >
@@ -770,7 +773,7 @@ const MultimodalEngine = () => {
                       <button
                         onClick={toggleMesh}
                         className={clsx(
-                          "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                          "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
                           showMesh ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:bg-muted"
                         )}
                       >
@@ -783,7 +786,7 @@ const MultimodalEngine = () => {
                     <button
                       onClick={toggleLiveMic}
                       className={clsx(
-                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
+                        "flex items-center gap-2 text-[10px] font-medium px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
                         liveMicActive ? "bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
                       )}
                     >
@@ -796,12 +799,12 @@ const MultimodalEngine = () => {
 
               {/* Bottom Meta Info */}
               <div className="mt-6 flex flex-wrap justify-center gap-4">
-                <div className="flex items-center gap-2.5 text-[10px] font-black text-secondary bg-secondary/10 px-4 py-2 rounded-lg border border-secondary/20 uppercase tracking-widest">
+                <div className="flex items-center gap-2.5 text-[10px] font-medium text-secondary bg-secondary/10 px-4 py-2 rounded-lg border border-secondary/20 uppercase tracking-widest">
                   <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
                   Privacy: Edge_Only
                 </div>
                 <div className={clsx(
-                  "flex items-center gap-2.5 text-[10px] font-black px-4 py-2 rounded-lg border uppercase tracking-widest",
+                  "flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest",
                   activeMode === 'live'
                     ? "bg-secondary/10 text-secondary border-secondary/20"
                     : "bg-primary/10 text-primary border-primary/20"
@@ -809,12 +812,12 @@ const MultimodalEngine = () => {
                   Module: {activeMode === 'live' ? 'Multimodal_Sensing' : 'Intelligence_Core'}
                 </div>
                 {isCameraActive && (
-                  <div className="flex items-center gap-2.5 text-[10px] font-black text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
                     Tracking: {showMesh ? "Visual" : "Background"}
                   </div>
                 )}
                 {metrics.isSyncing && (
-                  <div className="flex items-center gap-2.5 text-[10px] font-black text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
                     <Activity size={12} />
                     Fusion: Active
                   </div>
@@ -827,8 +830,8 @@ const MultimodalEngine = () => {
                   {/* Eye Contact (EAR) */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Eye Contact</span>
-                      <span className={clsx("text-[10px] font-black", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
+                      <span className="text-[10px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
+                      <span className={clsx("text-[10px] font-medium", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
                         {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
                       </span>
                     </div>
@@ -844,8 +847,8 @@ const MultimodalEngine = () => {
                   {/* Smile/Speech (MAR) */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Facial Expression</span>
-                      <span className={clsx("text-[10px] font-black", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
+                      <span className="text-[10px] font-medium uppercase tracking-widest text-card-foreground">Facial Expression</span>
+                      <span className={clsx("text-[10px] font-medium", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
                         {metrics.mar > 0.3 ? "ACTIVE / SPEAKING" : "NEUTRAL"}
                       </span>
                     </div>
@@ -861,9 +864,9 @@ const MultimodalEngine = () => {
                   {/* Head Pose */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Head Alignment</span>
+                      <span className="text-[10px] font-medium uppercase tracking-widest text-card-foreground">Head Alignment</span>
                       <span className={clsx(
-                        "text-[10px] font-black",
+                        "text-[10px] font-medium",
                         (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
                       )}>
                         {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
@@ -884,8 +887,8 @@ const MultimodalEngine = () => {
                   {/* Vocal Emotion */}
                   <div className="space-y-3 col-span-1 sm:col-span-3 pt-6 mt-6 border-t border-border/30">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-primary">Vocal Affect (SVM)</span>
-                      <span className="text-[10px] font-black text-primary uppercase">
+                      <span className="text-[10px] font-medium uppercase tracking-widest text-primary">Vocal Affect (SVM)</span>
+                      <span className="text-[10px] font-medium text-primary uppercase">
                         {metrics.emotion} • {Math.round(metrics.confidence * 100)}% Confidence
                       </span>
                     </div>

@@ -2,11 +2,9 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Brain, Zap, MessageSquare, ArrowRight } from 'lucide-react';
-import BackgroundGradient from '@/components/ui/background-gradient';
-import Logo from '@/components/ui/logo';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 
-const features = [
+const FEATURES = [
   {
     icon: Brain,
     title: 'Personality assessment',
@@ -23,108 +21,134 @@ const features = [
     icon: MessageSquare,
     title: 'Real-time feedback',
     description:
-      'Receive live coaching on your tone, pacing, and presence — not after the session, but while its happening.',
+      'Receive live coaching on your tone, pacing, and presence — not after the session, but while it’s happening.',
   },
+];
+
+const STEPS = [
+  ['Survey', 'Build profile'],
+  ['Baseline', 'Voice signal'],
+  ['Practice', 'Live role-play'],
+  ['Insight', 'Coach review'],
 ];
 
 export default function Landing() {
   return (
-    <div className="relative min-h-screen bg-background text-foreground">
-      <BackgroundGradient />
-
-      {/* Nav */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-5 max-w-6xl mx-auto">
-        <Logo size="md" />
-        <div className="flex items-center gap-3">
-          <Link
-            to="/signin"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5"
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/signup"
-            className="text-sm bg-primary text-primary-foreground rounded-lg px-4 py-1.5 hover:bg-primary/90 transition-colors font-medium"
-          >
-            Get started
-          </Link>
+    <div
+      style={{
+        position: 'relative',
+        minHeight: '100vh',
+        background: 'var(--bg-canvas)',
+        color: 'var(--text-primary)',
+      }}
+    >
+      {/* Top bar */}
+      <header
+        style={{
+          position: 'relative',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '20px 24px',
+          maxWidth: 1180,
+          margin: '0 auto',
+        }}
+      >
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10 }} aria-label="EmpowerZ home">
+          <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>EZ</div>
+          <span className="sb-brand-text">EmpowerZ</span>
+        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link to="/signin" className="btn btn-ghost"><span className="btn-label">Sign in</span></Link>
+          <Link to="/signup" className="btn btn-primary"><span className="btn-label">Get started</span></Link>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="relative z-10 flex flex-col items-center text-center px-6 pt-20 pb-24 max-w-4xl mx-auto">
-        <motion.div
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-          className="space-y-6"
-        >
+      <section
+        className="violet-halo"
+        style={{
+          position: 'relative',
+          maxWidth: 980,
+          margin: '0 auto',
+          padding: '60px 24px 40px',
+        }}
+      >
+        <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           <motion.div variants={fadeInUp}>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
-              Research project · SLIIT
-            </span>
+            <span className="t-over" style={{ color: 'var(--accent)' }}>EmpowerZ · v0.4 · research preview</span>
           </motion.div>
 
-          <motion.h1
-            variants={fadeInUp}
-            className="text-4xl sm:text-5xl md:text-[3.4rem] font-semibold tracking-tight leading-[1.15] text-foreground"
-          >
-            Train soft skills with an{' '}
-            <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text text-transparent">
-              AI that adapts to you
+          <motion.h1 variants={fadeInUp} className="t-display" style={{ maxWidth: 820 }}>
+            Train soft skills the way your{' '}
+            <span style={{ background: 'var(--gradient-accent)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
+              mind learns.
             </span>
           </motion.h1>
 
           <motion.p
             variants={fadeInUp}
-            className="max-w-xl mx-auto text-base sm:text-lg text-muted-foreground leading-relaxed"
+            style={{
+              fontSize: 18,
+              color: 'var(--text-secondary)',
+              maxWidth: 620,
+              lineHeight: 1.55,
+              margin: 0,
+            }}
           >
-            Your personality shapes how you learn. Our platform reads your OCEAN
-            profile and builds interview, negotiation, and speaking scenarios
-            designed specifically for who you are.
+            Adaptive AI training that profiles your personality, runs role-play simulations with a live NPC,
+            and gives you precise, multimodal feedback on what you actually did.
           </motion.p>
 
-          <motion.div
-            variants={fadeInUp}
-            className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2"
-          >
-            <Link
-              to="/signup"
-              className="group flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-6 py-3 text-sm font-medium hover:bg-primary/90 transition-all duration-200 hover:gap-3"
-            >
-              Get started free
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          <motion.div variants={fadeInUp} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+            <Link to="/signup" className="btn btn-primary btn-lg">
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                Get started free
+                <ArrowRight size={16} strokeWidth={1.8} />
+              </span>
             </Link>
-            <Link
-              to="/signin"
-              className="rounded-lg border border-border bg-background text-foreground px-6 py-3 text-sm font-medium hover:bg-muted transition-colors"
-            >
-              Sign in
+            <Link to="/signin" className="btn btn-secondary btn-lg">
+              <span className="btn-label">Sign in</span>
             </Link>
+          </motion.div>
+
+          <motion.div variants={fadeInUp} className="t-cap">
+            44 scientifically validated questions from the Big Five Inventory · ~5 min · No right answers
           </motion.div>
         </motion.div>
       </section>
 
       {/* Feature cards */}
-      <section className="relative z-10 max-w-5xl mx-auto px-6 pb-24">
+      <section style={{ position: 'relative', maxWidth: 1180, margin: '0 auto', padding: '32px 24px' }}>
         <motion.div
           variants={staggerContainer}
           initial="initial"
           whileInView="animate"
           viewport={{ once: true, margin: '-60px' }}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-5"
+          className="grid-3 stagger"
+          style={{ gap: 16 }}
         >
-          {features.map(({ icon: Icon, title, description }) => (
-            <motion.div
-              key={title}
-              variants={fadeInUp}
-              className="rounded-xl border border-border/60 bg-card/70 backdrop-blur-sm p-6 space-y-3"
-            >
-              <div className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10">
-                <Icon className="size-4 text-primary" />
+          {FEATURES.map(({ icon: Icon, title, description }) => (
+            <motion.div key={title} variants={fadeInUp} className="card">
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: 'var(--accent-soft)',
+                  border: '1px solid var(--accent-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent)',
+                  marginBottom: 16,
+                }}
+              >
+                <Icon size={16} strokeWidth={1.6} />
               </div>
-              <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <div className="t-h3" style={{ marginBottom: 6 }}>{title}</div>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
                 {description}
               </p>
             </motion.div>
@@ -132,9 +156,65 @@ export default function Landing() {
         </motion.div>
       </section>
 
+      {/* How it works */}
+      <section style={{ position: 'relative', maxWidth: 1180, margin: '0 auto', padding: '16px 24px 64px' }}>
+        <div className="card" style={{ padding: 32 }}>
+          <div className="t-over" style={{ marginBottom: 24 }}>How it works</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', alignItems: 'center', gap: 0 }}>
+            {STEPS.map(([label, sub], i) => (
+              <React.Fragment key={label}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 8px' }}>
+                  <div
+                    className="score-num"
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: 'var(--bg-input)',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent)',
+                      fontSize: 13,
+                    }}
+                  >
+                    {String(i + 1).padStart(2, '0')}
+                  </div>
+                  <div>
+                    <div className="fg" style={{ fontWeight: 500 }}>{label}</div>
+                    <div className="t-cap">{sub}</div>
+                  </div>
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div style={{ height: 1, background: 'var(--border-subtle)', display: 'none' }} className="hide-on-mobile" />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
-      <footer className="relative z-10 border-t border-border py-8 text-center text-xs text-muted-foreground">
-        Adaptive Coach · Final-year research project · Not for commercial use
+      <footer
+        style={{
+          position: 'relative',
+          borderTop: '1px solid var(--border-subtle)',
+          padding: '20px 24px',
+          maxWidth: 1180,
+          margin: '0 auto',
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <span className="t-cap">EmpowerZ · A SLIIT Research Project · 2026</span>
+        <div style={{ display: 'flex', gap: 18 }}>
+          <span className="t-cap">Research</span>
+          <span className="t-cap">Privacy</span>
+          <span className="t-cap">Contact</span>
+        </div>
       </footer>
     </div>
   );

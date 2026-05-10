@@ -9,29 +9,66 @@ export default function ProgressBar({ current, total }) {
   const pct = Math.round((current / total) * 100);
 
   return (
-    <div className="sticky top-0 z-30 bg-background/90 backdrop-blur-sm border-b border-border/40 px-4 py-3">
-      <div className="mx-auto flex max-w-xl items-center gap-3">
-        {/* Track */}
+    <div
+      style={{
+        position: 'sticky',
+        top: 48, // account for AppLayout topbar
+        zIndex: 5,
+        background: 'oklch(0.145 0.015 264 / 0.92)',
+        backdropFilter: 'blur(8px)',
+        borderBottom: '1px solid var(--border-subtle)',
+        padding: '14px 32px',
+      }}
+    >
+      <div
+        style={{
+          margin: '0 auto',
+          maxWidth: 720,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span className="t-cap">
+            <span className="score-num fg">{current}</span> of <span className="score-num">{total}</span>
+          </span>
+          <span className="t-cap score-num">{pct}% complete</span>
+        </div>
         <div
           role="progressbar"
           aria-valuenow={current}
           aria-valuemin={0}
           aria-valuemax={total}
           aria-label={`Question ${current} of ${total}`}
-          className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+          style={{
+            position: 'relative',
+            height: 2,
+            background: 'var(--bg-elevated)',
+            borderRadius: 2,
+            overflow: 'hidden',
+          }}
         >
           <motion.div
-            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary to-violet-500"
             initial={{ width: 0 }}
             animate={{ width: `${pct}%` }}
             transition={{ duration: 0.4, ease: 'easeOut' }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              background: 'var(--accent)',
+              borderRadius: 2,
+            }}
           />
         </div>
-
-        {/* Label */}
-        <span className="shrink-0 tabular-nums text-xs font-medium text-muted-foreground">
-          {current} / {total}
-        </span>
       </div>
     </div>
   );

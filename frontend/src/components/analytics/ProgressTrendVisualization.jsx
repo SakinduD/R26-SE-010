@@ -199,7 +199,7 @@ function MultiTrendChart({ trends, labelFor, hoveredSkill, onHover }) {
 function TrendRow({ item, labelFor, isHovered, onHover }) {
   return (
     <div 
-      className={`rounded-md border p-3 transition-all duration-300 cursor-pointer ${isHovered ? 'border-primary bg-primary/5 scale-[1.02] shadow-lg' : 'border-border bg-background/20'}`}
+      className={`rounded-md border p-3 transition-all duration-300 cursor-pointer ${isHovered ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-border bg-background/20'}`}
       onMouseEnter={() => onHover(item.skill_area)}
       onMouseLeave={() => onHover(null)}
     >

@@ -1,18 +1,26 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain, LogIn } from 'lucide-react'
+import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
-import { cn } from '@/lib/utils'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Banner from '@/components/ui/Banner'
+import EmptyState from '@/components/ui/EmptyState'
+import SegmentedControl from '@/components/ui/SegmentedControl'
+import ChipToggle from '@/components/ui/ChipToggle'
 
 const DIFFICULTY_FILTERS = ['all', 'beginner', 'intermediate', 'advanced']
 
-const DIFFICULTY_COLORS = {
-  beginner:     'bg-emerald-100 text-emerald-700',
-  intermediate: 'bg-amber-100 text-amber-700',
-  advanced:     'bg-red-100 text-red-700',
+// REDESIGN: replaced hardcoded light-mode chips (bg-emerald-100/amber-100/red-100)
+// with semantic Badge variants
+const DIFFICULTY_BADGE = {
+  beginner:     'success',
+  intermediate: 'warning',
+  advanced:     'danger',
 }
 
 const MAX_SKILL_PILLS = 8
@@ -172,75 +180,60 @@ export default function ScenarioSelect() {
   const isFiltered = activeFilter !== 'all' || !!activeSkillFilter
 
   return (
-    <div className="min-h-screen bg-background">
+    <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)' }}>
 
-      {/* Hero header */}
-      <div className="border-b border-border bg-card">
-        <div className="max-w-5xl mx-auto px-4 py-10">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                <Brain className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground tracking-tight">Role-Play Scenarios</h1>
-                <p className="mt-1 text-muted-foreground text-sm">
-                  Practice workplace soft skills with AI-powered simulations
-                </p>
-              </div>
-            </div>
-            <span className="shrink-0 rounded-full border border-border bg-muted text-muted-foreground text-xs px-3 py-1.5 font-medium self-center tabular-nums">
-              {allScenarios.length} scenarios
-            </span>
-          </div>
+      {/* REDESIGN: hero replaced with PageHead component pattern */}
+      <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 16px' }}>
+          <PageHead
+            eyebrow="Practice"
+            title="Role-Play Scenarios"
+            sub="Practice workplace soft skills with AI-powered simulations"
+            right={<Badge variant="neutral">{allScenarios.length} scenarios</Badge>}
+          />
 
-          {/* APA coming soon pill */}
-          <div className="mt-4 flex items-center gap-2 px-3 py-1.5 bg-primary/8 border border-primary/20 rounded-full w-fit text-xs text-primary">
-            <Sparkles size={11} className="text-primary/70 shrink-0" />
-            <span className="font-medium">Personalised ordering coming soon</span>
+          {/* REDESIGN: APA pill now uses Badge accent */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Badge variant="accent">
+              <Sparkles size={11} strokeWidth={1.8} />
+              <span>Personalised ordering coming soon</span>
+            </Badge>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Guest banner — shown only when auth check is complete and user is not signed in */}
+        {/* REDESIGN: guest banner replaced amber-50/200/700 hardcoded colors with semantic Banner */}
         {!authLoading && !isAuthenticated && (
-          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-            <LogIn size={15} className="text-amber-600 shrink-0" />
-            <span className="text-amber-700">
+          <Banner variant="warning">
+            <span>
               You are browsing as a guest.{' '}
-              <a href="/signin" className="underline font-semibold text-amber-800 hover:no-underline">
+              <a href="/signin" style={{ color: 'var(--warning)', fontWeight: 600, textDecoration: 'underline' }}>
                 Sign in
               </a>{' '}
               to save your session history.
             </span>
-          </div>
+          </Banner>
         )}
 
-        {/* Filter + sort bar */}
-        <div className="flex flex-wrap items-center gap-3 justify-between">
-          <div className="flex gap-2 flex-wrap">
-            {DIFFICULTY_FILTERS.map((d) => (
-              <button
-                key={d}
-                onClick={() => handleDifficultyFilter(d)}
-                className={cn(
-                  'px-4 py-1.5 rounded-full text-sm font-semibold transition-all capitalize',
-                  activeFilter === d && !activeSkillFilter
-                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/25'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
-                )}
-              >
-                {d === 'all' ? 'All' : d}
-              </button>
-            ))}
-          </div>
+        {/* REDESIGN: difficulty filter switched from primary-tinted pills to SegmentedControl */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+          <SegmentedControl
+            value={!activeSkillFilter ? activeFilter : 'all'}
+            onChange={(v) => handleDifficultyFilter(v)}
+            options={DIFFICULTY_FILTERS.map((d) => ({
+              label: d === 'all' ? 'All' : d.charAt(0).toUpperCase() + d.slice(1),
+              value: d,
+            }))}
+          />
 
+          {/* REDESIGN: select restyled to use .input class */}
           <select
             value={activeSortMode}
             onChange={(e) => setActiveSortMode(e.target.value)}
-            className="border border-border rounded-lg px-3 py-1.5 text-sm text-foreground bg-card focus:outline-none focus:ring-2 focus:ring-ring"
+            className="input"
+            style={{ width: 'auto', height: 36, paddingRight: 28 }}
           >
             <option value="default">Sort: Default</option>
             <option value="difficulty">Sort: By Difficulty</option>
@@ -248,30 +241,25 @@ export default function ScenarioSelect() {
           </select>
         </div>
 
-        {/* Skill filter row */}
+        {/* REDESIGN: skill filter row uses ChipToggle */}
         {allSkills.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest shrink-0">
-              Filter by skill:
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="t-over" style={{ flexShrink: 0 }}>Filter by skill:</span>
             {visibleSkills.map((skill) => (
-              <button
+              <ChipToggle
                 key={skill}
+                active={activeSkillFilter === skill}
                 onClick={() => handleSkillFilter(skill)}
-                className={cn(
-                  'text-xs rounded-full px-3 py-1 transition-all capitalize font-medium',
-                  activeSkillFilter === skill
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
-                )}
               >
-                {skill.replace(/_/g, ' ')}
-              </button>
+                <span style={{ textTransform: 'capitalize' }}>{skill.replace(/_/g, ' ')}</span>
+              </ChipToggle>
             ))}
             {allSkills.length > MAX_SKILL_PILLS && (
               <button
+                type="button"
                 onClick={() => setShowAllSkills((v) => !v)}
-                className="text-xs text-primary hover:underline font-medium"
+                className="t-cap"
+                style={{ background: 'transparent', border: 0, color: 'var(--accent)', cursor: 'pointer', fontWeight: 500 }}
               >
                 {showAllSkills ? 'Less' : `+${allSkills.length - MAX_SKILL_PILLS} more`}
               </button>
@@ -279,81 +267,98 @@ export default function ScenarioSelect() {
           </div>
         )}
 
-        {/* Active filter summary */}
+        {/* REDESIGN: active-filter summary chips converted to Badge accent */}
         {isFiltered && !isLoading && (
-          <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-            <span>Showing {displayedScenarios.length} of {allScenarios.length} scenarios</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="t-cap">
+              Showing {displayedScenarios.length} of {allScenarios.length} scenarios
+            </span>
             {activeFilter !== 'all' && (
-              <span
+              <button
+                type="button"
                 onClick={() => handleDifficultyFilter('all')}
-                className="cursor-pointer rounded-full bg-accent text-accent-foreground px-2.5 py-0.5 hover:bg-accent/80 capitalize font-medium"
+                style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}
               >
-                Difficulty: {activeFilter} ×
-              </span>
+                <Badge variant="accent">
+                  <span style={{ textTransform: 'capitalize' }}>Difficulty: {activeFilter} ×</span>
+                </Badge>
+              </button>
             )}
             {activeSkillFilter && (
-              <span
+              <button
+                type="button"
                 onClick={() => handleSkillFilter(activeSkillFilter)}
-                className="cursor-pointer rounded-full bg-accent text-accent-foreground px-2.5 py-0.5 hover:bg-accent/80 capitalize font-medium"
+                style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}
               >
-                Skill: {activeSkillFilter.replace(/_/g, ' ')} ×
-              </span>
+                <Badge variant="accent">
+                  <span style={{ textTransform: 'capitalize' }}>Skill: {activeSkillFilter.replace(/_/g, ' ')} ×</span>
+                </Badge>
+              </button>
             )}
           </div>
         )}
 
-        {/* Error banner */}
+        {/* REDESIGN: error block replaced with Banner danger + retry button */}
         {error && (
-          <div className="flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-destructive">
-            <AlertCircle size={16} className="shrink-0" />
-            <span className="text-sm flex-1">{error}</span>
-            <button
-              onClick={() => handleDifficultyFilter(activeFilter)}
-              className="flex items-center gap-1 text-sm font-semibold underline hover:no-underline"
-            >
-              <RefreshCw size={13} /> Retry
-            </button>
-          </div>
+          <Banner variant="danger">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+              <AlertCircle size={16} strokeWidth={1.8} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+              <span style={{ flex: 1 }}>{error}</span>
+              <button
+                type="button"
+                onClick={() => handleDifficultyFilter(activeFilter)}
+                className="btn btn-ghost btn-sm"
+              >
+                <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <RefreshCw size={12} strokeWidth={1.8} /> Retry
+                </span>
+              </button>
+            </div>
+          </Banner>
         )}
 
-        {/* Skeleton loading */}
+        {/* REDESIGN: skeleton uses .skel class instead of animate-pulse divs */}
         {isLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid-3">
             {[1, 2, 3].map((n) => (
-              <div key={n} className="rounded-xl border border-border bg-card overflow-hidden animate-pulse">
-                <div className="h-1 bg-muted" />
-                <div className="p-5 space-y-3">
-                  <div className="h-4 bg-muted rounded w-3/4" />
-                  <div className="flex gap-2">
-                    <div className="h-5 bg-muted rounded-full w-20" />
-                    <div className="h-5 bg-muted rounded-full w-16" />
-                  </div>
-                  <div className="flex gap-1">
-                    <div className="h-5 bg-accent/40 rounded-full w-16" />
-                    <div className="h-5 bg-accent/40 rounded-full w-20" />
-                  </div>
-                  <div className="h-9 bg-muted rounded-lg w-full mt-2" />
+              <Card key={n}>
+                <div className="skel" style={{ height: 16, width: '75%', marginBottom: 12 }} />
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <div className="skel" style={{ height: 18, width: 80, borderRadius: 999 }} />
+                  <div className="skel" style={{ height: 18, width: 64, borderRadius: 999 }} />
                 </div>
-              </div>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                  <div className="skel" style={{ height: 18, width: 64, borderRadius: 999 }} />
+                  <div className="skel" style={{ height: 18, width: 80, borderRadius: 999 }} />
+                </div>
+                <div className="skel" style={{ height: 36, width: '100%', borderRadius: 8 }} />
+              </Card>
             ))}
           </div>
         )}
 
         {/* Scenario grid */}
         {!isLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid-3">
             {displayedScenarios.length === 0 ? (
-              <div className="col-span-3 text-center py-20">
-                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mx-auto mb-4">
-                  <Brain className="w-6 h-6 text-muted-foreground" />
-                </div>
-                <p className="text-muted-foreground text-sm mb-3">No scenarios match this filter</p>
-                <button
-                  onClick={clearAllFilters}
-                  className="text-sm text-primary underline hover:no-underline font-medium"
-                >
-                  Clear filters
-                </button>
+              <div style={{ gridColumn: '1 / -1' }}>
+                {/* REDESIGN: empty grid replaced with EmptyState component */}
+                <Card>
+                  <EmptyState
+                    icon={Brain}
+                    title="No scenarios match this filter"
+                    description="Try removing one or more filters to see all available scenarios."
+                    action={
+                      <button
+                        type="button"
+                        onClick={clearAllFilters}
+                        className="btn btn-secondary"
+                      >
+                        <span className="btn-label">Clear filters</span>
+                      </button>
+                    }
+                  />
+                </Card>
               </div>
             ) : (
               displayedScenarios.map((scenario) => (
@@ -369,53 +374,78 @@ export default function ScenarioSelect() {
           </div>
         )}
 
-        {/* Difficulty comparison table */}
+        {/* REDESIGN: comparison table now wrapped in Card; difficulty pills use Badge */}
         {!isLoading && allScenarios.length > 0 && (
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
             <button
+              type="button"
               onClick={() => setShowCompare((v) => !v)}
-              className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                background: 'transparent',
+                border: 0,
+                color: 'var(--text-primary)',
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
             >
               <span>Compare all scenarios</span>
-              {showCompare ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
+              {showCompare ? (
+                <ChevronUp size={16} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+              ) : (
+                <ChevronDown size={16} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+              )}
             </button>
             {showCompare && (
-              <div className="overflow-x-auto border-t border-border">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50">
+              <div style={{ overflowX: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
+                <table style={{ width: '100%', fontSize: 12, textAlign: 'left', borderCollapse: 'collapse' }}>
+                  <thead style={{ background: 'var(--bg-elevated)' }}>
                     <tr>
                       {['Scenario', 'Difficulty', 'Turns', 'Min Trust', 'NPC Exits At', 'NPC Softens At'].map((h) => (
-                        <th key={h} className="px-4 py-2.5 font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                        <th
+                          key={h}
+                          className="t-over"
+                          style={{
+                            padding: '12px 16px',
+                            color: 'var(--text-tertiary)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
                           {h}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
-                    {allScenarios.map((s) => {
+                  <tbody>
+                    {allScenarios.map((s, i) => {
                       const coop = s.npc_behaviour?.trust_thresholds?.cooperative
                         ?? s.apa_metadata?.npc_behaviour?.trust_thresholds?.cooperative
                         ?? '—'
                       const criteria = s.success_criteria ?? {}
                       return (
-                        <tr key={s.scenario_id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-2.5 font-semibold text-foreground whitespace-nowrap">{s.title}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={cn(
-                              'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-                              DIFFICULTY_COLORS[s.difficulty] ?? 'bg-muted text-muted-foreground'
-                            )}>
-                              {s.difficulty}
-                            </span>
+                        <tr
+                          key={s.scenario_id}
+                          style={{ borderTop: i === 0 ? 0 : '1px solid var(--border-subtle)' }}
+                        >
+                          <td className="fg" style={{ padding: '10px 16px', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.title}</td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <Badge variant={DIFFICULTY_BADGE[s.difficulty] ?? 'neutral'}>
+                              <span style={{ textTransform: 'capitalize' }}>{s.difficulty}</span>
+                            </Badge>
                           </td>
-                          <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{s.turns}</td>
-                          <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{criteria.min_trust_score ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-muted-foreground tabular-nums">
+                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>{s.turns}</td>
+                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>{criteria.min_trust_score ?? '—'}</td>
+                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>
                             {s.end_conditions?.failure_escalation_threshold != null
                               ? `${s.end_conditions.failure_escalation_threshold}/5`
                               : '—'}
                           </td>
-                          <td className="px-4 py-2.5 text-muted-foreground">trust ≥ {coop}</td>
+                          <td style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>trust ≥ {coop}</td>
                         </tr>
                       )
                     })}
@@ -423,12 +453,12 @@ export default function ScenarioSelect() {
                 </table>
               </div>
             )}
-          </div>
+          </Card>
         )}
 
       </div>
 
-      {/* Detail modal */}
+      {/* Detail modal — untouched */}
       <ScenarioDetailModal
         scenario={selectedScenario}
         onClose={() => setSelectedScenario(null)}

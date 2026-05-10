@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
-  Activity, ArrowRight, Brain, ChevronDown, ChevronUp,
-  Loader2, RefreshCw, Sparkles, Target, TrendingUp,
+  Activity, ArrowRight, Brain, Loader2, RefreshCw, Sparkles, Target, TrendingUp,
 } from 'lucide-react'
 import { getMyTrainingPlan, generateTrainingPlan, getAdjustmentHistory } from '@/lib/api/pedagogy'
+import { getMyBaseline } from '@/lib/api/baseline'
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute'
 import { fadeInUp, staggerContainer } from '@/lib/animations'
-import { cn } from '@/lib/utils'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Banner from '@/components/ui/Banner'
+import ScoreBar from '@/components/ui/ScoreBar'
+import EmptyState from '@/components/ui/EmptyState'
+import AccordionItem from '@/components/ui/AccordionItem'
+import ChipToggle from '@/components/ui/ChipToggle'
 
 const IS_DEMO = import.meta.env.VITE_DEMO_MODE === 'true'
 
@@ -27,27 +34,19 @@ const NPC_LABEL = {
 }
 const FEEDBACK_LABEL = { encouraging: 'Encouraging', balanced: 'Balanced', blunt: 'Blunt' }
 
-const TONE_COLOR = {
-  gentle: 'bg-emerald-500/10 text-emerald-600',
-  direct: 'bg-blue-500/10 text-blue-600',
-  challenging: 'bg-orange-500/10 text-orange-600',
-}
-const FEEDBACK_COLOR = {
-  encouraging: 'bg-emerald-500/10 text-emerald-600',
-  balanced: 'bg-blue-500/10 text-blue-600',
-  blunt: 'bg-orange-500/10 text-orange-600',
-}
+const TONE_VARIANT = { gentle: 'success', direct: 'info', challenging: 'warning' }
+const FEEDBACK_VARIANT = { encouraging: 'success', balanced: 'info', blunt: 'warning' }
 
 // --------------------------------------------------------------------------
 // Sub-components
 // --------------------------------------------------------------------------
 
-function StrategyChip({ label, value, colorMap }) {
+function StrategyChip({ label, value, variant = 'neutral' }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</span>
-      <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold w-fit', colorMap?.[value] ?? 'bg-muted text-foreground')}>
-        {value}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="t-over">{label}</span>
+      <span style={{ width: 'fit-content' }}>
+        <Badge variant={variant}>{value}</Badge>
       </span>
     </div>
   )
@@ -55,52 +54,83 @@ function StrategyChip({ label, value, colorMap }) {
 
 function DifficultyBar({ value }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">Difficulty</span>
-        <span className="text-xs font-semibold tabular-nums">{value}/10</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="t-cap">Difficulty</span>
+        <span className="score-num fg" style={{ fontSize: 13 }}>{value}/10</span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-        <motion.div
-          className="h-full rounded-full bg-gradient-to-r from-primary to-violet-500"
-          initial={{ width: 0 }}
-          animate={{ width: `${value * 10}%` }}
-          transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
-        />
-      </div>
+      <ScoreBar value={value * 10} gradient />
     </div>
   )
 }
 
 function StrategyCard({ strategy, difficulty }) {
   return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-4"
-    >
-      <div className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
-          <Brain className="size-4 text-primary" />
+    <motion.div variants={fadeInUp}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              background: 'var(--accent-soft)',
+              border: '1px solid var(--accent-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent)',
+            }}
+          >
+            <Brain size={14} strokeWidth={1.8} />
+          </div>
+          <div className="t-h3" style={{ margin: 0 }}>Your teaching strategy</div>
         </div>
-        <h2 className="text-sm font-semibold text-foreground">Your teaching strategy</h2>
-      </div>
 
-      <DifficultyBar value={difficulty} />
+        <DifficultyBar value={difficulty} />
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
-        <StrategyChip label="Tone" value={TONE_LABEL[strategy.tone] ?? strategy.tone} colorMap={TONE_COLOR} />
-        <StrategyChip label="Pacing" value={PACING_LABEL[strategy.pacing] ?? strategy.pacing} />
-        <StrategyChip label="Scenario complexity" value={COMPLEXITY_LABEL[strategy.complexity] ?? strategy.complexity} />
-        <StrategyChip label="NPC personality" value={NPC_LABEL[strategy.npc_personality] ?? strategy.npc_personality} />
-        <StrategyChip label="Feedback style" value={FEEDBACK_LABEL[strategy.feedback_style] ?? strategy.feedback_style} colorMap={FEEDBACK_COLOR} />
-      </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '12px 16px',
+            paddingTop: 16,
+          }}
+        >
+          <StrategyChip
+            label="Tone"
+            value={TONE_LABEL[strategy.tone] ?? strategy.tone}
+            variant={TONE_VARIANT[strategy.tone] ?? 'neutral'}
+          />
+          <StrategyChip
+            label="Pacing"
+            value={PACING_LABEL[strategy.pacing] ?? strategy.pacing}
+          />
+          <StrategyChip
+            label="Scenario complexity"
+            value={COMPLEXITY_LABEL[strategy.complexity] ?? strategy.complexity}
+          />
+          <StrategyChip
+            label="NPC personality"
+            value={NPC_LABEL[strategy.npc_personality] ?? strategy.npc_personality}
+          />
+          <StrategyChip
+            label="Feedback style"
+            value={FEEDBACK_LABEL[strategy.feedback_style] ?? strategy.feedback_style}
+            variant={FEEDBACK_VARIANT[strategy.feedback_style] ?? 'neutral'}
+          />
+        </div>
 
-      {strategy.rationale?.length > 0 && (
-        <p className="text-xs text-muted-foreground border-t border-border/40 pt-3 leading-relaxed">
-          <span className="font-medium text-foreground">Why: </span>
-          {strategy.rationale.join(' · ')}
-        </p>
-      )}
+        {strategy.rationale?.length > 0 && (
+          <>
+            <div className="divider" style={{ margin: '16px 0' }} />
+            <p className="t-cap" style={{ lineHeight: 1.55 }}>
+              <span className="fg" style={{ fontWeight: 500 }}>Why: </span>
+              {strategy.rationale.join(' · ')}
+            </p>
+          </>
+        )}
+      </Card>
     </motion.div>
   )
 }
@@ -108,231 +138,299 @@ function StrategyCard({ strategy, difficulty }) {
 function ScenarioCard({ scenario, generationSource }) {
   if (!scenario || scenario.scenario_id === 'none') return null
   const badge = generationSource === 'rpe_library'
-    ? { label: 'From library', cls: 'bg-blue-500/10 text-blue-600' }
+    ? { label: 'From library', variant: 'info' }
     : generationSource === 'rpe_then_gemini'
-    ? { label: 'AI-personalised', cls: 'bg-violet-500/10 text-violet-600' }
-    : { label: 'AI-generated', cls: 'bg-violet-500/10 text-violet-600' }
+    ? { label: 'AI-personalised', variant: 'accent' }
+    : { label: 'AI-generated', variant: 'accent' }
 
   return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
-            <Target className="size-4 text-primary" />
+    <motion.div variants={fadeInUp}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--accent)',
+              }}
+            >
+              <Target size={14} strokeWidth={1.8} />
+            </div>
+            <div className="t-h3" style={{ margin: 0 }}>Recommended scenario</div>
           </div>
-          <h2 className="text-sm font-semibold text-foreground">Recommended scenario</h2>
+          <Badge variant={badge.variant}>{badge.label}</Badge>
         </div>
-        <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-semibold shrink-0', badge.cls)}>
-          {badge.label}
-        </span>
-      </div>
 
-      <div>
-        <p className="text-base font-semibold text-foreground">{scenario.title}</p>
-        {scenario.npc_role && (
-          <p className="text-xs text-muted-foreground mt-0.5">NPC: {scenario.npc_role}</p>
+        <div style={{ marginBottom: 8 }}>
+          <p className="fg" style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{scenario.title}</p>
+          {scenario.npc_role && (
+            <p className="t-cap" style={{ marginTop: 2 }}>NPC: {scenario.npc_role}</p>
+          )}
+        </div>
+
+        {scenario.context && (
+          <p className="t-cap" style={{ lineHeight: 1.6, marginTop: 8 }}>{scenario.context}</p>
         )}
-      </div>
 
-      {scenario.context && (
-        <p className="text-xs text-muted-foreground leading-relaxed">{scenario.context}</p>
-      )}
+        {scenario.target_skills?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+            {scenario.target_skills.map((s) => (
+              <ChipToggle key={s} staticOnly>
+                <span style={{ textTransform: 'capitalize' }}>{s.replace(/_/g, ' ')}</span>
+              </ChipToggle>
+            ))}
+          </div>
+        )}
 
-      {scenario.target_skills?.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {scenario.target_skills.map((s) => (
-            <span key={s} className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {s.replace(/_/g, ' ')}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {scenario.opening_npc_line && (
-        <p className="text-xs italic text-muted-foreground border-t border-border/40 pt-3">
-          "{scenario.opening_npc_line}"
-        </p>
-      )}
+        {scenario.opening_npc_line && (
+          <>
+            <div className="divider" style={{ margin: '16px 0 12px' }} />
+            <p
+              className="t-body"
+              style={{ fontStyle: 'italic', color: 'var(--text-secondary)', margin: 0 }}
+            >
+              "{scenario.opening_npc_line}"
+            </p>
+          </>
+        )}
+      </Card>
     </motion.div>
   )
 }
 
 function HistoryEntry({ entry, index }) {
-  const [open, setOpen] = useState(index === 0)
   const diffDelta = entry.new_difficulty - entry.previous_difficulty
-  const triggerLabel = { survey: 'Survey submitted', session_end: 'Session ended', live_signal: 'Live signal', manual: 'Manual' }
+  const triggerLabel = {
+    survey: 'Survey submitted',
+    session_end: 'Session ended',
+    live_signal: 'Live signal',
+    manual: 'Manual',
+  }
+  const deltaVariant = diffDelta > 0 ? 'success' : diffDelta < 0 ? 'warning' : 'neutral'
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-muted/30 transition-colors"
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-[11px] font-medium rounded-md bg-muted px-2 py-0.5 shrink-0">
-            {triggerLabel[entry.trigger] ?? entry.trigger}
-          </span>
-          <span className="text-xs text-muted-foreground truncate">
-            {new Date(entry.created_at).toLocaleString(undefined, {
-              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-            })}
-          </span>
+    <AccordionItem
+      defaultOpen={index === 0}
+      title={triggerLabel[entry.trigger] ?? entry.trigger}
+      subtitle={new Date(entry.created_at).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}
+      badge={
+        <Badge variant={deltaVariant}>
+          {diffDelta > 0 ? `+${diffDelta}` : diffDelta} difficulty
+        </Badge>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+          <div className="t-cap">
+            <span style={{ color: 'var(--text-tertiary)' }}>Difficulty: </span>
+            <span className="score-num fg" style={{ fontWeight: 500 }}>
+              {entry.previous_difficulty} → {entry.new_difficulty}
+            </span>
+          </div>
+          <div className="t-cap">
+            <span style={{ color: 'var(--text-tertiary)' }}>Tone: </span>
+            <span className="fg" style={{ fontWeight: 500 }}>
+              {TONE_LABEL[entry.previous_strategy?.tone] ?? entry.previous_strategy?.tone}
+              {' → '}
+              {TONE_LABEL[entry.new_strategy?.tone] ?? entry.new_strategy?.tone}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={cn('text-xs font-semibold tabular-nums', diffDelta > 0 ? 'text-emerald-600' : diffDelta < 0 ? 'text-orange-600' : 'text-muted-foreground')}>
-            {diffDelta > 0 ? `+${diffDelta}` : diffDelta} difficulty
-          </span>
-          {open ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
-        </div>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 space-y-2.5 border-t border-border/40 pt-3">
-              <div className="flex items-center gap-6 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Difficulty: </span>
-                  <span className="font-semibold">{entry.previous_difficulty} → {entry.new_difficulty}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Tone: </span>
-                  <span className="font-semibold">
-                    {TONE_LABEL[entry.previous_strategy?.tone] ?? entry.previous_strategy?.tone}
-                    {' → '}
-                    {TONE_LABEL[entry.new_strategy?.tone] ?? entry.new_strategy?.tone}
-                  </span>
-                </div>
-              </div>
-              {entry.rationale && (
-                <p className="text-xs text-muted-foreground leading-relaxed">{entry.rationale}</p>
-              )}
-            </div>
-          </motion.div>
+        {entry.rationale && (
+          <p className="t-cap" style={{ lineHeight: 1.55 }}>{entry.rationale}</p>
         )}
-      </AnimatePresence>
-    </div>
+      </div>
+    </AccordionItem>
   )
 }
 
 function PersonalizationBriefCard({ brief }) {
   if (!brief) return null
   return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-3.5"
-    >
-      <div className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
-          <Sparkles className="size-4 text-primary" />
-        </div>
-        <h2 className="text-sm font-semibold text-foreground">Why this plan?</h2>
-        {brief.has_baseline_evidence && (
-          <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
-            Baseline calibrated
-          </span>
-        )}
-      </div>
-
-      <p className="text-sm text-foreground leading-relaxed">{brief.summary}</p>
-
-      {brief.drivers?.length > 0 && (
-        <div className="space-y-1.5 border-t border-border/40 pt-3">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
-            Key factors
-          </p>
-          <ul className="space-y-1">
-            {brief.drivers.map((d, i) => (
-              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                <span className="text-primary mt-0.5 shrink-0">·</span>
-                {d}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {brief.priority_skills?.length > 0 && (
-        <div className="border-t border-border/40 pt-3 space-y-1.5">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
-            Focus skills
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {brief.priority_skills.map((s) => (
-              <span
-                key={s}
-                className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary capitalize"
-              >
-                {s.replace(/_/g, ' ')}
-              </span>
-            ))}
+    <motion.div variants={fadeInUp}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              background: 'var(--accent-soft)',
+              border: '1px solid var(--accent-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent)',
+            }}
+          >
+            <Sparkles size={14} strokeWidth={1.8} />
           </div>
+          <div className="t-h3" style={{ margin: 0 }}>Why this plan?</div>
+          {brief.has_baseline_evidence && (
+            <span style={{ marginLeft: 'auto' }}>
+              <Badge variant="success">Baseline calibrated</Badge>
+            </span>
+          )}
         </div>
-      )}
 
-      <p className="text-xs text-muted-foreground border-t border-border/40 pt-3">
-        {brief.difficulty_rationale}
-      </p>
+        <p className="t-body fg" style={{ lineHeight: 1.6, margin: 0 }}>{brief.summary}</p>
+
+        {brief.drivers?.length > 0 && (
+          <>
+            <div className="divider" style={{ margin: '16px 0' }} />
+            <div className="t-over" style={{ marginBottom: 8 }}>Key factors</div>
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {brief.drivers.map((d, i) => (
+                <li key={i} className="t-cap" style={{ display: 'flex', gap: 8, lineHeight: 1.55 }}>
+                  <span style={{ color: 'var(--accent)', flexShrink: 0 }}>·</span>
+                  <span>{d}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {brief.priority_skills?.length > 0 && (
+          <>
+            <div className="divider" style={{ margin: '16px 0' }} />
+            <div className="t-over" style={{ marginBottom: 8 }}>Focus skills</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {brief.priority_skills.map((s) => (
+                <ChipToggle key={s} staticOnly active>
+                  <span style={{ textTransform: 'capitalize' }}>{s.replace(/_/g, ' ')}</span>
+                </ChipToggle>
+              ))}
+            </div>
+          </>
+        )}
+
+        {brief.difficulty_rationale && (
+          <>
+            <div className="divider" style={{ margin: '16px 0' }} />
+            <p className="t-cap" style={{ lineHeight: 1.55 }}>{brief.difficulty_rationale}</p>
+          </>
+        )}
+      </Card>
     </motion.div>
   )
 }
 
-function BaselineEvidenceCard({ baseline }) {
-  if (!baseline?.has_baseline) return null
-  const stressColor = baseline.stress_indicator > 0.6 ? 'text-orange-500' : 'text-emerald-500'
-  const confColor = baseline.confidence_indicator < 0.3 ? 'text-orange-500' : 'text-emerald-500'
+// summary = plan.baseline_summary_json (derived fields from orchestrator)
+// snapshot = raw BaselineSnapshotOut from GET /apa/baseline/me
+function BaselineEvidenceCard({ summary, snapshot }) {
+  // No baseline recorded at all
+  if (!summary?.has_baseline && !snapshot) return null
+
+  const isSkipped = snapshot?.mca_session_id === 'skipped'
+
+  // Skipped state — default variant, nudge to complete
+  if (isSkipped) {
+    return (
+      <motion.div variants={fadeInUp}>
+        <Card>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div
+              style={{
+                width: 28, height: 28, borderRadius: 8,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--text-tertiary)',
+              }}
+            >
+              <Activity size={14} strokeWidth={1.8} />
+            </div>
+            <div className="t-h3" style={{ margin: 0 }}>Baseline evidence</div>
+            <span style={{ marginLeft: 'auto' }}>
+              <Badge variant="neutral">Skipped</Badge>
+            </span>
+          </div>
+          <p className="t-cap" style={{ lineHeight: 1.55, marginBottom: 14 }}>
+            Your plan is based on your personality profile only. Complete the voice baseline to
+            unlock more accurate difficulty calibration and scenario selection.
+          </p>
+          <Link to="/baseline" className="btn btn-secondary" style={{ display: 'inline-flex' }}>
+            <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Activity size={13} strokeWidth={1.8} />
+              Complete baseline now
+            </span>
+          </Link>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  // Completed state — accent variant with evidence metrics
+  if (!summary?.has_baseline) return null
+  const stress = Math.round((summary.stress_indicator ?? 0) * 100)
+  const confidence = Math.round((summary.confidence_indicator ?? 0) * 100)
+  const stressColor = stress > 60 ? 'var(--warning)' : 'var(--success)'
+  const confColor = confidence < 30 ? 'var(--warning)' : 'var(--success)'
 
   return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-emerald-400/30 bg-emerald-500/5 p-5 shadow-sm space-y-3"
-    >
-      <div className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-emerald-500/10">
-          <Activity className="size-4 text-emerald-600" />
+    <motion.div variants={fadeInUp}>
+      <Card variant="accent">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <div
+            style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: 'color-mix(in oklch, var(--success) 12%, transparent)',
+              border: '1px solid color-mix(in oklch, var(--success) 25%, transparent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--success)',
+            }}
+          >
+            <Activity size={14} strokeWidth={1.8} />
+          </div>
+          <div className="t-h3" style={{ margin: 0 }}>Baseline evidence</div>
+          <span style={{ marginLeft: 'auto' }}>
+            <Badge variant="success">Used in calibration</Badge>
+          </span>
         </div>
-        <h2 className="text-sm font-semibold text-foreground">Baseline evidence</h2>
-        <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
-          Used in calibration
-        </span>
-      </div>
 
-      <div className="flex gap-3">
-        <div className="flex-1 text-center rounded-lg bg-card border border-border/60 p-2.5 space-y-0.5">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Stress</p>
-          <p className={cn('text-lg font-bold tabular-nums', stressColor)}>
-            {Math.round((baseline.stress_indicator ?? 0) * 100)}%
-          </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{
+            padding: 14, background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', textAlign: 'center',
+          }}>
+            <div className="t-over" style={{ marginBottom: 6 }}>Stress</div>
+            <div className="score-num" style={{ fontSize: 22, fontWeight: 500, color: stressColor }}>
+              {stress}%
+            </div>
+          </div>
+          <div style={{
+            padding: 14, background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', textAlign: 'center',
+          }}>
+            <div className="t-over" style={{ marginBottom: 6 }}>Confidence</div>
+            <div className="score-num" style={{ fontSize: 22, fontWeight: 500, color: confColor }}>
+              {confidence}%
+            </div>
+          </div>
         </div>
-        <div className="flex-1 text-center rounded-lg bg-card border border-border/60 p-2.5 space-y-0.5">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Confidence</p>
-          <p className={cn('text-lg font-bold tabular-nums', confColor)}>
-            {Math.round((baseline.confidence_indicator ?? 0) * 100)}%
-          </p>
-        </div>
-      </div>
 
-      {baseline.dominant_emotions?.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {baseline.dominant_emotions.map((e) => (
-            <span
-              key={e}
-              className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground capitalize"
-            >
-              {e}
-            </span>
-          ))}
-        </div>
-      )}
+        {summary.dominant_emotions?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+            {summary.dominant_emotions.map((e) => (
+              <ChipToggle key={e} staticOnly>
+                <span style={{ textTransform: 'capitalize' }}>{e}</span>
+              </ChipToggle>
+            ))}
+          </div>
+        )}
+      </Card>
     </motion.div>
   )
 }
@@ -340,23 +438,29 @@ function BaselineEvidenceCard({ baseline }) {
 function AdjustmentHistorySection({ history }) {
   if (!history?.length) {
     return (
-      <motion.div variants={fadeInUp} className="rounded-xl border border-dashed border-border/60 bg-card/50 p-5 text-center space-y-1">
-        <TrendingUp className="size-5 text-muted-foreground mx-auto" />
-        <p className="text-sm text-muted-foreground">No adjustments yet</p>
-        <p className="text-xs text-muted-foreground">Your plan will adapt after each practice session.</p>
+      <motion.div variants={fadeInUp}>
+        <Card>
+          <EmptyState
+            icon={TrendingUp}
+            title="No adjustments yet"
+            description="Your plan will adapt after each practice session."
+          />
+        </Card>
       </motion.div>
     )
   }
 
   return (
-    <motion.div variants={fadeInUp} className="space-y-2">
-      <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-        <TrendingUp className="size-4 text-primary" />
-        Plan adjustments ({history.length})
-      </h2>
-      {history.map((entry, i) => (
-        <HistoryEntry key={entry.id} entry={entry} index={i} />
-      ))}
+    <motion.div variants={fadeInUp}>
+      <Card>
+        <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px' }}>
+          <TrendingUp size={16} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+          Plan adjustments ({history.length})
+        </div>
+        {history.map((entry, i) => (
+          <HistoryEntry key={entry.id} entry={entry} index={i} />
+        ))}
+      </Card>
     </motion.div>
   )
 }
@@ -367,21 +471,24 @@ function AdjustmentHistorySection({ history }) {
 
 export default function TrainingPlan() {
   const { isLoading: authLoading } = useProtectedRoute()
-  const [plan, setPlan] = useState(undefined)   // undefined = loading, null = not found
-  const [history, setHistory] = useState([])
+  const [plan, setPlan]         = useState(undefined) // undefined = loading, null = not found
+  const [history, setHistory]   = useState([])
+  const [snapshot, setSnapshot] = useState(undefined) // undefined = loading, null = none
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     if (authLoading) return
-    Promise.all([getMyTrainingPlan(), getAdjustmentHistory()])
-      .then(([p, h]) => {
+    Promise.all([getMyTrainingPlan(), getAdjustmentHistory(), getMyBaseline()])
+      .then(([p, h, b]) => {
         setPlan(p)
         setHistory(h ?? [])
+        setSnapshot(b)
       })
       .catch(() => {
         setPlan(null)
         setHistory([])
+        setSnapshot(null)
       })
   }, [authLoading])
 
@@ -397,7 +504,7 @@ export default function TrainingPlan() {
       setError(
         err.response?.status === 404
           ? 'Complete the personality survey first, then come back to generate your plan.'
-          : 'Something went wrong. Please try again.'
+          : 'Something went wrong. Please try again.',
       )
     } finally {
       setGenerating(false)
@@ -408,8 +515,15 @@ export default function TrainingPlan() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <div
+        style={{
+          display: 'flex',
+          minHeight: '50vh',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Loader2 size={24} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
       </div>
     )
   }
@@ -419,94 +533,113 @@ export default function TrainingPlan() {
       variants={staggerContainer}
       initial="initial"
       animate="animate"
-      className="mx-auto max-w-xl space-y-6"
+      className="page"
     >
+      <PageHead
+        eyebrow="Adaptive Pedagogy"
+        title="Your training plan"
+        sub="Personalised to your Big Five profile — adapts after every session."
+      />
+
       {/* Demo banner */}
       {IS_DEMO && (
-        <motion.div
-          variants={fadeInUp}
-          className="rounded-xl border border-violet-400/40 bg-violet-500/10 px-4 py-3 text-xs text-violet-700 space-y-0.5"
-        >
-          <p className="font-semibold">Demo mode — Adaptive Pedagogy thesis demonstration</p>
-          <p className="text-violet-600/80">
-            Two personas (high-N/low-E introvert and low-N/high-E extrovert) will receive different
-            strategies and starting difficulties, proving the adaptation thesis end-to-end.
-          </p>
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <Banner variant="info">
+            <div>
+              <div className="fg" style={{ fontWeight: 500 }}>
+                Demo mode — Adaptive Pedagogy thesis demonstration
+              </div>
+              <div className="t-cap" style={{ marginTop: 2 }}>
+                Two personas (high-N/low-E introvert and low-N/high-E extrovert) will receive
+                different strategies and starting difficulties, proving the adaptation thesis end-to-end.
+              </div>
+            </div>
+          </Banner>
         </motion.div>
       )}
 
-      {/* Header */}
-      <motion.div variants={fadeInUp} className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Your training plan
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Personalised to your Big Five profile — adapts after every session.
-        </p>
-      </motion.div>
-
       {/* No plan yet */}
       {plan === null && (
-        <motion.div
-          variants={fadeInUp}
-          className="rounded-xl border border-dashed border-border/60 bg-card/50 p-8 text-center space-y-4"
-        >
-          <Sparkles className="size-8 text-primary mx-auto" />
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">No plan yet</p>
-            <p className="text-xs text-muted-foreground">
-              Generate your personalised training plan based on your personality profile.
-            </p>
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all disabled:opacity-60"
-          >
-            {generating ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            {generating ? 'Generating…' : 'Generate plan'}
-          </button>
-          <Link to="/survey/results" className="block text-xs text-muted-foreground hover:text-foreground transition-colors">
-            View your personality profile first →
-          </Link>
+        <motion.div variants={fadeInUp}>
+          <Card>
+            <EmptyState
+              icon={Sparkles}
+              title="No plan yet"
+              description="Generate your personalised training plan based on your personality profile."
+              action={
+                <>
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="btn btn-primary btn-lg"
+                  >
+                    <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      {generating ? (
+                        <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={14} strokeWidth={1.8} />
+                      )}
+                      {generating ? 'Generating…' : 'Generate plan'}
+                    </span>
+                  </button>
+                  <Link to="/survey/results" className="btn btn-ghost btn-lg">
+                    <span className="btn-label">View profile first →</span>
+                  </Link>
+                </>
+              }
+            />
+            {error && (
+              <div style={{ marginTop: 12 }}>
+                <Banner variant="danger">{error}</Banner>
+              </div>
+            )}
+          </Card>
         </motion.div>
       )}
 
       {/* Plan loaded */}
       {plan && (
-        <>
+        <div className="col stagger" style={{ gap: 16 }}>
           {plan.generation_status === 'pending' && (
-            <motion.div variants={fadeInUp} className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-700">
-              Plan is being generated — refresh in a moment.
-            </motion.div>
+            <Banner variant="warning">Plan is being generated — refresh in a moment.</Banner>
           )}
 
           <PersonalizationBriefCard brief={plan.brief_json} />
-          <BaselineEvidenceCard baseline={plan.baseline_summary_json} />
+          <BaselineEvidenceCard summary={plan.baseline_summary_json} snapshot={snapshot} />
           <StrategyCard strategy={plan.strategy} difficulty={plan.difficulty} />
           <ScenarioCard scenario={plan.primary_scenario} generationSource={plan.generation_source} />
           <AdjustmentHistorySection history={history} />
 
           {/* Actions */}
-          <motion.div variants={fadeInUp} className="flex gap-3 pt-2 pb-8">
-            <Link
-              to="/roleplay"
-              className="group flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all"
-            >
-              Start practice session
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          <motion.div
+            variants={fadeInUp}
+            style={{ display: 'flex', gap: 12, paddingTop: 8, paddingBottom: 32 }}
+          >
+            <Link to="/roleplay" className="btn btn-primary btn-lg" style={{ flex: 1 }}>
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Start practice session
+                <ArrowRight size={14} strokeWidth={1.8} />
+              </span>
             </Link>
             <button
+              type="button"
               onClick={handleGenerate}
               disabled={generating}
-              className="flex items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-60"
+              className="btn btn-secondary btn-lg"
               title="Regenerate training plan"
+              aria-label="Regenerate training plan"
             >
-              {generating ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              <span className="btn-label">
+                {generating ? (
+                  <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={14} strokeWidth={1.8} />
+                )}
+              </span>
             </button>
           </motion.div>
-        </>
+        </div>
       )}
     </motion.div>
   )

@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+// REDESIGN: emerald/amber/red/slate → semantic tokens
 const DIFFICULTY_STYLES = {
-  beginner:     'bg-emerald-100 text-emerald-700',
-  intermediate: 'bg-amber-100 text-amber-700',
-  advanced:     'bg-red-100 text-red-700',
+  beginner:     'bg-success/10 text-success',
+  intermediate: 'bg-warning/10 text-warning',
+  advanced:     'bg-danger/10 text-danger',
 }
 
 const getDifficultyLabel = (weight) => {
@@ -51,7 +52,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
             <div className="flex flex-wrap gap-1.5 mt-2">
               <span className={cn(
                 'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-                DIFFICULTY_STYLES[scenario.difficulty] ?? 'bg-slate-100 text-slate-600'
+                DIFFICULTY_STYLES[scenario.difficulty] ?? 'bg-muted text-muted-foreground'
               )}>
                 {scenario.difficulty}
               </span>
@@ -90,9 +91,9 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
               <p className="text-sm text-muted-foreground italic mt-0.5">{scenario.npc_personality}</p>
             )}
             {scenario.opening_npc_line && (
-              <div className="mt-3 bg-slate-900 rounded-lg px-3 py-2.5 border-l-[3px] border-primary/60">
-                <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-widest">Opening line</p>
-                <p className="text-sm text-slate-200 italic">"{scenario.opening_npc_line}"</p>
+              <div className="mt-3 bg-elevated rounded-lg px-3 py-2.5 border-l-[3px] border-primary/60">
+                <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest">Opening line</p>
+                <p className="text-sm text-foreground italic">"{scenario.opening_npc_line}"</p>
               </div>
             )}
           </section>
@@ -144,13 +145,13 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
               {criteria.min_trust_score != null && (
                 <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Min Trust</p>
-                  <p className="text-sm font-semibold text-emerald-600">{criteria.min_trust_score}</p>
+                  <p className="text-sm font-semibold text-success">{criteria.min_trust_score}</p>
                 </div>
               )}
               {criteria.max_escalation_level != null && (
                 <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Max Escalation</p>
-                  <p className="text-sm font-semibold text-amber-600">{criteria.max_escalation_level}/5</p>
+                  <p className="text-sm font-semibold text-warning">{criteria.max_escalation_level}/5</p>
                 </div>
               )}
             </div>
@@ -173,15 +174,15 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
                   How does this session end?
                 </p>
                 <div className="space-y-2">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 flex items-start gap-2.5">
-                    <CheckCircle className="text-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="rounded-lg border border-success/20 bg-success/5 px-3 py-2.5 flex items-start gap-2.5">
+                    <CheckCircle className="text-success w-4 h-4 mt-0.5 shrink-0" />
                     <p className="text-sm text-foreground">
                       Build trust above <span className="font-semibold">{successThreshold}</span> for{' '}
                       <span className="font-semibold">{consecutiveTurns}</span> consecutive turns
                     </p>
                   </div>
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 flex items-start gap-2.5">
-                    <XCircle className="text-red-500 w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2.5 flex items-start gap-2.5">
+                    <XCircle className="text-danger w-4 h-4 mt-0.5 shrink-0" />
                     <p className="text-sm text-foreground">
                       Escalation reaches <span className="font-semibold">{failureEscalation}/5</span> — the NPC walks out
                     </p>
@@ -249,7 +250,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           <button
             onClick={() => onStart(scenario)}
             disabled={isStarting}
-            className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/25"
+            className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isStarting
               ? <><Loader2 size={14} className="animate-spin" /> Starting…</>

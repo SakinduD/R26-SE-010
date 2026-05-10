@@ -15,7 +15,7 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
@@ -360,7 +360,6 @@ export default function SkillTwinProfile() {
             <h1 className="mt-1 text-2xl font-semibold">Skill Twin Profile</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <AnalyticsNav />
             <SessionSelect
               value={sessionId}
               options={sessionOptions}

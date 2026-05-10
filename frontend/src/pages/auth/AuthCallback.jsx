@@ -30,10 +30,26 @@ export default function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-muted-foreground">
-        <Loader2 className="size-6 animate-spin" />
-        <p className="text-sm">Completing sign in…</p>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-canvas)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 12,
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        <Loader2 size={24} strokeWidth={1.6} className="animate-spin" />
+        <p className="t-body">Completing sign in…</p>
       </div>
     </div>
   );

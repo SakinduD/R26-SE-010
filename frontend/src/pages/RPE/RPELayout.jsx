@@ -1,7 +1,6 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, LayoutDashboard, Brain, Swords, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
-import Logo from '@/components/ui/logo'
 import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
 
@@ -29,56 +28,86 @@ export default function RPELayout() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
-
-          <div className="flex items-center gap-6">
-            <Link to={isAuthenticated ? '/dashboard' : '/'}>
-              <Logo />
+      {/* REDESIGN: changed header from bg-background/80 + h-14 to .topbar (h-48 + bg-surface) */}
+      <header
+        className="topbar"
+        style={{
+          paddingLeft: 16,
+          paddingRight: 16,
+          background: 'oklch(0.185 0.018 264 / 0.85)',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1280,
+            margin: '0 auto',
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            {/* REDESIGN: Logo replaced with EZ wordmark to match new sidebar identity */}
+            <Link
+              to={isAuthenticated ? '/dashboard' : '/'}
+              style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+              aria-label="EmpowerZ home"
+            >
+              <div className="sb-mark" style={{ width: 24, height: 24, fontSize: 12 }}>EZ</div>
+              <span className="sb-brand-text">EmpowerZ</span>
             </Link>
+
+            {/* REDESIGN: nav links restyled to match sidebar .sb-link visual idiom */}
             {NAV_LINKS.map(({ to, icon: Icon, label }) => (
               <Link
                 key={to}
                 to={to}
                 className={cn(
-                  'flex items-center gap-1.5 text-sm transition-colors',
-                  isActive(to)
-                    ? 'text-primary font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
+                  'sb-link',
+                  isActive(to) && 'sb-link-active',
                 )}
+                data-active={isActive(to) || undefined}
+                style={{ padding: '5px 10px' }}
               >
-                <Icon className="size-3.5" />
-                {label}
+                <Icon size={14} strokeWidth={1.6} />
+                <span>{label}</span>
               </Link>
             ))}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {isAuthenticated ? (
               <>
-                <span className="hidden sm:block text-sm text-muted-foreground">
+                <span className="t-cap" style={{ display: 'none' }} />
+                <span
+                  className="t-cap"
+                  style={{ color: 'var(--text-tertiary)' }}
+                >
                   {user?.display_name || user?.email}
                 </span>
+                {/* REDESIGN: Sign out button now uses .icon-btn idiom */}
                 <button
                   onClick={handleSignOut}
-                  className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="sb-link"
                   aria-label="Sign out"
+                  style={{ padding: '5px 10px' }}
                 >
-                  <LogOut className="size-3.5" />
-                  <span className="hidden sm:inline">Sign out</span>
+                  <LogOut size={14} strokeWidth={1.6} />
+                  <span>Sign out</span>
                 </button>
               </>
             ) : (
               <Link
                 to="/signin"
-                className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                className="sb-link"
+                style={{ padding: '5px 10px', color: 'var(--accent)' }}
               >
-                <LogIn className="size-3.5" />
-                Sign in
+                <LogIn size={14} strokeWidth={1.6} />
+                <span>Sign in</span>
               </Link>
             )}
           </div>
-
         </div>
       </header>
 
