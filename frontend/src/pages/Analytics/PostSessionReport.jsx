@@ -1,21 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
   FileText,
   RefreshCw,
-  Search,
   ShieldAlert,
   Target,
 } from 'lucide-react'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
+import { fadeInUp, staggerContainer } from '@/lib/animations'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Button from '@/components/ui/Button'
 
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
@@ -132,6 +136,8 @@ const RAW_TO_COMPOSITE = {
   adaptability: 'Emotional Intelligence',
 }
 
+const PRIORITY_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
+
 function labelFor(value) {
   return SKILL_LABELS[value] || RAW_TO_COMPOSITE[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -163,51 +169,32 @@ export default function PostSessionReport() {
 
   const loadReport = async (nextSessionId = sessionId) => {
     const targetSessionId = String(nextSessionId || '').trim()
-
-    if (!targetSessionId) {
-      setError('Select a session before loading the report.')
-      return
-    }
-
-    setStatus('loading')
-    setError('')
-
+    if (!targetSessionId) { setError('Select a session before loading the report.'); return }
+    setStatus('loading'); setError('')
     try {
       const nextReport = await analyticsService.getPostSessionReport(targetSessionId)
-      setReport(nextReport)
-      setStatus('live')
-    } catch (err) {
-      setReport(DEMO_REPORT)
-      setStatus('demo')
+      setReport(nextReport); setStatus('live')
+    } catch {
+      setReport(DEMO_REPORT); setStatus('demo')
       setError('Backend report unavailable. Showing demo report.')
     }
   }
 
   useEffect(() => {
     let isActive = true
-
     async function loadSessions() {
       const options = await loadComponentSessionOptions(analyticsService)
       if (!isActive) return
-
       setSessionOptions(options)
-
       if (!params.sessionId && !sessionId) {
         const preferred = selectPreferredComponentSession(options)
-        if (preferred) {
-          setSessionId(preferred.id)
-        }
+        if (preferred) setSessionId(preferred.id)
       }
     }
-
     loadSessions()
-
-    return () => {
-      isActive = false
-    }
+    return () => { isActive = false }
   }, [params.sessionId])
 
-  // Auto-load when sessionId becomes available or changes
   useEffect(() => {
     if (sessionId && sessionId !== loadedSessionRef.current) {
       loadedSessionRef.current = sessionId
@@ -216,145 +203,113 @@ export default function PostSessionReport() {
   }, [sessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Post-Session Report</h1>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <AnalyticsNav />
-            <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
-            <Button className="h-10 self-end" onClick={() => loadReport()}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
-          </div>
-        </div>
-      </section>
+    <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
+      <PageHead
+        eyebrow="Feedback System & Predictive Analytics"
+        title="Post-Session Report"
+        sub="Complete performance review synthesised from skill scores, feedback, and predictions."
+      />
 
-      <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={status} />
-          {error ? <span className="text-sm text-warning">{error}</span> : null}
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
+        <AnalyticsNav />
+        <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <Button onClick={() => loadReport()} variant="secondary" size="sm" loading={status === 'loading'}>
+            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
+            Load
+          </Button>
         </div>
+      </motion.div>
 
-        <section className="rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <FileText className="h-4 w-4 text-secondary" />
-                <span>{sessionOptions.find((o) => o.id === sessionId)?.label || (status === 'live' ? 'Session Report' : 'Demo Report')}</span>
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <Badge variant="neutral">
+          {status === 'live' ? 'Live API report' : status === 'loading' ? 'Loading…' : 'Demo report'}
+        </Badge>
+        {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
+      </motion.div>
+
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Card>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <FileText size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+                <span className="t-cap">
+                  {sessionOptions.find((o) => o.id === sessionId)?.label || (status === 'live' ? 'Session Report' : 'Demo Report')}
+                </span>
               </div>
-              <h2 className="mt-3 max-w-3xl text-xl font-semibold">{report.summary?.headline}</h2>
+              <div className="t-h3" style={{ maxWidth: 520 }}>{report.summary?.headline}</div>
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-              <Metric label="Overall" value={formatScore(overallScore)} />
-              <Metric label="Feedback" value={report.aggregate?.feedback?.total_count || 0} />
-              <Metric label="Actions" value={report.action_items?.length || 0} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, minWidth: 240 }}>
+              <MetricBox label="Overall" value={formatScore(overallScore)} />
+              <MetricBox label="Feedback" value={report.aggregate?.feedback?.total_count || 0} />
+              <MetricBox label="Actions" value={report.action_items?.length || 0} />
             </div>
           </div>
-        </section>
+        </Card>
+      </motion.div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <Panel title="Skill Twin" icon={Target}>
-            <SkillTwinRadar scores={radarScores} selfScores={selfScores} overallScore={overallScore} />
-          </Panel>
+      <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
+        <Panel title="Skill Twin" icon={Target}>
+          <SkillTwinRadar scores={radarScores} selfScores={selfScores} overallScore={overallScore} />
+        </Panel>
+        <Panel title="Report Summary" icon={CheckCircle2}>
+          <SummaryList title="Strengths" items={report.summary?.strengths || []} emptyText="No strengths detected yet" />
+          <div style={{ marginTop: 16 }}>
+            <SummaryList title="Improvement Areas" items={report.summary?.improvement_areas || []} emptyText="No improvement areas detected yet" />
+          </div>
+        </Panel>
+      </motion.div>
 
-          <Panel title="Report Summary" icon={CheckCircle2}>
-            <SummaryList title="Strengths" items={report.summary?.strengths || []} emptyText="No strengths detected yet" />
-            <div className="mt-4">
-              <SummaryList title="Improvement Areas" items={report.summary?.improvement_areas || []} emptyText="No improvement areas detected yet" />
-            </div>
-          </Panel>
-        </div>
+      <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
+        <Panel title="Action Plan" icon={ClipboardList}>
+          <ActionList actions={report.action_items || []} />
+        </Panel>
+        <Panel title="Blind Spots" icon={ShieldAlert}>
+          <BlindSpotList blindSpots={report.blind_spots?.blind_spots || []} />
+        </Panel>
+      </motion.div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Action Plan" icon={ClipboardList}>
-            <ActionList actions={report.action_items || []} />
-          </Panel>
-
-          <Panel title="Blind Spots" icon={ShieldAlert}>
-            <BlindSpotList blindSpots={report.blind_spots?.blind_spots || []} />
-          </Panel>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Feedback Evidence" icon={FileText}>
-            <FeedbackList entries={report.aggregate?.feedback?.latest_entries || []} />
-          </Panel>
-
-          <Panel title="Prediction Evidence" icon={AlertTriangle}>
-            <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
-          </Panel>
-        </div>
-      </section>
-    </main>
-  )
-}
-
-function StatusPill({ status }) {
-  const label = status === 'live' ? 'Live API report' : status === 'loading' ? 'Loading report' : 'Demo report'
-  return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-      {label}
-    </span>
-  )
-}
-
-function Metric({ label, value }) {
-  return (
-    <div className="rounded-md border border-border bg-background/40 p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
-    </div>
-  )
-}
-
-function Panel({ title, icon: Icon, children }) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
-        <h2 className="text-base font-semibold">{title}</h2>
-      </div>
-      {children}
-    </section>
+      <motion.div variants={fadeInUp} className="grid-2">
+        <Panel title="Feedback Evidence" icon={FileText}>
+          <FeedbackList entries={report.aggregate?.feedback?.latest_entries || []} />
+        </Panel>
+        <Panel title="Prediction Evidence" icon={AlertTriangle}>
+          <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
+        </Panel>
+      </motion.div>
+    </motion.div>
   )
 }
 
 function SummaryList({ title, items, emptyText }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-medium">{title}</h3>
+      <div className="t-cap" style={{ fontWeight: 500, marginBottom: 10 }}>{title}</div>
       {items.length ? (
-        <div className="flex flex-wrap gap-2">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {items.map((item) => (
-            <span key={item} className="rounded-full border border-border bg-background px-3 py-1 text-xs">
-              {item}
-            </span>
+            <Badge key={item} variant="neutral">{item}</Badge>
           ))}
         </div>
       ) : (
-        <EmptyState text={emptyText} />
+        <EmptyMsg text={emptyText} />
       )}
     </div>
   )
 }
 
 function ActionList({ actions }) {
-  if (!actions.length) return <EmptyState text="No action items yet" />
-
+  if (!actions.length) return <EmptyMsg text="No action items yet" />
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {actions.map((item, index) => (
-        <div key={`${item.title}-${index}`} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{item.title}</span>
-            <PriorityBadge priority={item.priority} />
+        <div key={`${item.title}-${index}`} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{item.title}</span>
+            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{item.priority}</Badge>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">{item.detail}</p>
+          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.detail}</p>
         </div>
       ))}
     </div>
@@ -362,20 +317,17 @@ function ActionList({ actions }) {
 }
 
 function BlindSpotList({ blindSpots }) {
-  if (!blindSpots.length) return <EmptyState text="No blind spots detected" />
-
+  if (!blindSpots.length) return <EmptyMsg text="No blind spots detected" />
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {blindSpots.map((item) => (
-        <div key={item.skill_area} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelFor(item.skill_area)}</span>
-            <PriorityBadge priority={item.severity} />
+        <div key={item.skill_area} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
+            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{item.severity}</Badge>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {item.blind_spot_type} gap of {formatScore(item.gap)}
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">{item.recommendation}</p>
+          <p className="t-cap" style={{ marginBottom: 4 }}>{item.blind_spot_type} gap of {formatScore(item.gap)}</p>
+          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
         </div>
       ))}
     </div>
@@ -383,18 +335,17 @@ function BlindSpotList({ blindSpots }) {
 }
 
 function FeedbackList({ entries }) {
-  if (!entries.length) return <EmptyState text="No feedback entries yet" />
-
+  if (!entries.length) return <EmptyMsg text="No feedback entries yet" />
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {entries.map((item) => (
-        <div key={item.id} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelFor(item.skill_area || item.feedback_type)}</span>
-            <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{item.feedback_type}</span>
+        <div key={item.id} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area || item.feedback_type)}</span>
+            <Badge variant="neutral">{item.feedback_type}</Badge>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">{item.comment || 'No comment provided'}</p>
-          <p className="mt-2 text-xs text-muted-foreground">Rating {formatScore(item.rating)}</p>
+          <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>{item.comment || 'No comment provided'}</p>
+          <p className="t-cap">Rating {formatScore(item.rating)}</p>
         </div>
       ))}
     </div>
@@ -402,39 +353,53 @@ function FeedbackList({ entries }) {
 }
 
 function PredictionList({ predictions }) {
-  if (!predictions.length) return <EmptyState text="No prediction evidence yet" />
-
+  if (!predictions.length) return <EmptyMsg text="No prediction evidence yet" />
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {predictions.map((item) => (
-        <div key={item.id || item.predicted_skill} className="rounded-md border border-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{labelFor(item.predicted_skill)}</span>
-            <PriorityBadge priority={item.risk_level} />
+        <div key={item.id || item.predicted_skill} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.predicted_skill)}</span>
+            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-            <span>Current {formatScore(item.current_score)}</span>
-            <span>Next {formatScore(item.predicted_score)}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span className="t-cap">Current {formatScore(item.current_score)}</span>
+            <span className="t-cap">Next {formatScore(item.predicted_score)}</span>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">{item.recommendation}</p>
+          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
         </div>
       ))}
     </div>
   )
 }
 
-function PriorityBadge({ priority }) {
-  const className =
-    priority === 'high'
-      ? 'bg-destructive/20 text-destructive'
-      : priority === 'medium'
-        ? 'bg-warning/20 text-warning'
-        : 'bg-success/20 text-success'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{priority}</span>
+function MetricBox({ label, value }) {
+  return (
+    <div style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: 22, fontWeight: 600, marginTop: 2 }}>{value}</div>
+    </div>
+  )
 }
 
-function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{text}</div>
+function Panel({ title, icon: Icon, children }) {
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+        <div className="t-over">{title}</div>
+      </div>
+      {children}
+    </Card>
+  )
+}
+
+function EmptyMsg({ text }) {
+  return (
+    <div style={{ padding: 20, borderRadius: 'var(--radius)', border: '1px dashed var(--border-subtle)', textAlign: 'center' }}>
+      <span className="t-cap">{text}</span>
+    </div>
+  )
 }
 
 function formatScore(value) {

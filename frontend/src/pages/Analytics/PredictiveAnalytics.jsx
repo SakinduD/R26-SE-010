@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   Activity,
   AlertTriangle,
@@ -7,25 +8,24 @@ import {
   CheckCircle2,
   Gauge,
   RefreshCw,
-  Search,
   ShieldAlert,
   Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
+import { fadeInUp, staggerContainer } from '@/lib/animations'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Button from '@/components/ui/Button'
 
 // Only the 5 composite skills the backend trend/prediction engine supports.
-// vocal_command   → speech_volume_score
-// speech_fluency  → avg(speech_pace_score, clarity_score)
-// presence_engagement → avg(eye_contact_score, confidence_score)
-// emotional_intelligence → avg(empathy_score, emotional_control_score)
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
@@ -35,6 +35,7 @@ const SKILL_LABELS = {
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
+const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
 const DEMO_DATA = {
   user_id: 'demo-user',
@@ -74,7 +75,6 @@ function labelFor(value) {
 
 function hasPredictionEvidence(item) {
   if (!item) return false
-
   return (
     Number(item.evidence_points || 0) > 0 ||
     (item.current_score !== null && item.current_score !== undefined) ||
@@ -116,44 +116,25 @@ export default function PredictiveAnalytics() {
   const loadPredictions = async (nextUserId = userId, nextSessionId = selectedSessionId) => {
     const targetUserId = nextUserId.trim()
     const requestParams = nextSessionId ? { session_id: nextSessionId } : {}
-
-    if (!targetUserId) {
-      setError('Enter a user id')
-      return
-    }
-
-    setStatus('loading')
-    setError('')
-
+    if (!targetUserId) { setError('Enter a user id'); return }
+    setStatus('loading'); setError('')
     try {
       const [predictionResult, selectedResult] = await Promise.all([
         analyticsService.getPredictedOutcomesByUser(targetUserId, requestParams),
         analyticsService.getPredictedOutcomeBySkill(targetUserId, selectedSkill, requestParams),
       ])
-      setData(predictionResult)
-      setSkillPrediction(selectedResult)
-      setStatus('live')
-    } catch (err) {
-      setData(DEMO_DATA)
-      setSkillPrediction(null)
-      setStatus('demo')
+      setData(predictionResult); setSkillPrediction(selectedResult); setStatus('live')
+    } catch {
+      setData(DEMO_DATA); setSkillPrediction(null); setStatus('demo')
       setError('Backend predictions unavailable. Showing demo predictions.')
     }
   }
 
-  useEffect(() => {
-    setUserId(connectedUserId)
-  }, [connectedUserId])
+  useEffect(() => { setUserId(connectedUserId) }, [connectedUserId])
 
   useEffect(() => {
-    if (isAuthLoading || !isAuthenticated) {
-      setSessionOptions([])
-      setSelectedSessionId('')
-      return undefined
-    }
-
+    if (isAuthLoading || !isAuthenticated) { setSessionOptions([]); setSelectedSessionId(''); return undefined }
     let active = true
-
     loadComponentSessionOptions(analyticsService)
       .then((options) => {
         if (!active) return
@@ -161,13 +142,8 @@ export default function PredictiveAnalytics() {
         const preferred = selectPreferredComponentSession(options)
         setSelectedSessionId((current) => current || preferred?.id || '')
       })
-      .catch(() => {
-        if (active) setSessionOptions([])
-      })
-
-    return () => {
-      active = false
-    }
+      .catch(() => { if (active) setSessionOptions([]) })
+    return () => { active = false }
   }, [isAuthLoading, isAuthenticated])
 
   useEffect(() => {
@@ -177,96 +153,103 @@ export default function PredictiveAnalytics() {
   }, [connectedUserId, isAuthLoading, isAuthenticated, selectedSkill, selectedSessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Predictive Analytics</h1>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <AnalyticsNav />
-            <AnalyticsSessionSelect
-              value={selectedSessionId}
-              options={sessionOptions}
-              onChange={setSelectedSessionId}
-              minWidthClass="min-w-[260px]"
-            />
-            <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
-            <Button className="h-10 self-end" onClick={() => loadPredictions()}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
-          </div>
+    <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
+      <PageHead
+        eyebrow="Feedback System & Predictive Analytics"
+        title="Predictive Analytics"
+        sub="Next-session risk forecast powered by the trained behavioural analytics model."
+      />
+
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
+        <AnalyticsNav />
+        <AnalyticsSessionSelect
+          value={selectedSessionId}
+          options={sessionOptions}
+          onChange={setSelectedSessionId}
+          minWidthClass="min-w-[260px]"
+        />
+        <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <Button onClick={() => loadPredictions()} variant="secondary" size="sm" loading={status === 'loading'}>
+            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
+            Load
+          </Button>
         </div>
-      </section>
+      </motion.div>
 
-      <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={status} />
-          <ModelPill modelVersion={data.model_version} isMlModel={isMlModel} />
-          {error ? <span className="text-sm text-warning">{error}</span> : null}
-        </div>
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <Badge variant="neutral">
+          {status === 'live' ? 'Live API predictions' : status === 'loading' ? 'Loading…' : 'Demo predictions'}
+        </Badge>
+        <Badge variant={isMlModel ? 'accent' : 'neutral'}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Sparkles size={10} strokeWidth={1.8} />
+            {data.model_version || 'rule-based-baseline-v1'}
+          </span>
+        </Badge>
+        {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
+      </motion.div>
 
-        {!hasLiveData ? (
-          <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Live API is connected, but no predictive records were found for this user.
+      {!hasLiveData && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
+            <span className="t-cap" style={{ color: 'var(--warning)' }}>
+              Live API is connected, but no predictive records were found for this user.
+            </span>
           </div>
-        ) : null}
+        </motion.div>
+      )}
 
-        <section className="rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_440px]">
-            <div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <BrainCircuit className="h-4 w-4 text-secondary" />
-                <span>{isAuthenticated ? userLabel : data.user_id || userId}</span>
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Card>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <BrainCircuit size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+                <span className="t-cap">{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
-              <h2 className="mt-3 text-xl font-semibold">Live next-session risk forecast</h2>
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              <div className="t-h3">Live next-session risk forecast</div>
+              <p className="t-cap" style={{ maxWidth: 520, marginTop: 6, lineHeight: 1.6 }}>
                 The trained predictive model combines recent skill trends, feedback ratings, sentiment, and session evidence to forecast the next score and risk level.
               </p>
-              <div className="mt-4 grid max-w-3xl gap-2 sm:grid-cols-3">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 14, maxWidth: 480 }}>
                 <ModelFact label="Runtime" value={isMlModel ? 'Trained ML model' : 'Rule fallback'} />
                 <ModelFact label="Model version" value={data.model_version || 'rule-based-baseline-v1'} />
                 <ModelFact label="Selected skill" value={labelFor(selectedSkill)} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Metric icon={Target} label="Predicted" value={data.summary?.predicted_count || 0} />
-              <Metric icon={ShieldAlert} label="High Risk" value={data.summary?.high_risk_count || 0} />
-              <Metric icon={AlertTriangle} label="Medium Risk" value={data.summary?.medium_risk_count || 0} />
-              <Metric icon={CheckCircle2} label="Low Risk" value={data.summary?.low_risk_count || 0} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, minWidth: 200 }}>
+              <MetricBox icon={Target} label="Predicted" value={data.summary?.predicted_count || 0} />
+              <MetricBox icon={ShieldAlert} label="High Risk" value={data.summary?.high_risk_count || 0} />
+              <MetricBox icon={AlertTriangle} label="Medium Risk" value={data.summary?.medium_risk_count || 0} />
+              <MetricBox icon={CheckCircle2} label="Low Risk" value={data.summary?.low_risk_count || 0} />
             </div>
           </div>
-        </section>
+        </Card>
+      </motion.div>
 
-        <div className="grid gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
-          <Panel title="Highest Priority" icon={ShieldAlert}>
-            {highPriority ? <PriorityCard item={highPriority} /> : <EmptyState text="No priority prediction yet" />}
-          </Panel>
+      <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
+        <Panel title="Highest Priority" icon={ShieldAlert}>
+          {highPriority ? <PriorityCard item={highPriority} /> : <EmptyMsg text="No priority prediction yet" />}
+        </Panel>
+        <Panel title="Selected Skill Forecast" icon={Gauge}>
+          <SelectedSkillCard item={skillPrediction} fallbackSkill={selectedSkill} availableSkills={availablePredictionSkills} />
+        </Panel>
+      </motion.div>
 
-          <Panel title="Selected Skill Forecast" icon={Gauge}>
-            <SelectedSkillCard
-              item={skillPrediction}
-              fallbackSkill={selectedSkill}
-              availableSkills={availablePredictionSkills}
-            />
-          </Panel>
-        </div>
-
+      <motion.div variants={fadeInUp}>
         <Panel title="Prediction Detail" icon={BrainCircuit}>
           <PredictionGrid predictions={sortedPredictions} />
         </Panel>
-      </section>
-    </main>
+      </motion.div>
+    </motion.div>
   )
 }
 
 function PredictionGrid({ predictions }) {
-  if (!predictions.length) return <EmptyState text="No predictions yet" />
-
+  if (!predictions.length) return <EmptyMsg text="No predictions yet" />
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div className="grid-2">
       {predictions.map((item) => (
         <PredictionCard key={item.predicted_skill} item={item} />
       ))}
@@ -277,24 +260,21 @@ function PredictionGrid({ predictions }) {
 function PredictionCard({ item }) {
   const delta = scoreDelta(item.current_score, item.predicted_score)
   return (
-    <div className="rounded-lg border border-border bg-background/30 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
         <div>
-          <h3 className="font-semibold">{labelFor(item.predicted_skill)}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{item.evidence_points || 0} evidence points</p>
+          <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
+          <div className="t-cap" style={{ marginTop: 2 }}>{item.evidence_points || 0} evidence points</div>
         </div>
-        <RiskBadge risk={item.risk_level} />
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
       </div>
-
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
-
-      <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
         <InfoBox label="Trend" value={item.trend_label} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
         <InfoBox label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} icon={Activity} />
       </div>
-
-      <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
-      <p className={`mt-3 text-xs ${delta < 0 ? 'text-destructive' : delta > 0 ? 'text-success' : 'text-muted-foreground'}`}>
+      <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
+      <p style={{ marginTop: 10, fontSize: 12, color: delta < 0 ? 'var(--danger)' : delta > 0 ? 'var(--success)' : 'var(--text-tertiary)' }}>
         Projected change {formatDelta(delta)}
       </p>
     </div>
@@ -303,67 +283,56 @@ function PredictionCard({ item }) {
 
 function PriorityCard({ item }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-border bg-background/40 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="font-semibold">{labelFor(item.predicted_skill)}</h3>
-          <RiskBadge risk={item.risk_level} />
-        </div>
-        <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
-        <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
+    <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
       </div>
+      <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
+      <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
   )
 }
 
 function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
-  const availableLabels = availableSkills
-    .filter((skill) => skill !== fallbackSkill)
-    .map(labelFor)
+  const availableLabels = availableSkills.filter((skill) => skill !== fallbackSkill).map(labelFor)
 
   if (!item) {
-    return (
-      <div>
-        <EmptyState text={`No live prediction was returned for ${labelFor(fallbackSkill)}.`} />
-      </div>
-    )
+    return <EmptyMsg text={`No live prediction was returned for ${labelFor(fallbackSkill)}.`} />
   }
 
   if (!hasPredictionEvidence(item)) {
     return (
-      <div className="space-y-3">
-        <EmptyState text={`No real prediction evidence for ${labelFor(fallbackSkill)} in the selected session.`} />
-        {availableLabels.length ? (
-          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Real skills available from component data:</span>{' '}
-            {availableLabels.join(', ')}
-          </div>
-        ) : (
-          <div className="rounded-md border border-border bg-background/40 p-3 text-sm text-muted-foreground">
-            Select a completed session that has role-play or multimodal performance scores.
-          </div>
-        )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <EmptyMsg text={`No real prediction evidence for ${labelFor(fallbackSkill)} in the selected session.`} />
+        <div style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+          <p className="t-cap" style={{ lineHeight: 1.55 }}>
+            {availableLabels.length
+              ? <><span className="fg" style={{ fontWeight: 500 }}>Real skills available:</span> {availableLabels.join(', ')}</>
+              : 'Select a completed session that has role-play or multimodal performance scores.'}
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-border bg-background/40 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold">{labelFor(item.predicted_skill)}</h3>
-        <RiskBadge risk={item.risk_level} />
+    <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
       </div>
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Metric icon={Target} label="Current" value={formatScore(item.current_score)} compact />
-        <Metric icon={BrainCircuit} label="Predicted" value={formatScore(item.predicted_score)} compact />
-        <Metric icon={Activity} label="Evidence" value={item.evidence_points || 0} compact />
-        <Metric icon={Gauge} label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} compact />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 12 }}>
+        <MetricBox icon={Target} label="Current" value={formatScore(item.current_score)} compact />
+        <MetricBox icon={BrainCircuit} label="Predicted" value={formatScore(item.predicted_score)} compact />
+        <MetricBox icon={Activity} label="Evidence" value={item.evidence_points || 0} compact />
+        <MetricBox icon={Gauge} label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} compact />
       </div>
-      <div className="mt-2">
+      <div style={{ marginTop: 10 }}>
         <InfoBox label="Trend" value={item.trend_label} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
+      <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
   )
 }
@@ -371,9 +340,8 @@ function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
 function ScoreMovement({ current, predicted }) {
   const currentScore = normalizeScore(current)
   const predictedScore = normalizeScore(predicted)
-
   return (
-    <div className="mt-4 space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <ScoreBar label="Current" value={currentScore} />
       <ScoreBar label="Predicted" value={predictedScore} />
     </div>
@@ -383,12 +351,12 @@ function ScoreMovement({ current, predicted }) {
 function ScoreBar({ label, value }) {
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{value === null ? 'N/A' : value}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span className="t-cap">{label}</span>
+        <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{value === null ? 'N/A' : value}</span>
       </div>
-      <div className="h-2 rounded-full bg-muted">
-        <div className="h-2 rounded-full bg-secondary" style={{ width: `${value || 0}%` }} />
+      <div style={{ height: 6, borderRadius: 99, background: 'var(--bg-input)' }}>
+        <div style={{ height: 6, borderRadius: 99, background: 'var(--accent)', width: `${value || 0}%`, transition: 'width 0.3s' }} />
       </div>
     </div>
   )
@@ -396,113 +364,69 @@ function ScoreBar({ label, value }) {
 
 function InfoBox({ label, value, icon: Icon }) {
   return (
-    <div className="rounded-md border border-border p-3">
-      <Icon className="mb-2 h-4 w-4 text-secondary" />
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 truncate font-medium">{value || 'N/A'}</p>
+    <div style={{ padding: 10, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+      {Icon && <Icon size={12} strokeWidth={1.8} style={{ color: 'var(--accent)', marginBottom: 6 }} />}
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: 13, fontWeight: 500, marginTop: 2 }}>{value || 'N/A'}</div>
     </div>
   )
 }
 
-function Metric({ icon: Icon, label, value, compact = false }) {
+function MetricBox({ icon: Icon, label, value, compact = false }) {
   return (
-    <div className="rounded-md border border-border bg-background/40 p-3">
-      <Icon className="mb-2 h-4 w-4 text-secondary" />
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`${compact ? 'text-base' : 'text-xl'} mt-1 truncate font-semibold`}>{value}</p>
+    <div style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      {Icon && <Icon size={13} strokeWidth={1.8} style={{ color: 'var(--accent)', marginBottom: 6 }} />}
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: compact ? 14 : 22, fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   )
 }
 
 function ModelFact({ label, value }) {
   return (
-    <div className="rounded-md border border-border bg-background/40 p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm font-medium">{value}</p>
+    <div style={{ padding: 10, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: 12, fontWeight: 500, marginTop: 2, wordBreak: 'break-word' }}>{value}</div>
     </div>
   )
 }
 
 function Panel({ title, icon: Icon, children }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
-        <h2 className="text-base font-semibold">{title}</h2>
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+        <div className="t-over">{title}</div>
       </div>
       {children}
-    </section>
-  )
-}
-
-function Input({ label, value, onChange }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    </Card>
   )
 }
 
 function SelectInput({ label, value, onChange, options }) {
   return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+    <label style={{ display: 'grid', gap: 4 }}>
+      <span className="t-cap">{label}</span>
       <select
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+        className="input"
+        style={{ height: 36, paddingTop: 0, paddingBottom: 0 }}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(e) => onChange(e.target.value)}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
     </label>
   )
 }
 
-function StatusPill({ status }) {
-  const label = status === 'live' ? 'Live API predictions' : status === 'loading' ? 'Loading predictions' : 'Demo predictions'
+function EmptyMsg({ text }) {
   return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-      {label}
-    </span>
+    <div style={{ padding: 20, borderRadius: 'var(--radius)', border: '1px dashed var(--border-subtle)', textAlign: 'center' }}>
+      <span className="t-cap">{text}</span>
+    </div>
   )
-}
-
-function ModelPill({ modelVersion, isMlModel }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${
-        isMlModel
-          ? 'border-secondary/40 bg-secondary/10 text-secondary'
-          : 'border-border bg-card text-muted-foreground'
-      }`}
-    >
-      <Sparkles className="h-3 w-3" />
-      {modelVersion || 'rule-based-baseline-v1'}
-    </span>
-  )
-}
-
-function RiskBadge({ risk }) {
-  const className =
-    risk === 'high'
-      ? 'bg-destructive/20 text-destructive'
-      : risk === 'medium'
-        ? 'bg-warning/20 text-warning'
-        : 'bg-success/20 text-success'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{risk}</span>
-}
-
-function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{text}</div>
 }
 
 function normalizeScore(value) {
