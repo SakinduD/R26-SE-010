@@ -180,7 +180,7 @@ export default function ScenarioSelect() {
   const isFiltered = activeFilter !== 'all' || !!activeSkillFilter
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)' }}>
+    <div>
 
       {/* REDESIGN: hero replaced with PageHead component pattern */}
       <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>

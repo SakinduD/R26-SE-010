@@ -174,7 +174,7 @@ export default function RolePlaySession() {
   return (
     <div
       style={{
-        height: 'calc(100vh - 3.5rem)',
+        height: 'calc(100vh - 48px)',
         background: 'var(--bg-canvas)',
         display: 'flex',
         flexDirection: 'column',

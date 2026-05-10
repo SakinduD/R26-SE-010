@@ -114,21 +114,31 @@ def session_respond(
 
         scenario = rpe_scenario_service.get_scenario(state.scenario_id)
 
-        emotion   = rpe_emotion_service.detect_emotion(payload.user_input)
-        new_trust = rpe_emotion_service.update_trust(current_trust, emotion)
-        new_esc   = rpe_emotion_service.update_escalation(current_esc, emotion)
+        # 1. Profanity check first — bypasses Groq classification
+        is_profane: bool = rpe_emotion_service.is_profanity(payload.user_input)
 
-        npc_response = rpe_npc_service.generate_response(
-            user_input=payload.user_input,
-            opening_npc_line=opening_npc_line,
-            session_turns=prior_turns,
-            npc_role=scenario.npc_role,
-            npc_personality=scenario.npc_personality,
-            context=scenario.context,
-            trust_score=new_trust,
-            escalation_level=new_esc,
-            npc_behaviour=scenario.npc_behaviour,
+        # 2. Combined NPC response + emotion from Groq (returns dict)
+        result       = rpe_npc_service.generate_response(
+            user_input       = payload.user_input,
+            opening_npc_line = opening_npc_line,
+            session_turns    = prior_turns,
+            npc_role         = scenario.npc_role,
+            npc_personality  = scenario.npc_personality,
+            context          = scenario.context,
+            trust_score      = current_trust,
+            escalation_level = current_esc,
+            npc_behaviour    = scenario.npc_behaviour,
         )
+        npc_response = result["npc_response"]
+
+        # 3. Profanity override wins over Groq classification
+        emotion: str = "frustrated" if is_profane else result["detected_emotion"]
+
+        # 4. Trust / escalation update
+        new_trust = rpe_emotion_service.update_trust(current_trust, emotion, payload.user_input)
+        new_esc   = rpe_emotion_service.update_escalation(current_esc, emotion)
+        if is_profane:
+            new_esc = min(5, new_esc + rpe_emotion_service.profanity_escalation_penalty(payload.user_input))
 
         turn_number = rpe_session_service.advance_turn(payload.session_id)
         turn_data = {
