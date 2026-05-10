@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -18,13 +18,10 @@ import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
-  confidence: 'Confidence',
-  communication_clarity: 'Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
+  vocal_command: 'Vocal Command',
+  speech_fluency: 'Speech Fluency',
+  presence_engagement: 'Presence & Engagement',
+  emotional_intelligence: 'Emotional Intelligence',
   overall: 'Overall',
 }
 
@@ -33,8 +30,8 @@ const DEMO_REPORT = {
   user_id: 'demo-user',
   summary: {
     headline: 'Session completed with focused improvement areas.',
-    strengths: ['Empathy', 'Listening', 'Professionalism'],
-    improvement_areas: ['Confidence', 'Emotional Control'],
+    strengths: ['Vocal Command', 'Speech Fluency'],
+    improvement_areas: ['Presence & Engagement', 'Emotional Intelligence'],
     completion_status: 'complete',
   },
   aggregate: {
@@ -42,22 +39,28 @@ const DEMO_REPORT = {
     feedback: {
       total_count: 4,
       average_rating: 78,
+      self_rating_averages: {
+        vocal_command: 85,
+        speech_fluency: 72,
+        presence_engagement: 90,
+        emotional_intelligence: 68,
+      },
       latest_entries: [
         {
           id: 1,
           feedback_type: 'self',
-          skill_area: 'confidence',
-          rating: 92,
+          skill_area: 'presence_engagement',
+          rating: 90,
           sentiment: 'positive',
-          comment: 'I felt confident during the negotiation.',
+          comment: 'I felt confident and engaged during the negotiation.',
         },
         {
           id: 2,
           feedback_type: 'system',
-          skill_area: 'confidence',
-          rating: 60,
+          skill_area: 'presence_engagement',
+          rating: 56,
           sentiment: 'neutral',
-          comment: 'Observed performance shows eye contact and response structure need work.',
+          comment: 'Observed performance shows eye contact and engagement need work.',
         },
       ],
     },
@@ -66,11 +69,11 @@ const DEMO_REPORT = {
       latest_predictions: [
         {
           id: 1,
-          predicted_skill: 'confidence',
+          predicted_skill: 'presence_engagement',
           current_score: 58,
           predicted_score: 52,
           risk_level: 'high',
-          recommendation: 'Practice shorter opening responses before the next scenario.',
+          recommendation: 'Practice maintaining eye contact and presence before the next scenario.',
         },
       ],
     },
@@ -79,45 +82,58 @@ const DEMO_REPORT = {
     overall_score: 76,
     completeness: 0.86,
     skill_scores: {
-      confidence: 58,
-      communication_clarity: 74,
-      empathy: 82,
-      active_listening: 79,
-      adaptability: 72,
-      emotional_control: 64,
-      professionalism: 80,
+      vocal_command: 80,
+      speech_fluency: 74,
+      presence_engagement: 58,
+      emotional_intelligence: 82,
     },
   },
   blind_spots: {
     summary: { total_count: 1, high_count: 1, medium_count: 0, low_count: 0 },
     blind_spots: [
       {
-        skill_area: 'confidence',
+        skill_area: 'presence_engagement',
         blind_spot_type: 'overestimation',
         severity: 'high',
         gap: 34,
-        recommendation: 'Review confidence evidence and set one measurable eye-contact goal.',
+        recommendation: 'Review Presence & Engagement evidence and set one measurable eye-contact goal.',
       },
     ],
   },
   action_items: [
     {
       priority: 'high',
-      skill_area: 'confidence',
-      title: 'Review Confidence blind spot',
+      skill_area: 'presence_engagement',
+      title: 'Review Presence & Engagement blind spot',
       detail: 'Compare self-rating with observed system evidence before the next session.',
     },
     {
       priority: 'medium',
-      skill_area: 'emotional_control',
-      title: 'Practice Emotional Control',
+      skill_area: 'emotional_intelligence',
+      title: 'Practice Emotional Intelligence',
       detail: 'Use a pause-breathe-answer pattern during difficult role-play prompts.',
     },
   ],
 }
 
+const RAW_TO_COMPOSITE = {
+  confidence: 'Presence & Engagement',
+  eye_contact: 'Presence & Engagement',
+  confidence_score: 'Presence & Engagement',
+  speech_pace: 'Speech Fluency',
+  clarity: 'Speech Fluency',
+  communication_clarity: 'Speech Fluency',
+  speech_volume: 'Vocal Command',
+  professionalism: 'Vocal Command',
+  empathy: 'Emotional Intelligence',
+  emotional_control: 'Emotional Intelligence',
+  listening: 'Emotional Intelligence',
+  active_listening: 'Emotional Intelligence',
+  adaptability: 'Emotional Intelligence',
+}
+
 function labelFor(value) {
-  return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
+  return SKILL_LABELS[value] || RAW_TO_COMPOSITE[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
 export default function PostSessionReport() {
@@ -127,13 +143,23 @@ export default function PostSessionReport() {
   const [report, setReport] = useState(DEMO_REPORT)
   const [status, setStatus] = useState('demo')
   const [error, setError] = useState('')
+  const loadedSessionRef = useRef(null)
 
   const radarScores = useMemo(() => {
     const scores = report.skill_scores?.skill_scores || {}
     return Object.entries(SKILL_LABELS)
       .filter(([key]) => key !== 'overall')
-      .map(([key, label]) => ({ key, label, value: Number(scores[key] || 0) }))
+      .map(([key, label]) => ({ key, label, value: scores[key] ?? undefined }))
   }, [report])
+
+  const selfScores = useMemo(() => {
+    const selfRatings = report.aggregate?.feedback?.self_rating_averages || {}
+    return Object.entries(SKILL_LABELS)
+      .filter(([key]) => key !== 'overall')
+      .map(([key, label]) => ({ key, label, value: selfRatings[key] ?? undefined }))
+  }, [report])
+
+  const overallScore = report.skill_scores?.overall_score ?? null
 
   const loadReport = async (nextSessionId = sessionId) => {
     const targetSessionId = String(nextSessionId || '').trim()
@@ -179,7 +205,15 @@ export default function PostSessionReport() {
     return () => {
       isActive = false
     }
-  }, [params.sessionId, sessionId])
+  }, [params.sessionId])
+
+  // Auto-load when sessionId becomes available or changes
+  useEffect(() => {
+    if (sessionId && sessionId !== loadedSessionRef.current) {
+      loadedSessionRef.current = sessionId
+      loadReport(sessionId)
+    }
+  }, [sessionId])
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -211,13 +245,12 @@ export default function PostSessionReport() {
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <FileText className="h-4 w-4 text-secondary" />
-                <span>{report.session_id}</span>
-                {report.user_id ? <span>{report.user_id}</span> : null}
+                <span>{sessionOptions.find((o) => o.id === sessionId)?.label || (status === 'live' ? 'Session Report' : 'Demo Report')}</span>
               </div>
               <h2 className="mt-3 max-w-3xl text-xl font-semibold">{report.summary?.headline}</h2>
             </div>
             <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-              <Metric label="Overall" value={formatScore(report.skill_scores?.overall_score)} />
+              <Metric label="Overall" value={formatScore(overallScore)} />
               <Metric label="Feedback" value={report.aggregate?.feedback?.total_count || 0} />
               <Metric label="Actions" value={report.action_items?.length || 0} />
             </div>
@@ -226,7 +259,7 @@ export default function PostSessionReport() {
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
           <Panel title="Skill Twin" icon={Target}>
-            <SkillTwinRadar scores={radarScores} />
+            <SkillTwinRadar scores={radarScores} selfScores={selfScores} overallScore={overallScore} />
           </Panel>
 
           <Panel title="Report Summary" icon={CheckCircle2}>
@@ -253,7 +286,7 @@ export default function PostSessionReport() {
           </Panel>
 
           <Panel title="Prediction Evidence" icon={AlertTriangle}>
-            <PredictionList predictions={report.aggregate?.predictions?.latest_predictions || []} />
+            <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
           </Panel>
         </div>
       </section>

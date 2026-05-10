@@ -465,5 +465,6 @@ class PostSessionReportResult(BaseModel):
     feedback_analysis: FeedbackAnalysisResult
     blind_spots: BlindSpotDetectionResult
     action_items: list[PostSessionActionItem]
+    computed_predictions: list[PredictiveModelingItem] = []
     generated_at: datetime
     report_version: str
