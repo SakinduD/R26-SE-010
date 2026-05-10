@@ -155,7 +155,7 @@ export default function FeedbackDashboard() {
   /* ── LOADING ──────────────────────────────────────────── */
   if (isLoading) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)', padding: '40px 16px' }}>
+      <div style={{ padding: '40px 16px' }}>
         <div style={{ maxWidth: 1024, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             <div
@@ -185,8 +185,6 @@ export default function FeedbackDashboard() {
     return (
       <div
         style={{
-          minHeight: '100vh',
-          background: 'var(--bg-canvas)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -217,7 +215,7 @@ export default function FeedbackDashboard() {
   const badge = endReasonBadge(endReason, fd.outcome)
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* REDESIGN: sticky page header restyled to match Topbar/.bg-canvas convention */}
       <div

@@ -187,7 +187,7 @@ export default function SessionComplete() {
       : { icon: '❌', text: 'Frustration came through. Try staying solution-focused.', color: 'var(--danger)' }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)', padding: '40px 16px' }}>
+    <div style={{ padding: '40px 16px' }}>
       <div style={{ maxWidth: 768, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* REDESIGN: outcome banner is now Card with semantic variant + soft tint, no hex gradients */}

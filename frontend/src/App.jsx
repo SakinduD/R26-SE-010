@@ -28,7 +28,6 @@ import Styleguide from './pages/app/Styleguide'
 import Settings from './pages/app/Settings'
 
 // RPE pages
-import RPELayout from './pages/RPE/RPELayout'
 import ScenarioSelect from './pages/RPE/ScenarioSelect'
 import RolePlaySession from './pages/RPE/RolePlaySession'
 import SessionComplete from './pages/RPE/SessionComplete'
@@ -96,10 +95,8 @@ export default function App() {
               <Route path="/settings" element={<Settings />} />
               {/* Styleguide — every component in every state, used during redesign */}
               <Route path="/styleguide" element={<Styleguide />} />
-            </Route>
 
-            {/* RPE routes - all share the RPELayout navbar */}
-            <Route element={<RPELayout />}>
+              {/* RPE — Practice section, lives inside the app shell with sidebar */}
               <Route path="/roleplay" element={<ScenarioSelect />} />
               <Route path="/roleplay/session" element={<RolePlaySession />} />
               <Route path="/roleplay/session/complete" element={<SessionComplete />} />
@@ -107,8 +104,8 @@ export default function App() {
               <Route
                 path="/roleplay/my-sessions"
                 element={
-                  <div className="py-16 text-center text-muted-foreground text-sm">
-                    My Sessions - coming soon
+                  <div className="page" style={{ textAlign: 'center', paddingTop: 64, color: 'var(--text-tertiary)', fontSize: 13 }}>
+                    My Sessions — coming soon
                   </div>
                 }
               />
