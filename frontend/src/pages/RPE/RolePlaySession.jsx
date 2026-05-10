@@ -5,6 +5,9 @@ import ChatBubble from '@/components/RPE/ChatBubble'
 import MetricsHUD from '@/components/RPE/MetricsHUD'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
+import Badge from '@/components/ui/Badge'
+import Banner from '@/components/ui/Banner'
+import KeyValuePair from '@/components/ui/KeyValuePair'
 
 const computeNpcTone = (trust) =>
   trust >= 70 ? 'cooperative' : trust >= 40 ? 'neutral' : 'hostile'
@@ -12,10 +15,11 @@ const computeNpcTone = (trust) =>
 const computeEscalationTone = (level) =>
   level >= 4 ? 'furious' : level >= 2 ? 'irritated' : 'controlled'
 
-const DIFFICULTY_STYLES = {
-  beginner:     'bg-emerald-100 text-emerald-700',
-  intermediate: 'bg-amber-100 text-amber-700',
-  advanced:     'bg-red-100 text-red-700',
+// REDESIGN: replaced hardcoded light-mode chips (bg-emerald-100 etc.) with Badge variants
+const DIFFICULTY_BADGE = {
+  beginner:     'success',
+  intermediate: 'warning',
+  advanced:     'danger',
 }
 
 export default function RolePlaySession() {
@@ -155,10 +159,11 @@ export default function RolePlaySession() {
     return 'Final turns ⚠'
   })()
 
+  // REDESIGN: turnLabel color now uses tokens (was text-amber-500 / text-red-500)
   const turnLabelColor = (() => {
-    if (!maxTurns || currentTurn < recommendedTurns) return 'text-muted-foreground'
-    if (currentTurn < maxTurns) return 'text-amber-500'
-    return 'text-red-500'
+    if (!maxTurns || currentTurn < recommendedTurns) return 'var(--text-tertiary)'
+    if (currentTurn < maxTurns) return 'var(--warning)'
+    return 'var(--danger)'
   })()
 
   /* ── escalation warning threshold ──────────────────────── */
@@ -167,30 +172,66 @@ export default function RolePlaySession() {
     : 3
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] bg-background flex flex-col overflow-hidden">
-
-      {/* Top bar */}
-      <header className="shrink-0 bg-card border-b border-border px-6 py-3 flex items-center gap-3 shadow-sm">
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="font-bold text-foreground truncate">{scenarioTitle}</h1>
+    <div
+      style={{
+        height: 'calc(100vh - 3.5rem)',
+        background: 'var(--bg-canvas)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {/* REDESIGN: top bar restyled with bg-surface + border-subtle, prototype 48px height */}
+      <header
+        style={{
+          flexShrink: 0,
+          background: 'var(--bg-surface)',
+          borderBottom: '1px solid var(--border-subtle)',
+          padding: '12px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <h1
+            className="fg"
+            style={{
+              fontWeight: 600,
+              fontSize: 15,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {scenarioTitle}
+          </h1>
           {difficulty && (
-            <span className={cn(
-              'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-              DIFFICULTY_STYLES[difficulty] ?? 'bg-muted text-muted-foreground'
-            )}>
-              {difficulty}
-            </span>
+            <Badge variant={DIFFICULTY_BADGE[difficulty] ?? 'neutral'}>
+              <span style={{ textTransform: 'capitalize' }}>{difficulty}</span>
+            </Badge>
           )}
         </div>
 
         {/* Turn counter */}
-        <div className="ml-auto shrink-0 flex flex-col items-end">
-          {currentTurn === 0
-            ? <span className="text-muted-foreground text-sm">Not started</span>
-            : <span className="text-sm font-bold text-foreground tabular-nums">Turn {currentTurn}</span>
-          }
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            flexShrink: 0,
+          }}
+        >
+          {currentTurn === 0 ? (
+            <span className="t-cap">Not started</span>
+          ) : (
+            <span className="score-num fg" style={{ fontSize: 14, fontWeight: 600 }}>
+              Turn {currentTurn}
+            </span>
+          )}
           {currentTurn > 0 && (
-            <span className={cn('text-xs tabular-nums', turnLabelColor)}>
+            <span className="score-num" style={{ fontSize: 11, color: turnLabelColor }}>
               {turnLabel}
             </span>
           )}
@@ -198,13 +239,16 @@ export default function RolePlaySession() {
       </header>
 
       {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* Chat column */}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
 
-          {/* Messages scroll area */}
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 custom-scrollbar">
+          {/* REDESIGN: messages scroll uses custom-scrollbar; spacing tweaked, no semantic change */}
+          <div
+            className="custom-scrollbar"
+            style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
             {messages.map((msg, i) => (
               <ChatBubble
                 key={i}
@@ -217,16 +261,29 @@ export default function RolePlaySession() {
               />
             ))}
 
-            {/* NPC typing indicator */}
+            {/* REDESIGN: typing indicator now uses bg-surface + border-subtle (was bg-slate-900) */}
             {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-slate-900 border border-slate-700/60 rounded-2xl px-4 py-3 shadow-md">
-                  <span className="flex gap-1.5 items-center">
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div
+                  style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '10px 14px',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                        style={{ animationDelay: `${i * 150}ms` }}
+                        className="animate-bounce"
+                        style={{
+                          width: 6,
+                          height: 6,
+                          background: 'var(--text-tertiary)',
+                          borderRadius: '50%',
+                          animationDelay: `${i * 150}ms`,
+                        }}
                       />
                     ))}
                   </span>
@@ -236,44 +293,57 @@ export default function RolePlaySession() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Session complete banners */}
+          {/* REDESIGN: session-complete banners replaced bg-emerald-50/red-50/amber-50 with semantic Banner */}
           {sessionComplete && endReason === 'trust_sustained' && (
-            <div className="mx-6 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm font-semibold text-emerald-700">
-              You built strong trust — the situation has been resolved!
+            <div style={{ margin: '0 24px 12px' }}>
+              <Banner variant="success">You built strong trust — the situation has been resolved!</Banner>
             </div>
           )}
           {sessionComplete && endReason === 'npc_exit' && (
-            <div className="mx-6 mb-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold text-red-700">
-              The conversation broke down — the NPC ended the session.
+            <div style={{ margin: '0 24px 12px' }}>
+              <Banner variant="danger">The conversation broke down — the NPC ended the session.</Banner>
             </div>
           )}
           {sessionComplete && endReason === 'max_turns_reached' && (
-            <div className={cn(
-              'mx-6 mb-3 rounded-xl px-4 py-3 text-sm font-semibold border',
-              outcome === 'success'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                : 'bg-amber-50 border-amber-200 text-amber-700'
-            )}>
-              {outcome === 'success'
-                ? 'Session complete — well handled!'
-                : 'Maximum turns reached — review your feedback.'}
+            <div style={{ margin: '0 24px 12px' }}>
+              <Banner variant={outcome === 'success' ? 'success' : 'warning'}>
+                {outcome === 'success'
+                  ? 'Session complete — well handled!'
+                  : 'Maximum turns reached — review your feedback.'}
+              </Banner>
             </div>
           )}
 
-          {/* Escalation warning banner */}
-          <div className={cn(
-            'mx-6 overflow-hidden transition-all duration-300',
-            escalationLevel >= warnAt ? 'max-h-16 mb-2' : 'max-h-0'
-          )}>
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-600 font-medium">
-              <ShieldAlert size={15} className="shrink-0" />
-              Tension is rising. Try to de-escalate your response.
-            </div>
+          {/* REDESIGN: escalation warning replaced bg-red-50 with Banner danger; CSS height-transition preserved */}
+          <div
+            style={{
+              margin: '0 24px',
+              overflow: 'hidden',
+              transition: 'max-height 300ms var(--ease)',
+              maxHeight: escalationLevel >= warnAt ? 64 : 0,
+              marginBottom: escalationLevel >= warnAt ? 8 : 0,
+            }}
+          >
+            <Banner variant="danger">
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <ShieldAlert size={14} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 500 }}>
+                  Tension is rising. Try to de-escalate your response.
+                </span>
+              </div>
+            </Banner>
           </div>
 
-          {/* Input bar */}
-          <div className="shrink-0 border-t border-border bg-card px-6 py-4">
-            <div className="flex gap-3 items-end">
+          {/* REDESIGN: input bar now uses bg-surface, .input class for textarea, .btn-primary for send */}
+          <div
+            style={{
+              flexShrink: 0,
+              borderTop: '1px solid var(--border-subtle)',
+              background: 'var(--bg-surface)',
+              padding: '16px 24px',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
               <textarea
                 ref={textareaRef}
                 rows={2}
@@ -282,24 +352,44 @@ export default function RolePlaySession() {
                 onKeyDown={handleKeyDown}
                 disabled={isLoading || sessionComplete}
                 placeholder="Type your response… (Enter to send, Shift+Enter for newline)"
-                className="flex-1 resize-none rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className={cn('input', 'textarea')}
+                style={{ flex: 1, minHeight: 64, padding: 12, lineHeight: 1.5 }}
               />
               <button
+                type="button"
                 onClick={handleSend}
                 disabled={!userInput.trim() || isLoading || sessionComplete}
-                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/25"
+                className="btn btn-primary"
+                style={{ width: 40, height: 40, padding: 0, flexShrink: 0 }}
+                aria-label="Send"
               >
-                {isLoading
-                  ? <Loader2 size={16} className="animate-spin" />
-                  : <Send size={16} />
-                }
+                <span className="btn-label">
+                  {isLoading
+                    ? <Loader2 size={16} strokeWidth={1.8} className="animate-spin" />
+                    : <Send size={16} strokeWidth={1.8} />}
+                </span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Sidebar */}
-        <aside className="hidden md:flex w-72 shrink-0 flex-col gap-4 border-l border-border bg-card overflow-y-auto p-4 custom-scrollbar">
+        {/* REDESIGN: sidebar restyled with bg-surface + border-subtle */}
+        <aside
+          className="custom-scrollbar"
+          style={{
+            display: 'none',
+            width: 288,
+            flexShrink: 0,
+            flexDirection: 'column',
+            gap: 16,
+            borderLeft: '1px solid var(--border-subtle)',
+            background: 'var(--bg-surface)',
+            overflowY: 'auto',
+            padding: 16,
+          }}
+          // Restored desktop visibility via CSS media style
+          data-rpe-sidebar
+        >
           <MetricsHUD
             trustScore={trustScore}
             escalationLevel={escalationLevel}
@@ -310,34 +400,42 @@ export default function RolePlaySession() {
             failureEscalationThreshold={failureEscalationThreshold}
           />
 
-          {/* Session info card */}
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-            <div className="px-4 pt-3 pb-2.5 bg-gradient-to-r from-secondary/8 to-transparent border-b border-border/60">
-              <p className="text-[10px] font-semibold text-secondary uppercase tracking-widest">Session Info</p>
+          {/* REDESIGN: session info card now uses Card + KeyValuePair */}
+          <div className="card card-elevated" style={{ padding: 0, overflow: 'hidden' }}>
+            <div
+              style={{
+                padding: '12px 16px',
+                background: 'var(--bg-elevated)',
+                borderBottom: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div className="t-over" style={{ color: 'var(--accent)' }}>Session Info</div>
             </div>
-            <dl className="p-4 space-y-3">
-              {[
-                ['Scenario',  scenarioTitle],
-                ['NPC Role',  npcRole],
-                ['Conflict',  conflictType],
-                ['Progress',  currentTurn === 0 ? 'Not started' : `Turn ${currentTurn} of ${recommendedTurns}`],
-              ].map(([label, value]) => (
-                <div key={label} className="flex flex-col gap-0.5">
-                  <dt className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">{label}</dt>
-                  <dd className="text-sm text-foreground font-medium">{value}</dd>
-                </div>
-              ))}
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <KeyValuePair k="Scenario" v={scenarioTitle} />
+              <KeyValuePair k="NPC Role" v={npcRole} />
+              <KeyValuePair k="Conflict" v={conflictType} />
+              <KeyValuePair
+                k="Progress"
+                v={currentTurn === 0 ? 'Not started' : `Turn ${currentTurn} of ${recommendedTurns}`}
+                mono
+              />
               {maxTurns && (
-                <div className="flex flex-col gap-0.5">
-                  <dt className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Max turns</dt>
-                  <dd className="text-sm text-muted-foreground">{maxTurns} (hard cap)</dd>
-                </div>
+                <KeyValuePair k="Max turns" v={`${maxTurns} (hard cap)`} mono />
               )}
-            </dl>
+            </div>
           </div>
         </aside>
 
       </div>
+
+      {/* Inline style override to make the sidebar visible on desktop only,
+          replacing the original 'hidden md:flex' Tailwind utility */}
+      <style>{`
+        @media (min-width: 768px) {
+          aside[data-rpe-sidebar] { display: flex !important; }
+        }
+      `}</style>
     </div>
   )
 }

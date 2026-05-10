@@ -40,3 +40,19 @@ class BaselineCompleteOut(BaseModel):
 
     baseline: BaselineSnapshotOut
     plan_id: uuid.UUID
+
+
+class BaselineChatIn(BaseModel):
+    """Body for POST /apa/baseline/chat."""
+
+    message: str
+    history: list = []
+    context: Optional[dict[str, Any]] = None
+    turn: int = 0
+
+
+class BaselineChatOut(BaseModel):
+    """Response for POST /apa/baseline/chat."""
+
+    response: str
+    should_end: bool

@@ -3,81 +3,91 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronLeft, RefreshCw, CheckCircle, XCircle, Clock, BarChart2 } from 'lucide-react'
 
 import { rpeService }       from '@/services/rpe/rpeService'
-import { cn }               from '@/lib/utils'
 import CoachingPanel        from '@/components/RPE/CoachingPanel'
 import RiskFlagsPanel       from '@/components/RPE/RiskFlagsPanel'
 import BlindSpotsPanel      from '@/components/RPE/BlindSpotsPanel'
 import QualityCurveChart    from '@/components/RPE/QualityCurveChart'
 import RadarSummaryCard     from '@/components/RPE/RadarSummaryCard'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import TabNav from '@/components/ui/TabNav'
+import StatCard from '@/components/ui/StatCard'
 
 /* ── helpers ──────────────────────────────────────────────── */
-const DIFFICULTY_STYLES = {
-  beginner:     'bg-emerald-100 text-emerald-700',
-  intermediate: 'bg-amber-100 text-amber-700',
-  advanced:     'bg-red-100 text-red-700',
+// REDESIGN: replaced hardcoded -100/-700 chip pairs with Badge variants
+const DIFFICULTY_BADGE = {
+  beginner:     'success',
+  intermediate: 'warning',
+  advanced:     'danger',
 }
 
-const NPC_TONE_CHIP = {
-  cooperative: 'bg-emerald-100 text-emerald-700',
-  neutral:     'bg-amber-100 text-amber-700',
-  hostile:     'bg-red-100 text-red-700',
+const NPC_TONE_BADGE = {
+  cooperative: 'success',
+  neutral:     'warning',
+  hostile:     'danger',
 }
 
-const EMOTION_STYLES = {
-  calm:       'bg-emerald-100 text-emerald-700',
-  assertive:  'bg-violet-100 text-violet-700',
-  anxious:    'bg-amber-100 text-amber-700',
-  frustrated: 'bg-red-100 text-red-700',
-  confused:   'bg-slate-100 text-slate-600',
+const EMOTION_BADGE = {
+  calm:       'success',
+  assertive:  'accent',
+  anxious:    'warning',
+  frustrated: 'danger',
+  confused:   'neutral',
 }
 
-const EMOTION_BAR_COLORS = {
-  calm:       'bg-gradient-to-r from-emerald-500 to-teal-400',
-  assertive:  'bg-gradient-to-r from-violet-500 to-purple-400',
-  anxious:    'bg-gradient-to-r from-amber-400 to-yellow-300',
-  frustrated: 'bg-gradient-to-r from-red-500 to-rose-400',
-  confused:   'bg-gradient-to-r from-slate-400 to-slate-300',
+// REDESIGN: emotion bar fills now use chart-* tokens (was bg-gradient-to-r hex colors)
+const EMOTION_BAR_COLOR = {
+  calm:       'var(--chart-2)',
+  assertive:  'var(--chart-1)',
+  anxious:    'var(--chart-3)',
+  frustrated: 'var(--chart-5)',
+  confused:   'var(--text-tertiary)',
 }
 
 const SECTIONS = [
-  { id: 'overview', label: 'Overview'          },
-  { id: 'coaching', label: 'Coaching'           },
-  { id: 'risks',    label: 'Risk & Blind Spots' },
-  { id: 'charts',   label: 'Charts'             },
+  { value: 'overview', label: 'Overview'           },
+  { value: 'coaching', label: 'Coaching'           },
+  { value: 'risks',    label: 'Risk & Blind Spots' },
+  { value: 'charts',   label: 'Charts'             },
 ]
 
 /* ── end reason badge config ─────────────────────────────── */
 function endReasonBadge(endReason, outcome) {
-  if (endReason === 'trust_sustained')
-    return { cls: 'bg-emerald-100 text-emerald-700',  label: 'Trust Built'  }
-  if (endReason === 'npc_exit')
-    return { cls: 'bg-red-100 text-red-700',          label: 'NPC Exited'   }
-  if (endReason === 'max_turns_reached' && outcome === 'success')
-    return { cls: 'bg-violet-100 text-violet-700',    label: 'Completed'    }
-  if (endReason === 'max_turns_reached' && outcome === 'failure')
-    return { cls: 'bg-amber-100 text-amber-700',      label: 'Time Limit'   }
-  if (outcome === 'success')
-    return { cls: 'bg-emerald-100 text-emerald-700',  label: 'Success'      }
-  if (outcome === 'failure')
-    return { cls: 'bg-red-100 text-red-700',          label: 'Needs Work'   }
-  return   { cls: 'bg-muted text-muted-foreground',   label: 'Incomplete'   }
+  if (endReason === 'trust_sustained')        return { variant: 'success', label: 'Trust Built'  }
+  if (endReason === 'npc_exit')               return { variant: 'danger',  label: 'NPC Exited'   }
+  if (endReason === 'max_turns_reached' && outcome === 'success') return { variant: 'accent',  label: 'Completed' }
+  if (endReason === 'max_turns_reached' && outcome === 'failure') return { variant: 'warning', label: 'Time Limit' }
+  if (outcome === 'success')                  return { variant: 'success', label: 'Success'      }
+  if (outcome === 'failure')                  return { variant: 'danger',  label: 'Needs Work'   }
+  return                                              { variant: 'neutral', label: 'Incomplete'   }
 }
 
 /* ── end reason context card ─────────────────────────────── */
+// REDESIGN: replaced hardcoded bg-emerald-50/red-50 backgrounds with semantic tokens + accent stripe
 function EndReasonCard({ endReason, totalTurns, recommendedTurns, maxTurns, label }) {
   const config = {
-    trust_sustained:   { border: 'border-emerald-200 bg-emerald-50', Icon: CheckCircle, iconCls: 'text-emerald-500' },
-    npc_exit:          { border: 'border-red-200 bg-red-50',         Icon: XCircle,    iconCls: 'text-red-500'     },
-    max_turns_reached: { border: 'border-border bg-muted/40',        Icon: Clock,      iconCls: 'text-muted-foreground' },
+    trust_sustained:   { bg: 'var(--success-soft)', border: 'oklch(0.700 0.150 165 / 0.4)', Icon: CheckCircle, color: 'var(--success)' },
+    npc_exit:          { bg: 'var(--danger-soft)',  border: 'oklch(0.660 0.180 20 / 0.4)',  Icon: XCircle,    color: 'var(--danger)' },
+    max_turns_reached: { bg: 'var(--bg-elevated)',  border: 'var(--border-subtle)',          Icon: Clock,      color: 'var(--text-tertiary)' },
   }
   const c = config[endReason] ?? config.max_turns_reached
   const { Icon } = c
   return (
-    <div className={cn('rounded-xl border px-4 py-3.5 flex items-center gap-3', c.border)}>
-      <Icon className={cn('w-5 h-5 shrink-0', c.iconCls)} />
+    <div
+      style={{
+        borderRadius: 'var(--radius-lg)',
+        border: `1px solid ${c.border}`,
+        background: c.bg,
+        padding: '14px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+      }}
+    >
+      <Icon size={20} strokeWidth={1.8} style={{ color: c.color, flexShrink: 0 }} />
       <div>
-        <p className="text-sm font-semibold text-foreground">{label ?? 'Session Ended'}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="fg" style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{label ?? 'Session Ended'}</p>
+        <p className="t-cap" style={{ marginTop: 2 }}>
           Session ran {totalTurns} turns
           {recommendedTurns && ` (recommended ${recommendedTurns}`}
           {maxTurns && `, max ${maxTurns}`}
@@ -88,29 +98,11 @@ function EndReasonCard({ endReason, totalTurns, recommendedTurns, maxTurns, labe
   )
 }
 
-/* ── score card ──────────────────────────────────────────── */
-function ScoreCard({ label, value, suffix, colorClass = 'text-foreground', children }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
-      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
-      <p className={cn('text-3xl font-bold tabular-nums', colorClass)}>
-        {value}
-        {suffix && <span className="text-lg text-muted-foreground font-normal">{suffix}</span>}
-      </p>
-      {children}
-    </div>
-  )
-}
-
-function getTrustColor(v) {
-  return v >= 70 ? 'text-emerald-600' : v >= 40 ? 'text-amber-500' : 'text-red-500'
-}
-
 function Skeleton() {
   return (
-    <div className="animate-pulse space-y-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-32 bg-muted rounded-xl" />
+        <div key={i} className="skel" style={{ height: 128 }} />
       ))}
     </div>
   )
@@ -163,13 +155,24 @@ export default function FeedbackDashboard() {
   /* ── LOADING ──────────────────────────────────────────── */
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background px-4 py-10">
-        <div className="max-w-4xl mx-auto space-y-4">
-          <div className="text-center mb-8 space-y-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-              <BarChart2 className="w-6 h-6 text-primary animate-pulse" />
+      <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)', padding: '40px 16px' }}>
+        <div style={{ maxWidth: 1024, margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 'var(--radius)',
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <BarChart2 size={24} strokeWidth={1.8} style={{ color: 'var(--accent)' }} className="animate-pulse" />
             </div>
-            <p className="text-muted-foreground text-sm">Analysing your session…</p>
+            <p className="t-cap">Analysing your session…</p>
           </div>
           <Skeleton />
         </div>
@@ -180,26 +183,31 @@ export default function FeedbackDashboard() {
   /* ── ERROR ────────────────────────────────────────────── */
   if (error) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <div className="bg-card rounded-2xl border border-border p-8 max-w-md w-full text-center space-y-4 shadow-lg">
-          <p className="text-3xl">⚠️</p>
-          <h2 className="font-bold text-foreground">Could not load feedback for this session.</h2>
-          <p className="text-sm text-red-500">{error}</p>
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={load}
-              className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <RefreshCw size={14} /> Try Again
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'var(--bg-canvas)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+      >
+        <Card style={{ maxWidth: 420, width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <p style={{ fontSize: 28, margin: 0 }} aria-hidden>⚠️</p>
+          <h2 className="t-h3" style={{ margin: 0 }}>Could not load feedback for this session.</h2>
+          <p style={{ fontSize: 13, color: 'var(--danger)', margin: 0 }}>{error}</p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button type="button" onClick={load} className="btn btn-primary">
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <RefreshCw size={14} strokeWidth={1.8} /> Try again
+              </span>
             </button>
-            <button
-              onClick={() => navigate('/roleplay')}
-              className="rounded-xl bg-muted px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted/80 transition-colors"
-            >
-              Back to Scenarios
+            <button type="button" onClick={() => navigate('/roleplay')} className="btn btn-secondary">
+              <span className="btn-label">Back to scenarios</span>
             </button>
           </div>
-        </div>
+        </Card>
       </div>
     )
   }
@@ -209,104 +217,111 @@ export default function FeedbackDashboard() {
   const badge = endReasonBadge(endReason, fd.outcome)
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div style={{ minHeight: '100vh', background: 'var(--bg-canvas)', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Sticky page header */}
-      <div className="sticky top-0 z-20 bg-card border-b border-border shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      {/* REDESIGN: sticky page header restyled to match Topbar/.bg-canvas convention */}
+      <div
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 20,
+          background: 'oklch(0.145 0.015 264 / 0.92)',
+          backdropFilter: 'blur(8px)',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1024,
+            margin: '0 auto',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+              className="icon-btn"
+              aria-label="Back"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={18} strokeWidth={1.6} />
             </button>
-            <div className="min-w-0">
-              <h1 className="text-lg font-bold text-foreground leading-tight">Session Feedback</h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-muted-foreground truncate">{fd.scenario_title}</span>
+            <div style={{ minWidth: 0 }}>
+              <h1 className="t-h3" style={{ margin: 0, lineHeight: 1.2 }}>Session feedback</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                <span
+                  className="t-cap"
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {fd.scenario_title}
+                </span>
                 {fd.difficulty && (
-                  <span className={cn(
-                    'text-xs font-semibold rounded-full px-2 py-0.5 capitalize shrink-0',
-                    DIFFICULTY_STYLES[fd.difficulty] ?? 'bg-muted text-muted-foreground'
-                  )}>
-                    {fd.difficulty}
-                  </span>
+                  <Badge variant={DIFFICULTY_BADGE[fd.difficulty] ?? 'neutral'}>
+                    <span style={{ textTransform: 'capitalize' }}>{fd.difficulty}</span>
+                  </Badge>
                 )}
               </div>
             </div>
           </div>
-          <span className={cn('shrink-0 text-xs font-bold rounded-full px-3 py-1', badge.cls)}>
-            {badge.label}
-          </span>
+          {/* REDESIGN: badge pill replaced with Badge component */}
+          <Badge variant={badge.variant}>{badge.label}</Badge>
         </div>
       </div>
 
-      {/* Section nav */}
-      <div className="bg-card border-b border-border/60">
-        <div className="max-w-4xl mx-auto px-4 flex gap-0 overflow-x-auto scrollbar-hide">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              className={cn(
-                'whitespace-nowrap px-5 py-3 text-sm font-semibold transition-colors border-b-2',
-                activeSection === s.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
+      {/* REDESIGN: 4-tab nav switched to TabNav component (sliding indicator) */}
+      <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div style={{ maxWidth: 1024, margin: '0 auto', padding: '0 16px' }}>
+          <TabNav
+            value={activeSection}
+            onChange={setActiveSection}
+            options={SECTIONS}
+          />
         </div>
       </div>
 
       {/* Main content */}
-      <div className="flex-1 px-4 py-6">
-        <div className="max-w-4xl mx-auto space-y-5">
+      <div style={{ flex: 1, padding: '24px 16px' }}>
+        <div
+          style={{
+            maxWidth: 1024,
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 20,
+          }}
+        >
 
-          {/* Score cards — always visible */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <ScoreCard
+          {/* REDESIGN: 4 score boxes replaced with StatCard component */}
+          <div className="grid-4">
+            <StatCard
               label="Final Trust"
               value={fd.final_trust ?? '—'}
-              suffix="/100"
-              colorClass={getTrustColor(fd.final_trust ?? 0)}
+              unit="/100"
             />
-            <ScoreCard label="Escalation" value={fd.final_escalation ?? '—'} suffix="/5">
-              <div className="flex justify-center gap-1 mt-1.5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      'w-2 h-2 rounded-full',
-                      i < (fd.final_escalation ?? 0)
-                        ? fd.final_escalation <= 1 ? 'bg-emerald-400'
-                          : fd.final_escalation <= 3 ? 'bg-amber-400'
-                          : 'bg-red-500'
-                        : 'bg-muted border border-border'
-                    )}
-                  />
-                ))}
-              </div>
-            </ScoreCard>
-            <ScoreCard label="Turns" value={fd.total_turns ?? '—'} suffix=" turns" />
-            <ScoreCard
+            <StatCard
+              label="Escalation"
+              value={fd.final_escalation ?? '—'}
+              unit="/5"
+            />
+            <StatCard
+              label="Turns"
+              value={fd.total_turns ?? '—'}
+              unit=" turns"
+            />
+            <StatCard
               label="Avg Quality"
               value={summary.avg_quality ?? '—'}
-              suffix="/10"
-              colorClass={
-                (summary.avg_quality ?? 0) >= 7 ? 'text-emerald-600'
-                : (summary.avg_quality ?? 0) >= 4 ? 'text-amber-500'
-                : 'text-red-500'
-              }
+              unit="/10"
             />
           </div>
 
           {/* ── OVERVIEW ──────────────────────────────────────── */}
           {activeSection === 'overview' && (
-            <div className="space-y-5">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <EndReasonCard
                 endReason={endReason}
                 totalTurns={fd.total_turns}
@@ -314,7 +329,7 @@ export default function FeedbackDashboard() {
                 maxTurns={maxTurns}
                 label={summary.end_reason_label}
               />
-              <div className="grid md:grid-cols-2 gap-5">
+              <div className="grid-2">
                 <RadarSummaryCard summaryScores={summary} emotionDistribution={emotionDist} />
                 <CoachingPanel
                   coachingAdvice={fd.coaching_advice}
@@ -322,13 +337,22 @@ export default function FeedbackDashboard() {
                   onExpand={() => setActiveSection('coaching')}
                 />
               </div>
-              <div className="grid md:grid-cols-2 gap-5">
+              <div className="grid-2">
                 <div>
                   <RiskFlagsPanel riskFlags={fd.risk_flags} limit={2} />
                   {fd.risk_flags?.length > 2 && (
                     <button
+                      type="button"
                       onClick={() => setActiveSection('risks')}
-                      className="mt-2 text-xs text-primary hover:underline font-semibold"
+                      className="t-cap"
+                      style={{
+                        marginTop: 8,
+                        background: 'transparent',
+                        border: 0,
+                        color: 'var(--accent)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
                     >
                       See all {fd.risk_flags.length} flags →
                     </button>
@@ -338,8 +362,17 @@ export default function FeedbackDashboard() {
                   <BlindSpotsPanel blindSpots={fd.blind_spots} limit={1} />
                   {fd.blind_spots?.length > 1 && (
                     <button
+                      type="button"
                       onClick={() => setActiveSection('risks')}
-                      className="mt-2 text-xs text-primary hover:underline font-semibold"
+                      className="t-cap"
+                      style={{
+                        marginTop: 8,
+                        background: 'transparent',
+                        border: 0,
+                        color: 'var(--accent)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
                     >
                       See all {fd.blind_spots.length} blind spots →
                     </button>
@@ -351,45 +384,39 @@ export default function FeedbackDashboard() {
 
           {/* ── COACHING ──────────────────────────────────────── */}
           {activeSection === 'coaching' && (
-            <div className="space-y-5">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <CoachingPanel coachingAdvice={fd.coaching_advice} />
 
               {npcToneJourney.length > 0 && (
-                <div className="bg-card rounded-xl border border-border p-5 shadow-sm">
-                  <p className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">
+                <Card>
+                  <div className="t-over" style={{ marginBottom: 12 }}>
                     How the NPC saw you across the session
-                  </p>
-                  <div className="flex flex-wrap gap-2">
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {npcToneJourney.map((item, i) => (
-                      <span
-                        key={i}
-                        className={cn(
-                          'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-                          NPC_TONE_CHIP[item.tone] ?? 'bg-muted text-muted-foreground'
-                        )}
-                      >
-                        {item.turn}: {item.tone}
-                      </span>
+                      <Badge key={i} variant={NPC_TONE_BADGE[item.tone] ?? 'neutral'}>
+                        {item.turn}: <span style={{ textTransform: 'capitalize' }}>{item.tone}</span>
+                      </Badge>
                     ))}
                   </div>
                   {endReason === 'npc_exit' && (
-                    <p className="text-xs text-red-500 mt-3 font-medium">
+                    <p className="t-cap" style={{ color: 'var(--danger)', marginTop: 12, fontWeight: 500 }}>
                       ⚠ The NPC exited at turn {fd.total_turns} due to escalation reaching level {fd.final_escalation}/5
                     </p>
                   )}
                   {endReason === 'trust_sustained' && (
-                    <p className="text-xs text-emerald-600 mt-3 font-medium">
+                    <p className="t-cap" style={{ color: 'var(--success)', marginTop: 12, fontWeight: 500 }}>
                       ✅ Trust was sustained above the threshold — NPC resolved.
                     </p>
                   )}
-                </div>
+                </Card>
               )}
             </div>
           )}
 
           {/* ── RISKS ─────────────────────────────────────────── */}
           {activeSection === 'risks' && (
-            <div className="grid md:grid-cols-2 gap-5">
+            <div className="grid-2">
               <RiskFlagsPanel riskFlags={fd.risk_flags} />
               <BlindSpotsPanel blindSpots={fd.blind_spots} />
             </div>
@@ -397,64 +424,82 @@ export default function FeedbackDashboard() {
 
           {/* ── CHARTS ────────────────────────────────────────── */}
           {activeSection === 'charts' && (
-            <div className="space-y-5">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <QualityCurveChart
                 qualityCurve={viz.quality_curve}
                 trustCurve={viz.trust_curve}
                 escalationCurve={viz.escalation_curve}
               />
 
-              {/* Trust delta strip */}
+              {/* REDESIGN: trust delta strip uses Badge variants */}
               {trustDeltas.length > 0 && (
-                <div className="bg-card rounded-xl border border-border p-5 shadow-sm">
-                  <p className="text-sm font-bold text-foreground mb-3 uppercase tracking-wide">Trust change per turn</p>
-                  <div className="flex flex-wrap gap-2">
+                <Card>
+                  <div className="t-over" style={{ marginBottom: 12 }}>Trust change per turn</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {trustDeltas.map((item, i) => (
-                      <span
+                      <Badge
                         key={i}
-                        className={cn(
-                          'rounded-full px-2.5 py-0.5 text-xs font-bold',
-                          item.direction === 'up'   ? 'bg-emerald-100 text-emerald-700'
-                          : item.direction === 'down' ? 'bg-red-100 text-red-700'
-                          : 'bg-muted text-muted-foreground'
-                        )}
+                        variant={
+                          item.direction === 'up' ? 'success'
+                          : item.direction === 'down' ? 'danger'
+                          : 'neutral'
+                        }
                       >
                         {item.turn}: {item.direction === 'up' ? `+${item.delta}` : item.delta === 0 ? '±0' : item.delta}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* Emotion distribution */}
+              {/* REDESIGN: emotion distribution bars now use chart-* tokens via CSS variables */}
               {emotionEntries.length > 0 && (
-                <div className="bg-card rounded-xl border border-border p-5 shadow-sm">
-                  <p className="text-sm font-bold text-foreground mb-4 uppercase tracking-wide">Emotion Breakdown</p>
-                  <div className="space-y-3">
+                <Card>
+                  <div className="t-over" style={{ marginBottom: 14 }}>Emotion breakdown</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {emotionEntries.map(([emotion, count]) => {
                       const pct = totalEmotions > 0 ? Math.round((count / totalEmotions) * 100) : 0
                       return (
-                        <div key={emotion} className="flex items-center gap-3">
-                          <span className={cn(
-                            'w-20 shrink-0 text-xs font-semibold rounded-full px-2 py-0.5 text-center capitalize',
-                            EMOTION_STYLES[emotion] ?? 'bg-muted text-muted-foreground'
-                          )}>
-                            {emotion}
+                        <div
+                          key={emotion}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                        >
+                          <span style={{ width: 88, flexShrink: 0 }}>
+                            <Badge variant={EMOTION_BADGE[emotion] ?? 'neutral'}>
+                              <span style={{ textTransform: 'capitalize' }}>{emotion}</span>
+                            </Badge>
                           </span>
-                          <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
+                          <div
+                            style={{
+                              flex: 1,
+                              background: 'var(--bg-input)',
+                              borderRadius: 999,
+                              height: 8,
+                              overflow: 'hidden',
+                              border: '1px solid var(--border-subtle)',
+                            }}
+                          >
                             <div
-                              className={cn('h-2.5 rounded-full transition-all duration-700', EMOTION_BAR_COLORS[emotion] ?? 'bg-slate-400')}
-                              style={{ width: `${pct}%` }}
+                              style={{
+                                height: '100%',
+                                width: `${pct}%`,
+                                borderRadius: 999,
+                                background: EMOTION_BAR_COLOR[emotion] ?? 'var(--text-tertiary)',
+                                transition: 'width 700ms var(--ease)',
+                              }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground w-14 text-right tabular-nums font-medium">
+                          <span
+                            className="score-num"
+                            style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 70, textAlign: 'right', fontWeight: 500 }}
+                          >
                             {count} ({pct}%)
                           </span>
                         </div>
                       )
                     })}
                   </div>
-                </div>
+                </Card>
               )}
             </div>
           )}
@@ -462,20 +507,43 @@ export default function FeedbackDashboard() {
         </div>
       </div>
 
-      {/* Sticky action bar */}
-      <div className="sticky bottom-0 bg-card border-t border-border px-4 py-3 z-20 shadow-sm">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
+      {/* REDESIGN: sticky bottom action bar restyled with .btn classes */}
+      <div
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          background: 'var(--bg-surface)',
+          borderTop: '1px solid var(--border-subtle)',
+          padding: '12px 16px',
+          zIndex: 20,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1024,
+            margin: '0 auto',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
           <button
+            type="button"
             onClick={() => navigate('/roleplay')}
-            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
+            className="btn btn-primary"
           >
-            <RefreshCw size={14} /> Try Again
+            <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={14} strokeWidth={1.8} /> Try again
+            </span>
           </button>
           <button
+            type="button"
             onClick={() => navigate('/roleplay')}
-            className="rounded-xl bg-muted px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted/80 transition-colors"
+            className="btn btn-secondary"
           >
-            Next Scenario
+            <span className="btn-label">Next scenario</span>
           </button>
         </div>
       </div>

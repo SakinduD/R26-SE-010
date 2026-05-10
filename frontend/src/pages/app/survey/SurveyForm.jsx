@@ -179,8 +179,8 @@ export default function SurveyForm({ initialAnswers }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <div style={{ display: 'flex', minHeight: '40vh', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 size={24} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
       </div>
     );
   }
@@ -188,28 +188,27 @@ export default function SurveyForm({ initialAnswers }) {
   if (!currentQ) return null;
 
   return (
-    <div className="flex flex-col">
+    <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: 80 }}>
       <ProgressBar current={index + 1} total={questions.length} />
 
-      <div className="mx-auto w-full max-w-xl px-4 py-8">
+      <div className="page page-read">
         {/* Keyboard hint — first question only */}
         {isFirst && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-5 flex items-center gap-2 rounded-lg border border-border/50 bg-accent/40 px-3.5 py-2.5 text-xs text-muted-foreground"
+            className="banner banner-info"
+            style={{ marginBottom: 20 }}
+            role="status"
           >
-            <span className="font-medium text-foreground">Tip:</span>
-            Press&nbsp;<kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">1</kbd>–
-            <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">5</kbd>&nbsp;to select,&nbsp;
-            <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">→</kbd>&nbsp;or&nbsp;
-            <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Enter</kbd>&nbsp;to advance,&nbsp;
-            <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">←</kbd>&nbsp;to go back.
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              Press&nbsp;<kbd>1</kbd>–<kbd>5</kbd>&nbsp;to select,&nbsp;<kbd>→</kbd>&nbsp;or&nbsp;<kbd>Enter</kbd>&nbsp;to advance,&nbsp;<kbd>←</kbd>&nbsp;to go back.
+            </span>
           </motion.div>
         )}
 
         {/* Question card */}
-        <div className="overflow-hidden">
+        <div style={{ overflow: 'hidden' }}>
           <AnimatePresence mode="wait" custom={direction} initial={false}>
             <motion.div
               key={currentQ.id}
@@ -219,19 +218,20 @@ export default function SurveyForm({ initialAnswers }) {
               animate="center"
               exit="exit"
               transition={{ duration: 0.28, ease: 'easeOut' }}
-              className="flex flex-col"
+              style={{ display: 'flex', flexDirection: 'column' }}
               tabIndex={-1}
               ref={questionRef}
             >
               {/* Question text */}
               <div
                 id={`question-label-${currentQ.id}`}
-                className="mb-5 rounded-xl border border-border/60 bg-card p-5 shadow-sm"
+                className="card"
+                style={{ marginBottom: 20, padding: 24 }}
               >
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Question {index + 1}
-                </p>
-                <p className="text-base font-medium leading-relaxed text-foreground">
+                <div className="t-over" style={{ marginBottom: 8 }}>
+                  Question {index + 1} / {questions.length}
+                </div>
+                <p style={{ fontSize: 18, lineHeight: 1.45, color: 'var(--text-primary)', margin: 0, fontWeight: 400 }}>
                   {currentQ.text}
                 </p>
               </div>
@@ -240,7 +240,7 @@ export default function SurveyForm({ initialAnswers }) {
               <div
                 role="radiogroup"
                 aria-labelledby={`question-label-${currentQ.id}`}
-                className="space-y-2"
+                className="likert-row"
               >
                 {[1, 2, 3, 4, 5].map((val, i) => (
                   <motion.div
@@ -252,11 +252,31 @@ export default function SurveyForm({ initialAnswers }) {
                   >
                     <LikertOption
                       value={val}
-                      label={LIKERT_LABELS[val]}
+                      label={val}
                       selected={currentAnswer === val}
                       onSelect={selectAnswer}
                     />
                   </motion.div>
+                ))}
+              </div>
+
+              {/* Likert verbal labels under each cell */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(5, 1fr)',
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <div
+                    key={`label-${val}`}
+                    className="t-cap"
+                    style={{ textAlign: 'center', fontSize: 10.5, lineHeight: 1.3 }}
+                  >
+                    {LIKERT_LABELS[val]}
+                  </div>
                 ))}
               </div>
             </motion.div>
@@ -264,15 +284,26 @@ export default function SurveyForm({ initialAnswers }) {
         </div>
 
         {/* Navigation */}
-        <div className="mt-6 flex items-center justify-between gap-3 pt-2">
+        <div
+          style={{
+            marginTop: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            paddingTop: 8,
+          }}
+        >
           <button
             type="button"
             onClick={goPrev}
             disabled={isFirst}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn btn-ghost"
           >
-            <ChevronLeft className="size-4" />
-            Back
+            <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <ChevronLeft size={14} strokeWidth={1.8} />
+              Back
+            </span>
           </button>
 
           {isLast ? (
@@ -280,27 +311,31 @@ export default function SurveyForm({ initialAnswers }) {
               type="button"
               onClick={handleSubmit}
               disabled={submitting || answeredCount < questions.length}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="btn btn-primary btn-lg"
             >
-              {submitting && <Loader2 className="size-4 animate-spin" />}
-              {submitting ? 'Submitting…' : 'Submit assessment'}
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {submitting && <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />}
+                {submitting ? 'Submitting…' : 'Submit assessment'}
+              </span>
             </button>
           ) : (
             <button
               type="button"
               onClick={goNext}
               disabled={!currentAnswer}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="btn btn-secondary"
             >
-              Next
-              <ChevronRight className="size-4" />
+              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                Next
+                <ChevronRight size={14} strokeWidth={1.8} />
+              </span>
             </button>
           )}
         </div>
 
         {/* Unanswered count hint */}
         {isLast && answeredCount < questions.length && (
-          <p className="mt-3 text-center text-xs text-muted-foreground">
+          <p className="t-cap" style={{ marginTop: 12, textAlign: 'center' }}>
             {questions.length - answeredCount} question
             {questions.length - answeredCount !== 1 ? 's' : ''} still unanswered
             — use Back to review.

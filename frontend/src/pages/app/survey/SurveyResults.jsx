@@ -4,69 +4,99 @@ import { motion } from 'framer-motion';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import { getMyProfile } from '@/lib/api/survey';
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
-import { TRAIT_META, OCEAN_ORDER, LEVEL_STYLES } from '@/lib/survey/trait-copy';
+import { TRAIT_META, OCEAN_ORDER } from '@/lib/survey/trait-copy';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
-import { cn } from '@/lib/utils';
+import PageHead from '@/components/ui/PageHead';
+import Card from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import ScoreBar from '@/components/ui/ScoreBar';
+import CountUp from '@/components/ui/CountUp';
+
+const LEVEL_VARIANT = { HIGH: 'accent', MID: 'neutral', LOW: 'info' };
 
 function TraitCard({ traitKey, traitData, index }) {
   const meta = TRAIT_META[traitKey];
   const { score, level } = traitData;
-  const styles = LEVEL_STYLES[level];
+  const [armed, setArmed] = useState(false);
+
+  // Stagger the animation slightly so the bars + counters fire in sequence
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), 120 + index * 80);
+    return () => clearTimeout(t);
+  }, [index]);
 
   return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-3.5"
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="flex size-6 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
-              {meta.letter}
-            </span>
-            <h3 className="text-sm font-semibold text-foreground">{meta.label}</h3>
+    <motion.div variants={fadeInUp}>
+      <Card>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'auto 1fr auto',
+            gap: 18,
+            alignItems: 'center',
+            marginBottom: 14,
+          }}
+        >
+          <div className="letter-chip" style={{ width: 44, height: 44, fontSize: 18 }}>
+            {meta.letter}
           </div>
-          <p className="text-xs text-muted-foreground">{meta.description}</p>
+          <div>
+            <div className="t-h3">{meta.label}</div>
+            <div className="t-cap">{meta.description}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div
+              className="score-num fg"
+              style={{ fontSize: 36, lineHeight: 1, fontWeight: 500 }}
+            >
+              {armed ? <CountUp to={Math.round(score)} duration={700} /> : 0}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <Badge variant={LEVEL_VARIANT[level] ?? 'neutral'}>
+                {meta.levelLabel?.[level] ?? level}
+              </Badge>
+            </div>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <span className="text-2xl font-bold tabular-nums text-foreground">
-            {Math.round(score)}
-          </span>
-          <span className="text-xs text-muted-foreground">/100</span>
-        </div>
-      </div>
 
-      {/* Score bar */}
-      <div className="space-y-1.5">
-        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <motion.div
-            className={cn('h-full rounded-full bg-gradient-to-r', styles.bar)}
-            initial={{ width: 0 }}
-            animate={{ width: `${score}%` }}
-            transition={{ duration: 0.8, ease: 'easeOut', delay: index * 0.1 + 0.3 }}
-          />
-        </div>
-        <div className="flex items-center justify-between">
-          <span className={cn('rounded-md px-2 py-0.5 text-xs font-medium', styles.badge)}>
-            {meta.levelLabel[level]}
-          </span>
-          <span className="text-xs tabular-nums text-muted-foreground">{score.toFixed(1)}</span>
-        </div>
-      </div>
+        <ScoreBar value={armed ? score : 0} gradient />
 
-      {/* Training note */}
-      <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/40 pt-3">
-        <span className="font-medium text-foreground">Your training: </span>
-        {meta.trainingNote[level]}
-      </p>
+        <p
+          style={{
+            margin: '16px 0 0',
+            fontSize: 14,
+            color: 'var(--text-secondary)',
+            lineHeight: 1.6,
+          }}
+        >
+          {meta.meaning ?? meta.description}
+        </p>
+
+        <div className="divider" style={{ margin: '16px 0' }} />
+
+        <div className="t-cap" style={{ marginBottom: 4 }}>
+          What this means for your training
+        </div>
+        <div className="fg" style={{ fontSize: 14, lineHeight: 1.6 }}>
+          {meta.trainingNote?.[level] ?? ''}
+        </div>
+      </Card>
     </motion.div>
   );
 }
 
+const DECISION_KEY = 'empowerz:baseline:decision'
+
 export default function SurveyResults() {
   const navigate = useNavigate();
   const { isLoading: authLoading } = useProtectedRoute();
+
+  function handleStartBaseline() {
+    const decision = localStorage.getItem(DECISION_KEY)
+    if (decision === 'consented') navigate('/baseline')
+    else if (decision === 'skipped') navigate('/training-plan')
+    else navigate('/baseline/consent')
+  }
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,62 +118,64 @@ export default function SurveyResults() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <div
+        style={{
+          display: 'flex',
+          minHeight: '50vh',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Loader2 size={24} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
       </div>
     );
   }
+
+  const updated = new Date(profile.updated_at).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 
   return (
     <motion.div
       variants={staggerContainer}
       initial="initial"
       animate="animate"
-      className="mx-auto max-w-xl space-y-6"
+      className="page"
     >
-      {/* Header */}
-      <motion.div variants={fadeInUp} className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Your personality profile
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Based on the Big Five Inventory · Last updated{' '}
-          {new Date(profile.updated_at).toLocaleDateString(undefined, {
-            year: 'numeric', month: 'long', day: 'numeric',
-          })}
-        </p>
-      </motion.div>
+      <PageHead
+        eyebrow="Big Five Inventory"
+        title="Your OCEAN profile"
+        sub={`Last updated ${updated}`}
+      />
 
-      {/* OCEAN trait cards */}
-      {OCEAN_ORDER.map((key, i) => (
-        <TraitCard
-          key={key}
-          traitKey={key}
-          traitData={profile.scores[key]}
-          index={i}
-        />
-      ))}
+      <div className="col stagger" style={{ gap: 16 }}>
+        {OCEAN_ORDER.map((key, i) => (
+          <TraitCard
+            key={key}
+            traitKey={key}
+            traitData={profile.scores[key]}
+            index={i}
+          />
+        ))}
+      </div>
 
-      {/* CTA */}
-      <motion.div variants={fadeInUp} className="pt-2 pb-8 space-y-3">
-        <Link
-          to="/baseline"
-          className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          Start baseline voice session
-          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+      <motion.div
+        variants={fadeInUp}
+        style={{ display: 'flex', gap: 8, marginTop: 28, flexWrap: 'wrap' }}
+      >
+        <button type="button" onClick={handleStartBaseline} className="btn btn-primary btn-lg">
+          <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            Start voice baseline
+            <ArrowRight size={14} strokeWidth={1.8} />
+          </span>
+        </button>
+        <Link to="/training-plan" className="btn btn-secondary btn-lg">
+          <span className="btn-label">Skip to training plan</span>
         </Link>
-        <Link
-          to="/training-plan"
-          className="group flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all duration-200"
-        >
-          Skip to training plan
-        </Link>
-        <Link
-          to="/dashboard"
-          className="group flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-xs text-muted-foreground hover:text-foreground transition-all duration-200"
-        >
-          Continue to dashboard
+        <Link to="/dashboard" className="btn btn-ghost btn-lg">
+          <span className="btn-label">Back to dashboard</span>
         </Link>
       </motion.div>
     </motion.div>

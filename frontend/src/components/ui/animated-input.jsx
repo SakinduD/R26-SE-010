@@ -2,9 +2,16 @@ import React, { forwardRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * AnimatedInput — labelled input used by auth forms.
+ * Restyled to use prototype .input + .field classes. Original API preserved:
+ *   { label, error, type, className, id, ...inputProps }
+ *
+ * For password type, an inline eye-toggle icon button switches visibility.
+ */
 const AnimatedInput = forwardRef(function AnimatedInput(
   { label, error, type = 'text', className, id, ...props },
-  ref
+  ref,
 ) {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
@@ -12,31 +19,22 @@ const AnimatedInput = forwardRef(function AnimatedInput(
   const inputId = id || props.name;
 
   return (
-    <div className="space-y-1.5">
+    <div className={cn('field', className)}>
       {label && (
-        <label
-          htmlFor={inputId}
-          className="block text-sm font-medium text-foreground"
-        >
+        <label htmlFor={inputId} className="field-label">
           {label}
         </label>
       )}
 
-      <div className="relative">
+      <div style={{ position: 'relative' }}>
         <input
           id={inputId}
           ref={ref}
           type={inputType}
-          className={cn(
-            'flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background',
-            'placeholder:text-muted-foreground/50',
-            'transition-all duration-200 outline-none',
-            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-            error && 'border-destructive focus-visible:ring-destructive',
-            isPassword && 'pr-10',
-            className
-          )}
+          data-error={Boolean(error) || undefined}
+          aria-invalid={Boolean(error) || undefined}
+          className="input"
+          style={isPassword ? { paddingRight: 36 } : undefined}
           {...props}
         />
 
@@ -45,22 +43,30 @@ const AnimatedInput = forwardRef(function AnimatedInput(
             type="button"
             tabIndex={-1}
             onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
             aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="icon-btn"
+            style={{
+              position: 'absolute',
+              right: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 30,
+              height: 30,
+            }}
           >
             {showPassword ? (
-              <EyeOff className="size-4" />
+              <EyeOff size={14} strokeWidth={1.6} />
             ) : (
-              <Eye className="size-4" />
+              <Eye size={14} strokeWidth={1.6} />
             )}
           </button>
         )}
       </div>
 
       {error && (
-        <p role="alert" className="text-xs text-destructive leading-snug">
+        <span role="alert" className="field-error">
           {error}
-        </p>
+        </span>
       )}
     </div>
   );

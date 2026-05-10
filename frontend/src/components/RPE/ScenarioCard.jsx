@@ -1,31 +1,32 @@
 import { Loader2, ChevronRight, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+// REDESIGN: emerald/amber/red/slate → semantic tokens
 const DIFFICULTY_STYLES = {
-  beginner:     { badge: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-400' },
-  intermediate: { badge: 'bg-amber-100 text-amber-700',    bar: 'bg-amber-400'   },
-  advanced:     { badge: 'bg-red-100 text-red-700',         bar: 'bg-red-400'     },
+  beginner:     { badge: 'bg-success/10 text-success', bar: 'bg-success' },
+  intermediate: { badge: 'bg-warning/10 text-warning', bar: 'bg-warning' },
+  advanced:     { badge: 'bg-danger/10 text-danger',   bar: 'bg-danger'  },
 }
 
 const getDifficultyStars = (weight) => {
-  if (weight <= 1.0) return { label: 'Easy start',    cls: 'text-emerald-600' }
-  if (weight <= 1.5) return { label: 'Moderate',      cls: 'text-amber-600'   }
-  if (weight <= 2.0) return { label: 'Challenging',   cls: 'text-orange-600'  }
-  return              { label: 'Expert',          cls: 'text-red-600'     }
+  if (weight <= 1.0) return { label: 'Easy start',  cls: 'text-success' }
+  if (weight <= 1.5) return { label: 'Moderate',    cls: 'text-warning' }
+  if (weight <= 2.0) return { label: 'Challenging', cls: 'text-warning' }
+  return              { label: 'Expert',        cls: 'text-danger'  }
 }
 
 export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarting }) {
   const skills       = scenario.target_skills ?? scenario.apa_metadata?.target_skills ?? []
   const weight       = scenario.difficulty_weight ?? scenario.apa_metadata?.difficulty_weight ?? 1.0
   const stars        = getDifficultyStars(weight)
-  const diff         = DIFFICULTY_STYLES[scenario.difficulty] ?? { badge: 'bg-slate-100 text-slate-600', bar: 'bg-slate-300' }
+  const diff         = DIFFICULTY_STYLES[scenario.difficulty] ?? { badge: 'bg-muted text-muted-foreground', bar: 'bg-border-strong' }
   const visibleSkills = skills.slice(0, 3)
   const extraSkills   = skills.length - 3
 
   return (
     <div
       onClick={() => onViewDetail(scenario)}
-      className="group rounded-xl border border-border bg-card shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 cursor-pointer flex flex-col overflow-hidden"
+      className="group rounded-xl border border-border bg-card hover:border-primary/30 transition-all duration-200 cursor-pointer flex flex-col overflow-hidden"
     >
       {/* Difficulty accent bar */}
       <div className={cn('h-1 w-full', diff.bar)} />
@@ -66,7 +67,7 @@ export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarti
             </span>
           )}
           {scenario.end_conditions?.failure_escalation_threshold != null && (
-            <span className="text-[11px] text-red-400/80 italic">
+            <span className="text-[11px] text-danger/80 italic">
               NPC exits at escalation ≥ {scenario.end_conditions.failure_escalation_threshold}/5
             </span>
           )}
@@ -106,7 +107,7 @@ export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarti
           <button
             onClick={() => onStart(scenario)}
             disabled={isStarting}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/20"
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isStarting
               ? <><Loader2 size={13} className="animate-spin" /> Starting…</>

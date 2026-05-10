@@ -30,7 +30,7 @@ function PasswordStrengthBar({ password }) {
     '',
     'bg-destructive',
     'bg-warning',
-    'bg-yellow-500',
+    'bg-warning',
     'bg-success',
   ];
 

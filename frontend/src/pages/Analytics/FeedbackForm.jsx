@@ -13,13 +13,18 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   normalizeComponentSessionOptions,
   optionalRequest,
   selectPreferredComponentSession,
 } from './analyticsIntegrationUtils'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Banner from '@/components/ui/Banner'
+import SegmentedControl from '@/components/ui/SegmentedControl'
+import KeyValuePair from '@/components/ui/KeyValuePair'
 
 const SKILL_OPTIONS = [
   { value: 'vocal_command', label: 'Vocal Command', sub: 'Speech Volume' },
@@ -36,7 +41,6 @@ export default function FeedbackForm() {
   const {
     userId: connectedUserId,
     userLabel,
-    isAuthenticated,
   } = useAnalyticsIdentity(null, 'user-123')
 
   const [form, setForm] = useState({
@@ -54,7 +58,11 @@ export default function FeedbackForm() {
 
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
+  // Session options + status are loaded but not displayed in this restyle —
+  // sidebar nav handles session selection. Kept to preserve existing fetch logic.
+  // eslint-disable-next-line no-unused-vars
   const [sessionOptions, setSessionOptions] = useState([])
+  // eslint-disable-next-line no-unused-vars
   const [sessionStatus, setSessionStatus] = useState('loading')
 
   // Use the exact weights from the backend for consistency
@@ -153,55 +161,94 @@ export default function FeedbackForm() {
   }, [params.sessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground pb-12">
-      <section className="border-b border-border bg-card/60 sticky top-0 z-10 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-indigo-500 mb-1">Post-Session Evaluation</p>
-          <h1 className="text-2xl font-black text-white">Self-Reflection Form</h1>
-        </div>
-      </section>
+    <div className="page page-wide">
+      {/* REDESIGN: hero replaced AnalyticsNav + indigo-500/font-black/tracking-[0.3em] header
+          with PageHead + Badge for "Self-reflection" */}
+      <PageHead
+        eyebrow="Post-session evaluation"
+        title="Self-reflection"
+        sub="Your reflections seed the prediction model — be honest."
+      />
 
-      <div className="max-w-7xl mx-auto px-4 mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 380px', alignItems: 'start' }}>
 
-        {/* Left Side: The Form */}
-        <form onSubmit={submitFeedback} className="space-y-6">
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-indigo-500/10 p-2 rounded-lg">
-                <ShieldCheck className="h-5 w-5 text-indigo-500" />
+        {/* REDESIGN: form column rebuilt with Card components, prototype tokens, no indigo/slate hardcoded colors */}
+        <form onSubmit={submitFeedback} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: 'var(--accent-soft)',
+                  border: '1px solid var(--accent-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent)',
+                }}
+              >
+                <ShieldCheck size={16} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="font-bold">Session Verification</h2>
-                <p className="text-xs text-muted-foreground">This form is compulsory to finalize your analytics</p>
+                <div className="t-h3" style={{ margin: 0 }}>Session verification</div>
+                <p className="t-cap" style={{ margin: 0 }}>
+                  This form is required to finalize your analytics
+                </p>
               </div>
             </div>
 
-            <label className="grid gap-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-tight">Active Session ID</span>
-              <div className="h-12 flex items-center px-4 rounded-xl border border-border bg-background text-sm font-medium text-indigo-400">
-                {displayFriendlyId || form.session_id || 'Waiting for session...'}
+            <div className="field">
+              <label className="field-label">Active session ID</label>
+              <div
+                className="input"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 44,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 13,
+                  color: form.session_id ? 'var(--text-primary)' : 'var(--text-quaternary)',
+                }}
+              >
+                {form.session_id || 'Waiting for session…'}
               </div>
-            </label>
-          </div>
+            </div>
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-1 flex items-center gap-2">
-              <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
-              Rate Your Performance
-            </h3>
-            <p className="text-xs text-muted-foreground mb-8">How do you feel you performed in each area? (0-100)</p>
+          {/* REDESIGN: skill ratings — replaced bg-indigo-600/bg-slate-700 with .input track + accent thumb (CSS var styling) */}
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
+              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--warning)' }} />
+              Rate your performance
+            </div>
+            <p className="t-cap" style={{ margin: '0 0 24px' }}>
+              How do you feel you performed in each area? (0–100)
+            </p>
 
-            <div className="space-y-10">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
               {SKILL_OPTIONS.map((skill) => (
                 <div key={skill.value}>
-                  <div className="flex justify-between items-end mb-3">
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-end',
+                      marginBottom: 10,
+                    }}
+                  >
                     <div>
-                      <span className="text-sm font-bold block text-slate-100">{skill.label}</span>
-                      <span className="text-[10px] text-slate-500 italic">{skill.sub}</span>
+                      <span className="fg" style={{ fontSize: 14, fontWeight: 500, display: 'block' }}>
+                        {skill.label}
+                      </span>
+                      <span className="t-cap" style={{ fontStyle: 'italic' }}>
+                        {skill.sub}
+                      </span>
                     </div>
-                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-full text-sm font-bold ring-1 ring-indigo-400">
-                      {form.ratings[skill.value]}
-                    </span>
+                    <Badge variant="accent">
+                      <span className="score-num">{form.ratings[skill.value]}</span>
+                    </Badge>
                   </div>
                   <input
                     type="range"
@@ -210,118 +257,123 @@ export default function FeedbackForm() {
                     step="5"
                     value={form.ratings[skill.value]}
                     onChange={(e) => updateRating(skill.value, e.target.value)}
-                    className="w-full h-2 bg-slate-700 rounded-full cursor-pointer accent-indigo-500 appearance-none [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:mt-[-4px]"
+                    className="slider"
                   />
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-4 flex items-center gap-2">
-              <Star className="h-4 w-4 text-indigo-500" />
-              Overall Sentiment
-            </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { val: 'positive', label: 'Positive', emoji: '😊', color: 'bg-green-500/10 border-green-500/20 text-green-500' },
-                { val: 'neutral', label: 'Neutral', emoji: '😐', color: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500' },
-                { val: 'negative', label: 'Negative', emoji: '☹️', color: 'bg-red-500/10 border-red-500/20 text-red-500' },
-              ].map((opt) => (
-                <button
-                  key={opt.val}
-                  type="button"
-                  onClick={() => setForm(p => ({ ...p, sentiment: opt.val }))}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${form.sentiment === opt.val ? opt.color + ' ring-2 ring-current' : 'border-border bg-background/40 hover:bg-background'
-                    }`}
-                >
-                  <span className="text-2xl">{opt.emoji}</span>
-                  <span className="text-[10px] font-bold uppercase">{opt.label}</span>
-                </button>
-              ))}
+          {/* REDESIGN: sentiment buttons replaced emoji + bg-green-500/10 etc. with text-only SegmentedControl */}
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px' }}>
+              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+              Overall sentiment
             </div>
-          </div>
+            <SegmentedControl
+              value={form.sentiment}
+              onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
+              options={[
+                { label: 'Positive', value: 'positive' },
+                { label: 'Neutral', value: 'neutral' },
+                { label: 'Negative', value: 'negative' },
+              ]}
+            />
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-4 flex items-center gap-2 text-slate-100">
-              <MessageSquare className="h-4 w-4 text-indigo-400" />
-              Additional Observations
-            </h3>
+          {/* REDESIGN: comment textarea uses .input + .textarea (was bg-background + ring-indigo-500/30) */}
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px' }}>
+              <MessageSquare size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+              Additional observations
+            </div>
             <textarea
-              className="w-full min-h-[120px] rounded-xl border border-border bg-background p-4 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+              className="input textarea"
               placeholder="What specific moment in the session made you feel this way? (Optional)"
               value={form.comment}
               onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
+              style={{ minHeight: 120, padding: 14 }}
             />
-          </div>
+          </Card>
 
-          <div className="flex flex-col gap-4 items-center">
-            <StatusMessage status={status} message={message} />
+          {/* REDESIGN: status message replaced bg-red-500/10/etc. ad-hoc colors with Banner */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+            {message && (
+              <div style={{ width: '100%' }}>
+                <Banner
+                  variant={
+                    status === 'success' ? 'success'
+                      : status === 'error' ? 'danger'
+                      : 'info'
+                  }
+                >
+                  {message}
+                </Banner>
+              </div>
+            )}
+            {/* REDESIGN: bg-indigo-600 submit button replaced with Button primary */}
             <Button
               type="submit"
-              className="px-8 h-11 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20"
               disabled={!canSubmit || status === 'saving'}
+              loading={status === 'saving'}
+              size="lg"
             >
-              {status === 'saving' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Complete Evaluation
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {status === 'saving'
+                  ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
+                  : <Save size={14} strokeWidth={1.8} />}
+                Complete evaluation
+              </span>
             </Button>
           </div>
         </form>
 
-        {/* Right Side: Current Entry Preview */}
-        <aside className="hidden lg:block sticky top-28 h-fit">
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-2 mb-6 text-indigo-400">
-              <Star className="h-4 w-4" />
-              <h2 className="font-bold text-sm tracking-tight uppercase">Current Entry</h2>
+        {/* REDESIGN: preview pane rebuilt with Card accent + KeyValuePair (was indigo-400/slate-200) */}
+        <aside style={{ position: 'sticky', top: 80, height: 'fit-content' }} className="hide-mobile-aside">
+          <Card variant="accent">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 16,
+                color: 'var(--accent)',
+              }}
+            >
+              <Star size={14} strokeWidth={1.8} />
+              <div className="t-over" style={{ color: 'var(--accent)' }}>Current entry</div>
             </div>
 
-            <div className="divide-y divide-border text-sm">
-              <PreviewItem icon={<User className="h-3 w-3" />} label="User" value={userLabel || connectedUserId} />
-              <PreviewItem icon={<Layout className="h-3 w-3" />} label="Session" value={displayFriendlyId || form.session_id} isMono />
-              <PreviewItem icon={<Activity className="h-3 w-3" />} label="Type" value="Self reflection" />
-              <PreviewItem icon={<Star className="h-3 w-3" />} label="Skills" value="4 Real Skills" />
-              <PreviewItem icon={<CheckCircle2 className="h-3 w-3" />} label="Avg Rating" value={avgRating} isHighlight />
-              <PreviewItem icon={<MessageSquare className="h-3 w-3" />} label="Sentiment" value={form.sentiment} isCapitalized />
-            </div>
+            <KeyValuePair k={<><User size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />User</>} v={userLabel || connectedUserId || '—'} />
+            <KeyValuePair k={<><Layout size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Session</>} v={form.session_id || '—'} mono />
+            <KeyValuePair k={<><Activity size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Type</>} v="Self reflection" />
+            <KeyValuePair k={<><Star size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Skills</>} v="4 skills" />
+            <KeyValuePair k={<><CheckCircle2 size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Avg rating</>} v={avgRating} mono />
+            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment}</span>} />
 
-            <div className="mt-6 p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10">
-              <p className="text-[10px] text-indigo-400 font-medium leading-relaxed">
+            <div
+              style={{
+                marginTop: 18,
+                padding: 14,
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent-muted)',
+                borderRadius: 'var(--radius)',
+              }}
+            >
+              <p className="t-cap" style={{ color: 'var(--accent)', lineHeight: 1.55, margin: 0 }}>
                 Confirm your ratings before submitting. Your self-reflection will be compared with AI-observed metrics to detect blind spots.
               </p>
             </div>
-          </div>
+          </Card>
         </aside>
-
       </div>
-    </main>
-  )
-}
 
-function PreviewItem({ icon, label, value, isMono, isHighlight, isCapitalized }) {
-  return (
-    <div className="flex items-center justify-between py-3 gap-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      <span className={`text-xs font-bold truncate max-w-[180px] ${isMono ? 'font-mono bg-muted px-1.5 py-0.5 rounded' : ''} ${isHighlight ? 'text-indigo-400' : 'text-slate-200'} ${isCapitalized ? 'capitalize' : ''}`}>
-        {value || 'N/A'}
-      </span>
-    </div>
-  )
-}
-
-function StatusMessage({ status, message }) {
-  if (!message) return null
-  const colors = {
-    success: 'bg-green-500/10 text-green-500 border-green-500/20',
-    error: 'bg-red-500/10 text-red-500 border-red-500/20',
-    saving: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
-  }
-  return (
-    <div className={`px-4 py-3 rounded-xl border text-sm font-medium flex items-center gap-2 ${colors[status]}`}>
-      {message}
+      {/* Hide preview pane on mobile (was hidden lg:block) */}
+      <style>{`
+        @media (max-width: 1023px) {
+          .hide-mobile-aside { display: none; }
+        }
+      `}</style>
     </div>
   )
 }

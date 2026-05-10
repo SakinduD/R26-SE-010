@@ -1,33 +1,34 @@
+// REDESIGN: emerald/amber/red/slate/violet → semantic tokens; shadow-sm removed from card
 import { cn } from '@/lib/utils'
 
 const EMOTION_STYLES = {
-  calm:       'bg-emerald-100 text-emerald-700',
-  assertive:  'bg-violet-100 text-violet-700',
-  anxious:    'bg-amber-100 text-amber-700',
-  frustrated: 'bg-red-100 text-red-700',
-  confused:   'bg-slate-100 text-slate-600',
+  calm:       'bg-success/10 text-success',
+  assertive:  'bg-accent-soft text-accent',
+  anxious:    'bg-warning/10 text-warning',
+  frustrated: 'bg-danger/10 text-danger',
+  confused:   'bg-muted text-muted-foreground',
 }
 
 const getTrustGradient = (score) =>
-  score >= 70 ? 'from-emerald-500 to-teal-400'
-  : score >= 40 ? 'from-amber-400 to-yellow-300'
-  : 'from-red-500 to-rose-400'
+  score >= 70 ? 'from-success to-success/70'
+  : score >= 40 ? 'from-warning to-warning/70'
+  : 'from-danger to-danger/70'
 
 const getPipStyle = (level) =>
-  level <= 1 ? 'bg-emerald-400 shadow-sm shadow-emerald-400/60'
-  : level <= 3 ? 'bg-amber-400 shadow-sm shadow-amber-400/60'
-  : 'bg-red-500 shadow-sm shadow-red-500/60'
+  level <= 1 ? 'bg-success'
+  : level <= 3 ? 'bg-warning'
+  : 'bg-danger'
 
 const NPC_TONE_STYLES = {
-  cooperative: { pill: 'bg-emerald-100 text-emerald-700',  label: 'Warming Up' },
-  neutral:     { pill: 'bg-amber-100 text-amber-700',      label: 'Neutral'    },
-  hostile:     { pill: 'bg-red-100 text-red-700',          label: 'Hostile'    },
+  cooperative: { pill: 'bg-success/10 text-success', label: 'Warming Up' },
+  neutral:     { pill: 'bg-warning/10 text-warning', label: 'Neutral'    },
+  hostile:     { pill: 'bg-danger/10 text-danger',   label: 'Hostile'    },
 }
 
 const ESC_TONE_STYLES = {
-  controlled: { text: 'text-muted-foreground', label: 'Controlled' },
-  irritated:  { text: 'text-amber-500',        label: 'Irritated'  },
-  furious:    { text: 'text-red-500 font-semibold', label: 'Furious ⚠' },
+  controlled: { text: 'text-muted-foreground',    label: 'Controlled' },
+  irritated:  { text: 'text-warning',              label: 'Irritated'  },
+  furious:    { text: 'text-danger font-semibold', label: 'Furious'    },
 }
 
 export default function MetricsHUD({
@@ -40,16 +41,14 @@ export default function MetricsHUD({
   const escStyle  = ESC_TONE_STYLES[escalationTone] ?? ESC_TONE_STYLES.controlled
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
 
-      {/* Header strip */}
       <div className="px-4 pt-4 pb-3 bg-gradient-to-r from-primary/8 to-transparent border-b border-border/60">
         <p className="text-xs font-semibold text-primary uppercase tracking-widest">Live Metrics</p>
       </div>
 
       <div className="p-4 space-y-4">
 
-        {/* Trust bar */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
             <span className="text-xs font-semibold text-foreground">Trust</span>
@@ -57,7 +56,7 @@ export default function MetricsHUD({
               {trustDelta != null && trustDelta !== 0 && (
                 <span className={cn(
                   'text-xs font-bold tabular-nums',
-                  trustDelta > 0 ? 'text-emerald-600' : 'text-red-500'
+                  trustDelta > 0 ? 'text-success' : 'text-danger'
                 )}>
                   {trustDelta > 0 ? `+${trustDelta}` : trustDelta}
                 </span>
@@ -75,7 +74,6 @@ export default function MetricsHUD({
 
         <div className="border-t border-border/60" />
 
-        {/* NPC Attitude */}
         <div>
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest block mb-2">
             NPC Attitude
@@ -92,7 +90,6 @@ export default function MetricsHUD({
 
         <div className="border-t border-border/60" />
 
-        {/* Escalation pips */}
         <div>
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest block mb-2">
             Escalation
@@ -114,7 +111,7 @@ export default function MetricsHUD({
             <p className={cn(
               'text-[10px] mt-1.5 tabular-nums',
               escalationLevel >= failureEscalationThreshold - 1
-                ? 'text-red-500 font-semibold'
+                ? 'text-danger font-semibold'
                 : 'text-muted-foreground/50'
             )}>
               NPC exits at {failureEscalationThreshold}/5
@@ -124,7 +121,6 @@ export default function MetricsHUD({
 
         <div className="border-t border-border/60" />
 
-        {/* Emotion */}
         <div>
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest block mb-2">
             Emotion

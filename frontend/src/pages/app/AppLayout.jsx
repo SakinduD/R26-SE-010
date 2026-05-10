@@ -1,25 +1,22 @@
-import React from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import {
-  LogOut,
-  LayoutDashboard,
-  Brain,
-  BarChart3,
-  MessageSquare,
-  Swords,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import Logo from '@/components/ui/logo';
-import { useAuth } from '@/lib/auth/context';
+import React, { useState } from 'react';
+import { Outlet } from 'react-router-dom';
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
+import Sidebar from '@/components/layout/Sidebar';
+import Topbar from '@/components/layout/Topbar';
+import BottomTabs from '@/components/layout/BottomTabs';
 
 function NavSkeleton() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b border-border h-14 animate-pulse bg-muted/30" />
-      <div className="max-w-5xl mx-auto px-4 py-10 space-y-4">
-        <div className="h-8 w-48 rounded-lg bg-muted animate-pulse" />
-        <div className="h-4 w-72 rounded bg-muted animate-pulse" />
+    <div className="app-shell">
+      <aside className="sidebar" aria-hidden style={{ visibility: 'hidden' }} />
+      <div className="app-main">
+        <header className="topbar" aria-hidden style={{ visibility: 'hidden' }} />
+        <main className="app-content">
+          <div className="page">
+            <div className="skel" style={{ width: 192, height: 32, marginBottom: 16 }} />
+            <div className="skel" style={{ width: 288, height: 16 }} />
+          </div>
+        </main>
       </div>
     </div>
   );
@@ -27,85 +24,23 @@ function NavSkeleton() {
 
 export default function AppLayout() {
   const { isLoading } = useProtectedRoute();
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const isAnalyticsRoute = location.pathname.startsWith('/analytics');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   if (isLoading) return <NavSkeleton />;
 
-  const handleSignOut = async () => {
-    await signOut();
-    toast.success('Signed out');
-    navigate('/');
-  };
-
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top nav */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/dashboard">
-              <Logo />
-            </Link>
-            <Link
-              to="/dashboard"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <LayoutDashboard className="size-3.5" />
-              Dashboard
-            </Link>
-            <Link
-              to="/training-plan"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Brain className="size-3.5" />
-              Training plan
-            </Link>
-            <Link
-              to="/analytics-dashboard"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <BarChart3 className="size-3.5" />
-              Analytics
-            </Link>
-            <Link
-              to="/analytics-feedback"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <MessageSquare className="size-3.5" />
-              Feedback
-            </Link>
-            <Link
-              to="/roleplay"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Swords className="size-3.5" />
-              Role Play
-            </Link>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <span className="hidden sm:block text-sm text-muted-foreground">
-              {user?.display_name || user?.email}
-            </span>
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Sign out"
-            >
-              <LogOut className="size-3.5" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Page content */}
-      <main className={isAnalyticsRoute ? '' : 'max-w-5xl mx-auto px-4 py-10'}>
-        <Outlet />
-      </main>
+    <div className="app-shell">
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
+      <div className="app-main">
+        <Topbar />
+        <main className="app-content">
+          <Outlet />
+        </main>
+      </div>
+      <BottomTabs />
     </div>
   );
 }

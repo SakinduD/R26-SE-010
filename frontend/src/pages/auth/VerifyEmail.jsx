@@ -11,29 +11,36 @@ export default function VerifyEmail() {
         initial={{ opacity: 0, scale: 0.97 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.4 }}
-        className="py-4 text-center space-y-5"
+        style={{ padding: '8px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 20, alignItems: 'center' }}
       >
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.15, type: 'spring', stiffness: 280 }}
-          className="mx-auto flex size-14 items-center justify-center rounded-full bg-success/10"
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: 'var(--success-soft)',
+            border: '1px solid oklch(0.700 0.150 165 / 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--success)',
+          }}
         >
-          <CheckCircle2 className="size-7 text-success" />
+          <CheckCircle2 size={28} strokeWidth={1.8} />
         </motion.div>
 
-        <div className="space-y-1.5">
-          <h2 className="text-lg font-semibold text-foreground">Email verified!</h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <h2 className="t-h2">Email verified</h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
             Your email has been confirmed. You can now sign in to your account.
           </p>
         </div>
 
-        <Link
-          to="/signin"
-          className="inline-flex items-center justify-center w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          Sign in
+        <Link to="/signin" className="btn btn-primary btn-lg" style={{ width: '100%' }}>
+          <span className="btn-label">Sign in</span>
         </Link>
       </motion.div>
     </AuthCard>

@@ -1,32 +1,42 @@
 import React from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import BackgroundGradient from '@/components/ui/background-gradient';
-import Logo from '@/components/ui/logo';
 
 export default function AuthLayout() {
   return (
-    <div className="relative min-h-screen flex flex-col items-center justify-center p-4">
-      <BackgroundGradient />
+    <div className="auth-shell">
+      {/* Top-left brand */}
+      <Link to="/" className="auth-logo" aria-label="EmpowerZ home">
+        <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>EZ</div>
+        <span className="sb-brand-text">EmpowerZ</span>
+      </Link>
 
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-4">
-        <Link to="/" aria-label="Home">
-          <Logo />
-        </Link>
-        <Link
-          to="/"
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to home
-        </Link>
-      </div>
+      {/* Top-right back link */}
+      <Link
+        to="/"
+        className="t-cap"
+        style={{
+          position: 'fixed',
+          top: 28,
+          right: 28,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          color: 'var(--text-tertiary)',
+          textDecoration: 'none',
+          zIndex: 5,
+        }}
+      >
+        <ArrowLeft size={14} strokeWidth={1.6} />
+        Back to home
+      </Link>
 
-      {/* Centered card area */}
-      <div className="w-full max-w-md mt-16">
+      {/* Centered card */}
+      <div className="auth-card">
         <Outlet />
       </div>
+
+      <div className="auth-footer">EmpowerZ — A SLIIT Research Project</div>
     </div>
   );
 }
