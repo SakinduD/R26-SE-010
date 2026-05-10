@@ -298,7 +298,7 @@ class NudgeEngine:
         ]
         self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
         self.last_nudge_time: float = 0.0
-        self.COOLDOWN_SECONDS: float = 15.0 # Global gap between any two nudges
+        self.COOLDOWN_SECONDS: float = 10.0 # Global gap between any two nudges
         
         # MCA-15: History buffer to ensure behavior is sustained before nudging
         self.behavior_history: dict[str, int] = {} 

@@ -580,7 +580,7 @@ export default function TrainingPlan() {
                       ) : (
                         <Sparkles size={14} strokeWidth={1.8} />
                       )}
-                      {generating ? 'Generating…' : 'Generate plan'}
+                      {generating ? 'Generating…' : 'Generate Scenario'}
                     </span>
                   </button>
                   <Link to="/survey/results" className="btn btn-ghost btn-lg">

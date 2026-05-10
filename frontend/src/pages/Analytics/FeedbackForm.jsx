@@ -209,15 +209,14 @@ export default function FeedbackForm() {
                   height: 44,
                   fontFamily: 'var(--font-mono)',
                   fontSize: 13,
-                  color: form.session_id ? 'var(--text-primary)' : 'var(--text-quaternary)',
+                  color: (displayFriendlyId || form.session_id) ? 'var(--text-primary)' : 'var(--text-quaternary)',
                 }}
               >
-                {form.session_id || 'Waiting for session…'}
+                {displayFriendlyId || form.session_id || 'Waiting for session…'}
               </div>
             </div>
           </Card>
 
-          {/* REDESIGN: skill ratings — replaced bg-indigo-600/bg-slate-700 with .input track + accent thumb (CSS var styling) */}
           <Card>
             <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
               <Star size={14} strokeWidth={1.8} style={{ color: 'var(--warning)' }} />
@@ -345,7 +344,7 @@ export default function FeedbackForm() {
             </div>
 
             <KeyValuePair k={<><User size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />User</>} v={userLabel || connectedUserId || '—'} />
-            <KeyValuePair k={<><Layout size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Session</>} v={form.session_id || '—'} mono />
+            <KeyValuePair k={<><Layout size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Session</>} v={displayFriendlyId || form.session_id || '—'} mono />
             <KeyValuePair k={<><Activity size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Type</>} v="Self reflection" />
             <KeyValuePair k={<><Star size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Skills</>} v="4 skills" />
             <KeyValuePair k={<><CheckCircle2 size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Avg rating</>} v={avgRating} mono />
