@@ -109,6 +109,7 @@ export default function App() {
                   </div>
                 }
               />
+              <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
             </Route>
 
             {/* Legacy / feature routes (unchanged) */}
@@ -122,7 +123,6 @@ export default function App() {
                 </div>
               }
             />
-            <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
           </Routes>
         </div>
       </AuthProvider>

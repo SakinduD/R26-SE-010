@@ -406,7 +406,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
           let instanceFinal = '';
           let interim = '';
-          
+
           // Process all results to ensure consistency
           for (let i = 0; i < event.results.length; ++i) {
             const transcriptChunk = event.results[i][0].transcript;
@@ -416,12 +416,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               interim += transcriptChunk;
             }
           }
-          
+
           currentInstanceFinalRef.current = instanceFinal;
           interimTranscriptRef.current = interim;
-          
+
           const currentDisplay = sessionTranscriptRef.current + instanceFinal + interim;
-          
+
           // Auto-submission disabled
           if (currentDisplay !== transcriptRef.current) {
             transcriptRef.current = currentDisplay;
