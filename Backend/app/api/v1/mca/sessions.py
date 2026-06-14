@@ -66,6 +66,7 @@ class SessionResponse(BaseModel):
     emotion_distribution: Optional[dict[str, Any]] = None
     nudge_summary: Optional[dict[str, Any]] = None
     skill_scores: Optional[dict[str, Any]] = None
+    score_diagnostics: Optional[dict[str, Any]] = None
     mechanical_averages: Optional[dict[str, Any]] = None
     friendly_id: Optional[str] = None
 
@@ -86,6 +87,7 @@ class SessionResponse(BaseModel):
             emotion_distribution=session.emotion_distribution,
             nudge_summary=session.nudge_summary,
             skill_scores=session.skill_scores,
+            score_diagnostics=session.score_diagnostics,
             mechanical_averages=session.mechanical_averages,
             friendly_id=session.friendly_id,
         )
@@ -168,6 +170,7 @@ def end_session(
     )
     session.overall_score = metrics["overall"]
     session.skill_scores = metrics["breakdown"]
+    session.score_diagnostics = metrics["diagnostics"]
     
     # Determine dominant emotion
     if session.emotion_distribution:
@@ -213,3 +216,20 @@ def get_my_sessions(
         .all()
     )
     return [SessionResponse.from_orm(s) for s in sessions]
+
+@router.get("/{session_id}", response_model=SessionResponse)
+def get_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a single MCA session by ID, if it belongs to the authenticated user."""
+    session: Optional[SessionResult] = db.get(SessionResult, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+
+    return SessionResponse.from_orm(session)

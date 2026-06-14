@@ -104,4 +104,14 @@ export const mcaService = {
       throw new Error(handleApiError(error, 'getMySessions'));
     }
   },
+
+  // Fetch full details for a specific session by its UUID.
+  getSession: async (sessionId) => {
+    try {
+      const response = await authClient.get(`${BASE}/sessions/${sessionId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error, 'getSession'));
+    }
+  },
 };

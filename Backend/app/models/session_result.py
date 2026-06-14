@@ -67,6 +67,8 @@ class SessionResult(Base):
 
     skill_scores: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
 
+    score_diagnostics: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
+
     mechanical_averages: Mapped[Optional[Dict[str, Any]]] = mapped_column(_json_col(), nullable=True)
 
     friendly_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
