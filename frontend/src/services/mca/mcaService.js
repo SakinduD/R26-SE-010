@@ -85,13 +85,23 @@ export const mcaService = {
     }
   },
 
-  // Fetch the current user's session history.
+  // Fetch the current user's session history (paginated).
   getSessions: async (limit = 20, offset = 0) => {
     try {
       const response = await authClient.get(`${BASE}/sessions/`, { params: { limit, offset } });
       return response.data;
     } catch (error) {
       throw new Error(handleApiError(error, 'getSessions'));
+    }
+  },
+
+  // Fetch all sessions for the currently logged-in user.
+  getMySessions: async () => {
+    try {
+      const response = await authClient.get(`${BASE}/sessions/me`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error, 'getMySessions'));
     }
   },
 };

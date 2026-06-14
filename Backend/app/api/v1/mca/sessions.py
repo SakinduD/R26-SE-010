@@ -188,13 +188,28 @@ def list_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return the authenticated user's MCA sessions, newest first."""
+    """Return the authenticated user's MCA sessions, newest first (paginated)."""
     sessions = (
         db.query(SessionResult)
         .filter(SessionResult.user_id == current_user.id)
         .order_by(SessionResult.started_at.desc())
         .limit(limit)
         .offset(offset)
+        .all()
+    )
+    return [SessionResponse.from_orm(s) for s in sessions]
+
+
+@router.get("/me", response_model=list[SessionResponse])
+def get_my_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all MCA sessions for the currently authenticated user, newest first."""
+    sessions = (
+        db.query(SessionResult)
+        .filter(SessionResult.user_id == current_user.id)
+        .order_by(SessionResult.started_at.desc())
         .all()
     )
     return [SessionResponse.from_orm(s) for s in sessions]
