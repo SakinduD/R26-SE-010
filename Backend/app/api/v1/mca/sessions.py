@@ -113,9 +113,16 @@ def start_session(
         friendly_id=generate_friendly_id(body.mode),
         started_at=datetime.now(timezone.utc),
     )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    try:
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create session: {exc}",
+        )
     return SessionResponse.from_orm(session)
 
 
@@ -179,8 +186,15 @@ def end_session(
     if body.chat_turns is not None:
         session.chat_turns = body.chat_turns
 
-    db.commit()
-    db.refresh(session)
+    try:
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save session results: {exc}",
+        )
     return SessionResponse.from_orm(session)
 
 

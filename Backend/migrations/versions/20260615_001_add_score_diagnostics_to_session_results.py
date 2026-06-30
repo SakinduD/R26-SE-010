@@ -16,7 +16,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = '20260615_001'
-down_revision: Union[str, None] = '1ab1e9d9712e'
+down_revision: Union[str, None] = '20260509_003'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
