@@ -1,784 +1,557 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
+import Webcam from 'react-webcam';
+import * as faceMesh from '@mediapipe/face_mesh';
+import * as cam from '@mediapipe/camera_utils';
+import * as draw from '@mediapipe/drawing_utils';
+import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
+import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
+import { mcaService } from '@/services/mca/mcaService';
+import AIChatbot from '@/components/MCA/AIChatbot';
+import clsx from 'clsx';
 import {
-  Activity, ArrowRight, CheckCircle2, Loader2, Mic, Sparkles, Users,
-} from 'lucide-react'
-import Webcam from 'react-webcam'
-import * as faceMesh from '@mediapipe/face_mesh'
-import * as cam from '@mediapipe/camera_utils'
-import { toast } from 'sonner'
-import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
-import { mcaService } from '@/services/mca/mcaService'
-import { getMyBaseline, completeBaseline, skipBaseline, chatBaseline } from '@/lib/api/baseline'
-import { injectDemoPersona, listDemoPersonas } from '@/lib/api/pedagogy'
-import { useProtectedRoute } from '@/lib/auth/useProtectedRoute'
-import { fadeInUp, staggerContainer } from '@/lib/animations'
-import PageHead from '@/components/ui/PageHead'
-import Card from '@/components/ui/Card'
-import RadialScore from '@/components/ui/RadialScore'
-import ChipToggle from '@/components/ui/ChipToggle'
-
-const IS_DEMO = import.meta.env.VITE_DEMO_MODE === 'true'
-const SESSION_DURATION = 60
-
-// ---------------------------------------------------------------------------
-// CountdownRing
-// ---------------------------------------------------------------------------
-
-function CountdownRing({ seconds, total = SESSION_DURATION }) {
-  const r = 46
-  const circ = 2 * Math.PI * r
-  const offset = circ * (1 - seconds / total)
-  const stroke =
-    seconds <= 10 ? 'var(--danger)' : seconds <= 20 ? 'var(--warning)' : 'var(--accent)'
-
-  return (
-    <svg width="112" height="112" viewBox="0 0 112 112" aria-label={`${seconds} seconds remaining`}>
-      <circle cx="56" cy="56" r={r} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="5" />
-      <circle
-        cx="56" cy="56" r={r}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
-        transform="rotate(-90 56 56)"
-        style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease' }}
-      />
-      <text x="56" y="52" textAnchor="middle" style={{ fill: '#fff', fontSize: 22, fontWeight: 700 }}>
-        {seconds}
-      </text>
-      <text x="56" y="67" textAnchor="middle" style={{ fill: 'rgba(255,255,255,0.5)', fontSize: 8, fontWeight: 600, letterSpacing: 1 }}>
-        SEC
-      </text>
-    </svg>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// BaselineSummaryCard — uses actual BaselineSnapshotOut schema
-// ---------------------------------------------------------------------------
-
-function BaselineSummaryCard({ baseline }) {
-  const overall = Math.round(baseline.overall_score ?? 0)
-  const scoreColor =
-    overall >= 70 ? 'var(--success)' : overall >= 50 ? 'var(--warning)' : 'var(--accent)'
-  const scoreSub = overall >= 70 ? 'STRONG' : overall >= 50 ? 'MID' : 'EARLY'
-  const skipped = baseline.mca_session_id === 'skipped'
-
-  const emotionDist = baseline.emotion_distribution || {}
-  const dominantEmotion =
-    Object.entries(emotionDist).sort((a, b) => b[1] - a[1])[0]?.[0] || null
-
-  const skillScores = baseline.skill_scores
-    ? Object.entries(baseline.skill_scores).filter(([, v]) => typeof v === 'number')
-    : []
-
-  return (
-    <motion.div variants={fadeInUp}>
-      <Card variant="accent">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--success)', marginBottom: 8 }}>
-          <CheckCircle2 size={16} strokeWidth={1.8} />
-          <span className="t-over" style={{ color: 'var(--success)' }}>
-            {skipped ? 'Baseline skipped' : 'Baseline complete'}
-          </span>
-        </div>
-
-        <div className="t-h2" style={{ marginBottom: 6 }}>
-          {skipped ? 'Training plan generated.' : 'Your voice signal is calibrated.'}
-        </div>
-        <p style={{ margin: '0 0 24px', fontSize: 14, color: 'var(--text-secondary)' }}>
-          {skipped
-            ? 'Your plan is based on your personality profile. Complete the baseline later for a more personalised experience.'
-            : "We've used the prosodic and emotional cues from your recording to seed your training plan."}
-        </p>
-
-        {!skipped && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 24, alignItems: 'center' }}>
-            <RadialScore value={overall} label="Overall" sub={scoreSub} color={scoreColor} />
-            <div>
-              {dominantEmotion && (
-                <>
-                  <div className="t-over" style={{ marginBottom: 10 }}>Dominant emotion</div>
-                  <ChipToggle staticOnly>
-                    <span style={{ textTransform: 'capitalize' }}>{dominantEmotion}</span>
-                  </ChipToggle>
-                </>
-              )}
-              {baseline.duration_seconds != null && (
-                <>
-                  <div className="t-over" style={{ marginTop: 16, marginBottom: 6 }}>Duration</div>
-                  <div className="score-num fg" style={{ fontSize: 16 }}>
-                    {String(Math.floor(baseline.duration_seconds / 60)).padStart(2, '0')}
-                    :
-                    {String(baseline.duration_seconds % 60).padStart(2, '0')}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {skillScores.length > 0 && (
-          <div style={{ marginTop: 20, borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
-            <div className="t-over" style={{ marginBottom: 12 }}>Skill breakdown</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {skillScores.map(([skill, score]) => (
-                <div key={skill} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className="t-cap" style={{ textTransform: 'capitalize' }}>
-                    {skill.replace(/_/g, ' ')}
-                  </div>
-                  <div className="fg" style={{ fontSize: 13, fontWeight: 600 }}>
-                    {Math.round(Number(score))}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-    </motion.div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// DemoInjector
-// ---------------------------------------------------------------------------
-
-function DemoInjector({ onInjected }) {
-  const [personas, setPersonas] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [active, setActive] = useState(null)
-
-  useEffect(() => {
-    listDemoPersonas()
-      .then(setPersonas)
-      .catch(() => setPersonas([]))
-  }, [])
-
-  async function handleInject(personaId) {
-    setLoading(true)
-    setActive(personaId)
-    try {
-      await injectDemoPersona(personaId)
-      onInjected()
-    } catch {
-      setLoading(false)
-      setActive(null)
-    }
-  }
-
-  if (!personas.length) return null
-
-  return (
-    <motion.div variants={fadeInUp}>
-      <Card variant="accent">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <Users size={16} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
-          <div className="t-over" style={{ color: 'var(--accent)' }}>Demo mode — inject a persona</div>
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }}>
-          Instantly load a pre-canned OCEAN profile + baseline for demonstration purposes.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {personas.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => handleInject(p.id)}
-              disabled={loading}
-              className="card card-interactive"
-              style={{
-                padding: 12, textAlign: 'left', display: 'flex', gap: 12,
-                alignItems: 'flex-start', background: 'var(--bg-elevated)',
-              }}
-            >
-              <div style={{
-                width: 28, height: 28, borderRadius: 8,
-                background: 'var(--accent-soft)', border: '1px solid var(--accent-muted)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--accent)', flexShrink: 0,
-              }}>
-                {loading && active === p.id
-                  ? <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />
-                  : <Sparkles size={14} strokeWidth={1.8} />}
-              </div>
-              <div>
-                <div className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</div>
-                <div className="t-cap" style={{ marginTop: 2 }}>{p.description}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </Card>
-    </motion.div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// BaselineSession — 60-second guided recording
-// ---------------------------------------------------------------------------
-
-// Chat messages sent to the AI at each stage of the session
-const STAGE_MESSAGES = [
-  'start',           // 0s  — AI greets + asks first question
-  'continue',        // 20s — AI gives a mid-session prompt
-  'wrap up',         // 40s — AI signals the end is near
-]
-
-function BaselineSession({ onComplete, onError }) {
-  // Stable refs (never trigger re-renders)
-  const webcamRef        = useRef(null)
-  const canvasRef        = useRef(null)
-  const cameraUtilRef    = useRef(null)
-  const socketRef        = useRef(null)
-  const mediaRecorderRef = useRef(null)
-  const audioStreamRef   = useRef(null)
-  const recordRestartRef = useRef(null)
-  const metricsRef       = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } })
-  const emotionRef       = useRef('Sensing...')
-  const emotionCountsRef = useRef({})
-  const sessionIdRef     = useRef(null)
-  const countdownRef     = useRef(null)
-  const chatTurnRef      = useRef(0)
-  const chatHistoryRef   = useRef([])
-  const endingRef        = useRef(false)
-  const onCompleteRef    = useRef(onComplete)
-  const onErrorRef       = useRef(onError)
-
-  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
-  useEffect(() => { onErrorRef.current = onError }, [onError])
-
-  // Render state
-  const [countdown, setCountdown]       = useState(SESSION_DURATION)
-  const [emotionDisplay, setEmotionDisplay] = useState('Sensing...')
-  const [aiMessages, setAiMessages]     = useState([])
-  const [cameraReady, setCameraReady]   = useState(false)
-  const [isEnding, setIsEnding]         = useState(false)
-
-  // --- Audio stop (ref-only, stable) ---
-  function stopAudio() {
-    if (recordRestartRef.current) clearTimeout(recordRestartRef.current)
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop()
-    mediaRecorderRef.current = null
-    socketRef.current?.close()
-    socketRef.current = null
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
-    audioStreamRef.current = null
-  }
-
-  // --- FaceMesh results handler ---
-  const onFaceMeshResults = useCallback((results) => {
-    if (!webcamRef.current?.video || !canvasRef.current) return
-    const video  = webcamRef.current.video
-    const canvas = canvasRef.current
-    if (canvas.width  !== video.videoWidth)  canvas.width  = video.videoWidth
-    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight
-
-    const ctx = canvas.getContext('2d')
-    ctx.save()
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
-
-    if (results.multiFaceLandmarks?.[0]) {
-      const lm = results.multiFaceLandmarks[0]
-      metricsRef.current = {
-        ear: calculateEAR(lm),
-        mar: calculateMAR(lm),
-        pose: estimateHeadPose(lm),
-      }
-    }
-    ctx.restore()
-  }, [])
-
-  // --- FaceMesh init (fires when webcam is ready) ---
-  useEffect(() => {
-    if (!cameraReady || !webcamRef.current?.video) return
-
-    const fmModel = new faceMesh.FaceMesh({
-      locateFile: (file) => {
-        const base =
-          import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL ||
-          'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh'
-        return `${base}/${file}`
-      },
-    })
-    fmModel.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    })
-    fmModel.onResults(onFaceMeshResults)
-
-    cameraUtilRef.current = new cam.Camera(webcamRef.current.video, {
-      onFrame: async () => { await fmModel.send({ image: webcamRef.current.video }) },
-      width: 640,
-      height: 480,
-    })
-    cameraUtilRef.current.start()
-
-    return () => {
-      cameraUtilRef.current?.stop()
-      cameraUtilRef.current = null
-      fmModel.close()
-    }
-  }, [cameraReady, onFaceMeshResults])
-
-  // --- Mount: start session, audio, countdown, AI chat ---
-  useEffect(() => {
-    let cancelled = false
-
-    async function callAI(turn) {
-      const msg = STAGE_MESSAGES[Math.min(turn, STAGE_MESSAGES.length - 1)]
-      try {
-        const result = await chatBaseline(
-          msg,
-          chatHistoryRef.current,
-          { metrics: { ...metricsRef.current, emotion: emotionRef.current } },
-          turn,
-        )
-        if (result?.response && !cancelled) {
-          setAiMessages((prev) => [...prev, result.response])
-          chatHistoryRef.current = [
-            ...chatHistoryRef.current,
-            { type: 'user', text: msg },
-            { type: 'model', text: result.response },
-          ]
-        }
-      } catch { /* session continues regardless */ }
-    }
-
-    async function doEndSession() {
-      if (endingRef.current) return
-      endingRef.current = true
-      setIsEnding(true)
-      clearInterval(countdownRef.current)
-      stopAudio()
-      cameraUtilRef.current?.stop()
-
-      const sid = sessionIdRef.current
-      if (!sid) { onErrorRef.current(); return }
-
-      const total = Object.values(emotionCountsRef.current).reduce((a, b) => a + b, 0)
-      const distribution = {}
-      if (total > 0) {
-        Object.entries(emotionCountsRef.current).forEach(([emo, count]) => {
-          distribution[emo] = count / total
-        })
-      }
-
-      try {
-        await mcaService.endSession(
-          sid,
-          [],
-          { total_nudges: 0, final_emotion: emotionRef.current },
-          null,
-          distribution,
-          {
-            avg_ear: metricsRef.current.ear,
-            avg_mar: metricsRef.current.mar,
-            avg_pitch: metricsRef.current.pose?.pitch ?? 0,
-          },
-        )
-        const result = await completeBaseline(sid)
-        onCompleteRef.current(result)
-      } catch {
-        toast.error('Could not save baseline. Please try again.')
-        onErrorRef.current()
-      }
-    }
-
-    async function startAudio() {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return }
-      audioStreamRef.current = stream
-
-      const socket = new WebSocket(mcaService.getAudioStreamUrl())
-      socketRef.current = socket
-
-      socket.onopen = () => {
-        const startChunk = () => {
-          if (socket.readyState !== WebSocket.OPEN) return
-          const recorder = new MediaRecorder(stream)
-          mediaRecorderRef.current = recorder
-
-          recorder.ondataavailable = (e) => {
-            if (e.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'visual_metrics',
-                metrics: metricsRef.current,
-                session_id: sessionIdRef.current,
-              }))
-              socket.send(e.data)
-            }
-          }
-
-          recorder.start()
-          recordRestartRef.current = setTimeout(() => {
-            if (recorder.state === 'recording') { recorder.stop(); startChunk() }
-          }, 1000)
-        }
-        startChunk()
-      }
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          if (data.metrics?.emotion) {
-            const emo = data.metrics.emotion.toLowerCase()
-            const display = emo.charAt(0).toUpperCase() + emo.slice(1)
-            emotionRef.current = display
-            setEmotionDisplay(display)
-            emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1
-          }
-        } catch { /* ignore */ }
-      }
-
-      socket.onerror = () => {}
-    }
-
-    async function init() {
-      try {
-        const session = await mcaService.startSession('baseline')
-        if (cancelled) return
-        sessionIdRef.current = session.id
-
-        await startAudio()
-        if (cancelled) return
-
-        // Opening AI message (slight delay so the page renders first)
-        setTimeout(() => callAI(chatTurnRef.current++), 800)
-
-        let remaining = SESSION_DURATION
-        countdownRef.current = setInterval(() => {
-          remaining -= 1
-          setCountdown(remaining)
-          const elapsed = SESSION_DURATION - remaining
-          if (elapsed === 20) callAI(chatTurnRef.current++)
-          if (elapsed === 40) callAI(chatTurnRef.current++)
-          if (remaining <= 0) {
-            clearInterval(countdownRef.current)
-            doEndSession()
-          }
-        }, 1000)
-      } catch {
-        if (!cancelled) {
-          toast.error('Could not start baseline session. Check camera and mic permissions.')
-          onErrorRef.current()
-        }
-      }
-    }
-
-    init()
-
-    return () => {
-      cancelled = true
-      endingRef.current = true
-      clearInterval(countdownRef.current)
-      stopAudio()
-    }
-  }, []) // intentionally runs once on mount
-
-  return (
-    <motion.div
-      variants={staggerContainer}
-      initial="initial"
-      animate="animate"
-      className="page page-read"
-    >
-      <PageHead
-        eyebrow="Voice baseline"
-        title="Recording in progress"
-        sub="Speak naturally. The AI will guide you through the session."
-      />
-
-      {/* Camera + countdown overlay */}
-      <motion.div variants={fadeInUp}>
-        <Card style={{ padding: 0, overflow: 'hidden', position: 'relative' }}>
-          {/* Hidden webcam — FaceMesh reads from its video element */}
-          <Webcam
-            ref={webcamRef}
-            onUserMedia={() => setCameraReady(true)}
-            videoConstraints={{ width: 640, height: 480, facingMode: 'user' }}
-            style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
-            mirrored
-          />
-
-          {/* Canvas: camera feed + face metrics drawn by FaceMesh */}
-          <div style={{ position: 'relative', background: 'var(--bg-elevated)', minHeight: 220 }}>
-            {!cameraReady && (
-              <div style={{
-                position: 'absolute', inset: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexDirection: 'column', gap: 8,
-              }}>
-                <Loader2 size={20} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Initialising camera…</span>
-              </div>
-            )}
-            <canvas
-              ref={canvasRef}
-              style={{
-                width: '100%', display: 'block', maxHeight: 280,
-                objectFit: 'cover',
-                opacity: cameraReady ? 1 : 0,
-                transition: 'opacity 0.4s ease',
-              }}
-            />
-
-            {/* Countdown ring overlay */}
-            <div style={{
-              position: 'absolute', top: 12, right: 12,
-              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)',
-              borderRadius: '50%', padding: 4,
-            }}>
-              <CountdownRing seconds={countdown} />
-            </div>
-
-            {/* Live emotion badge */}
-            <div style={{
-              position: 'absolute', bottom: 12, left: 12,
-              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)',
-              borderRadius: 'var(--radius)', padding: '4px 10px',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: 'var(--success)', display: 'inline-block',
-                animation: 'pulse 1.5s ease-in-out infinite',
-              }} />
-              <span style={{ fontSize: 11, color: '#fff', fontWeight: 500 }}>{emotionDisplay}</span>
-            </div>
-          </div>
-        </Card>
-      </motion.div>
-
-      {/* AI guide messages */}
-      {aiMessages.length > 0 && (
-        <motion.div variants={fadeInUp}>
-          <Card>
-            <div style={{
-              fontSize: 10, color: 'var(--accent)', fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10,
-            }}>
-              Guide
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {aiMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '10px 14px',
-                    background: i === aiMessages.length - 1 ? 'var(--bg-input)' : 'transparent',
-                    border: i === aiMessages.length - 1 ? '1px solid var(--border-subtle)' : '1px solid transparent',
-                    borderRadius: 'var(--radius)',
-                    fontSize: 14,
-                    color: i === aiMessages.length - 1 ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    lineHeight: 1.6,
-                    transition: 'all 0.3s ease',
-                  }}
-                >
-                  {msg}
-                </div>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Status bar */}
-      <motion.div
-        variants={fadeInUp}
-        style={{ textAlign: 'center', paddingBottom: 24 }}
-      >
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-          {isEnding
-            ? <Loader2 size={14} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--accent)' }} />
-            : <Mic size={14} strokeWidth={1.6} style={{ color: 'var(--accent)' }} />}
-          <span>{isEnding ? 'Saving your baseline…' : 'Recording · speak naturally'}</span>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Baseline — main 4-state component
-// ---------------------------------------------------------------------------
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
 
 export default function Baseline() {
-  const { isLoading: authLoading } = useProtectedRoute()
-  const navigate = useNavigate()
-  const [phase, setPhase]       = useState('checking') // checking | ready | session | complete
-  const [baseline, setBaseline] = useState(null)
-  const [skipping, setSkipping] = useState(false)
+  const { isLoading: authLoading } = useProtectedRoute();
+  const navigate = useNavigate();
+  const [showMesh, setShowMesh] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [aiMicActive, setAiMicActive] = useState(false);
+  const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
+  const [aiStopSignal, setAiStopSignal] = useState(0);
+  const [aiStartSignal, setAiStartSignal] = useState(0);
+
+  const [aiSessionActive, setAiSessionActive] = useState(false);
+  const aiSessionActiveRef = useRef(false);
+  const [nudges, setNudges] = useState([]);
+  const [metrics, setMetrics] = useState({
+    ear: 0,
+    mar: 0,
+    pose: { yaw: 0, pitch: 0, roll: 0 },
+    emotion: 'Sensing...',
+    confidence: 0,
+    isSyncing: false
+  });
+  const webcamRef = useRef(null);
+  const canvasRef = useRef(null);
+  const cameraRef = useRef(null);
+
+  const [aiSessionStarting, setAiSessionStarting] = useState(false);
+  const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
+  const [navAlertTarget, setNavAlertTarget] = useState(null);
+  const [aiSessionEnding, setAiSessionEnding] = useState(false);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+
+  const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
+    if (!aiSessionActiveRef.current) return;
+    const id = Date.now();
+    const newNudge = {
+      id,
+      text,
+      category,
+      severity,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setNudges(prev => [newNudge, ...prev].slice(0, 5));
+    setTimeout(() => {
+      setNudges(prev => prev.filter(n => n.id !== id));
+    }, 10000);
+  }, []);
+
+  // Warn on navigation if session is active
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (aiSessionActive) {
+        e.preventDefault();
+        e.returnValue = 'You have an active AI session. Are you sure you want to leave?';
+      }
+    };
+
+    const handleGlobalClick = (e) => {
+      if (!aiSessionActive) return;
+      const link = e.target.closest('a');
+      if (link && link.href && link.href.startsWith(window.location.origin) && link.pathname !== window.location.pathname) {
+        e.preventDefault();
+        e.stopPropagation();
+        setNavAlertTarget(link.pathname + link.search + link.hash);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleGlobalClick, { capture: true });
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleGlobalClick, { capture: true });
+    };
+  }, [aiSessionActive]);
+
+  const onResults = useCallback((results) => {
+    if (!webcamRef.current || !webcamRef.current.video || !canvasRef.current) return;
+
+    const videoWidth = webcamRef.current.video.videoWidth;
+    const videoHeight = webcamRef.current.video.videoHeight;
+
+    if (canvasRef.current.width !== videoWidth) canvasRef.current.width = videoWidth;
+    if (canvasRef.current.height !== videoHeight) canvasRef.current.height = videoHeight;
+
+    const canvasElement = canvasRef.current;
+    const canvasCtx = canvasElement.getContext("2d");
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+      const landmarks = results.multiFaceLandmarks[0];
+
+      const ear = calculateEAR(landmarks);
+      const mar = calculateMAR(landmarks);
+      const pose = estimateHeadPose(landmarks);
+
+      const newMetrics = { ear, mar, pose };
+      setMetrics(prev => ({ ...prev, ...newMetrics }));
+
+      if (showMesh) {
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
+          color: "#06B6D4",
+          lineWidth: 0.5,
+        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: "#EC4899" });
+      }
+    }
+    canvasCtx.restore();
+  }, [showMesh]);
 
   useEffect(() => {
-    if (authLoading) return
-    getMyBaseline()
-      .then((b) => {
-        setBaseline(b)
-        setPhase(b ? 'complete' : 'ready')
-      })
-      .catch(() => setPhase('ready'))
-  }, [authLoading])
+    let faceMeshModel = null;
 
-  async function handleSkip() {
-    setSkipping(true)
-    try {
-      const result = await skipBaseline()
-      setBaseline(result.baseline)
-      setPhase('complete')
-    } catch {
-      navigate('/training-plan')
-    } finally {
-      setSkipping(false)
+    if (isCameraActive) {
+      faceMeshModel = new faceMesh.FaceMesh({
+        locateFile: (file) => {
+          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
+          return `${baseUrl}/${file}`;
+        },
+      });
+
+      faceMeshModel.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      faceMeshModel.onResults(onResults);
+
+      if (webcamRef.current && webcamRef.current.video) {
+        cameraRef.current = new cam.Camera(webcamRef.current.video, {
+          onFrame: async () => {
+            if (faceMeshModel) {
+              await faceMeshModel.send({ image: webcamRef.current.video });
+            }
+          },
+          width: 1280,
+          height: 720,
+        });
+        cameraRef.current.start();
+      }
     }
-  }
 
-  function handleComplete(result) {
-    setBaseline(result.baseline)
-    setPhase('complete')
-  }
+    return () => {
+      if (cameraRef.current) {
+        cameraRef.current.stop();
+        cameraRef.current = null;
+      }
+      if (faceMeshModel) {
+        faceMeshModel.close();
+      }
+    };
+  }, [isCameraActive, onResults]);
 
-  // Checking / loading
-  if (authLoading || phase === 'checking') {
-    return (
-      <div style={{ display: 'flex', minHeight: '50vh', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader2 size={24} strokeWidth={1.6} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
-      </div>
-    )
-  }
+  const toggleCamera = () => {
+    setIsCameraActive(prev => !prev);
+  };
 
-  // Session — renders within AppLayout (sidebar visible)
-  if (phase === 'session') {
-    return (
-      <BaselineSession
-        onComplete={handleComplete}
-        onError={() => setPhase('ready')}
-      />
-    )
-  }
+  if (authLoading) return null;
 
   return (
-    <motion.div
-      variants={staggerContainer}
-      initial="initial"
-      animate="animate"
-      className="page page-read"
-    >
-      <PageHead
-        eyebrow="Voice baseline"
-        title="Voice baseline"
-        sub="A 60-second voice assessment calibrates your training plan with real vocal and emotional evidence — on top of your personality profile."
-      />
-
-      {/* Ready: How it works */}
-      {phase === 'ready' && (
-        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-          <Card className="violet-halo" style={{ position: 'relative', padding: 28 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: 'var(--accent-soft)', border: '1px solid var(--accent-muted)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)',
-              }}>
-                <Mic size={14} strokeWidth={1.8} />
-              </div>
-              <div className="t-h3" style={{ margin: 0 }}>How it works</div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 22 }}>
-              {[
-                ['Allow mic & camera', 'Browser permission only'],
-                ['Speak naturally', '60 seconds, guided by AI'],
-                ['Get personalised plan', 'Calibrated to your voice'],
-              ].map(([t, s], i) => (
-                <div
-                  key={t}
-                  style={{
-                    padding: 16, background: 'var(--bg-input)',
-                    border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)',
-                  }}
-                >
-                  <div className="score-num" style={{ color: 'var(--accent)', fontSize: 11, marginBottom: 8 }}>
-                    STEP 0{i + 1}
-                  </div>
-                  <div className="fg" style={{ fontSize: 14, fontWeight: 500 }}>{t}</div>
-                  <div className="t-cap" style={{ marginTop: 4 }}>{s}</div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setPhase('session')}
-              className="btn btn-primary btn-lg"
-            >
-              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <Activity size={14} strokeWidth={1.8} />
-                Start voice baseline
-                <ArrowRight size={14} strokeWidth={1.8} />
-              </span>
-            </button>
-
-            <div className="t-cap" style={{ marginTop: 16 }}>
-              Audio and facial cues are processed on-device where possible. Raw recordings are not retained.
-            </div>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Complete: summary card */}
-      {phase === 'complete' && baseline && (
-        <BaselineSummaryCard baseline={baseline} />
-      )}
-
-      {/* Demo injector */}
-      {IS_DEMO && (
-        <div style={{ marginTop: 16 }}>
-          <DemoInjector
-            onInjected={() => {
-              getMyBaseline()
-                .then((b) => { setBaseline(b); setPhase('complete') })
-                .catch(() => {})
-            }}
-          />
-        </div>
-      )}
-
-      {/* CTAs */}
-      <motion.div
-        variants={fadeInUp}
-        style={{ paddingTop: 16, paddingBottom: 32, display: 'flex', flexDirection: 'column', gap: 12 }}
-      >
-        {phase === 'complete' ? (
-          <Link to="/training-plan" className="btn btn-primary btn-lg" style={{ width: '100%' }}>
-            <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              View your calibrated plan
-              <ArrowRight size={14} strokeWidth={1.8} />
-            </span>
-          </Link>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSkip}
-            disabled={skipping}
-            className="btn btn-secondary btn-lg"
-            style={{ width: '100%' }}
+    <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">
+      {/* Global Nudge Stack (Floating - Page Top Right) */}
+      <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
+        {nudges.map((nudge, index) => (
+          <div
+            key={nudge.id}
+            className={clsx(
+              "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
+              nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
+                nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
+                  "bg-primary/95 border-white/20 text-white",
+              index > 0 && "scale-90 opacity-40 hover:opacity-100"
+            )}
           >
-            <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              {skipping && <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />}
-              Skip — generate plan without baseline
-            </span>
-          </button>
-        )}
-        <Link to="/dashboard" className="btn btn-ghost" style={{ width: '100%' }}>
-          <span className="btn-label">Continue to dashboard</span>
-        </Link>
-      </motion.div>
-    </motion.div>
-  )
+            <div className={clsx(
+              "w-9 h-9 rounded-full flex items-center justify-center animate-pulse",
+              nudge.severity === 'critical' ? "bg-white/30" : "bg-white/20"
+            )}>
+              <Activity size={20} />
+            </div>
+            <div className="flex flex-col min-w-[120px]">
+              <p className="text-[11px] font-medium tracking-wide uppercase leading-none">{nudge.text}</p>
+              <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
+            </div>
+            <button
+              onClick={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+              className="ml-2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center opacity-0 group-hover/nudge:opacity-100 transition-opacity"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="w-full flex-1 min-h-0 flex flex-col gap-6 transition-all duration-700 ease-in-out max-w-[1600px] h-full">
+        {/* Header Section */}
+        <div className="text-center space-y-1">
+          <h1 className="t-h1" style={{ fontSize: 28 }}>
+            EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Baseline</span>
+          </h1>
+          <p className="t-over" style={{ marginTop: 4 }}>
+            AI Chatbot · Calibration Session
+          </p>
+        </div>
+
+        {/* Session End Confirmation */}
+        <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to end this session? All behavioral metrics and emotion data will be saved.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setAiStopSignal(Date.now());
+                  setIsStopAlertOpen(false);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                End Session
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Navigation Warning Alert */}
+        <AlertDialog open={!!navAlertTarget} onOpenChange={(open) => !open && setNavAlertTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave Active Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have an active AI session running. If you leave this page, your session will be ended. Are you sure you want to leave?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setNavAlertTarget(null)}>Stay in Session</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setAiStopSignal(Date.now());
+                  const target = navAlertTarget;
+                  setNavAlertTarget(null);
+                  navigate(target);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                End & Leave
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Dynamic Content Layout */}
+        <div className="flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0 lg:grid-cols-3">
+          {/* Capturing Window Section */}
+          <div className="relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0 lg:col-span-2">
+            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full min-h-0 overflow-y-auto custom-scrollbar">
+              {/* Capturing Window */}
+              <div className="w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500 border-primary/20 hover:border-primary/40">
+                {isCameraActive ? (
+                  <>
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      className="hidden"
+                      videoConstraints={{
+                        facingMode: "user",
+                        aspectRatio: 1.777777778
+                      }}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute inset-0 w-full h-full object-cover rounded-xl"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30 from-primary/10"></div>
+                    <div className="relative flex flex-col items-center gap-4">
+                      <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-primary/20 text-primary group-hover/window:border-primary/40">
+                        [ INTELLIGENCE_CORE READY ]<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Overlay UI */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
+                  <div className="flex flex-col gap-4 pointer-events-auto">
+                    {!isCameraActive && (
+                      <button
+                        onClick={toggleCamera}
+                        className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                      >
+                        <Video size={14} />
+                        Enable Video Sensing
+                      </button>
+                    )}
+                    {(!aiMicActive && !aiSessionActive && !isAiSpeaking) && (
+                      <button
+                        onClick={() => setAiMicActive(true)}
+                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                      >
+                        <Mic size={14} />
+                        Enable Audio Sensing
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Persistent Control Bar */}
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface/80 border border-border-subtle rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+                  <div className="flex items-center gap-6 flex-1 justify-start">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Video</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-muted-foreground/40")}>
+                          {isCameraActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", aiMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", aiMicActive ? "text-info" : "text-muted-foreground/40")}>
+                          {aiMicActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center flex-1 shrink-0">
+                    {!aiSessionActive ? (
+                      <button
+                        onClick={() => {
+                          if (!isCameraActive || !aiMicActive) {
+                            toast.error("Please turn on your camera and microphone first to start the baseline session.", {
+                              description: "Behavioral sensing requires both inputs for real-time analysis."
+                            });
+                            return;
+                          }
+                          setAiStartSignal(Date.now());
+                        }}
+                        disabled={aiSessionStarting}
+                        className="bg-primary text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {aiSessionStarting ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                        Start AI Session
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setIsStopAlertOpen(true)}
+                        disabled={aiSessionEnding}
+                        className="bg-destructive text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {aiSessionEnding ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Square size={14} fill="currentColor" />}
+                        Stop AI Session
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <button
+                      onClick={toggleCamera}
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        isCameraActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
+                      {isCameraActive ? "Stop Cam" : "Cam"}
+                    </button>
+                    <button
+                      onClick={() => setAiMicActive(!aiMicActive)}
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        aiMicActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <Mic size={14} className={clsx(aiMicActive && "animate-pulse")} />
+                      {aiMicActive ? "Stop Mic" : "Mic"}
+                    </button>
+                    {isCameraActive && (
+                      <button
+                        onClick={() => setShowMesh(!showMesh)}
+                        className={clsx(
+                          "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                          showMesh ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        )}
+                      >
+                        <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
+                        Mesh
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Meta Info */}
+              <div className="mt-6 flex flex-wrap justify-center gap-4">
+                <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
+                  Privacy: Edge_Only
+                </div>
+                <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
+                  Module: Intelligence_Core
+                </div>
+                {isCameraActive && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                    Tracking: {showMesh ? "Visual" : "Background"}
+                  </div>
+                )}
+                {metrics.isSyncing && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
+                    <Activity size={12} />
+                    Fusion: Active
+                  </div>
+                )}
+              </div>
+
+              {/* Behavioral Metrics Dashboard */}
+              {isCameraActive && (
+                <div className="w-full mt-4 pt-4 border-t border-border/50 grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
+                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={clsx("h-full transition-all duration-300", metrics.ear < 0.2 ? "bg-destructive" : "bg-primary")}
+                        style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Expression</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
+                        {metrics.mar > 0.3 ? "SPEAKING" : "NEUTRAL"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-secondary transition-all duration-300"
+                        style={{ width: `${Math.min(100, (metrics.mar / 0.6) * 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Head Alignment</span>
+                      <span className={clsx(
+                        "text-[9px] font-bold",
+                        (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
+                      )}>
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 h-1.5 w-full relative">
+                      <div className="absolute left-1/2 -translate-x-1/2 w-4 h-full bg-foreground/10 z-10 rounded"></div>
+                      <div className="flex-1 bg-muted rounded-full overflow-hidden">
+                        <div className={clsx(
+                          "h-full transition-all duration-300",
+                          Math.abs(metrics.pose.yaw) > 0.15 ? "bg-warning" : "bg-success"
+                        )} style={{ width: `${50 + metrics.pose.yaw * 100}%` }}></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Vocal Affect</span>
+                      <span className="text-[9px] font-bold text-primary uppercase">
+                        {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden flex">
+                      <div
+                        className="h-full bg-primary transition-all duration-700"
+                        style={{ width: `${metrics.confidence * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AI Chatbot Section */}
+          <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full min-h-0 flex flex-col">
+            <AIChatbot
+              isListening={aiMicActive}
+              setIsListening={setAiMicActive}
+              hasPermission={aiHasMicPermission}
+              setHasPermission={setAiHasMicPermission}
+              onNudge={handleNudge}
+              metrics={metrics}
+              setMetrics={setMetrics}
+              stopSignal={aiStopSignal}
+              startSignal={aiStartSignal}
+              isCameraActive={isCameraActive}
+              onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
+                setAiSessionActive(isActive);
+                aiSessionActiveRef.current = isActive;
+                setAiSessionStarting(isStarting);
+                setAiSessionEnding(isEnding);
+                setIsAiSpeaking(isSpeaking);
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

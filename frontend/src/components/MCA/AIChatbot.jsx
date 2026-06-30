@@ -5,13 +5,17 @@ import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
 
+// Research basis: 8-minute intake window per Kickmeier-Rust & Albert (2010) and Murray & Arroyo (2002)
+// for optimal cold-start adaptive learning profiling in intelligent tutoring systems.
+const SESSION_DURATION_SECONDS = 480;
+
 const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, setMetrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
       id: 1,
       type: 'bot',
-      text: "Hello! I am EmpowerZ, your conversation partner. This isn't just for practice or roleplay—it's a space for genuine dialogue where you can build your confidence and see real-time behavioral insights. How would you like to start our conversation today?",
+      text: "Welcome to your EmpowerZ Baseline Session. Over the next 8 minutes, I'll ask you a few questions to understand your communication goals and challenges — this helps personalize your adaptive learning journey. There are no right or wrong answers, just share what feels true for you. Ready to begin?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     },
   ]);
@@ -58,8 +62,9 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
-  const emotionCountsRef = useRef({}); // Track distribution for scoring
+  const emotionCountsRef = useRef({});
   const chatTurnsRef = useRef(0);
+  const warningShownRef = useRef(false);
 
   const isContinuousRef = useRef(false);
   const [stableVoice, setStableVoice] = useState(null);
@@ -131,6 +136,24 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   }, [isListening, sessionActive, sessionId]);
 
+  // Auto-end and countdown warning for the 8-minute baseline session
+  useEffect(() => {
+    if (!sessionActive) return;
+    const remaining = SESSION_DURATION_SECONDS - sessionDuration;
+
+    if (remaining === 60 && !warningShownRef.current) {
+      warningShownRef.current = true;
+      toast.warning("1 minute remaining in your baseline session.", {
+        description: "Wrap up any final thoughts you'd like to share."
+      });
+    }
+
+    if (remaining <= 0 && !sessionEnding) {
+      toast.info("Baseline session complete.", { description: "Saving your profile data..." });
+      handleEndSession();
+    }
+  }, [sessionDuration, sessionActive, sessionEnding]);
+
   // Session helpers
 
   const handleStartSession = async () => {
@@ -151,6 +174,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         nudgeLogRef.current = [];
         emotionCountsRef.current = {};
         chatTurnsRef.current = 0;
+        warningShownRef.current = false;
         setSessionDuration(0);
 
         // Start duration timer
@@ -158,8 +182,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           setSessionDuration(prev => prev + 1);
         }, 1000);
 
-        toast.success("AI session started successfully.");
-        addBotMessage("Great — I've started a new session for you. Let's begin! Tell me something you'd like to work on or talk about.");
+        toast.success("Baseline session started. You have 8 minutes.");
+        addBotMessage("Great, your 8-minute baseline session has started. Let's begin — what area of communication feels most challenging for you right now? For example: speaking confidently in groups, handling difficult conversations, or expressing your ideas clearly?");
       } else {
         toast.error("Failed to initialize AI session on server.");
         setSessionActive(false);
@@ -246,7 +270,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
     setSessionActive(false);
     setSessionId(null);
-    addBotMessage("Session ended! Great work. Your session data has been saved. Feel free to start a new session whenever you're ready.");
+    addBotMessage("Your baseline session is complete. I've gathered the insights needed to personalize your adaptive learning path. Your profile has been saved — upcoming sessions will now be tailored to your goals.");
   };
 
   const addBotMessage = (text) => {
@@ -406,7 +430,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
           let instanceFinal = '';
           let interim = '';
-          
+
           // Process all results to ensure consistency
           for (let i = 0; i < event.results.length; ++i) {
             const transcriptChunk = event.results[i][0].transcript;
@@ -416,12 +440,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               interim += transcriptChunk;
             }
           }
-          
+
           currentInstanceFinalRef.current = instanceFinal;
           interimTranscriptRef.current = interim;
-          
+
           const currentDisplay = sessionTranscriptRef.current + instanceFinal + interim;
-          
+
           // Auto-submission disabled
           if (currentDisplay !== transcriptRef.current) {
             transcriptRef.current = currentDisplay;
@@ -606,18 +630,48 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 isSpeaking ? 'bg-primary animate-pulse' : (isLoading ? 'bg-amber-500 animate-pulse' : (sessionActive ? 'bg-success' : 'bg-muted-foreground'))
               )}></div>
               <span className="text-[9px] text-card-foreground uppercase tracking-widest font-black opacity-60">
-                {isSpeaking ? 'Speaking_Response' : (isLoading ? 'Analyzing_Voice' : (sessionActive ? 'Session_Active' : 'No_Session'))}
+                {isSpeaking ? 'Speaking_Response' : (isLoading ? 'Analyzing_Voice' : (sessionActive ? 'Baseline_Active' : 'Baseline_Ready'))}
               </span>
             </div>
           </div>
-          {sessionActive && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full animate-in fade-in zoom-in duration-500">
-              <div className="w-1 h-1 rounded-full bg-primary animate-pulse" />
-              <span className="text-[9px] font-black text-primary tracking-widest">
-                {friendlyId || 'SESSION'} • {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
-              </span>
-            </div>
-          )}
+          {sessionActive && (() => {
+            const remaining = Math.max(0, SESSION_DURATION_SECONDS - sessionDuration);
+            const pct = Math.min(100, (sessionDuration / SESSION_DURATION_SECONDS) * 100);
+            const isLow = remaining <= 120;
+            const isCritical = remaining <= 60;
+            return (
+              <div className="flex flex-col gap-1 animate-in fade-in zoom-in duration-500">
+                <div className={clsx(
+                  'flex items-center gap-2 px-3 py-1 rounded-full border',
+                  isCritical
+                    ? 'bg-destructive/10 border-destructive/20'
+                    : isLow
+                      ? 'bg-amber-500/10 border-amber-500/20'
+                      : 'bg-primary/10 border-primary/20'
+                )}>
+                  <div className={clsx(
+                    'w-1 h-1 rounded-full animate-pulse',
+                    isCritical ? 'bg-destructive' : isLow ? 'bg-amber-500' : 'bg-primary'
+                  )} />
+                  <span className={clsx(
+                    'text-[9px] font-black tracking-widest',
+                    isCritical ? 'text-destructive' : isLow ? 'text-amber-500' : 'text-primary'
+                  )}>
+                    {friendlyId || 'BASELINE'} • {Math.floor(remaining / 60)}:{(remaining % 60).toString().padStart(2, '0')} LEFT
+                  </span>
+                </div>
+                <div className="h-0.5 w-full bg-border rounded-full overflow-hidden">
+                  <div
+                    className={clsx(
+                      'h-full rounded-full transition-all duration-1000',
+                      isCritical ? 'bg-destructive' : isLow ? 'bg-amber-500' : 'bg-primary'
+                    )}
+                    style={{ width: `${100 - pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Session Status & Voice Link */}
@@ -767,9 +821,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center p-6 bg-muted/20 rounded-xl border border-border/50">
+          <div className="flex flex-col items-center justify-center gap-1 p-6 bg-muted/20 rounded-xl border border-border/50">
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em]">
-              Start Session to Begin Interaction
+              Start Baseline Session
+            </span>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+              8-minute adaptive learning intake
             </span>
           </div>
         )}

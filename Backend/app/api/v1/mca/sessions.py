@@ -66,6 +66,7 @@ class SessionResponse(BaseModel):
     emotion_distribution: Optional[dict[str, Any]] = None
     nudge_summary: Optional[dict[str, Any]] = None
     skill_scores: Optional[dict[str, Any]] = None
+    score_diagnostics: Optional[dict[str, Any]] = None
     mechanical_averages: Optional[dict[str, Any]] = None
     friendly_id: Optional[str] = None
 
@@ -86,6 +87,7 @@ class SessionResponse(BaseModel):
             emotion_distribution=session.emotion_distribution,
             nudge_summary=session.nudge_summary,
             skill_scores=session.skill_scores,
+            score_diagnostics=session.score_diagnostics,
             mechanical_averages=session.mechanical_averages,
             friendly_id=session.friendly_id,
         )
@@ -111,9 +113,16 @@ def start_session(
         friendly_id=generate_friendly_id(body.mode),
         started_at=datetime.now(timezone.utc),
     )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    try:
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create session: {exc}",
+        )
     return SessionResponse.from_orm(session)
 
 
@@ -168,6 +177,7 @@ def end_session(
     )
     session.overall_score = metrics["overall"]
     session.skill_scores = metrics["breakdown"]
+    session.score_diagnostics = metrics["diagnostics"]
     
     # Determine dominant emotion
     if session.emotion_distribution:
@@ -176,8 +186,15 @@ def end_session(
     if body.chat_turns is not None:
         session.chat_turns = body.chat_turns
 
-    db.commit()
-    db.refresh(session)
+    try:
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save session results: {exc}",
+        )
     return SessionResponse.from_orm(session)
 
 
@@ -188,7 +205,7 @@ def list_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return the authenticated user's MCA sessions, newest first."""
+    """Return the authenticated user's MCA sessions, newest first (paginated)."""
     sessions = (
         db.query(SessionResult)
         .filter(SessionResult.user_id == current_user.id)
@@ -198,3 +215,35 @@ def list_sessions(
         .all()
     )
     return [SessionResponse.from_orm(s) for s in sessions]
+
+
+@router.get("/me", response_model=list[SessionResponse])
+def get_my_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all MCA sessions for the currently authenticated user, newest first."""
+    sessions = (
+        db.query(SessionResult)
+        .filter(SessionResult.user_id == current_user.id)
+        .order_by(SessionResult.started_at.desc())
+        .all()
+    )
+    return [SessionResponse.from_orm(s) for s in sessions]
+
+@router.get("/{session_id}", response_model=SessionResponse)
+def get_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a single MCA session by ID, if it belongs to the authenticated user."""
+    session: Optional[SessionResult] = db.get(SessionResult, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+
+    return SessionResponse.from_orm(session)
