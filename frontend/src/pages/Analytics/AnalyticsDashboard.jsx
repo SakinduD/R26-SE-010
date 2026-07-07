@@ -10,6 +10,7 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
@@ -232,14 +233,12 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="flex items-end gap-3 flex-wrap">
             <AnalyticsNav />
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>Session</span>
-              <select value={sessionId} onChange={e=>setSessionId(e.target.value)}
-                className="h-10 min-w-72 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary">
-                {!sessOpts.length && <option value="">Select a session</option>}
-                {sessOpts.map(o=><option key={o.source+'-'+o.id} value={o.id}>{o.label}</option>)}
-              </select>
-            </label>
+            <AnalyticsSessionSelect
+              value={sessionId}
+              options={sessOpts}
+              onChange={setSessionId}
+              minWidthClass="min-w-72"
+            />
             <button onClick={()=>load(userId,sessionId)}
               className="h-10 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold px-5 rounded-md transition-colors">
               {status==='loading' ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Search className="h-4 w-4"/>} Load

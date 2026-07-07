@@ -16,6 +16,7 @@ import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
@@ -498,7 +499,7 @@ export default function SkillTwinProfile() {
             <h1 className="mt-1 text-2xl font-semibold">Skill Twin Profile</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <SessionSelect
+            <AnalyticsSessionSelect
               value={sessionId}
               options={sessionOptions}
               onChange={setSessionId}
@@ -593,26 +594,6 @@ export default function SkillTwinProfile() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function SessionSelect({ value, options, onChange }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>Session</span>
-      <select
-        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {!options.length && <option value="">No session yet</option>}
-        {options.map(option => (
-          <option key={`${option.source}-${option.id}`} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
 
 function StatusPill({ status }) {
   const label = status === 'live' ? 'Live API profile' : status === 'loading' ? 'Loading profile' : 'Demo profile'

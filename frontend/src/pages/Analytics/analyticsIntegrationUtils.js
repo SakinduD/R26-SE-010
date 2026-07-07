@@ -240,13 +240,23 @@ function normalizeSessionOptions(sessions, source) {
       const labelDate = startedAt ? new Date(startedAt).toLocaleString() : null
       const sourceLabel = source === 'rpe' ? 'Role Play' : 'MCA'
       const statusLabel = status ? humanizeKey(status) : 'Session'
+      const friendlyId = session.friendly_id || null
+
+      // Prefer the human-readable friendly id (e.g. MCA-AI-20260630-X7K2) as the
+      // primary label; fall back to source + scenario for sessions without one.
+      const title = friendlyId || `${sourceLabel}${scenario ? ` · ${humanizeKey(scenario)}` : ''}`
+      const sublabel = [friendlyId ? sourceLabel : null, statusLabel, labelDate]
+        .filter(Boolean)
+        .join(' · ')
 
       return {
         id: String(id),
-        friendlyId: session.friendly_id,
+        friendlyId,
         source,
         status,
         startedAt,
+        title,
+        sublabel,
         label: `${sourceLabel} - ${statusLabel}${scenario ? ` - ${humanizeKey(scenario)}` : ''}${labelDate ? ` - ${labelDate}` : ''}`,
       }
     })
