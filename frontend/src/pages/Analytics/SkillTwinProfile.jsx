@@ -4,8 +4,6 @@ import {
   Activity,
   AlertTriangle,
   BrainCircuit,
-  RefreshCw,
-  Search,
   ShieldAlert,
   Target,
   TrendingUp,
@@ -13,9 +11,9 @@ import {
 } from 'lucide-react'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -504,10 +502,11 @@ export default function SkillTwinProfile() {
               options={sessionOptions}
               onChange={setSessionId}
             />
-            <Button className="h-10 self-end" onClick={() => loadProfile(userId, sessionId)}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
+            <AnalyticsLoadButton
+              className="h-10 self-end"
+              loading={status === 'loading'}
+              onClick={() => loadProfile(userId, sessionId)}
+            />
           </div>
         </div>
       </section>

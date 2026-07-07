@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
-  RefreshCw, Search, ShieldAlert, Target,
+  ShieldAlert, Target,
   TrendingUp, TrendingDown, CheckCircle,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
@@ -239,10 +240,10 @@ export default function AnalyticsDashboard() {
               onChange={setSessionId}
               minWidthClass="min-w-72"
             />
-            <button onClick={()=>load(userId,sessionId)}
-              className="h-10 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold px-5 rounded-md transition-colors">
-              {status==='loading' ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Search className="h-4 w-4"/>} Load
-            </button>
+            <AnalyticsLoadButton
+              loading={status==='loading'}
+              onClick={()=>load(userId,sessionId)}
+            />
           </div>
         </div>
       </header>

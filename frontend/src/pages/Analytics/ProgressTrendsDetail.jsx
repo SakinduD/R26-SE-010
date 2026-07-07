@@ -6,13 +6,13 @@ import {
   BarChart3,
   CheckCircle2,
   LineChart,
-  RefreshCw,
   Target,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -21,7 +21,6 @@ import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
-import Button from '@/components/ui/Button'
 
 // The four skills the backend trend engine supports. "Overall" is a summary
 // (the mean of these four), not a skill, so it has no trend line of its own.
@@ -160,10 +159,7 @@ export default function ProgressTrendsDetail() {
         />
         <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Button onClick={() => loadTrends(userId, sessionId)} variant="secondary" size="sm" loading={status === 'loading'}>
-            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
-            Load
-          </Button>
+          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadTrends(userId, sessionId)} />
         </div>
       </motion.div>
 
