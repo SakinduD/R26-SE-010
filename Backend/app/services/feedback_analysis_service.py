@@ -17,12 +17,15 @@ MEDIUM_GAP_THRESHOLD = 20.0
 HIGH_GAP_THRESHOLD = 30.0
 
 
+# Observed scores are compared against self/peer feedback per skill. "Overall" is
+# a summary (the mean of the four skills), not a skill, so it is excluded here —
+# otherwise every session would surface an extra "Overall" alignment row and
+# inflate the analyzed-skill count.
 OBSERVED_SCORE_FIELDS: dict[str, list[str]] = {
     "vocal_command": ["speech_volume_score"],
     "speech_fluency": ["speech_pace_score", "clarity_score"],
     "presence_engagement": ["eye_contact_score", "confidence_score"],
     "emotional_intelligence": ["empathy_score", "emotional_control_score"],
-    "overall": ["overall_score"],
 }
 
 

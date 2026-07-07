@@ -154,6 +154,23 @@ def _build_metric_payload(
         "speech_volume_score": _nudge_score(mca_nudges, {"volume", "pitch"}),
         "eye_contact_score": _nudge_score(mca_nudges, {"fusion", "ser"}),
     }
+
+    # When the MCA engine has already computed accurate per-skill scores, map them
+    # straight onto the composite metric columns so the analytics radar shows the
+    # exact MCA scores instead of values re-derived (and conflated) from nudges.
+    mca_scores = _normalize_mca_skill_scores(payload.mca_skill_scores)
+    if mca_scores.get("vocal_command") is not None:
+        values["speech_volume_score"] = mca_scores["vocal_command"]
+    if mca_scores.get("speech_fluency") is not None:
+        values["speech_pace_score"] = mca_scores["speech_fluency"]
+        values["clarity_score"] = mca_scores["speech_fluency"]
+    if mca_scores.get("presence_engagement") is not None:
+        values["eye_contact_score"] = mca_scores["presence_engagement"]
+        values["confidence_score"] = mca_scores["presence_engagement"]
+    if mca_scores.get("emotional_intelligence") is not None:
+        values["empathy_score"] = mca_scores["emotional_intelligence"]
+        values["emotional_control_score"] = mca_scores["emotional_intelligence"]
+
     values["listening_score"] = _average(
         [
             values["empathy_score"],
@@ -161,7 +178,13 @@ def _build_metric_payload(
             _nudge_score(mca_nudges, {"silence"}),
         ]
     )
-    values["overall_score"] = _average(values.values())
+    # Overall is the mean of the four skills (not a skill). Prefer the MCA overall
+    # when it was supplied for an MCA-scored session; otherwise average whatever
+    # composite scores are available.
+    if payload.mca_overall_score is not None:
+        values["overall_score"] = _clamp_score(float(payload.mca_overall_score))
+    else:
+        values["overall_score"] = _average(values.values())
 
     return AnalyticsSessionMetricCreate(
         user_id=payload.user_id,
@@ -362,6 +385,39 @@ def _professionalism_score(
     if "fail" in outcome or "escalated" in outcome:
         score -= 10
     return _clamp_score(score)
+
+
+def _normalize_mca_skill_scores(scores: dict[str, float] | None) -> dict[str, float]:
+    """Map the MCA engine's skill_scores onto analytics skill keys.
+
+    MCA names the fourth skill ``emotional_regulation``; the analytics component
+    calls it ``emotional_intelligence`` — both are accepted here.
+    """
+    if not scores:
+        return {}
+
+    normalized: dict[str, float] = {}
+    for key in ("vocal_command", "speech_fluency", "presence_engagement"):
+        value = _coerce_score(scores.get(key))
+        if value is not None:
+            normalized[key] = value
+
+    emotional = _coerce_score(scores.get("emotional_intelligence"))
+    if emotional is None:
+        emotional = _coerce_score(scores.get("emotional_regulation"))
+    if emotional is not None:
+        normalized["emotional_intelligence"] = emotional
+
+    return normalized
+
+
+def _coerce_score(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return _clamp_score(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _nudge_score(nudges: list[ComponentMcaNudge], categories: set[str]) -> float | None:

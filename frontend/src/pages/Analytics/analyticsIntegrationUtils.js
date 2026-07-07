@@ -124,6 +124,33 @@ export function normalizeMcaSessionNudges(session) {
   return [...nudgeEntries, ...mechanicalEntries, ...emotionEntries, ...overallEntry]
 }
 
+// Extract the accurate per-skill scores the MCA engine already computed.
+// MCA names the fourth skill `emotional_regulation`; the feedback component
+// calls it `emotional_intelligence` — both are accepted.
+export function normalizeMcaSkillScores(session) {
+  const raw = session?.skill_scores
+  if (!raw || typeof raw !== 'object') return null
+
+  const clamp = (value) => {
+    const number = Number(value)
+    return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : null
+  }
+
+  const scores = {
+    vocal_command: clamp(raw.vocal_command),
+    speech_fluency: clamp(raw.speech_fluency),
+    presence_engagement: clamp(raw.presence_engagement),
+    emotional_intelligence: clamp(raw.emotional_intelligence ?? raw.emotional_regulation),
+  }
+
+  return Object.values(scores).some((value) => value !== null) ? scores : null
+}
+
+export function normalizeMcaOverallScore(session) {
+  const number = Number(session?.overall_score)
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : null
+}
+
 export function hasPulledComponentData(sources) {
   return Boolean(
     sources?.surveyProfile?.ok ||

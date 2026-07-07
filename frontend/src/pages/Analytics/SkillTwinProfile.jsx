@@ -23,7 +23,9 @@ import {
   normalizeAdaptivePlan,
   normalizeComponentSessionOptions,
   normalizeMcaNudges,
+  normalizeMcaOverallScore,
   normalizeMcaSessionNudges,
+  normalizeMcaSkillScores,
   normalizeRpeFeedback,
   normalizeRpeSession,
   normalizeSurveyProfile,
@@ -308,12 +310,14 @@ export default function SkillTwinProfile() {
   }, [profile])
 
   const overallScore = useMemo(() => {
-    // Prefer session aggregate overall_score (session-specific);
-    // trend latest_score is cross-session and unreliable when cutoff timestamps are stale.
+    // Overall is the mean of the four skills — a summary, not a skill. Computing
+    // it from the same values shown on the radar guarantees the Overall number
+    // always equals the average of the four skill scores the user sees.
+    const values = radarScores.map(item => toScoreValue(item.value)).filter(v => v !== null)
+    if (values.length) return values.reduce((sum, v) => sum + v, 0) / values.length
     return toScoreValue(profile.aggregate?.scores?.averages?.overall_score) ??
-           toScoreValue(profile.aggregate?.feedback?.average_rating) ??
-           toScoreValue((profile.trends?.trends || []).find(t => t.skill_area === 'overall')?.latest_score)
-  }, [profile])
+           toScoreValue(profile.aggregate?.feedback?.average_rating)
+  }, [radarScores, profile])
 
   // Use the highest session_count across all trend lines as the real session count,
   // falling back to metric_count (which counts DB rows, not unique sessions).
@@ -409,12 +413,17 @@ export default function SkillTwinProfile() {
 
     const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
     const mcaNudges  = normalizeMcaSessionNudges(mcaSession)
+    // Only trust the MCA-computed skill scores when the selected session IS that
+    // MCA session — never attach one session's scores to a different session.
+    const isSelectedMcaSession = mcaSession && String(mcaSession.id) === String(targetSessionId)
+    const mcaSkillScores = isSelectedMcaSession ? normalizeMcaSkillScores(mcaSession) : null
+    const mcaOverallScore = isSelectedMcaSession ? normalizeMcaOverallScore(mcaSession) : null
     const sources = {
       surveyProfile,
       adaptivePlan,
       rpeSession,
       rpeFeedback,
-      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
+      mcaNudges: { ok: mcaNudges.length > 0 || Boolean(mcaSkillScores), data: mcaNudges },
     }
 
     if (!hasPulledComponentData(sources)) return { checked: true, integrated: false }
@@ -442,6 +451,8 @@ export default function SkillTwinProfile() {
       rpe_session: normalizeRpeSession(rpeSession.data),
       rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
       mca_nudges: normalizeMcaNudges(mcaNudges),
+      mca_skill_scores: mcaSkillScores || undefined,
+      mca_overall_score: mcaOverallScore ?? undefined,
     })
 
     return { checked: true, integrated: true }

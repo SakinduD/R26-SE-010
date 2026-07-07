@@ -14,7 +14,8 @@ import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData, normalizeComponentSessionOptions,
-  normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaSessionNudges,
+  normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
+  normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
   optionalRequest, selectPreferredComponentSession, selectMcaSession,
 } from './analyticsIntegrationUtils'
@@ -164,7 +165,11 @@ export default function AnalyticsDashboard() {
         optionalRequest(()=>analyticsService.getComponentMcaSessions()),
       ])
       const mcs = selectMcaSession(ms.data,ts), nudges = normalizeMcaSessionNudges(mcs)
-      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0,data:nudges} }
+      // Use the MCA-computed skill scores only when the selected session is that MCA session.
+      const isSelectedMca = mcs && String(mcs.id) === String(ts)
+      const mcaSkillScores = isSelectedMca ? normalizeMcaSkillScores(mcs) : null
+      const mcaOverallScore = isSelectedMca ? normalizeMcaOverallScore(mcs) : null
+      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0||Boolean(mcaSkillScores),data:nudges} }
       if (!hasPulledComponentData(src)) return {integrated:false}
       await analyticsService.integrateCompletedSession({
         user_id:tu, session_id:ts,
@@ -173,6 +178,8 @@ export default function AnalyticsDashboard() {
         survey_profile:normalizeSurveyProfile(sp.data), adaptive_plan:normalizeAdaptivePlan(ap.data),
         rpe_session:normalizeRpeSession(rs.data), rpe_feedback:normalizeRpeFeedback(rf.data),
         mca_nudges:normalizeMcaNudges(nudges),
+        mca_skill_scores: mcaSkillScores || undefined,
+        mca_overall_score: mcaOverallScore ?? undefined,
       })
       return {integrated:true}
     } catch { return {integrated:false} }
@@ -191,7 +198,13 @@ export default function AnalyticsDashboard() {
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
-  const overall = fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
+  // Overall is the mean of the four skills — a summary, not a skill — so it always
+  // equals the average of the four skill cards shown below.
+  const overall = useMemo(() => {
+    const vals = scores.map(s => s.value).filter(v => v != null)
+    if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+    return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
+  }, [scores, data])
 
   // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
   const selfScores = useMemo(() => {

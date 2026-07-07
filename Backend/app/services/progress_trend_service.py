@@ -17,12 +17,14 @@ STABLE_DELTA_THRESHOLD = 5.0
 STABLE_SLOPE_THRESHOLD = 2.0
 
 
+# The four soft-skill dimensions tracked over time. "Overall" is intentionally
+# excluded: it is a summary (the mean of these four skills), not a skill itself,
+# so it must not appear as its own trend line or prediction.
 TREND_SCORE_FIELDS = {
     "vocal_command": "speech_volume_score",
     "speech_fluency": "speech_pace_score",
     "presence_engagement": "eye_contact_score",
     "emotional_intelligence": "empathy_score",
-    "overall": "overall_score",
 }
 
 FEEDBACK_SKILL_ALIASES = {

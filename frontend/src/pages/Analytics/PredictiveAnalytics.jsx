@@ -25,13 +25,13 @@ import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 
-// Only the 5 composite skills the backend trend/prediction engine supports.
+// The four skills the backend prediction engine supports. "Overall" is a summary
+// (the mean of these four), not a skill, so it is never forecast on its own.
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
   presence_engagement: 'Presence & Engagement',
   emotional_intelligence: 'Emotional Intelligence',
-  overall: 'Overall',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -91,7 +91,7 @@ export default function PredictiveAnalytics() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
-  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [selectedSkill, setSelectedSkill] = useState('vocal_command')
   const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
