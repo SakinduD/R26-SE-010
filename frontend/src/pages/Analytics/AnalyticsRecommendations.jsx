@@ -14,9 +14,9 @@ import {
   AlertTriangle,
   ArrowRight,
 } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import { useAnalyticsIdentity } from './analyticsAuth'
 
 export default function AnalyticsRecommendationsNew() {
@@ -162,13 +162,9 @@ export default function AnalyticsRecommendationsNew() {
             <h1 className="text-lg font-bold">Your Coaching Insights</h1>
           </div>
           <div className="flex items-end gap-3 flex-wrap">
-            <Button
-              onClick={handleRefresh}
-              className="h-10 px-5 text-sm font-semibold"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
+            <AnalyticsLoadButton loading={loading} onClick={handleRefresh}>
               Refresh
-            </Button>
+            </AnalyticsLoadButton>
           </div>
         </div>
       </header>

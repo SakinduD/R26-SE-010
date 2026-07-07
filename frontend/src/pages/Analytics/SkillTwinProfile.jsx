@@ -4,8 +4,6 @@ import {
   Activity,
   AlertTriangle,
   BrainCircuit,
-  RefreshCw,
-  Search,
   ShieldAlert,
   Target,
   TrendingUp,
@@ -13,9 +11,10 @@ import {
 } from 'lucide-react'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
+import AnalyticsLoadButton from './AnalyticsLoadButton'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
@@ -23,7 +22,9 @@ import {
   normalizeAdaptivePlan,
   normalizeComponentSessionOptions,
   normalizeMcaNudges,
+  normalizeMcaOverallScore,
   normalizeMcaSessionNudges,
+  normalizeMcaSkillScores,
   normalizeRpeFeedback,
   normalizeRpeSession,
   normalizeSurveyProfile,
@@ -308,12 +309,14 @@ export default function SkillTwinProfile() {
   }, [profile])
 
   const overallScore = useMemo(() => {
-    // Prefer session aggregate overall_score (session-specific);
-    // trend latest_score is cross-session and unreliable when cutoff timestamps are stale.
+    // Overall is the mean of the four skills — a summary, not a skill. Computing
+    // it from the same values shown on the radar guarantees the Overall number
+    // always equals the average of the four skill scores the user sees.
+    const values = radarScores.map(item => toScoreValue(item.value)).filter(v => v !== null)
+    if (values.length) return values.reduce((sum, v) => sum + v, 0) / values.length
     return toScoreValue(profile.aggregate?.scores?.averages?.overall_score) ??
-           toScoreValue(profile.aggregate?.feedback?.average_rating) ??
-           toScoreValue((profile.trends?.trends || []).find(t => t.skill_area === 'overall')?.latest_score)
-  }, [profile])
+           toScoreValue(profile.aggregate?.feedback?.average_rating)
+  }, [radarScores, profile])
 
   // Use the highest session_count across all trend lines as the real session count,
   // falling back to metric_count (which counts DB rows, not unique sessions).
@@ -409,12 +412,17 @@ export default function SkillTwinProfile() {
 
     const mcaSession = selectMcaSession(mcaSessions.data, targetSessionId)
     const mcaNudges  = normalizeMcaSessionNudges(mcaSession)
+    // Only trust the MCA-computed skill scores when the selected session IS that
+    // MCA session — never attach one session's scores to a different session.
+    const isSelectedMcaSession = mcaSession && String(mcaSession.id) === String(targetSessionId)
+    const mcaSkillScores = isSelectedMcaSession ? normalizeMcaSkillScores(mcaSession) : null
+    const mcaOverallScore = isSelectedMcaSession ? normalizeMcaOverallScore(mcaSession) : null
     const sources = {
       surveyProfile,
       adaptivePlan,
       rpeSession,
       rpeFeedback,
-      mcaNudges: { ok: mcaNudges.length > 0, data: mcaNudges },
+      mcaNudges: { ok: mcaNudges.length > 0 || Boolean(mcaSkillScores), data: mcaNudges },
     }
 
     if (!hasPulledComponentData(sources)) return { checked: true, integrated: false }
@@ -442,6 +450,8 @@ export default function SkillTwinProfile() {
       rpe_session: normalizeRpeSession(rpeSession.data),
       rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
       mca_nudges: normalizeMcaNudges(mcaNudges),
+      mca_skill_scores: mcaSkillScores || undefined,
+      mca_overall_score: mcaOverallScore ?? undefined,
     })
 
     return { checked: true, integrated: true }
@@ -487,15 +497,16 @@ export default function SkillTwinProfile() {
             <h1 className="mt-1 text-2xl font-semibold">Skill Twin Profile</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <SessionSelect
+            <AnalyticsSessionSelect
               value={sessionId}
               options={sessionOptions}
               onChange={setSessionId}
             />
-            <Button className="h-10 self-end" onClick={() => loadProfile(userId, sessionId)}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
+            <AnalyticsLoadButton
+              className="h-10 self-end"
+              loading={status === 'loading'}
+              onClick={() => loadProfile(userId, sessionId)}
+            />
           </div>
         </div>
       </section>
@@ -582,26 +593,6 @@ export default function SkillTwinProfile() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function SessionSelect({ value, options, onChange }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>Session</span>
-      <select
-        className="h-10 min-w-[220px] rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {!options.length && <option value="">No session yet</option>}
-        {options.map(option => (
-          <option key={`${option.source}-${option.id}`} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
 
 function StatusPill({ status }) {
   const label = status === 'live' ? 'Live API profile' : status === 'loading' ? 'Loading profile' : 'Demo profile'

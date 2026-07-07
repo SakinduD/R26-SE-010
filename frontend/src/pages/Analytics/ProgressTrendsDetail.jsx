@@ -6,13 +6,13 @@ import {
   BarChart3,
   CheckCircle2,
   LineChart,
-  RefreshCw,
   Target,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -21,15 +21,14 @@ import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
-import Button from '@/components/ui/Button'
 
-// Only the 5 composite skills the backend trend engine supports.
+// The four skills the backend trend engine supports. "Overall" is a summary
+// (the mean of these four), not a skill, so it has no trend line of its own.
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
   presence_engagement: 'Presence & Engagement',
   emotional_intelligence: 'Emotional Intelligence',
-  overall: 'Overall',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -38,20 +37,19 @@ const TREND_VARIANT = { improving: 'success', stable: 'neutral', declining: 'dan
 const DEMO_DATA = {
   user_id: 'demo-user',
   summary: {
-    analyzed_skill_count: 5,
+    analyzed_skill_count: 4,
     improving_count: 2,
-    stable_count: 2,
+    stable_count: 1,
     declining_count: 1,
     insufficient_data_count: 0,
     strongest_improvement: trend('vocal_command', 'improving', [55, 65, 78]),
-    strongest_decline: trend('overall', 'declining', [90, 82, 70]),
+    strongest_decline: trend('emotional_intelligence', 'declining', [82, 76, 70]),
   },
   trends: [
     trend('vocal_command', 'improving', [55, 65, 78]),
     trend('speech_fluency', 'stable', [72, 73, 74]),
     trend('presence_engagement', 'improving', [66, 72, 79]),
-    trend('emotional_intelligence', 'stable', [70, 75, 80]),
-    trend('overall', 'declining', [90, 82, 70]),
+    trend('emotional_intelligence', 'declining', [82, 76, 70]),
   ],
   generated_at: '2026-05-03T00:00:00',
   trend_version: 'rule-based-v1',
@@ -161,10 +159,7 @@ export default function ProgressTrendsDetail() {
         />
         <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Button onClick={() => loadTrends(userId, sessionId)} variant="secondary" size="sm" loading={status === 'loading'}>
-            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
-            Load
-          </Button>
+          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadTrends(userId, sessionId)} />
         </div>
       </motion.div>
 

@@ -38,14 +38,6 @@ COMPOSITE_SCORE_FIELDS: dict[str, list[str]] = {
     "emotional_intelligence": ["empathy_score", "emotional_control_score"],
 }
 
-MCA_WEIGHTS: dict[str, float] = {
-    "emotional_intelligence": 0.30,
-    "presence_engagement": 0.30,
-    "vocal_command": 0.20,
-    "speech_fluency": 0.20,
-}
-
-
 def generate_session_report(db: Session, session_id: str) -> PostSessionReportResult:
     aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
     skill_scores = _compute_skill_scores(aggregate)
@@ -84,8 +76,8 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
     Priority order (same as Analytics Dashboard):
     1. Average the raw DB metric fields that belong to each composite skill.
     2. If no metric fields are present, fall back to skill_rating_averages from feedback.
-    Overall score uses the stored overall_score from the DB metric if available,
-    so it matches the Dashboard exactly.
+    Overall score is the mean of the four composite skills (not a skill itself),
+    so the reported Overall always equals the average of the four skills shown.
     """
     averages = aggregate.scores.averages
     feedback_avgs = aggregate.feedback.skill_rating_averages
@@ -112,23 +104,14 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         if score is not None:
             available_scores.append(score)
 
-    # Use the stored overall_score from the DB metric first (matches Dashboard)
-    if "overall_score" in averages and averages["overall_score"] is not None:
-        overall_score = round(averages["overall_score"], 2)
+    # Overall is the mean of the four composite skills — it is a summary, not a
+    # skill. Falling back to feedback average only when no skill has evidence yet.
+    if available_scores:
+        overall_score = round(sum(available_scores) / len(available_scores), 2)
+    elif aggregate.feedback.average_rating is not None:
+        overall_score = round(aggregate.feedback.average_rating, 2)
     else:
-        weighted_sum = 0.0
-        total_weight = 0.0
-        for skill_key, weight in MCA_WEIGHTS.items():
-            val = skill_scores.get(skill_key)
-            if val is not None:
-                weighted_sum += val * weight
-                total_weight += weight
-        if total_weight > 0:
-            overall_score = round(weighted_sum / total_weight, 2)
-        elif aggregate.feedback.average_rating is not None:
-            overall_score = round(aggregate.feedback.average_rating, 2)
-        else:
-            overall_score = round(sum(available_scores) / len(available_scores), 2) if available_scores else None
+        overall_score = None
 
     completeness = round(len(available_scores) / len(COMPOSITE_SCORE_FIELDS), 2)
 

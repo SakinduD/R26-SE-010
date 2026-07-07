@@ -6,12 +6,12 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
-  RefreshCw,
   ShieldAlert,
   Target,
 } from 'lucide-react'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
@@ -19,7 +19,6 @@ import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
-import Button from '@/components/ui/Button'
 
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
@@ -214,10 +213,7 @@ export default function PostSessionReport() {
         <AnalyticsNav />
         <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Button onClick={() => loadReport()} variant="secondary" size="sm" loading={status === 'loading'}>
-            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
-            Load
-          </Button>
+          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadReport()} />
         </div>
       </motion.div>
 

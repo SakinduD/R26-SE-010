@@ -7,7 +7,6 @@ import {
   BrainCircuit,
   CheckCircle2,
   Gauge,
-  RefreshCw,
   ShieldAlert,
   Sparkles,
   Target,
@@ -15,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -23,15 +23,14 @@ import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
-import Button from '@/components/ui/Button'
 
-// Only the 5 composite skills the backend trend/prediction engine supports.
+// The four skills the backend prediction engine supports. "Overall" is a summary
+// (the mean of these four), not a skill, so it is never forecast on its own.
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
   presence_engagement: 'Presence & Engagement',
   emotional_intelligence: 'Emotional Intelligence',
-  overall: 'Overall',
 }
 
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
@@ -91,7 +90,7 @@ export default function PredictiveAnalytics() {
     isAuthenticated,
   } = useAnalyticsIdentity(params.userId)
   const [userId, setUserId] = useState(connectedUserId)
-  const [selectedSkill, setSelectedSkill] = useState('overall')
+  const [selectedSkill, setSelectedSkill] = useState('vocal_command')
   const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [data, setData] = useState(DEMO_DATA)
@@ -170,10 +169,7 @@ export default function PredictiveAnalytics() {
         />
         <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Button onClick={() => loadPredictions()} variant="secondary" size="sm" loading={status === 'loading'}>
-            {status !== 'loading' && <RefreshCw size={12} strokeWidth={1.8} />}
-            Load
-          </Button>
+          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadPredictions()} />
         </div>
       </motion.div>
 
