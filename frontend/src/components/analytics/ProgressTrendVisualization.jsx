@@ -8,12 +8,12 @@ const TREND_COLORS = {
   insufficient_data: 'rgb(161 161 170)',
 }
 
+// One colour per skill. "Overall" is a summary, not a skill, so it has no series.
 const SKILL_COLORS = {
   vocal_command: '#f43f5e',      // Rose
   speech_fluency: '#f59e0b',     // Amber
   presence_engagement: '#10b981', // Teal
   emotional_intelligence: '#6366f1', // Indigo
-  overall: '#8b5cf6',            // Purple
 }
 
 function getSkillColor(skill, trendLabel) {
@@ -22,7 +22,6 @@ function getSkillColor(skill, trendLabel) {
 }
 
 export default function ProgressTrendVisualization({ trends, labelFor }) {
-  console.log('--- TRENDS DATA DEBUG ---', trends)
   const [hoveredSkill, setHoveredSkill] = useState(null)
 
   const visibleTrends = useMemo(

@@ -76,4 +76,7 @@ export const analyticsService = {
 
   getComponentMcaSessions: (limit = 20, offset = 0) =>
     api.get('/api/v1/mca/sessions/', { params: { limit, offset } }).then(unwrap),
+
+  getComponentMcaSession: (sessionId) =>
+    api.get(`/api/v1/mca/sessions/${encodeURIComponent(sessionId)}`).then(unwrap),
 }

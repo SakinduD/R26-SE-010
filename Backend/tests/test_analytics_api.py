@@ -461,6 +461,51 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
     assert aggregate_response.json()["data_completeness"]["has_session_metrics"] is True
 
 
+def test_component_integration_maps_mca_skill_scores_directly(client):
+    """The MCA engine's own per-skill scores map straight onto the composite
+    metric columns (MCA's `emotional_regulation` -> analytics emotional_intelligence)."""
+    payload = {
+        "user_id": "mca-skill-user",
+        "session_id": "mca-skill-session-1",
+        "skill_type": "communication",
+        "mca_nudges": [
+            {
+                "emotion": "neutral",
+                "confidence": 0.5,
+                "nudge": "Speaking pace is a little fast.",
+                "nudge_category": "pace",
+                "nudge_severity": "warning",
+            }
+        ],
+        "mca_skill_scores": {
+            "vocal_command": 78,
+            "speech_fluency": 71,
+            "presence_engagement": 80,
+            "emotional_regulation": 65,
+        },
+        "mca_overall_score": 74,
+    }
+
+    response = client.post("/api/v1/analytics/integrations/session-complete", json=payload)
+
+    assert response.status_code == 201
+    metric = response.json()["metric"]
+
+    # vocal_command -> speech_volume_score
+    assert metric["speech_volume_score"] == 78
+    # speech_fluency -> speech_pace_score + clarity_score (composite avg == 71)
+    assert metric["speech_pace_score"] == 71
+    assert metric["clarity_score"] == 71
+    # presence_engagement -> eye_contact_score + confidence_score (composite avg == 80)
+    assert metric["eye_contact_score"] == 80
+    assert metric["confidence_score"] == 80
+    # emotional_regulation -> empathy_score + emotional_control_score (composite avg == 65)
+    assert metric["empathy_score"] == 65
+    assert metric["emotional_control_score"] == 65
+    # Overall is the MCA session score.
+    assert metric["overall_score"] == 74
+
+
 def test_post_session_report_combines_session_analytics(client):
     session_id = "report-session"
     client.post(
@@ -934,7 +979,7 @@ def test_user_skill_progress_trend_returns_single_skill(client):
         json={
             "user_id": "single-trend-user",
             "session_id": "single-trend-session-1",
-            "overall_score": 60,
+            "speech_volume_score": 60,
         },
     )
     client.post(
@@ -942,18 +987,41 @@ def test_user_skill_progress_trend_returns_single_skill(client):
         json={
             "user_id": "single-trend-user",
             "session_id": "single-trend-session-2",
-            "overall_score": 68,
+            "speech_volume_score": 68,
         },
     )
 
-    response = client.get("/api/v1/analytics/users/single-trend-user/progress-trends/overall")
+    response = client.get(
+        "/api/v1/analytics/users/single-trend-user/progress-trends/vocal_command"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["skill_area"] == "vocal_command"
+    assert data["trend_label"] == "improving"
+    assert data["delta"] == 8
+    assert data["session_count"] == 2
+
+
+def test_user_skill_progress_trend_rejects_overall_as_a_skill(client):
+    """Overall is a summary of the four skills, not a skill, so it has no trend."""
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "no-overall-trend-user",
+            "session_id": "no-overall-trend-session-1",
+            "overall_score": 60,
+        },
+    )
+
+    response = client.get(
+        "/api/v1/analytics/users/no-overall-trend-user/progress-trends/overall"
+    )
 
     assert response.status_code == 200
     data = response.json()
     assert data["skill_area"] == "overall"
-    assert data["trend_label"] == "improving"
-    assert data["delta"] == 8
-    assert data["session_count"] == 2
+    assert data["trend_label"] == "insufficient_data"
 
 
 def test_user_progress_trends_can_filter_history_up_to_selected_session(client):
@@ -1232,7 +1300,7 @@ def test_user_skill_predicted_outcome_returns_single_prediction(client):
         json={
             "user_id": "single-prediction-user",
             "session_id": "single-prediction-session-1",
-            "overall_score": 60,
+            "speech_volume_score": 60,
         },
     )
     client.post(
@@ -1240,15 +1308,17 @@ def test_user_skill_predicted_outcome_returns_single_prediction(client):
         json={
             "user_id": "single-prediction-user",
             "session_id": "single-prediction-session-2",
-            "overall_score": 68,
+            "speech_volume_score": 68,
         },
     )
 
-    response = client.get("/api/v1/analytics/users/single-prediction-user/predicted-outcomes/overall")
+    response = client.get(
+        "/api/v1/analytics/users/single-prediction-user/predicted-outcomes/vocal_command"
+    )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["predicted_skill"] == "overall"
+    assert data["predicted_skill"] == "vocal_command"
     assert data["current_score"] == 68
     assert data["predicted_score"] == 76
     assert data["trend_label"] == "improving"

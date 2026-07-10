@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
-  RefreshCw, Search, ShieldAlert, Target,
+  ShieldAlert, Target,
   TrendingUp, TrendingDown, CheckCircle,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -9,12 +9,15 @@ import { Button } from '../../components/ui/Button'
 import ProgressTrendVisualization from '../../components/analytics/ProgressTrendVisualization'
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
 import AnalyticsNav from './AnalyticsNav'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData, normalizeComponentSessionOptions,
-  normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaSessionNudges,
+  normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
+  normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
   optionalRequest, selectPreferredComponentSession, selectMcaSession,
 } from './analyticsIntegrationUtils'
@@ -164,7 +167,11 @@ export default function AnalyticsDashboard() {
         optionalRequest(()=>analyticsService.getComponentMcaSessions()),
       ])
       const mcs = selectMcaSession(ms.data,ts), nudges = normalizeMcaSessionNudges(mcs)
-      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0,data:nudges} }
+      // Use the MCA-computed skill scores only when the selected session is that MCA session.
+      const isSelectedMca = mcs && String(mcs.id) === String(ts)
+      const mcaSkillScores = isSelectedMca ? normalizeMcaSkillScores(mcs) : null
+      const mcaOverallScore = isSelectedMca ? normalizeMcaOverallScore(mcs) : null
+      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0||Boolean(mcaSkillScores),data:nudges} }
       if (!hasPulledComponentData(src)) return {integrated:false}
       await analyticsService.integrateCompletedSession({
         user_id:tu, session_id:ts,
@@ -173,6 +180,8 @@ export default function AnalyticsDashboard() {
         survey_profile:normalizeSurveyProfile(sp.data), adaptive_plan:normalizeAdaptivePlan(ap.data),
         rpe_session:normalizeRpeSession(rs.data), rpe_feedback:normalizeRpeFeedback(rf.data),
         mca_nudges:normalizeMcaNudges(nudges),
+        mca_skill_scores: mcaSkillScores || undefined,
+        mca_overall_score: mcaOverallScore ?? undefined,
       })
       return {integrated:true}
     } catch { return {integrated:false} }
@@ -191,7 +200,13 @@ export default function AnalyticsDashboard() {
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
-  const overall = fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
+  // Overall is the mean of the four skills — a summary, not a skill — so it always
+  // equals the average of the four skill cards shown below.
+  const overall = useMemo(() => {
+    const vals = scores.map(s => s.value).filter(v => v != null)
+    if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+    return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
+  }, [scores, data])
 
   // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
   const selfScores = useMemo(() => {
@@ -219,18 +234,16 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="flex items-end gap-3 flex-wrap">
             <AnalyticsNav />
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>Session</span>
-              <select value={sessionId} onChange={e=>setSessionId(e.target.value)}
-                className="h-10 min-w-72 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary">
-                {!sessOpts.length && <option value="">Select a session</option>}
-                {sessOpts.map(o=><option key={o.source+'-'+o.id} value={o.id}>{o.label}</option>)}
-              </select>
-            </label>
-            <button onClick={()=>load(userId,sessionId)}
-              className="h-10 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold px-5 rounded-md transition-colors">
-              {status==='loading' ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Search className="h-4 w-4"/>} Load
-            </button>
+            <AnalyticsSessionSelect
+              value={sessionId}
+              options={sessOpts}
+              onChange={setSessionId}
+              minWidthClass="min-w-72"
+            />
+            <AnalyticsLoadButton
+              loading={status==='loading'}
+              onClick={()=>load(userId,sessionId)}
+            />
           </div>
         </div>
       </header>

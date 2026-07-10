@@ -159,6 +159,12 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
     rpe_session: ComponentRpeSession | dict[str, Any] | None = None
     rpe_feedback: ComponentRpeFeedback | dict[str, Any] | None = None
     mca_nudges: list[ComponentMcaNudge | dict[str, Any]] = []
+    # Accurate per-skill scores already computed by the MCA engine
+    # (vocal_command, speech_fluency, presence_engagement, emotional_regulation).
+    # When present these are mapped directly onto the metric columns instead of
+    # re-deriving lossy scores from the nudge log.
+    mca_skill_scores: dict[str, Score] | None = None
+    mca_overall_score: Score = Field(default=None, ge=0, le=100)
     self_feedback: ComponentSubmittedFeedback | None = None
     peer_feedback: list[ComponentSubmittedFeedback] = []
 
