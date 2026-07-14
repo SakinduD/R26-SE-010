@@ -32,6 +32,7 @@ import ScenarioSelect from './pages/RPE/ScenarioSelect'
 import RolePlaySession from './pages/RPE/RolePlaySession'
 import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
+import MySessions from './pages/RPE/MySessions'
 
 // Existing feature pages
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
@@ -101,14 +102,7 @@ export default function App() {
               <Route path="/roleplay/session" element={<RolePlaySession />} />
               <Route path="/roleplay/session/complete" element={<SessionComplete />} />
               <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
-              <Route
-                path="/roleplay/my-sessions"
-                element={
-                  <div className="page" style={{ textAlign: 'center', paddingTop: 64, color: 'var(--text-tertiary)', fontSize: 13 }}>
-                    My Sessions — coming soon
-                  </div>
-                }
-              />
+              <Route path="/roleplay/my-sessions" element={<MySessions />} />
               <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
             </Route>
 

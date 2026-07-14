@@ -1,23 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain } from 'lucide-react'
+import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain, History } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
-import PageHead from '@/components/ui/PageHead'
-import Card from '@/components/ui/Card'
-import Badge from '@/components/ui/Badge'
-import Banner from '@/components/ui/Banner'
-import EmptyState from '@/components/ui/EmptyState'
-import SegmentedControl from '@/components/ui/SegmentedControl'
-import ChipToggle from '@/components/ui/ChipToggle'
+import { cn } from '@/lib/utils'
 
 const DIFFICULTY_FILTERS = ['all', 'beginner', 'intermediate', 'advanced']
 
-// REDESIGN: replaced hardcoded light-mode chips (bg-emerald-100/amber-100/red-100)
-// with semantic Badge variants
-const DIFFICULTY_BADGE = {
+const DIFFICULTY_TONE = {
   beginner:     'success',
   intermediate: 'warning',
   advanced:     'danger',
@@ -180,60 +172,58 @@ export default function ScenarioSelect() {
   const isFiltered = activeFilter !== 'all' || !!activeSkillFilter
 
   return (
-    <div>
+    <div className="rpe-cinema">
 
-      {/* REDESIGN: hero replaced with PageHead component pattern */}
-      <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 16px' }}>
-          <PageHead
-            eyebrow="Practice"
-            title="Role-Play Scenarios"
-            sub="Practice workplace soft skills with AI-powered simulations"
-            right={<Badge variant="neutral">{allScenarios.length} scenarios</Badge>}
-          />
-
-          {/* REDESIGN: APA pill now uses Badge accent */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Badge variant="accent">
-              <Sparkles size={11} strokeWidth={1.8} />
-              <span>Personalised ordering coming soon</span>
-            </Badge>
+      <div className="hero-band">
+        <div className="hero-inner">
+          <div className="hero-row">
+            <div>
+              <p className="eyebrow">Practice</p>
+              <h1 className="hero-title">Role-Play Scenarios</h1>
+              <p className="hero-sub">Practice workplace soft skills with AI-powered simulations</p>
+            </div>
+            <div className="hero-actions">
+              <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
+                <History size={13} strokeWidth={1.8} /> My Sessions
+              </button>
+              <span className="pill neutral">{allScenarios.length} scenarios</span>
+            </div>
           </div>
+          <span className="pill accent" style={{ marginTop: 14 }}>
+            <Sparkles size={11} strokeWidth={1.8} />
+            Personalised ordering coming soon
+          </span>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="page">
 
-        {/* REDESIGN: guest banner replaced amber-50/200/700 hardcoded colors with semantic Banner */}
         {!authLoading && !isAuthenticated && (
-          <Banner variant="warning">
-            <span>
-              You are browsing as a guest.{' '}
-              <a href="/signin" style={{ color: 'var(--warning)', fontWeight: 600, textDecoration: 'underline' }}>
-                Sign in
-              </a>{' '}
-              to save your session history.
-            </span>
-          </Banner>
+          <div className="banner warning">
+            You are browsing as a guest.{' '}
+            <a href="/signin" className="banner-link">Sign in</a>{' '}
+            to save your session history.
+          </div>
         )}
 
-        {/* REDESIGN: difficulty filter switched from primary-tinted pills to SegmentedControl */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-          <SegmentedControl
-            value={!activeSkillFilter ? activeFilter : 'all'}
-            onChange={(v) => handleDifficultyFilter(v)}
-            options={DIFFICULTY_FILTERS.map((d) => ({
-              label: d === 'all' ? 'All' : d.charAt(0).toUpperCase() + d.slice(1),
-              value: d,
-            }))}
-          />
+        <div className="filter-row">
+          <div className="seg-control">
+            {DIFFICULTY_FILTERS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={cn('seg-btn', (!activeSkillFilter ? activeFilter : 'all') === d && 'active')}
+                onClick={() => handleDifficultyFilter(d)}
+              >
+                {d === 'all' ? 'All' : d.charAt(0).toUpperCase() + d.slice(1)}
+              </button>
+            ))}
+          </div>
 
-          {/* REDESIGN: select restyled to use .input class */}
           <select
             value={activeSortMode}
             onChange={(e) => setActiveSortMode(e.target.value)}
-            className="input"
-            style={{ width: 'auto', height: 36, paddingRight: 28 }}
+            className="sort-select"
           >
             <option value="default">Sort: Default</option>
             <option value="difficulty">Sort: By Difficulty</option>
@@ -241,87 +231,59 @@ export default function ScenarioSelect() {
           </select>
         </div>
 
-        {/* REDESIGN: skill filter row uses ChipToggle */}
         {allSkills.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span className="t-over" style={{ flexShrink: 0 }}>Filter by skill:</span>
+          <div className="skill-filter-row">
+            <span className="micro-label">Filter by skill:</span>
             {visibleSkills.map((skill) => (
-              <ChipToggle
+              <button
                 key={skill}
-                active={activeSkillFilter === skill}
+                type="button"
+                className={cn('chip', activeSkillFilter === skill && 'active')}
                 onClick={() => handleSkillFilter(skill)}
               >
-                <span style={{ textTransform: 'capitalize' }}>{skill.replace(/_/g, ' ')}</span>
-              </ChipToggle>
+                {skill.replace(/_/g, ' ')}
+              </button>
             ))}
             {allSkills.length > MAX_SKILL_PILLS && (
-              <button
-                type="button"
-                onClick={() => setShowAllSkills((v) => !v)}
-                className="t-cap"
-                style={{ background: 'transparent', border: 0, color: 'var(--accent)', cursor: 'pointer', fontWeight: 500 }}
-              >
+              <button type="button" onClick={() => setShowAllSkills((v) => !v)} className="more-toggle">
                 {showAllSkills ? 'Less' : `+${allSkills.length - MAX_SKILL_PILLS} more`}
               </button>
             )}
           </div>
         )}
 
-        {/* REDESIGN: active-filter summary chips converted to Badge accent */}
         {isFiltered && !isLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span className="t-cap">
+          <div className="active-filters">
+            <span className="filter-summary">
               Showing {displayedScenarios.length} of {allScenarios.length} scenarios
             </span>
             {activeFilter !== 'all' && (
-              <button
-                type="button"
-                onClick={() => handleDifficultyFilter('all')}
-                style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}
-              >
-                <Badge variant="accent">
-                  <span style={{ textTransform: 'capitalize' }}>Difficulty: {activeFilter} ×</span>
-                </Badge>
+              <button type="button" onClick={() => handleDifficultyFilter('all')} className="pill accent clickable">
+                Difficulty: {activeFilter} ×
               </button>
             )}
             {activeSkillFilter && (
-              <button
-                type="button"
-                onClick={() => handleSkillFilter(activeSkillFilter)}
-                style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}
-              >
-                <Badge variant="accent">
-                  <span style={{ textTransform: 'capitalize' }}>Skill: {activeSkillFilter.replace(/_/g, ' ')} ×</span>
-                </Badge>
+              <button type="button" onClick={() => handleSkillFilter(activeSkillFilter)} className="pill accent clickable">
+                Skill: {activeSkillFilter.replace(/_/g, ' ')} ×
               </button>
             )}
           </div>
         )}
 
-        {/* REDESIGN: error block replaced with Banner danger + retry button */}
         {error && (
-          <Banner variant="danger">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-              <AlertCircle size={16} strokeWidth={1.8} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-              <span style={{ flex: 1 }}>{error}</span>
-              <button
-                type="button"
-                onClick={() => handleDifficultyFilter(activeFilter)}
-                className="btn btn-ghost btn-sm"
-              >
-                <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <RefreshCw size={12} strokeWidth={1.8} /> Retry
-                </span>
-              </button>
-            </div>
-          </Banner>
+          <div className="banner danger">
+            <AlertCircle size={16} strokeWidth={1.8} />
+            <span style={{ flex: 1 }}>{error}</span>
+            <button type="button" onClick={() => handleDifficultyFilter(activeFilter)} className="retry-btn">
+              <RefreshCw size={12} strokeWidth={1.8} /> Retry
+            </button>
+          </div>
         )}
 
-        {/* REDESIGN: skeleton uses .skel class instead of animate-pulse divs */}
         {isLoading && (
           <div className="grid-3">
             {[1, 2, 3].map((n) => (
-              <Card key={n}>
+              <div key={n} className="skel-card">
                 <div className="skel" style={{ height: 16, width: '75%', marginBottom: 12 }} />
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                   <div className="skel" style={{ height: 18, width: 80, borderRadius: 999 }} />
@@ -332,33 +294,21 @@ export default function ScenarioSelect() {
                   <div className="skel" style={{ height: 18, width: 80, borderRadius: 999 }} />
                 </div>
                 <div className="skel" style={{ height: 36, width: '100%', borderRadius: 8 }} />
-              </Card>
+              </div>
             ))}
           </div>
         )}
 
-        {/* Scenario grid */}
         {!isLoading && (
           <div className="grid-3">
             {displayedScenarios.length === 0 ? (
               <div style={{ gridColumn: '1 / -1' }}>
-                {/* REDESIGN: empty grid replaced with EmptyState component */}
-                <Card>
-                  <EmptyState
-                    icon={Brain}
-                    title="No scenarios match this filter"
-                    description="Try removing one or more filters to see all available scenarios."
-                    action={
-                      <button
-                        type="button"
-                        onClick={clearAllFilters}
-                        className="btn btn-secondary"
-                      >
-                        <span className="btn-label">Clear filters</span>
-                      </button>
-                    }
-                  />
-                </Card>
+                <div className="empty-state">
+                  <Brain size={28} strokeWidth={1.6} />
+                  <p className="empty-title">No scenarios match this filter</p>
+                  <p className="empty-desc">Try removing one or more filters to see all available scenarios.</p>
+                  <button type="button" onClick={clearAllFilters} className="btn-c secondary">Clear filters</button>
+                </div>
               </div>
             ) : (
               displayedScenarios.map((scenario) => (
@@ -374,78 +324,40 @@ export default function ScenarioSelect() {
           </div>
         )}
 
-        {/* REDESIGN: comparison table now wrapped in Card; difficulty pills use Badge */}
         {!isLoading && allScenarios.length > 0 && (
-          <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => setShowCompare((v) => !v)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '14px 20px',
-                background: 'transparent',
-                border: 0,
-                color: 'var(--text-primary)',
-                fontSize: 14,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
+          <div className="compare-panel">
+            <button type="button" onClick={() => setShowCompare((v) => !v)} className="compare-toggle">
               <span>Compare all scenarios</span>
-              {showCompare ? (
-                <ChevronUp size={16} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
-              ) : (
-                <ChevronDown size={16} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
-              )}
+              {showCompare ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
             </button>
             {showCompare && (
-              <div style={{ overflowX: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
-                <table style={{ width: '100%', fontSize: 12, textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead style={{ background: 'var(--bg-elevated)' }}>
+              <div className="compare-table-wrap">
+                <table className="compare-table">
+                  <thead>
                     <tr>
                       {['Scenario', 'Difficulty', 'Turns', 'Min Trust', 'NPC Exits At', 'NPC Softens At'].map((h) => (
-                        <th
-                          key={h}
-                          className="t-over"
-                          style={{
-                            padding: '12px 16px',
-                            color: 'var(--text-tertiary)',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {h}
-                        </th>
+                        <th key={h}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {allScenarios.map((s, i) => {
+                    {allScenarios.map((s) => {
                       const coop = s.npc_behaviour?.trust_thresholds?.cooperative
                         ?? s.apa_metadata?.npc_behaviour?.trust_thresholds?.cooperative
                         ?? '—'
                       const criteria = s.success_criteria ?? {}
                       return (
-                        <tr
-                          key={s.scenario_id}
-                          style={{ borderTop: i === 0 ? 0 : '1px solid var(--border-subtle)' }}
-                        >
-                          <td className="fg" style={{ padding: '10px 16px', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.title}</td>
-                          <td style={{ padding: '10px 16px' }}>
-                            <Badge variant={DIFFICULTY_BADGE[s.difficulty] ?? 'neutral'}>
-                              <span style={{ textTransform: 'capitalize' }}>{s.difficulty}</span>
-                            </Badge>
-                          </td>
-                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>{s.turns}</td>
-                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>{criteria.min_trust_score ?? '—'}</td>
-                          <td className="score-num" style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>
+                        <tr key={s.scenario_id}>
+                          <td className="cmp-title">{s.title}</td>
+                          <td><span className={cn('pill', DIFFICULTY_TONE[s.difficulty] ?? 'neutral')}>{s.difficulty}</span></td>
+                          <td className="cmp-num">{s.turns}</td>
+                          <td className="cmp-num">{criteria.min_trust_score ?? '—'}</td>
+                          <td className="cmp-num">
                             {s.end_conditions?.failure_escalation_threshold != null
                               ? `${s.end_conditions.failure_escalation_threshold}/5`
                               : '—'}
                           </td>
-                          <td style={{ padding: '10px 16px', color: 'var(--text-tertiary)' }}>trust ≥ {coop}</td>
+                          <td className="cmp-num">trust ≥ {coop}</td>
                         </tr>
                       )
                     })}
@@ -453,18 +365,161 @@ export default function ScenarioSelect() {
                 </table>
               </div>
             )}
-          </Card>
+          </div>
         )}
 
       </div>
 
-      {/* Detail modal — untouched */}
       <ScenarioDetailModal
         scenario={selectedScenario}
         onClose={() => setSelectedScenario(null)}
         onStart={handleStart}
         isStarting={startingId === selectedScenario?.scenario_id}
       />
+
+      <style>{`
+        .rpe-cinema{
+          --bg:            #0D1117;
+          --surface:       #161B22;
+          --surface-hi:    #21262D;
+          --border:        #30363D;
+          --primary:       #4493F8;
+          --primary-glow:  rgba(68,147,248,0.15);
+          --accent:        #7C3AED;
+          --accent-glow:   rgba(124,58,237,0.15);
+          --success:       #3FB950;
+          --success-glow:  rgba(63,185,80,0.15);
+          --warning:       #D29922;
+          --warning-glow:  rgba(210,153,34,0.15);
+          --danger:        #F85149;
+          --danger-glow:   rgba(248,81,73,0.15);
+          --text-hi:       #F0F6FC;
+          --text-med:      #8B949E;
+          --text-low:      #484F58;
+          --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+          min-height:calc(100vh - 48px);
+          background:var(--bg);
+          color:var(--text-hi);
+          font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+          -webkit-font-smoothing:antialiased;
+        }
+        .rpe-cinema button, .rpe-cinema select{ font-family:inherit; }
+        .rpe-cinema .cap{ text-transform:capitalize; }
+
+        .rpe-cinema .hero-band{
+          border-bottom:1px solid var(--border);
+          background:radial-gradient(120% 140% at 0% 0%, rgba(124,58,237,0.08) 0%, transparent 55%), var(--surface);
+        }
+        .rpe-cinema .hero-inner{ max-width:1280px; margin:0 auto; padding:40px 20px 32px; }
+        .rpe-cinema .hero-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+        .rpe-cinema .hero-actions{ display:flex; align-items:center; gap:10px; }
+        .rpe-cinema .my-sessions-btn{
+          display:inline-flex; align-items:center; gap:6px; background:var(--surface-hi); border:1px solid var(--border);
+          color:var(--text-hi); font-size:12px; font-weight:650; padding:8px 14px; border-radius:9px; cursor:pointer;
+          transition:border-color .2s var(--ease), background .2s var(--ease);
+        }
+        .rpe-cinema .my-sessions-btn:hover{ border-color:var(--primary); background:var(--primary-glow); }
+        .rpe-cinema .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--primary); margin:0 0 8px; }
+        .rpe-cinema .hero-title{ font-size:28px; font-weight:800; letter-spacing:-0.01em; margin:0; }
+        .rpe-cinema .hero-sub{ font-size:13.5px; color:var(--text-med); margin:8px 0 0; }
+
+        .rpe-cinema .page{ max-width:1280px; margin:0 auto; padding:28px 20px 64px; display:flex; flex-direction:column; gap:20px; }
+
+        .rpe-cinema .pill{
+          display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:650;
+          padding:5px 12px; border-radius:100px; border:1px solid transparent; white-space:nowrap;
+        }
+        .rpe-cinema .pill.success{ color:var(--success); background:var(--success-glow); border-color:rgba(63,185,80,0.3); }
+        .rpe-cinema .pill.warning{ color:var(--warning); background:var(--warning-glow); border-color:rgba(210,153,34,0.3); }
+        .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow);  border-color:rgba(248,81,73,0.3); }
+        .rpe-cinema .pill.accent{  color:var(--accent);  background:var(--accent-glow);  border-color:rgba(124,58,237,0.3); text-transform:capitalize; }
+        .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); border-color:var(--border); }
+        .rpe-cinema .pill.clickable{ cursor:pointer; }
+        .rpe-cinema .pill.clickable:hover{ filter:brightness(1.25); }
+
+        .rpe-cinema .banner{
+          display:flex; align-items:center; gap:10px; border-radius:12px; padding:12px 16px; font-size:13px; border:1px solid transparent;
+        }
+        .rpe-cinema .banner.warning{ background:var(--warning-glow); border-color:rgba(210,153,34,0.3); color:#E3B341; }
+        .rpe-cinema .banner.danger{ background:var(--danger-glow); border-color:rgba(248,81,73,0.3); color:#FF9490; }
+        .rpe-cinema .banner-link{ color:inherit; font-weight:700; text-decoration:underline; }
+
+        .rpe-cinema .filter-row{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+        .rpe-cinema .seg-control{ display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:3px; gap:2px; }
+        .rpe-cinema .seg-btn{
+          background:transparent; border:none; cursor:pointer; color:var(--text-med);
+          font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:8px; transition:all .2s var(--ease);
+        }
+        .rpe-cinema .seg-btn:hover{ color:var(--text-hi); }
+        .rpe-cinema .seg-btn.active{ background:var(--primary); color:#fff; }
+
+        .rpe-cinema .sort-select{
+          background:var(--surface); border:1px solid var(--border); color:var(--text-hi);
+          font-size:12.5px; padding:8px 12px; border-radius:9px; cursor:pointer;
+        }
+        .rpe-cinema .sort-select:focus{ outline:none; border-color:var(--primary); }
+
+        .rpe-cinema .skill-filter-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .rpe-cinema .micro-label{ font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); flex-shrink:0; }
+        .rpe-cinema .chip{
+          background:var(--surface); border:1px solid var(--border); color:var(--text-med);
+          font-size:12px; font-weight:600; padding:6px 13px; border-radius:100px; cursor:pointer;
+          text-transform:capitalize; transition:all .2s var(--ease);
+        }
+        .rpe-cinema .chip:hover{ border-color:var(--text-med); color:var(--text-hi); }
+        .rpe-cinema .chip.active{ background:var(--primary-glow); border-color:rgba(68,147,248,0.5); color:var(--primary); }
+        .rpe-cinema .more-toggle{ background:none; border:none; color:var(--accent); font-size:12px; font-weight:600; cursor:pointer; }
+
+        .rpe-cinema .active-filters{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .rpe-cinema .filter-summary{ font-size:12px; color:var(--text-med); }
+
+        .rpe-cinema .retry-btn{
+          display:inline-flex; align-items:center; gap:5px; background:none; border:1px solid rgba(248,81,73,0.35);
+          color:inherit; font-size:11.5px; font-weight:650; padding:6px 12px; border-radius:8px; cursor:pointer; flex-shrink:0;
+        }
+        .rpe-cinema .retry-btn:hover{ background:rgba(248,81,73,0.15); }
+
+        .rpe-cinema .grid-3{ display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; }
+        @media (max-width:980px){ .rpe-cinema .grid-3{ grid-template-columns:repeat(2, 1fr); } }
+        @media (max-width:640px){ .rpe-cinema .grid-3{ grid-template-columns:1fr; } }
+
+        .rpe-cinema .skel-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
+        .rpe-cinema .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:6px; animation:cinemaShimmer 1.4s ease-in-out infinite; }
+        @keyframes cinemaShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+
+        .rpe-cinema .empty-state{
+          display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px;
+          background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:48px 24px; color:var(--text-med);
+        }
+        .rpe-cinema .empty-title{ font-size:15px; font-weight:700; color:var(--text-hi); margin:6px 0 0; }
+        .rpe-cinema .empty-desc{ font-size:13px; margin:0 0 10px; max-width:340px; }
+
+        .rpe-cinema .btn-c{
+          display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650;
+          padding:9px 16px; border-radius:10px; cursor:pointer; border:1px solid transparent;
+          transition:filter .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease);
+        }
+        .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
+        .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
+
+        .rpe-cinema .compare-panel{ background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+        .rpe-cinema .compare-toggle{
+          width:100%; display:flex; align-items:center; justify-content:space-between;
+          padding:14px 20px; background:transparent; border:none; color:var(--text-hi);
+          font-size:13.5px; font-weight:600; cursor:pointer;
+        }
+        .rpe-cinema .compare-toggle svg{ color:var(--text-med); }
+        .rpe-cinema .compare-table-wrap{ overflow-x:auto; border-top:1px solid var(--border); }
+        .rpe-cinema .compare-table{ width:100%; font-size:12px; text-align:left; border-collapse:collapse; }
+        .rpe-cinema .compare-table thead{ background:var(--surface-hi); }
+        .rpe-cinema .compare-table th{
+          padding:12px 16px; color:var(--text-low); font-weight:700; text-transform:uppercase; letter-spacing:.08em; font-size:10px; white-space:nowrap;
+        }
+        .rpe-cinema .compare-table td{ padding:10px 16px; border-top:1px solid var(--border); color:var(--text-med); }
+        .rpe-cinema .cmp-title{ color:var(--text-hi); font-weight:600; white-space:nowrap; }
+        .rpe-cinema .cmp-num{ font-variant-numeric:tabular-nums; }
+      `}</style>
     </div>
   )
 }
