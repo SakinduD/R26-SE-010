@@ -210,6 +210,20 @@ export default function AnalyticsDashboard() {
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
+  // Feedback breakdown that adds up:  Feedback = Self + System.
+  //  • Self   = self-assessments (distinct sessions; self is stored 4 rows/skill so
+  //             counting sessions keeps it as "1 assessment", not 4)
+  //  • System = auto-generated feedback items (system + mentor rows: RPE outcome,
+  //             MCA nudges, adaptive plan, survey profile). Peer isn't collected.
+  const fb = data?.aggregate?.feedback || {}
+  const fbByType = fb.by_type || {}
+  const fbSelf = fb.self_session_count || 0
+  const fbSystem = (fbByType.system || 0) + (fbByType.mentor || 0)
+  const fbTotal = fbSelf + fbSystem
+  const fbBreakdown = [
+    fbSelf && `Self ${fbSelf}`,
+    fbSystem && `System ${fbSystem}`,
+  ].filter(Boolean).join(' · ')
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
   const overall = useMemo(() => {
@@ -301,7 +315,7 @@ export default function AnalyticsDashboard() {
               // Sessions = user's lifetime total when no session is selected, or the
               // selected session's count when one is chosen (aggregate scope follows the selection).
               { l: 'Sessions', v: data?.aggregate?.scores?.metric_count || 0 },
-              { l: 'Feedback', v: data?.aggregate?.feedback?.total_count || 0 },
+              { l: 'Feedback', v: fbTotal, sub: fbBreakdown },
               { l: 'Insights', v: preds.length },
             ].map(x =>
               <div
@@ -311,6 +325,9 @@ export default function AnalyticsDashboard() {
               >
                 <div className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{x.v}</div>
                 <div className="t-cap" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>{x.l}</div>
+                {x.sub && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 3, lineHeight: 1.3 }}>{x.sub}</div>
+                )}
               </div>
             )}
           </div>
