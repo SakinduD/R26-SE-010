@@ -175,6 +175,13 @@ def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
     return FeedbackSummary(
         total_count=len(feedback),
         session_count=len({entry.session_id for entry in feedback if entry.session_id}),
+        self_session_count=len(
+            {
+                entry.session_id
+                for entry in feedback
+                if entry.feedback_type == "self" and entry.session_id
+            }
+        ),
         by_type=dict(Counter(entry.feedback_type for entry in feedback)),
         sentiment_counts=dict(Counter(entry.sentiment for entry in feedback if entry.sentiment)),
         skill_rating_averages=skill_rating_averages,

@@ -211,6 +211,9 @@ class ScoreSummary(BaseModel):
 class FeedbackSummary(BaseModel):
     total_count: int
     session_count: int = 0
+    # Distinct sessions the user self-assessed. Self feedback is stored one row per
+    # skill (4 rows per assessment), so this reflects "assessments" not row count.
+    self_session_count: int = 0
     by_type: dict[str, int]
     sentiment_counts: dict[str, int]
     skill_rating_averages: dict[str, float] = {}
