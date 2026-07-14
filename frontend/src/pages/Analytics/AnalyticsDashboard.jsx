@@ -19,7 +19,7 @@ import {
   normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
-  optionalRequest, selectPreferredComponentSession, selectMcaSession,
+  optionalRequest, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
@@ -123,7 +123,7 @@ export default function AnalyticsDashboard() {
 
       // 2. Fetch user-level totals
       const ag = await analyticsService.getAggregateByUser(tu).catch(() => null)
-      let finalData = { 
+      let finalData = {
         aggregate: ag || { scores: { averages: {} }, feedback: { skill_rating_averages: {} } },
         blindSpots: { summary: { total_count: 0 }, blind_spots: [] },
         trends: { trends: [] },
@@ -200,11 +200,12 @@ export default function AnalyticsDashboard() {
     try {
       const [rs,ms] = await Promise.all([optionalRequest(()=>analyticsService.getComponentRpeSessions()), optionalRequest(()=>analyticsService.getComponentMcaSessions())])
       const o = normalizeComponentSessionOptions(rs.data,ms.data)||[]
-      setSessOpts(o); const p = selectPreferredComponentSession(o); if(p) setSessionId(p.id); return p
-    } catch { return null }
+      setSessOpts(o); return o
+    } catch { return [] }
   }
 
-  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess().then(p=>load(cid,p?.id||'')) } }, [cid,isAuthLoading,isAuthenticated])
+  // Default view is "All Sessions" (no session selected) → user-level overall totals.
+  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess(); load(cid,'') } }, [cid,isAuthLoading,isAuthenticated])
 
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
@@ -248,6 +249,7 @@ export default function AnalyticsDashboard() {
               options={sessOpts}
               onChange={setSessionId}
               minWidthClass="min-w-72"
+              allOptionLabel="All Sessions"
             />
             <AnalyticsLoadButton
               loading={status==='loading'}
@@ -296,6 +298,8 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="grid grid-cols-3 gap-3 text-center" style={{ color: 'white' }}>
             {[
+              // Sessions = user's lifetime total when no session is selected, or the
+              // selected session's count when one is chosen (aggregate scope follows the selection).
               { l: 'Sessions', v: data?.aggregate?.scores?.metric_count || 0 },
               { l: 'Feedback', v: data?.aggregate?.feedback?.total_count || 0 },
               { l: 'Insights', v: preds.length },

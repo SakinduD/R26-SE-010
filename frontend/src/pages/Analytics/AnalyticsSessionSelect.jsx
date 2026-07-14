@@ -10,6 +10,10 @@ export default function AnalyticsSessionSelect({
   onChange,
   label = 'Session',
   minWidthClass = 'min-w-[220px]',
+  // When set, adds a top "no session selected" entry (value '') so the user can
+  // switch back to their overall/all-sessions view. e.g. "All Sessions".
+  allOptionLabel = null,
+  allOptionSub = 'Overall view across all your sessions',
 }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -19,9 +23,12 @@ export default function AnalyticsSessionSelect({
     () => options.find((option) => String(option.id) === String(value)) || null,
     [options, value]
   )
+  // The "all sessions" entry is active whenever no real session is selected.
+  const isAllSelected = Boolean(allOptionLabel) && !value
 
   const visibleOptions = showAll ? options : options.slice(0, INITIAL_VISIBLE)
   const hiddenCount = options.length - visibleOptions.length
+  const canOpen = options.length > 0 || Boolean(allOptionLabel)
 
   // Close on outside click or Escape; collapse the "see more" list on close.
   useEffect(() => {
@@ -45,9 +52,11 @@ export default function AnalyticsSessionSelect({
 
   const buttonText = selected
     ? selected.title || selected.friendlyId || selected.label
-    : options.length
-      ? 'Select a session'
-      : 'No session yet'
+    : allOptionLabel
+      ? allOptionLabel
+      : options.length
+        ? 'Select a session'
+        : 'No session yet'
 
   const handleSelect = (id) => {
     onChange(id)
@@ -60,12 +69,12 @@ export default function AnalyticsSessionSelect({
       <div className={`relative ${minWidthClass}`}>
         <button
           type="button"
-          disabled={!options.length}
+          disabled={!canOpen}
           onClick={() => setOpen((prev) => !prev)}
           aria-haspopup="listbox"
           aria-expanded={open}
           className={`flex h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary ${
-            options.length ? '' : 'cursor-not-allowed opacity-60'
+            canOpen ? '' : 'cursor-not-allowed opacity-60'
           }`}
         >
           <span className="truncate">{buttonText}</span>
@@ -79,37 +88,57 @@ export default function AnalyticsSessionSelect({
             role="listbox"
             className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-md border border-border bg-card shadow-lg"
           >
-            {options.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-muted-foreground">No session yet</div>
-            ) : (
-              visibleOptions.map((option) => {
-                const isSelected = String(option.id) === String(value)
-                return (
-                  <button
-                    type="button"
-                    key={`${option.source}-${option.id}`}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => handleSelect(option.id)}
-                    className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted ${
-                      isSelected ? 'bg-muted/60' : ''
-                    }`}
-                  >
-                    <Check
-                      className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-primary' : 'text-transparent'}`}
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {option.title || option.friendlyId || option.label}
-                      </span>
-                      {option.sublabel && (
-                        <span className="block truncate text-[11px] text-muted-foreground">{option.sublabel}</span>
-                      )}
-                    </span>
-                  </button>
-                )
-              })
+            {allOptionLabel && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={isAllSelected}
+                onClick={() => handleSelect('')}
+                className={`flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors hover:bg-muted ${
+                  isAllSelected ? 'bg-muted/60' : ''
+                }`}
+              >
+                <Check
+                  className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isAllSelected ? 'text-primary' : 'text-transparent'}`}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">{allOptionLabel}</span>
+                  {allOptionSub && (
+                    <span className="block truncate text-[11px] text-muted-foreground">{allOptionSub}</span>
+                  )}
+                </span>
+              </button>
             )}
+
+            {options.length === 0
+              ? !allOptionLabel && <div className="px-3 py-2 text-sm text-muted-foreground">No session yet</div>
+              : visibleOptions.map((option) => {
+                  const isSelected = String(option.id) === String(value)
+                  return (
+                    <button
+                      type="button"
+                      key={`${option.source}-${option.id}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => handleSelect(option.id)}
+                      className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted ${
+                        isSelected ? 'bg-muted/60' : ''
+                      }`}
+                    >
+                      <Check
+                        className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-primary' : 'text-transparent'}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {option.title || option.friendlyId || option.label}
+                        </span>
+                        {option.sublabel && (
+                          <span className="block truncate text-[11px] text-muted-foreground">{option.sublabel}</span>
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
 
             {hiddenCount > 0 && (
               <button
