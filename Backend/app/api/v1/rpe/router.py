@@ -155,33 +155,56 @@ def session_respond(
         session_data  = rpe_session_service.get_session(payload.session_id)
         trust_history = session_data["trust_history"]
 
-        should_end, end_reason = rpe_session_service.should_end_session(
-            session_id        = payload.session_id,
-            max_turns         = scenario.max_turns,
-            recommended_turns = scenario.recommended_turns,
-            end_conditions    = scenario.end_conditions,
-            trust_history     = trust_history,
-            escalation_level  = new_esc,
-            current_turn      = turn_number,
+        # LLM-based end detection: exit-intent keywords / natural resolution.
+        llm_should_end, llm_end_reason = rpe_npc_service.should_conversation_end(
+            session_turns = prior_turns,
+            npc_response  = npc_response,
+            user_input    = payload.user_input,
         )
 
         outcome: str | None = None
-        if should_end:
-            if end_reason == "trust_sustained":
-                outcome = "success"
-            elif end_reason == "npc_exit":
-                outcome = "failure"
-            elif end_reason == "max_turns_reached":
-                criteria = scenario.success_criteria
-                outcome  = (
+        if llm_should_end:
+            should_end = True
+            if llm_end_reason == "user_exit_intent":
+                end_reason = "user_exit_intent"
+                outcome    = "ended_by_user"
+            else:
+                end_reason = "natural_resolution"
+                criteria   = scenario.success_criteria
+                outcome    = (
                     "success"
                     if new_trust >= criteria["min_trust_score"]
                     and new_esc  <= criteria["max_escalation_level"]
                     else "failure"
                 )
-            else:
-                outcome = "failure"
+        else:
+            should_end, end_reason = rpe_session_service.should_end_session(
+                session_id        = payload.session_id,
+                max_turns         = scenario.max_turns,
+                recommended_turns = scenario.recommended_turns,
+                end_conditions    = scenario.end_conditions,
+                trust_history     = trust_history,
+                escalation_level  = new_esc,
+                current_turn      = turn_number,
+            )
 
+            if should_end:
+                if end_reason == "trust_sustained":
+                    outcome = "success"
+                elif end_reason == "npc_exit":
+                    outcome = "failure"
+                elif end_reason == "max_turns_reached":
+                    criteria = scenario.success_criteria
+                    outcome  = (
+                        "success"
+                        if new_trust >= criteria["min_trust_score"]
+                        and new_esc  <= criteria["max_escalation_level"]
+                        else "failure"
+                    )
+                else:
+                    outcome = "failure"
+
+        if should_end:
             rpe_session_service.finalize_session(
                 payload.session_id, outcome, new_trust, new_esc, end_reason
             )

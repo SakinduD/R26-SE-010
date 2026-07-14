@@ -172,3 +172,74 @@ EMOTION: [one of: calm, assertive, anxious, frustrated, confused]"""
                 "npc_response":     f"[NPC temporarily unavailable: {exc}]",
                 "detected_emotion": "calm",
             }
+
+    _EXIT_PHRASES = (
+        "exit", "bye", "goodbye", "see you", "talk later",
+        "end of day", "lets end", "let's end", "we are done",
+        "we're done", "that's all", "thats all", "i'm done",
+        "im done", "closing", "signing off", "wrap up",
+        "that will be all", "see you then", "end the chat",
+        "end the conversation", "stop", "quit",
+    )
+
+    def should_conversation_end(
+        self,
+        session_turns: list[dict],
+        npc_response:  str,
+        user_input:    str,
+    ) -> tuple[bool, str]:
+        """
+        Asks the LLM to judge if the conversation has reached a natural
+        conclusion based on the full context.
+
+        Returns (should_end, reason) where reason is one of:
+          "natural_resolution"  - conversation reached a clear conclusion
+          "user_exit_intent"    - user signalled they want to end
+          "conversation_active" - conversation should continue
+        """
+        user_lower = user_input.strip().lower()
+        for phrase in self._EXIT_PHRASES:
+            if phrase in user_lower:
+                return True, "user_exit_intent"
+
+        if len(session_turns) < 4:
+            return False, "conversation_active"
+
+        if not self._client:
+            return False, "conversation_active"
+
+        recent = session_turns[-4:]
+        context = ""
+        for t in recent:
+            context += f"User: {t['user_input']}\n"
+            context += f"NPC: {t['npc_response']}\n"
+        context += f"User: {user_input}\n"
+        context += f"NPC: {npc_response}\n"
+
+        prompt = (
+            "You are evaluating a workplace roleplay conversation "
+            "between an employee (User) and their manager (NPC).\n\n"
+            f"{context}\n"
+            "Has this conversation reached a natural conclusion? "
+            "A natural conclusion means both sides have agreed on "
+            "something, the issue is resolved, or there is nothing "
+            "more productive to discuss.\n\n"
+            "Answer with ONLY one of these three words:\n"
+            "RESOLVED - conversation is naturally complete\n"
+            "ONGOING - conversation should continue\n"
+            "Do not explain. One word only."
+        )
+
+        try:
+            response = self._client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=10,
+                temperature=0,
+            )
+            answer = response.choices[0].message.content.strip().upper()
+            if "RESOLVED" in answer:
+                return True, "natural_resolution"
+            return False, "conversation_active"
+        except Exception:
+            return False, "conversation_active"
