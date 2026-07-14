@@ -19,7 +19,7 @@ import {
   normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
-  optionalRequest, selectPreferredComponentSession, selectMcaSession,
+  optionalRequest, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const SKILL_LABELS = {
@@ -62,6 +62,13 @@ const getInfo = (v) => {
 const labelFor = (v) => getInfo(v).label
 const subFor = (v) => getInfo(v).sub
 const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
+// Average of the valid numbers only — mirrors the Skill Twin radar / Post-Session
+// Report so a skill shows the SAME value everywhere (e.g. Speech Fluency is the
+// mean of speech_pace + clarity, not just whichever field happens to be present).
+const avgOf = (...vals) => {
+  const nums = vals.map(toNum).filter((n) => n !== null)
+  return nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : null
+}
 const fmtScore = (v) => (v == null || isNaN(Number(v))) ? '--' : Math.round(Number(v))
 
 const mkTrend = (skill, label, scores) => ({
@@ -88,11 +95,13 @@ export default function AnalyticsDashboard() {
   const scores = useMemo(() => {
     const a = data?.aggregate?.scores?.averages || {}
     const f = data?.aggregate?.feedback?.skill_rating_averages || {}
+    // Each composite skill is the mean of its underlying fields — identical to the
+    // Skill Twin radar and Post-Session Report so the numbers agree across pages.
     return [
-      ['vocal_command', a.vocal_command ?? a.speech_volume_score ?? a.professionalism_score ?? f.vocal_command],
-      ['speech_fluency', a.speech_fluency ?? a.speech_pace_score ?? a.clarity_score ?? f.speech_fluency],
-      ['presence_engagement', a.presence_engagement ?? a.eye_contact_score ?? a.confidence_score ?? f.presence_engagement],
-      ['emotional_intelligence', a.emotional_intelligence ?? a.empathy_score ?? a.emotional_control_score ?? f.emotional_intelligence],
+      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score) ?? toNum(f.vocal_command)],
+      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score) ?? toNum(f.speech_fluency)],
+      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score) ?? toNum(f.presence_engagement)],
+      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score) ?? toNum(f.emotional_intelligence)],
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
 
@@ -114,7 +123,7 @@ export default function AnalyticsDashboard() {
 
       // 2. Fetch user-level totals
       const ag = await analyticsService.getAggregateByUser(tu).catch(() => null)
-      let finalData = { 
+      let finalData = {
         aggregate: ag || { scores: { averages: {} }, feedback: { skill_rating_averages: {} } },
         blindSpots: { summary: { total_count: 0 }, blind_spots: [] },
         trends: { trends: [] },
@@ -191,15 +200,30 @@ export default function AnalyticsDashboard() {
     try {
       const [rs,ms] = await Promise.all([optionalRequest(()=>analyticsService.getComponentRpeSessions()), optionalRequest(()=>analyticsService.getComponentMcaSessions())])
       const o = normalizeComponentSessionOptions(rs.data,ms.data)||[]
-      setSessOpts(o); const p = selectPreferredComponentSession(o); if(p) setSessionId(p.id); return p
-    } catch { return null }
+      setSessOpts(o); return o
+    } catch { return [] }
   }
 
-  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess().then(p=>load(cid,p?.id||'')) } }, [cid,isAuthLoading,isAuthenticated])
+  // Default view is "All Sessions" (no session selected) → user-level overall totals.
+  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess(); load(cid,'') } }, [cid,isAuthLoading,isAuthenticated])
 
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
+  // Feedback breakdown that adds up:  Feedback = Self + System.
+  //  • Self   = self-assessments (distinct sessions; self is stored 4 rows/skill so
+  //             counting sessions keeps it as "1 assessment", not 4)
+  //  • System = auto-generated feedback items (system + mentor rows: RPE outcome,
+  //             MCA nudges, adaptive plan, survey profile). Peer isn't collected.
+  const fb = data?.aggregate?.feedback || {}
+  const fbByType = fb.by_type || {}
+  const fbSelf = fb.self_session_count || 0
+  const fbSystem = (fbByType.system || 0) + (fbByType.mentor || 0)
+  const fbTotal = fbSelf + fbSystem
+  const fbBreakdown = [
+    fbSelf && `Self ${fbSelf}`,
+    fbSystem && `System ${fbSystem}`,
+  ].filter(Boolean).join(' · ')
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
   const overall = useMemo(() => {
@@ -239,6 +263,7 @@ export default function AnalyticsDashboard() {
               options={sessOpts}
               onChange={setSessionId}
               minWidthClass="min-w-72"
+              allOptionLabel="All Sessions"
             />
             <AnalyticsLoadButton
               loading={status==='loading'}
@@ -287,8 +312,10 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="grid grid-cols-3 gap-3 text-center" style={{ color: 'white' }}>
             {[
+              // Sessions = user's lifetime total when no session is selected, or the
+              // selected session's count when one is chosen (aggregate scope follows the selection).
               { l: 'Sessions', v: data?.aggregate?.scores?.metric_count || 0 },
-              { l: 'Feedback', v: data?.aggregate?.feedback?.total_count || 0 },
+              { l: 'Feedback', v: fbTotal, sub: fbBreakdown },
               { l: 'Insights', v: preds.length },
             ].map(x =>
               <div
@@ -298,6 +325,9 @@ export default function AnalyticsDashboard() {
               >
                 <div className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{x.v}</div>
                 <div className="t-cap" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>{x.l}</div>
+                {x.sub && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 3, lineHeight: 1.3 }}>{x.sub}</div>
+                )}
               </div>
             )}
           </div>
@@ -309,7 +339,7 @@ export default function AnalyticsDashboard() {
           <p className="text-xs text-muted-foreground mb-3">Each card shows how well you are doing in a specific skill</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[...scores, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
-              const v = s.value || 0
+              const v = s.value != null ? Math.round(s.value) : 0
               const isOverall = s.key === 'overall'
               const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
               const barColor = isOverall ? '#8b5cf6' : (v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : v > 0 ? '#f59e0b' : '#6b7280')

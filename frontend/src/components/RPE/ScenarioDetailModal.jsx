@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react'
 import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// REDESIGN: emerald/amber/red/slate → semantic tokens
-const DIFFICULTY_STYLES = {
-  beginner:     'bg-success/10 text-success',
-  intermediate: 'bg-warning/10 text-warning',
-  advanced:     'bg-danger/10 text-danger',
+const DIFFICULTY_TONE = {
+  beginner:     'success',
+  intermediate: 'warning',
+  advanced:     'danger',
 }
 
 const getDifficultyLabel = (weight) => {
@@ -37,90 +36,59 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
   const escThr    = behaviour.escalation_thresholds ?? {}
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card rounded-2xl shadow-2xl border border-border max-w-lg w-full max-h-[88vh] overflow-y-auto custom-scrollbar"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal header with gradient */}
-        <div className="sticky top-0 bg-gradient-to-r from-primary/8 to-card border-b border-border px-6 py-4 rounded-t-2xl flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-foreground leading-snug">{scenario.title}</h2>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              <span className={cn(
-                'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-                DIFFICULTY_STYLES[scenario.difficulty] ?? 'bg-muted text-muted-foreground'
-              )}>
-                {scenario.difficulty}
-              </span>
-              <span className="bg-muted text-muted-foreground text-xs rounded-full px-2.5 py-0.5 font-medium">
-                {scenario.conflict_type}
-              </span>
+    <div className="rpe-modal-backdrop" onClick={onClose}>
+      <div className="rpe-modal" onClick={(e) => e.stopPropagation()}>
+
+        <div className="modal-header">
+          <div className="header-text">
+            <h2 className="modal-title">{scenario.title}</h2>
+            <div className="header-pills">
+              <span className={cn('pill', DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral')}>{scenario.difficulty}</span>
+              <span className="pill neutral">{scenario.conflict_type}</span>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <X size={16} />
+          <button type="button" onClick={onClose} className="close-btn" aria-label="Close">
+            <X size={16} strokeWidth={1.8} />
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5">
+        <div className="modal-body">
 
-          {/* Situation */}
           {scenario.context && (
             <section>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-                What's the situation?
-              </p>
-              <p className="text-sm text-foreground leading-relaxed">{scenario.context}</p>
+              <p className="section-label">What's the situation?</p>
+              <p className="body-text">{scenario.context}</p>
             </section>
           )}
 
-          {/* NPC Profile */}
-          <section className="rounded-lg border border-border bg-muted/40 p-4">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-              You'll be talking to
-            </p>
-            <p className="font-semibold text-foreground">{scenario.npc_role}</p>
-            {scenario.npc_personality && (
-              <p className="text-sm text-muted-foreground italic mt-0.5">{scenario.npc_personality}</p>
-            )}
+          <section className="npc-panel">
+            <p className="section-label">You'll be talking to</p>
+            <p className="npc-role">{scenario.npc_role}</p>
+            {scenario.npc_personality && <p className="npc-personality">{scenario.npc_personality}</p>}
             {scenario.opening_npc_line && (
-              <div className="mt-3 bg-elevated rounded-lg px-3 py-2.5 border-l-[3px] border-primary/60">
-                <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-widest">Opening line</p>
-                <p className="text-sm text-foreground italic">"{scenario.opening_npc_line}"</p>
+              <div className="opening-line">
+                <p className="section-label" style={{ marginBottom: 4 }}>Opening line</p>
+                <p className="opening-text">"{scenario.opening_npc_line}"</p>
               </div>
             )}
           </section>
 
-          {/* Skills */}
           {(skills.length > 0 || traits.length > 0) && (
             <section>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-                Skills you'll practice
-              </p>
+              <p className="section-label">Skills you'll practice</p>
               {skills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                <div className="pill-row" style={{ marginBottom: 8 }}>
                   {skills.map((s) => (
-                    <span key={s} className="bg-accent text-accent-foreground text-xs rounded-full px-3 py-1 font-medium">
-                      {s.replace(/_/g, ' ')}
-                    </span>
+                    <span key={s} className="pill accent">{s.replace(/_/g, ' ')}</span>
                   ))}
                 </div>
               )}
               {traits.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-widest">Big Five relevance</p>
-                  <div className="flex flex-wrap gap-1">
+                  <p className="micro-label">Big Five relevance</p>
+                  <div className="pill-row">
                     {traits.map((t) => (
-                      <span key={t} className="bg-secondary/10 text-secondary text-xs rounded-full px-2.5 py-0.5 capitalize font-medium">
-                        {t}
-                      </span>
+                      <span key={t} className="pill violet cap">{t}</span>
                     ))}
                   </div>
                 </div>
@@ -128,40 +96,36 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
             </section>
           )}
 
-          {/* Session info */}
           <section>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              Session Info
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Recommended</p>
-                <p className="text-sm font-semibold text-foreground">{scenario.recommended_turns ?? scenario.turns} turns</p>
+            <p className="section-label">Session Info</p>
+            <div className="info-grid">
+              <div className="info-tile">
+                <p className="micro-label">Recommended</p>
+                <p className="info-value">{scenario.recommended_turns ?? scenario.turns} turns</p>
               </div>
-              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Maximum</p>
-                <p className="text-sm font-semibold text-foreground">{scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns</p>
+              <div className="info-tile">
+                <p className="micro-label">Maximum</p>
+                <p className="info-value">{scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns</p>
               </div>
               {criteria.min_trust_score != null && (
-                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Min Trust</p>
-                  <p className="text-sm font-semibold text-success">{criteria.min_trust_score}</p>
+                <div className="info-tile">
+                  <p className="micro-label">Min Trust</p>
+                  <p className="info-value success">{criteria.min_trust_score}</p>
                 </div>
               )}
               {criteria.max_escalation_level != null && (
-                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Max Escalation</p>
-                  <p className="text-sm font-semibold text-warning">{criteria.max_escalation_level}/5</p>
+                <div className="info-tile">
+                  <p className="micro-label">Max Escalation</p>
+                  <p className="info-value warning">{criteria.max_escalation_level}/5</p>
                 </div>
               )}
             </div>
-            <div className="mt-2 flex items-center gap-1.5">
-              <Zap size={11} className="text-primary fill-current" />
-              <span className="text-xs font-semibold text-primary">{getDifficultyLabel(weight)}</span>
+            <div className="weight-row">
+              <Zap size={11} strokeWidth={1.8} />
+              <span>{getDifficultyLabel(weight)}</span>
             </div>
           </section>
 
-          {/* How does this session end? */}
           {(() => {
             const ec = scenario.end_conditions ?? {}
             const successThreshold  = ec.success_trust_threshold     ?? 70
@@ -170,64 +134,49 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
             const maxT = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
             return (
               <section>
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-                  How does this session end?
-                </p>
-                <div className="space-y-2">
-                  <div className="rounded-lg border border-success/20 bg-success/5 px-3 py-2.5 flex items-start gap-2.5">
-                    <CheckCircle className="text-success w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground">
-                      Build trust above <span className="font-semibold">{successThreshold}</span> for{' '}
-                      <span className="font-semibold">{consecutiveTurns}</span> consecutive turns
-                    </p>
+                <p className="section-label">How does this session end?</p>
+                <div className="end-list">
+                  <div className="end-row success">
+                    <CheckCircle size={16} strokeWidth={1.8} />
+                    <p>Build trust above <b>{successThreshold}</b> for <b>{consecutiveTurns}</b> consecutive turns</p>
                   </div>
-                  <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2.5 flex items-start gap-2.5">
-                    <XCircle className="text-danger w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground">
-                      Escalation reaches <span className="font-semibold">{failureEscalation}/5</span> — the NPC walks out
-                    </p>
+                  <div className="end-row danger">
+                    <XCircle size={16} strokeWidth={1.8} />
+                    <p>Escalation reaches <b>{failureEscalation}/5</b> — the NPC walks out</p>
                   </div>
-                  <div className="rounded-lg border border-border bg-muted/50 px-3 py-2.5 flex items-start gap-2.5">
-                    <Clock className="text-muted-foreground w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-muted-foreground">
-                      Maximum of <span className="font-semibold text-foreground">{maxT}</span> turns — scored on final trust and escalation
-                    </p>
+                  <div className="end-row neutral">
+                    <Clock size={16} strokeWidth={1.8} />
+                    <p>Maximum of <b>{maxT}</b> turns — scored on final trust and escalation</p>
                   </div>
                 </div>
               </section>
             )
           })()}
 
-          {/* NPC Behaviour thresholds — collapsible */}
           {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (
             <section>
-              <button
-                onClick={() => setShowThresholds((v) => !v)}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium"
-              >
-                {showThresholds ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <button type="button" onClick={() => setShowThresholds((v) => !v)} className="threshold-toggle">
+                {showThresholds ? <ChevronUp size={12} strokeWidth={1.8} /> : <ChevronDown size={12} strokeWidth={1.8} />}
                 {showThresholds ? 'Hide NPC thresholds' : 'Show NPC thresholds'}
               </button>
               {showThresholds && (
-                <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-2">
+                <div className="threshold-panel">
                   {Object.keys(trustThr).length > 0 && (
                     <div>
-                      <p className="font-semibold text-foreground mb-1">Trust thresholds</p>
+                      <p className="threshold-title">Trust thresholds</p>
                       {Object.entries(trustThr).map(([k, v]) => (
-                        <div key={k} className="flex justify-between py-0.5">
-                          <span className="capitalize">{k}</span>
-                          <span className="font-medium text-foreground">{v}</span>
+                        <div key={k} className="threshold-row">
+                          <span className="cap">{k}</span><span className="threshold-val">{v}</span>
                         </div>
                       ))}
                     </div>
                   )}
                   {Object.keys(escThr).length > 0 && (
                     <div>
-                      <p className="font-semibold text-foreground mb-1">Escalation thresholds</p>
+                      <p className="threshold-title">Escalation thresholds</p>
                       {Object.entries(escThr).map(([k, v]) => (
-                        <div key={k} className="flex justify-between py-0.5">
-                          <span className="capitalize">{k}</span>
-                          <span className="font-medium text-foreground">{v}</span>
+                        <div key={k} className="threshold-row">
+                          <span className="cap">{k}</span><span className="threshold-val">{v}</span>
                         </div>
                       ))}
                     </div>
@@ -239,25 +188,143 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
         </div>
 
-        {/* Footer */}
-        <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-4 bg-card border-t border-border rounded-b-2xl">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onStart(scenario)}
-            disabled={isStarting}
-            className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
+        <div className="modal-footer">
+          <button type="button" onClick={onClose} className="cancel-btn">Cancel</button>
+          <button type="button" onClick={() => onStart(scenario)} disabled={isStarting} className="start-btn">
             {isStarting
-              ? <><Loader2 size={14} className="animate-spin" /> Starting…</>
-              : <><ChevronRight size={14} /> Start Scenario</>}
+              ? <><Loader2 size={14} strokeWidth={1.8} className="spin" /> Starting…</>
+              : <><ChevronRight size={14} strokeWidth={1.8} /> Start Scenario</>}
           </button>
         </div>
       </div>
+
+      <style>{`
+        .rpe-modal-backdrop{
+          position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
+          background:rgba(6,8,12,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+        }
+        .rpe-modal{
+          --bg-card:      #161B22;
+          --bg-card-hi:   #21262D;
+          --border:       #30363D;
+          --primary:      #4493F8;
+          --primary-glow: rgba(68,147,248,0.15);
+          --accent:       #7C3AED;
+          --accent-glow:  rgba(124,58,237,0.15);
+          --success:      #3FB950;
+          --success-glow: rgba(63,185,80,0.12);
+          --warning:      #D29922;
+          --warning-glow: rgba(210,153,34,0.12);
+          --danger:       #F85149;
+          --danger-glow:  rgba(248,81,73,0.12);
+          --text-hi:      #F0F6FC;
+          --text-med:     #8B949E;
+          --text-low:     #484F58;
+
+          background:var(--bg-card); border:1px solid var(--border); border-radius:18px;
+          max-width:560px; width:100%; max-height:88vh; overflow-y:auto;
+          box-shadow:0 30px 70px rgba(0,0,0,0.5);
+          font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+          color:var(--text-hi);
+          opacity:0; transform:translateY(16px) scale(0.98);
+          animation: rpeModalIn .3s cubic-bezier(0.22,1,0.36,1) forwards;
+        }
+        @keyframes rpeModalIn{ to{ opacity:1; transform:none; } }
+        .rpe-modal::-webkit-scrollbar{ width:8px; }
+        .rpe-modal::-webkit-scrollbar-thumb{ background:var(--bg-card-hi); border-radius:100px; }
+
+        .rpe-modal .modal-header{
+          position:sticky; top:0; z-index:1;
+          background:linear-gradient(90deg, rgba(68,147,248,0.08), var(--bg-card));
+          border-bottom:1px solid var(--border);
+          padding:18px 22px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+          border-radius:18px 18px 0 0;
+        }
+        .rpe-modal .header-text{ flex:1; min-width:0; }
+        .rpe-modal .modal-title{ font-size:17px; font-weight:750; line-height:1.35; margin:0; }
+        .rpe-modal .header-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .rpe-modal .close-btn{
+          flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--text-med);
+          padding:6px; border-radius:8px; display:flex; transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .close-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
+
+        .rpe-modal .modal-body{ padding:20px 22px; display:flex; flex-direction:column; gap:20px; }
+
+        .rpe-modal .section-label{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--text-low); margin:0 0 8px; }
+        .rpe-modal .micro-label{ font-size:10px; color:var(--text-low); text-transform:uppercase; letter-spacing:.08em; margin:0 0 4px; }
+        .rpe-modal .body-text{ font-size:13.5px; line-height:1.6; color:#C9D1D9; margin:0; }
+        .rpe-modal .cap{ text-transform:capitalize; }
+
+        .rpe-modal .pill{
+          display:inline-flex; align-items:center; font-size:11px; font-weight:650;
+          padding:3px 10px; border-radius:100px; text-transform:capitalize;
+        }
+        .rpe-modal .pill.success{ color:var(--success); background:var(--success-glow); }
+        .rpe-modal .pill.warning{ color:var(--warning); background:var(--warning-glow); }
+        .rpe-modal .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
+        .rpe-modal .pill.accent{  color:var(--accent);  background:var(--accent-glow); text-transform:none; }
+        .rpe-modal .pill.violet{  color:#A78BFA; background:rgba(167,139,250,0.12); }
+        .rpe-modal .pill.neutral{ color:var(--text-med); background:var(--bg-card-hi); text-transform:none; }
+        .rpe-modal .pill-row{ display:flex; flex-wrap:wrap; gap:6px; }
+
+        .rpe-modal .npc-panel{ background:var(--bg-card-hi); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+        .rpe-modal .npc-role{ font-size:14px; font-weight:700; margin:0; }
+        .rpe-modal .npc-personality{ font-size:12.5px; color:var(--text-med); font-style:italic; margin:3px 0 0; }
+        .rpe-modal .opening-line{
+          margin-top:12px; background:var(--bg-card); border-radius:10px; padding:10px 12px;
+          border-left:3px solid rgba(68,147,248,0.6);
+        }
+        .rpe-modal .opening-text{ font-size:13px; font-style:italic; color:var(--text-hi); margin:0; }
+
+        .rpe-modal .info-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .rpe-modal .info-tile{ background:var(--bg-card-hi); border:1px solid var(--border); border-radius:10px; padding:9px 12px; }
+        .rpe-modal .info-value{ font-size:13.5px; font-weight:700; margin:0; }
+        .rpe-modal .info-value.success{ color:var(--success); }
+        .rpe-modal .info-value.warning{ color:var(--warning); }
+        .rpe-modal .weight-row{ margin-top:10px; display:flex; align-items:center; gap:6px; font-size:12px; font-weight:650; color:var(--primary); }
+
+        .rpe-modal .end-list{ display:flex; flex-direction:column; gap:8px; }
+        .rpe-modal .end-row{ display:flex; align-items:flex-start; gap:10px; border-radius:10px; padding:10px 12px; font-size:13px; border:1px solid transparent; }
+        .rpe-modal .end-row p{ margin:0; }
+        .rpe-modal .end-row.success{ background:var(--success-glow); border-color:rgba(63,185,80,0.25); color:var(--text-hi); }
+        .rpe-modal .end-row.success svg{ color:var(--success); flex-shrink:0; margin-top:1px; }
+        .rpe-modal .end-row.danger{ background:var(--danger-glow); border-color:rgba(248,81,73,0.25); color:var(--text-hi); }
+        .rpe-modal .end-row.danger svg{ color:var(--danger); flex-shrink:0; margin-top:1px; }
+        .rpe-modal .end-row.neutral{ background:var(--bg-card-hi); border-color:var(--border); color:var(--text-med); }
+        .rpe-modal .end-row.neutral svg{ color:var(--text-med); flex-shrink:0; margin-top:1px; }
+        .rpe-modal .end-row b{ color:var(--text-hi); }
+
+        .rpe-modal .threshold-toggle{
+          display:inline-flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer;
+          color:var(--text-med); font-size:12px; font-weight:600; transition:color .2s ease;
+        }
+        .rpe-modal .threshold-toggle:hover{ color:var(--text-hi); }
+        .rpe-modal .threshold-panel{ margin-top:10px; background:var(--bg-card-hi); border:1px solid var(--border); border-radius:10px; padding:12px; font-size:12px; color:var(--text-med); display:flex; flex-direction:column; gap:10px; }
+        .rpe-modal .threshold-title{ font-weight:700; color:var(--text-hi); margin:0 0 4px; }
+        .rpe-modal .threshold-row{ display:flex; justify-content:space-between; padding:2px 0; }
+        .rpe-modal .threshold-val{ font-weight:600; color:var(--text-hi); }
+
+        .rpe-modal .modal-footer{
+          position:sticky; bottom:0; display:flex; gap:10px; justify-content:flex-end;
+          padding:16px 22px; background:var(--bg-card); border-top:1px solid var(--border); border-radius:0 0 18px 18px;
+        }
+        .rpe-modal .cancel-btn{
+          background:none; border:none; cursor:pointer; color:var(--text-med); font-size:13px; font-weight:600;
+          padding:9px 16px; border-radius:9px; transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .cancel-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
+        .rpe-modal .start-btn{
+          display:inline-flex; align-items:center; gap:7px; border:none; cursor:pointer;
+          background:linear-gradient(135deg, var(--primary), #6BB2FF); color:#fff;
+          font-size:13px; font-weight:650; padding:9px 18px; border-radius:10px;
+          transition:filter .2s ease;
+        }
+        .rpe-modal .start-btn:hover:not(:disabled){ filter:brightness(1.08); }
+        .rpe-modal .start-btn:disabled{ opacity:.55; cursor:default; }
+        .rpe-modal .spin{ animation:rpeModalSpin .75s linear infinite; }
+        @keyframes rpeModalSpin{ to{ transform:rotate(360deg); } }
+      `}</style>
     </div>
   )
 }
