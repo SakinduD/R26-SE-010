@@ -62,6 +62,13 @@ const getInfo = (v) => {
 const labelFor = (v) => getInfo(v).label
 const subFor = (v) => getInfo(v).sub
 const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
+// Average of the valid numbers only — mirrors the Skill Twin radar / Post-Session
+// Report so a skill shows the SAME value everywhere (e.g. Speech Fluency is the
+// mean of speech_pace + clarity, not just whichever field happens to be present).
+const avgOf = (...vals) => {
+  const nums = vals.map(toNum).filter((n) => n !== null)
+  return nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : null
+}
 const fmtScore = (v) => (v == null || isNaN(Number(v))) ? '--' : Math.round(Number(v))
 
 const mkTrend = (skill, label, scores) => ({
@@ -88,11 +95,13 @@ export default function AnalyticsDashboard() {
   const scores = useMemo(() => {
     const a = data?.aggregate?.scores?.averages || {}
     const f = data?.aggregate?.feedback?.skill_rating_averages || {}
+    // Each composite skill is the mean of its underlying fields — identical to the
+    // Skill Twin radar and Post-Session Report so the numbers agree across pages.
     return [
-      ['vocal_command', a.vocal_command ?? a.speech_volume_score ?? a.professionalism_score ?? f.vocal_command],
-      ['speech_fluency', a.speech_fluency ?? a.speech_pace_score ?? a.clarity_score ?? f.speech_fluency],
-      ['presence_engagement', a.presence_engagement ?? a.eye_contact_score ?? a.confidence_score ?? f.presence_engagement],
-      ['emotional_intelligence', a.emotional_intelligence ?? a.empathy_score ?? a.emotional_control_score ?? f.emotional_intelligence],
+      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score) ?? toNum(f.vocal_command)],
+      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score) ?? toNum(f.speech_fluency)],
+      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score) ?? toNum(f.presence_engagement)],
+      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score) ?? toNum(f.emotional_intelligence)],
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
 
@@ -309,7 +318,7 @@ export default function AnalyticsDashboard() {
           <p className="text-xs text-muted-foreground mb-3">Each card shows how well you are doing in a specific skill</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[...scores, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
-              const v = s.value || 0
+              const v = s.value != null ? Math.round(s.value) : 0
               const isOverall = s.key === 'overall'
               const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
               const barColor = isOverall ? '#8b5cf6' : (v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : v > 0 ? '#f59e0b' : '#6b7280')
