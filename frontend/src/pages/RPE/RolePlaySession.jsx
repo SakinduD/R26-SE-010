@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Send, Loader2, ShieldAlert } from 'lucide-react'
+import { Send, Loader2, ShieldAlert, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import ChatBubble from '@/components/RPE/ChatBubble'
 import MetricsHUD from '@/components/RPE/MetricsHUD'
 import { rpeService } from '@/services/rpe/rpeService'
@@ -33,8 +33,28 @@ export default function RolePlaySession() {
     failureEscalationThreshold,
   } = location.state || {}
 
-  const bottomRef   = useRef(null)
-  const textareaRef = useRef(null)
+  const bottomRef      = useRef(null)
+  const textareaRef    = useRef(null)
+  const recognitionRef = useRef(null)   // SpeechRecognition instance (fresh each press)
+  const npcAudioRef    = useRef(null)   // current NPC Audio element
+  const countdownRef   = useRef(null)   // setInterval for auto-send countdown
+  const autoSendRef    = useRef(null)   // setTimeout for auto-send
+
+  // ── Stable function refs — always point to the latest render's version ─────
+  // Prevents stale closures in effects, onresult, onended, and setTimeout chains.
+  const playNpcVoiceRef        = useRef(null)
+  const startListeningRef      = useRef(null)
+  const handleSendWithTextRef  = useRef(null)
+  const startMediaRecordingRef = useRef(null)  // MediaRecorder fallback
+  const openMicAfterNpcRef     = useRef(null)  // unified dispatcher
+
+  // MediaRecorder fallback state (ref so stale closures always read latest)
+  const useMediaRecorderRef = useRef(false)
+  const mrRef               = useRef(null)   // MediaRecorder instance
+  const audioChunksRef      = useRef([])
+  const silenceTimerRef     = useRef(null)
+  const mediaStreamRef      = useRef(null)
+  const audioCtxRef         = useRef(null)
 
   const [messages, setMessages]               = useState([])
   const [userInput, setUserInput]             = useState('')
@@ -57,6 +77,17 @@ export default function RolePlaySession() {
   )
   const [maxTurns, setMaxTurns] = useState(maxTurnsFromState || null)
 
+  // ── Voice ──────────────────────────────────────────────────────────────────
+  const [isListening,      setIsListening]      = useState(false)
+  const [voiceEnabled,     setVoiceEnabled]     = useState(true)    // on by default
+  const [speechSupported,  setSpeechSupported]  = useState(false)
+  const [micError,         setMicError]         = useState(null)
+  const [voiceUnavailable, setVoiceUnavailable] = useState(false)
+  const [npcSpeaking,      setNpcSpeaking]      = useState(false)
+  const [autoMicEnabled,   setAutoMicEnabled]   = useState(true)
+  const [countdown,        setCountdown]        = useState(null)    // 2, 1, null
+  const [useMediaRecorder, setUseMediaRecorder] = useState(false)   // switched on by network error
+
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     setMessages([{ role: 'npc', message: openingNpcLine, npcTone: 'hostile' }])
@@ -70,9 +101,411 @@ export default function RolePlaySession() {
     }
   }, [])
 
+  // ── Speech recognition support check ──────────────────────────────────────
+  useEffect(() => {
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+      setSpeechSupported(true)
+    }
+  }, [])
+
+  // ── Play opening NPC line on mount — always use ref to get latest function ─
+  useEffect(() => {
+    if (openingNpcLine) {
+      setTimeout(() => playNpcVoiceRef.current?.(openingNpcLine), 800)
+    }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
+
+  // ── startListening — fresh SpeechRecognition instance each press ──────────
+  // Fresh instance avoids InvalidStateError after onend fires.
+  // onresult captures handleSendWithText from the current render closure.
+  const startListening = () => {
+    if (isListening || isLoading || sessionComplete) return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return
+
+    const rec = new SR()
+    rec.continuous     = false
+    rec.interimResults = false
+    rec.lang           = 'en-US'
+
+    rec.onresult = (event) => {
+      const transcript = event.results[0][0].transcript
+      setUserInput(transcript)
+      setIsListening(false)
+
+      // 2-second auto-send countdown
+      let count = 2
+      setCountdown(count)
+      countdownRef.current = setInterval(() => {
+        count -= 1
+        setCountdown(count)
+        if (count <= 0) {
+          clearInterval(countdownRef.current)
+          setCountdown(null)
+        }
+      }, 1000)
+      autoSendRef.current = setTimeout(() => {
+        clearInterval(countdownRef.current)
+        setCountdown(null)
+        handleSendWithTextRef.current?.(transcript)   // always latest render's version
+      }, 2000)
+    }
+
+    rec.onerror = (event) => {
+      console.warn('Speech recognition error:', event.error)
+      setIsListening(false)
+      setCountdown(null)
+      if (autoSendRef.current)  clearTimeout(autoSendRef.current)
+      if (countdownRef.current) clearInterval(countdownRef.current)
+
+      if (event.error === 'network') {
+        // Google speech servers unreachable (common on localhost / restricted networks).
+        // Silently fall back to MediaRecorder + Groq Whisper — no error shown to user.
+        useMediaRecorderRef.current = true
+        setUseMediaRecorder(true)
+        setTimeout(() => startMediaRecordingRef.current?.(), 300)
+        return
+      }
+
+      const MSGS = {
+        'not-allowed':         'Microphone access denied — allow mic in browser settings.',
+        'service-not-allowed': 'Speech service blocked — try a different browser.',
+      }
+      if (MSGS[event.error]) setMicError(MSGS[event.error])
+    }
+
+    rec.onend = () => setIsListening(false)
+
+    recognitionRef.current = rec
+    try {
+      rec.start()
+      setIsListening(true)
+      setUserInput('')
+      setMicError(null)
+      setCountdown(null)
+    } catch (e) {
+      console.error('Could not start speech recognition:', e)
+      setIsListening(false)
+    }
+  }
+
+  // Update refs so async callbacks always call the latest versions
+  startListeningRef.current   = startListening
+  useMediaRecorderRef.current = useMediaRecorder
+
+  const stopListening = () => {
+    recognitionRef.current?.stop()
+    if (mrRef.current?.state === 'recording') mrRef.current.stop()
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    setIsListening(false)
+    if (autoSendRef.current)  clearTimeout(autoSendRef.current)
+    if (countdownRef.current) clearInterval(countdownRef.current)
+    setCountdown(null)
+  }
+
+  const toggleMic = () => {
+    if (isListening) {
+      stopListening()
+    } else if (useMediaRecorderRef.current) {
+      startMediaRecordingRef.current?.()
+    } else {
+      startListening()
+    }
+  }
+
+  // ── MediaRecorder fallback — used after Web Speech API 'network' error ───
+  // Records mic audio, detects silence via AudioContext RMS, sends blob to
+  // Groq Whisper for transcription, then fires the 2-second auto-send loop.
+  const startMediaRecording = async () => {
+    if (isListening || isLoading || sessionComplete) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+
+      // Build analyser for silence detection
+      const audioCtx = new AudioContext()
+      audioCtxRef.current = audioCtx
+      const source   = audioCtx.createMediaStreamSource(stream)
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 512
+      source.connect(analyser)
+      const dataArr = new Uint8Array(analyser.frequencyBinCount)
+
+      const recorder = new MediaRecorder(stream)
+      mrRef.current         = recorder
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        try { audioCtxRef.current?.close() } catch (_) {}
+        audioCtxRef.current = null
+        setIsListening(false)
+
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        if (blob.size < 500) return  // nothing meaningful recorded
+
+        const result     = await rpeService.transcribeAudio(blob)
+        const transcript = result?.transcript?.trim()
+        if (!transcript) return
+
+        setUserInput(transcript)
+
+        // 2-second auto-send countdown — same as Web Speech API path
+        let count = 2
+        setCountdown(count)
+        countdownRef.current = setInterval(() => {
+          count -= 1
+          setCountdown(count)
+          if (count <= 0) { clearInterval(countdownRef.current); setCountdown(null) }
+        }, 1000)
+        autoSendRef.current = setTimeout(() => {
+          clearInterval(countdownRef.current)
+          setCountdown(null)
+          handleSendWithTextRef.current?.(transcript)
+        }, 2000)
+      }
+
+      recorder.start()
+      setIsListening(true)
+      setUserInput('')
+      setMicError(null)
+      setCountdown(null)
+
+      // Silence detection — stops recording 1.8 s after last detected speech
+      const THRESHOLD    = 8     // RMS (0–100); below = silence
+      const SILENCE_WAIT = 1800  // ms of continuous silence before auto-stop
+      const MAX_DURATION = 14000 // hard cap so mic doesn't run forever
+
+      let lastSoundMs  = Date.now()
+      let voiceStarted = false
+
+      const checkSilence = () => {
+        if (!mrRef.current || mrRef.current.state !== 'recording') return
+        analyser.getByteTimeDomainData(dataArr)
+        let sum = 0
+        for (let i = 0; i < dataArr.length; i++) {
+          const v = (dataArr[i] - 128) / 128
+          sum += v * v
+        }
+        const rms = Math.sqrt(sum / dataArr.length) * 100
+        if (rms > THRESHOLD) { lastSoundMs = Date.now(); voiceStarted = true }
+        if (voiceStarted && Date.now() - lastSoundMs > SILENCE_WAIT) {
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+          mrRef.current.stop()
+          return
+        }
+        silenceTimerRef.current = setTimeout(checkSilence, 80)
+      }
+      silenceTimerRef.current = setTimeout(checkSilence, 80)
+
+      // Hard cap
+      setTimeout(() => {
+        if (mrRef.current?.state === 'recording') {
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+          mrRef.current.stop()
+        }
+      }, MAX_DURATION)
+
+    } catch (err) {
+      console.error('MediaRecorder start error:', err)
+      setIsListening(false)
+      if (err.name === 'NotAllowedError') {
+        setMicError('Microphone access denied — allow mic in browser settings.')
+      }
+    }
+  }
+  startMediaRecordingRef.current = startMediaRecording
+
+  // ── Unified mic dispatcher — called by all auto-flow triggers ─────────────
+  // Reads the latest render's state so it always picks the right implementation.
+  const openMicAfterNpc = () => {
+    if (!autoMicEnabled || sessionComplete) return
+    if (useMediaRecorderRef.current) startMediaRecordingRef.current?.()
+    else if (speechSupported)        startListeningRef.current?.()
+  }
+  openMicAfterNpcRef.current = openMicAfterNpc
+
+  // ── NPC voice playback — auto-opens mic when audio ends ───────────────────
+  const playNpcVoice = async (npcText) => {
+    if (!voiceEnabled || !npcText?.trim()) return
+
+    setNpcSpeaking(true)
+
+    try {
+      const result = await rpeService.getNpcVoice(npcText, conflictType)
+
+      if (!result.available) {
+        setVoiceUnavailable(true)
+        // Gemini TTS unavailable — browser speech synthesis keeps the loop going
+        speakWithBrowser(npcText)
+        return
+      }
+      setVoiceUnavailable(false)
+
+      if (!result.audio_base64) {
+        // Gemini returned no audio — use browser speech synthesis so the loop continues
+        speakWithBrowser(npcText)
+        return
+      }
+
+      const raw   = atob(result.audio_base64)
+      const bytes = new Uint8Array(raw.length)
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+      const blob  = new Blob([bytes], { type: 'audio/wav' })
+      const url   = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+
+      if (npcAudioRef.current) {
+        npcAudioRef.current.pause()
+        npcAudioRef.current = null
+      }
+      npcAudioRef.current = audio
+
+      audio.play().catch(e => {
+        // Browser blocked autoplay (common before first user interaction).
+        // Clear speaking state and open mic so the loop can continue.
+        console.warn('NPC audio autoplay blocked:', e)
+        URL.revokeObjectURL(url)
+        npcAudioRef.current = null
+        setNpcSpeaking(false)
+        setTimeout(() => openMicAfterNpcRef.current?.(), 400)
+      })
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        npcAudioRef.current = null
+        setNpcSpeaking(false)
+        setTimeout(() => openMicAfterNpcRef.current?.(), 400)
+      }
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        npcAudioRef.current = null
+        setNpcSpeaking(false)
+        setTimeout(() => openMicAfterNpcRef.current?.(), 400)
+      }
+
+    } catch (e) {
+      console.error('NPC voice playback error:', e)
+      setNpcSpeaking(false)
+    }
+  }
+
+  // ── Browser speech synthesis fallback ─────────────────────────────────────
+  // Used when Gemini TTS is unavailable or returns no audio.
+  // speechSynthesis is exempt from autoplay policy — works even before user interaction.
+  const speakWithBrowser = (text) => {
+    if (!window.speechSynthesis) {
+      setNpcSpeaking(false)
+      setTimeout(() => openMicAfterNpcRef.current?.(), 400)
+      return
+    }
+
+    window.speechSynthesis.cancel()   // stop any current utterance
+    const clean = text.replace(/[*_]/g, '').trim()
+    const utt   = new SpeechSynthesisUtterance(clean)
+    utt.rate    = 0.88
+    utt.pitch   = 0.82    // lower pitch → authority / tension
+    utt.volume  = 1.0
+
+    // Prefer a deep US-English voice if available
+    const voices = window.speechSynthesis.getVoices()
+    const preferred = voices.find(v => v.lang === 'en-US' && v.name.includes('Male'))
+                   || voices.find(v => v.lang.startsWith('en'))
+    if (preferred) utt.voice = preferred
+
+    utt.onend  = () => {
+      setNpcSpeaking(false)
+      setTimeout(() => openMicAfterNpcRef.current?.(), 400)
+    }
+    utt.onerror = () => setNpcSpeaking(false)
+
+    setNpcSpeaking(true)
+    window.speechSynthesis.speak(utt)
+  }
+
+  // Update ref so mount effect and onended always call the latest playNpcVoice
+  playNpcVoiceRef.current = playNpcVoice
+
+  // ── handleSendWithText — sends transcript directly (avoids stale state) ───
+  const handleSendWithText = async (text) => {
+    if (!text?.trim() || isLoading || sessionComplete) return
+
+    stopListening()
+
+    const userMsg = { role: 'user', message: text, emotion: null, trustDelta: null }
+    setMessages(prev => [...prev, userMsg])
+    setUserInput('')
+    setIsLoading(true)
+
+    try {
+      const response   = await rpeService.sendTurn(sessionId, text)
+      const delta      = response.trust_score - previousTrust
+      const newTone    = computeNpcTone(response.trust_score)
+      const newEscTone = computeEscalationTone(response.escalation_level)
+
+      setTrustScore(response.trust_score)
+      setEscalationLevel(response.escalation_level)
+      setCurrentEmotion(response.emotion)
+      setCurrentTurn(response.turn)
+      setTrustDelta(delta)
+      setPreviousTrust(response.trust_score)
+      setNpcTone(newTone)
+      setEscalationTone(newEscTone)
+
+      setMessages(prev => {
+        const updated = [...prev]
+        updated[updated.length - 1] = {
+          ...updated[updated.length - 1],
+          emotion: response.emotion, trustDelta: delta,
+        }
+        return [...updated, { role: 'npc', message: response.npc_response, npcTone: newTone }]
+      })
+
+      setIsLoading(false)
+
+      if (response.session_complete) {
+        setSessionComplete(true)
+        setOutcome(response.outcome)
+        setEndReason(response.end_reason)
+        await playNpcVoiceRef.current?.(response.npc_response)
+        setTimeout(() => {
+          navigate('/roleplay/session/complete', {
+            state: {
+              sessionId, trustScore: response.trust_score,
+              escalationLevel: response.escalation_level,
+              outcome: response.outcome, endReason: response.end_reason,
+              recommendedTurns, maxTurns, totalTurns,
+              scenarioTitle, currentTurn: response.turn,
+            },
+          })
+        }, 3000)
+        return
+      }
+
+      // Play NPC response — mic opens automatically in audio.onended
+      await playNpcVoiceRef.current?.(response.npc_response)
+
+    } catch (err) {
+      setIsLoading(false)
+      setMessages(prev => [
+        ...prev,
+        { role: 'npc', message: `[System error: ${err.message}]`, npcTone: null },
+      ])
+      setTimeout(() => openMicAfterNpcRef.current?.(), 1000)
+    }
+  }
+
+  // Update ref so onresult setTimeout always calls the latest handleSendWithText
+  handleSendWithTextRef.current = handleSendWithText
 
   const handleSend = async () => {
     const input = userInput.trim()
@@ -111,6 +544,9 @@ export default function RolePlaySession() {
           { role: 'npc', message: response.npc_response, npcTone: newTone },
         ]
       })
+
+      // Fire-and-forget: audio fetches in background, doesn't delay the turn UI
+      playNpcVoice(response.npc_response)
 
       if (response.session_complete) {
         setSessionComplete(true)
@@ -213,28 +649,88 @@ export default function RolePlaySession() {
           )}
         </div>
 
-        {/* Turn counter */}
+        {/* Right side: voice toggle + turn counter */}
         <div
           style={{
             marginLeft: 'auto',
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
+            alignItems: 'center',
+            gap: 12,
             flexShrink: 0,
           }}
         >
-          {currentTurn === 0 ? (
-            <span className="t-cap">Not started</span>
-          ) : (
-            <span className="score-num fg" style={{ fontSize: 14, fontWeight: 600 }}>
-              Turn {currentTurn}
-            </span>
+          {/* Auto-mic toggle */}
+          {speechSupported && (
+            <button
+              onClick={() => setAutoMicEnabled(v => !v)}
+              title="Auto mic — mic opens automatically after NPC speaks"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                border: 'none',
+                transition: 'background 200ms',
+                background: autoMicEnabled ? '#16a34a' : 'var(--bg-elevated)',
+                color:      autoMicEnabled ? '#fff'    : 'var(--text-tertiary)',
+              }}
+            >
+              {autoMicEnabled ? '🔁 Auto' : '⏸ Manual'}
+            </button>
           )}
-          {currentTurn > 0 && (
-            <span className="score-num" style={{ fontSize: 11, color: turnLabelColor }}>
-              {turnLabel}
-            </span>
-          )}
+
+          {/* NPC voice toggle */}
+          <button
+            onClick={() => { setVoiceEnabled(v => !v); setVoiceUnavailable(false) }}
+            title={
+              voiceUnavailable ? 'NPC voice unavailable — GEMINI_API_KEY not configured?' :
+              voiceEnabled     ? 'NPC voice on — click to mute' :
+                                 'NPC voice off — click to enable'
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              border: 'none',
+              transition: 'background 200ms',
+              background: voiceUnavailable ? 'var(--bg-elevated)' :
+                          voiceEnabled     ? 'var(--accent)'      : 'var(--bg-elevated)',
+              color: voiceUnavailable ? 'var(--danger)'     :
+                     voiceEnabled     ? '#fff'               : 'var(--text-tertiary)',
+            }}
+          >
+            {voiceUnavailable
+              ? <VolumeX size={13} strokeWidth={2} />
+              : voiceEnabled
+                ? <Volume2 size={13} strokeWidth={2} />
+                : <VolumeX size={13} strokeWidth={2} />}
+            {voiceUnavailable ? 'Voice N/A' : voiceEnabled ? 'Voice On' : 'Voice Off'}
+          </button>
+
+          {/* Turn counter */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            {currentTurn === 0 ? (
+              <span className="t-cap">Not started</span>
+            ) : (
+              <span className="score-num fg" style={{ fontSize: 14, fontWeight: 600 }}>
+                Turn {currentTurn}
+              </span>
+            )}
+            {currentTurn > 0 && (
+              <span className="score-num" style={{ fontSize: 11, color: turnLabelColor }}>
+                {turnLabel}
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -260,6 +756,41 @@ export default function RolePlaySession() {
                 npcRole={npcRole}
               />
             ))}
+
+            {/* NPC speaking animation — bouncing dots while audio plays */}
+            {npcSpeaking && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div
+                  style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '10px 14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', gap: 5 }}>
+                    {[0, 1, 2].map(i => (
+                      <span
+                        key={i}
+                        className="animate-bounce"
+                        style={{
+                          width: 7, height: 7,
+                          background: '#3b82f6',
+                          borderRadius: '50%',
+                          animationDelay: `${i * 150}ms`,
+                        }}
+                      />
+                    ))}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 500 }}>
+                    NPC is speaking…
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* REDESIGN: typing indicator now uses bg-surface + border-subtle (was bg-slate-900) */}
             {isLoading && (
@@ -350,11 +881,41 @@ export default function RolePlaySession() {
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isLoading || sessionComplete}
-                placeholder="Type your response… (Enter to send, Shift+Enter for newline)"
+                disabled={isLoading || sessionComplete || isListening || countdown !== null}
+                placeholder={
+                  isListening      ? 'Listening… speak now' :
+                  countdown !== null ? 'Sending shortly… or edit to cancel' :
+                                     'Type your response… (Enter to send, Shift+Enter for newline)'
+                }
                 className={cn('input', 'textarea')}
                 style={{ flex: 1, minHeight: 64, padding: 12, lineHeight: 1.5 }}
               />
+
+              {/* Mic button — only shown when browser supports Web Speech API */}
+              {speechSupported && (
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  disabled={isLoading || sessionComplete || countdown !== null || npcSpeaking}
+                  title={isListening ? 'Stop recording' : 'Speak your response'}
+                  style={{
+                    width: 40, height: 40, padding: 0, flexShrink: 0,
+                    borderRadius: '50%', border: 'none',
+                    cursor: (isLoading || sessionComplete || countdown !== null || npcSpeaking)
+                      ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'background 200ms',
+                    background: isListening ? '#ef4444' : 'var(--bg-elevated)',
+                    color:      isListening ? '#fff'    : 'var(--text-tertiary)',
+                  }}
+                  aria-label={isListening ? 'Stop recording' : 'Speak your response'}
+                >
+                  {isListening
+                    ? <MicOff size={16} strokeWidth={1.8} />
+                    : <Mic    size={16} strokeWidth={1.8} />}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleSend}
@@ -370,6 +931,41 @@ export default function RolePlaySession() {
                 </span>
               </button>
             </div>
+
+            {/* Countdown — auto-send in N seconds */}
+            {countdown !== null && (
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8,
+                            fontSize: 12, color: '#f97316', fontWeight: 500 }}>
+                <span>Sending in {countdown}s…</span>
+                <button
+                  onClick={() => {
+                    if (autoSendRef.current)  clearTimeout(autoSendRef.current)
+                    if (countdownRef.current) clearInterval(countdownRef.current)
+                    setCountdown(null)
+                    setUserInput('')
+                  }}
+                  style={{ fontSize: 11, color: 'var(--text-tertiary)', textDecoration: 'underline',
+                           background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Listening indicator */}
+            {isListening && countdown === null && (
+              <p className="animate-pulse"
+                 style={{ marginTop: 6, fontSize: 12, color: '#ef4444', fontWeight: 500 }}>
+                ● Listening… speak now
+              </p>
+            )}
+
+            {/* Mic error */}
+            {!isListening && countdown === null && micError && (
+              <p style={{ marginTop: 6, fontSize: 12, color: 'var(--danger)', fontWeight: 500 }}>
+                ⚠ {micError}
+              </p>
+            )}
           </div>
         </div>
 

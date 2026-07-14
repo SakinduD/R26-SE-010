@@ -121,4 +121,39 @@ export const rpeService = {
       throw new Error(err.response?.data?.detail || err.message || 'Failed to fetch your sessions')
     }
   },
+
+  transcribeAudio: async (audioBlob) => {
+    // POST /api/v1/rpe/transcribe  (multipart/form-data)
+    // Returns { transcript: string }
+    //
+    // authClient defaults to Content-Type: application/json.
+    // transformRequest deletes that header before the request fires so the
+    // browser sets multipart/form-data with the correct boundary automatically.
+    try {
+      const formData = new FormData()
+      formData.append('audio', audioBlob, 'recording.webm')
+      return await authClient.post('/api/v1/rpe/transcribe', formData, {
+        transformRequest: [(data, headers) => {
+          delete headers['Content-Type']
+          return data
+        }],
+      }).then(unwrap)
+    } catch (error) {
+      console.error('RPE transcription error:', error)
+      return { transcript: null }
+    }
+  },
+
+  getNpcVoice: async (text, conflictType = 'manager_pressure') => {
+    // POST /api/v1/rpe/npc-voice
+    // Returns { audio_base64, voice_name, available }
+    try {
+      return await authClient
+        .post('/api/v1/rpe/npc-voice', { text, conflict_type: conflictType })
+        .then(unwrap)
+    } catch (error) {
+      console.error('RPE voice error:', error)
+      return { audio_base64: null, available: false }
+    }
+  },
 }

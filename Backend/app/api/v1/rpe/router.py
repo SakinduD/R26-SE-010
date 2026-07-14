@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from app.core.auth import get_current_user, get_current_user_optional
 from app.models.user import User
@@ -24,6 +25,7 @@ from app.services.rpe_predictive_service import RpePredictiveService
 from app.services.rpe_scenario_service   import RpeScenarioService
 from app.services.rpe_session_service    import RpeSessionService
 from app.services.rpe_viz_service        import RpeVizService
+from app.services.rpe_voice_service      import RpeVoiceService, VOICE_MAP
 
 rpe_scenario_service   = RpeScenarioService()
 rpe_scenario_service.load_all()
@@ -36,6 +38,7 @@ rpe_predictive_service = RpePredictiveService()
 rpe_blind_spot_service = RpeBlindSpotService()
 rpe_coaching_service   = RpeCoachingService()
 rpe_viz_service        = RpeVizService()
+rpe_voice_service      = RpeVoiceService()
 rpe_feedback_service   = RpeFeedbackService(
     session_service    = rpe_session_service,
     scenario_service   = rpe_scenario_service,
@@ -334,3 +337,58 @@ def my_sessions(
 ) -> list[dict]:
     """Returns all RPE sessions for the authenticated user."""
     return rpe_session_service.get_user_sessions(str(current_user.id))
+
+
+# ── Voice ─────────────────────────────────────────────────────────────────────
+
+class NpcVoiceRequest(BaseModel):
+    text:          str
+    conflict_type: str = "manager_pressure"
+
+
+class NpcVoiceResponse(BaseModel):
+    audio_base64: str | None
+    voice_name:   str
+    available:    bool
+
+
+@rpe_router.post("/npc-voice", response_model=NpcVoiceResponse)
+def npc_voice(request: NpcVoiceRequest) -> NpcVoiceResponse:
+    """
+    Convert NPC text response to speech audio.
+    Returns base64-encoded WAV audio or None if TTS is unavailable.
+    Frontend plays the audio directly — no file storage involved.
+    """
+    voice_name = VOICE_MAP.get(request.conflict_type, "Fenrir")
+    audio_b64  = rpe_voice_service.text_to_speech(
+        text          = request.text,
+        conflict_type = request.conflict_type,
+    )
+    return NpcVoiceResponse(
+        audio_base64 = audio_b64,
+        voice_name   = voice_name,
+        available    = rpe_voice_service.is_available,
+    )
+
+
+@rpe_router.post("/transcribe")
+async def transcribe_audio(
+    audio:        UploadFile = File(...),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> dict:
+    """
+    Transcribe a recorded audio blob to text via Groq Whisper.
+    Accepts any format MediaRecorder produces (webm, ogg, mp4).
+    Returns { transcript: str }.
+    """
+    audio_bytes = await audio.read()
+    transcript  = rpe_voice_service.transcribe_audio(
+        audio_bytes  = audio_bytes,
+        content_type = audio.content_type or "audio/webm",
+    )
+    if transcript is None:
+        raise HTTPException(
+            status_code = 503,
+            detail      = "Transcription service unavailable. Check GROQ_API_KEY.",
+        )
+    return {"transcript": transcript}
