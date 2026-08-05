@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.core.auth import get_current_user
+from app.core.rate_limiter import InMemoryRateLimiter
 from app.models.session_result import SessionResult
 from app.models.user import User
 from app.services.llm_service import llm_service
 
 router = APIRouter()
+
+# Guardrail: cap MCA chat calls per user to control LLM cost/abuse. 15 messages/min
+_chat_rate_limiter = InMemoryRateLimiter(max_requests=15, window_seconds=60)
 
 
 class ChatRequest(BaseModel):
@@ -39,6 +43,14 @@ async def chat_with_bot(
     """
     if not request.message.strip():
         return ChatResponse(isSuccessful=False, message="Message cannot be empty")
+
+    allowed, retry_after = _chat_rate_limiter.allow(str(current_user.id))
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="You're sending messages too quickly. Please wait a moment and try again.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
 
     # Optionally validate & increment chat_turns counter on the linked session
     if request.session_id:

@@ -135,12 +135,12 @@ const MultimodalEngine = () => {
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-    if (!liveSessionIdRef.current) {
-      canvasCtx.restore();
-      return;
-    }
+    // Mirror horizontally so the feed behaves like a normal selfie/mirror view
+    canvasCtx.translate(canvasElement.width, 0);
+    canvasCtx.scale(-1, 1);
+
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
       const landmarks = results.multiFaceLandmarks[0];
@@ -202,7 +202,7 @@ const MultimodalEngine = () => {
               mediaRecorder.stop();
               startRecordingChunk();
             }
-          }, 1000);
+          }, 3000);
         };
 
         startRecordingChunk();

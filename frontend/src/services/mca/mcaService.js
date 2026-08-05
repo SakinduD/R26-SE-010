@@ -85,6 +85,16 @@ export const mcaService = {
     }
   },
 
+  // Discard an active session without saving any data (early exit before a
+  // session completes its required duration).
+  discardSession: async (sessionId) => {
+    try {
+      await authClient.delete(`${BASE}/sessions/${sessionId}`);
+    } catch (error) {
+      throw new Error(handleApiError(error, 'discardSession'));
+    }
+  },
+
   // Fetch the current user's session history (paginated).
   getSessions: async (limit = 20, offset = 0) => {
     try {

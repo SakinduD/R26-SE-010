@@ -29,7 +29,7 @@ export default function Baseline() {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
-  const [aiStopSignal, setAiStopSignal] = useState(0);
+  const [aiDiscardSignal, setAiDiscardSignal] = useState(0);
   const [aiStartSignal, setAiStartSignal] = useState(0);
 
   const [aiSessionActive, setAiSessionActive] = useState(false);
@@ -111,6 +111,11 @@ export default function Baseline() {
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    // Mirror horizontally so the feed behaves like a normal selfie/mirror view
+    canvasCtx.translate(canvasElement.width, 0);
+    canvasCtx.scale(-1, 1);
+
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
@@ -233,25 +238,25 @@ export default function Baseline() {
           </p>
         </div>
 
-        {/* Session End Confirmation */}
+        {/* Early-Exit Confirmation — ending before the 8-minute mark discards the session */}
         <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>End Session?</AlertDialogTitle>
+              <AlertDialogTitle>Dismiss Session?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to end this session? All behavioral metrics and emotion data will be saved.
+                Your baseline session isn't complete yet. Ending now discards all behavioral and emotion data.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Continue Session</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-                  setAiStopSignal(Date.now());
+                  setAiDiscardSignal(Date.now());
                   setIsStopAlertOpen(false);
                 }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                End Session
+                Dismiss Session
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -263,21 +268,21 @@ export default function Baseline() {
             <AlertDialogHeader>
               <AlertDialogTitle>Leave Active Session?</AlertDialogTitle>
               <AlertDialogDescription>
-                You have an active AI session running. If you leave this page, your session will be ended. Are you sure you want to leave?
+                You have an active AI session running. Leaving now will dismiss it before completion — no data will be saved. Are you sure you want to leave?
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => setNavAlertTarget(null)}>Stay in Session</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-                  setAiStopSignal(Date.now());
+                  setAiDiscardSignal(Date.now());
                   const target = navAlertTarget;
                   setNavAlertTarget(null);
                   navigate(target);
                 }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                End & Leave
+                Dismiss & Leave
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -538,7 +543,7 @@ export default function Baseline() {
               onNudge={handleNudge}
               metrics={metrics}
               setMetrics={setMetrics}
-              stopSignal={aiStopSignal}
+              discardSignal={aiDiscardSignal}
               startSignal={aiStartSignal}
               isCameraActive={isCameraActive}
               onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
