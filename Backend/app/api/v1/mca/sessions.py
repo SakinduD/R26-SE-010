@@ -198,6 +198,43 @@ def end_session(
     return SessionResponse.from_orm(session)
 
 
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def discard_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Discard an active MCA session without persisting any results.
+
+    Only "active" sessions can be discarded.
+    """
+    session: Optional[SessionResult] = db.get(SessionResult, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+
+    if session.status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only active sessions can be discarded (status is '{session.status}')",
+        )
+
+    try:
+        db.delete(session)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to discard session: {exc}",
+        )
+    return None
+
+
 @router.get("/", response_model=list[SessionResponse])
 def list_sessions(
     limit: int = 20,

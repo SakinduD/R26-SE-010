@@ -1,0 +1,10 @@
+{
+  "svm": {
+    "enabled": true,
+    "path": "app/models/affect_fusion/svm_model.pkl"
+  },
+  "cnn": {
+    "enabled": false,
+    "path": "app/models/affect_fusion/cnn_model.pkl"
+  }
+}

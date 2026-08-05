@@ -9,7 +9,7 @@ import clsx from 'clsx';
 // for optimal cold-start adaptive learning profiling in intelligent tutoring systems.
 const SESSION_DURATION_SECONDS = 480;
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, setMetrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -40,7 +40,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   }, [sessionActive, sessionStarting, sessionEnding, isSpeaking, onSessionStateChange]);
 
   const lastProcessedStart = useRef(startSignal);
-  const lastProcessedStop = useRef(stopSignal);
+  const lastProcessedDiscard = useRef(discardSignal);
 
   useEffect(() => {
     if (startSignal && startSignal !== lastProcessedStart.current) {
@@ -51,14 +51,17 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   }, [startSignal, sessionActive, sessionStarting]);
 
+  // Manual stop always fires before the 8-minute mark (once the timer completes,
+  // handleEndSession runs automatically and the session is no longer active) — so a
+  // manual stop always means "discard", never "save".
   useEffect(() => {
-    if (stopSignal && stopSignal !== lastProcessedStop.current) {
-      lastProcessedStop.current = stopSignal;
+    if (discardSignal && discardSignal !== lastProcessedDiscard.current) {
+      lastProcessedDiscard.current = discardSignal;
       if (sessionActive) {
-        handleEndSession();
+        handleDiscardSession();
       }
     }
-  }, [stopSignal, sessionActive]);
+  }, [discardSignal, sessionActive]);
 
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
@@ -119,13 +122,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     };
   }, []);
 
-  // React to stopSignal
+  // React to discardSignal
   useEffect(() => {
-    if (stopSignal && isListening) {
+    if (discardSignal && isListening) {
       isContinuousRef.current = false;
       stopListening(false);
     }
-  }, [stopSignal]);
+  }, [discardSignal]);
 
   // Sync internal listening state with prop from parent engine
   useEffect(() => {
@@ -273,6 +276,42 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     addBotMessage("Your baseline session is complete. I've gathered the insights needed to personalize your adaptive learning path. Your profile has been saved — upcoming sessions will now be tailored to your goals.");
   };
 
+  // Ends the session early (before the 8-minute mark) WITHOUT saving anything — the
+  // session row itself is deleted server-side rather than marked "completed".
+  const handleDiscardSession = async () => {
+    if (!sessionActive || sessionEnding) return;
+    setSessionEnding(true);
+
+    if (isListening) {
+      isContinuousRef.current = false;
+      stopListening(false);
+    }
+
+    if (sessionTimerRef.current) {
+      clearInterval(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
+
+    if (sessionId) {
+      try {
+        await mcaService.discardSession(sessionId);
+        toast.info("Session dismissed. No data was saved.");
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Failed to dismiss the session.";
+        toast.error("Dismiss Failed", { description: errorMsg });
+      } finally {
+        setSessionEnding(false);
+      }
+    } else {
+      setSessionEnding(false);
+    }
+
+    setSessionActive(false);
+    setSessionId(null);
+    setFriendlyId(null);
+    addBotMessage("Your baseline session was dismissed before completion, so nothing was saved. Start a new session whenever you're ready.");
+  };
+
   const addBotMessage = (text) => {
     const msg = {
       id: Date.now(),
@@ -308,15 +347,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       streamRef.current = null;
     }
 
-    // Formal end for backend if unmounting during active session
+    // If the component unmounts mid-session, that's always before the 8-minute mark
+    // (a natural completion already sets sessionActive to false) — so discard, not save.
     if (sessionActive && sessionId) {
-      const resultData = {
-        total_nudges: nudgeLogRef.current.length,
-        chat_turns: chatTurnsRef.current,
-        unmounted: true
-      };
-      mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current)
-        .catch(err => console.error('[AIChatbot] Unmount end failed:', err));
+      mcaService.discardSession(sessionId)
+        .catch(err => console.error('[AIChatbot] Unmount discard failed:', err));
     }
   };
 
@@ -366,7 +401,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               mediaRecorder.stop();
               startRecordingChunk();
             }
-          }, 1000);
+          }, 3000);
         };
 
         startRecordingChunk();
