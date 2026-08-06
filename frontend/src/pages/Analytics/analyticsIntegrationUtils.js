@@ -50,6 +50,19 @@ export function selectMcaSession(sessions, sessionId) {
   return sessions.find((session) => session.status === 'completed') || sessions[0]
 }
 
+// A session only belongs in the analytics dropdowns once it has finished.
+// MCA tracks this with status ('active' | 'completed' | 'abandoned'); RPE has no
+// status column, so a session counts as finished once it has an end timestamp
+// or a recorded outcome.
+export function isCompletedSession(session) {
+  if (!session) return false
+
+  const status = String(session.status || session.completion_status || '').toLowerCase()
+  if (status) return status === 'completed'
+
+  return Boolean(session.ended_at || session.completed_at || session.outcome)
+}
+
 export function normalizeComponentSessionOptions(rpeSessions, mcaSessions) {
   return [
     ...normalizeSessionOptions(rpeSessions, 'rpe'),
@@ -224,6 +237,7 @@ function normalizeSessionOptions(sessions, source) {
   if (!Array.isArray(sessions)) return []
 
   return sessions
+    .filter((session) => isCompletedSession(session))
     .map((session) => {
       const id = source === 'rpe' ? session.session_id : session.id
       if (!id) return null
