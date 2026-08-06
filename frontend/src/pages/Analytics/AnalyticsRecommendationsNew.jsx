@@ -14,6 +14,7 @@ import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsNav from './AnalyticsNav'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { isCompletedSession } from './analyticsIntegrationUtils'
 
 export default function AnalyticsRecommendationsNew() {
   const params = useParams()
@@ -33,14 +34,15 @@ export default function AnalyticsRecommendationsNew() {
         const rpeData = await analyticsService.getComponentRpeSessions()
         const mcaData = await analyticsService.getComponentMcaSessions(50, 0)
 
+        // Only completed sessions are selectable — in-progress ones have no results yet.
         const allSessions = [
-          ...(Array.isArray(rpeData) ? rpeData : []).map(s => ({
+          ...(Array.isArray(rpeData) ? rpeData : []).filter(isCompletedSession).map(s => ({
             id: s.session_id,
             label: `RPE - ${s.scenario_id || 'Session'} - ${new Date(s.started_at).toLocaleString()}`,
             type: 'rpe',
             timestamp: s.started_at,
           })),
-          ...(Array.isArray(mcaData) ? mcaData : []).map(s => ({
+          ...(Array.isArray(mcaData) ? mcaData : []).filter(isCompletedSession).map(s => ({
             id: s.id,
             label: `MCA - ${s.mode || 'Session'} - ${new Date(s.started_at).toLocaleString()}`,
             type: 'mca',
