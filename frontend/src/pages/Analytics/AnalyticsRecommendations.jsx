@@ -17,16 +17,17 @@ import {
 import { analyticsService } from '../../services/analytics/analyticsService'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsLoadButton from './AnalyticsLoadButton'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
-import { isCompletedSession } from './analyticsIntegrationUtils'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 export default function AnalyticsRecommendationsNew() {
   const params = useParams()
   const { userId: connectedUserId, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity(params.userId)
   
   const [mode, setMode] = useState('session')
-  const [sessions, setSessions] = useState([])
-  const [selectedSession, setSelectedSession] = useState(null)
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [sessionId, setSessionId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -41,10 +42,10 @@ export default function AnalyticsRecommendationsNew() {
   // Derive display data from caches
   const recommendations = mode === 'overall'
     ? (overallCache?.recommendations || [])
-    : (sessionCache[selectedSession?.id]?.recommendations || [])
+    : (sessionCache[sessionId]?.recommendations || [])
   const evidence = mode === 'overall'
     ? (overallCache?.evidence || null)
-    : (sessionCache[selectedSession?.id]?.evidence || null)
+    : (sessionCache[sessionId]?.evidence || null)
 
   // Clear caches and fetch flags when user identity changes
   useEffect(() => {
@@ -59,31 +60,12 @@ export default function AnalyticsRecommendationsNew() {
 
     const loadSessions = async () => {
       try {
-        const rpeData = await analyticsService.getComponentRpeSessions()
-        const mcaData = await analyticsService.getComponentMcaSessions(50, 0)
-
-        // Only completed sessions are selectable — in-progress ones have no results yet.
-        const allSessions = [
-          ...(Array.isArray(rpeData) ? rpeData : []).filter(isCompletedSession).map(s => ({
-            id: s.session_id,
-            label: `${s.scenario_id || 'Practice Session'}`,
-            subtitle: `Role-Play Exercise • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'rpe',
-            timestamp: s.started_at,
-          })),
-          ...(Array.isArray(mcaData) ? mcaData : []).filter(isCompletedSession).map(s => ({
-            id: s.id,
-            label: `${s.mode || 'Conversation'} Session`,
-            subtitle: `Interview Practice • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'mca',
-            timestamp: s.started_at,
-          })),
-        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-
-        setSessions(allSessions)
-        if (allSessions.length > 0) setSelectedSession(allSessions[0])
+        const options = await loadComponentSessionOptions(analyticsService)
+        setSessionOptions(options)
+        setSessionId((current) => current || selectPreferredComponentSession(options)?.id || '')
       } catch (err) {
         console.error('Failed to load sessions:', err)
+        setSessionOptions([])
       }
     }
 
@@ -92,26 +74,26 @@ export default function AnalyticsRecommendationsNew() {
 
   // Load session recommendations only when session changes AND not yet fetched
   useEffect(() => {
-    if (mode !== 'session' || !selectedSession) return
-    if (hasFetchedSession.current[selectedSession.id]) return
+    if (mode !== 'session' || !sessionId) return
+    if (hasFetchedSession.current[sessionId]) return
 
-    hasFetchedSession.current[selectedSession.id] = true
+    hasFetchedSession.current[sessionId] = true
 
     const fetchSession = async () => {
       setLoading(true)
       setError('')
       try {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, false)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+        const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, false)
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
       } catch (err) {
-        hasFetchedSession.current[selectedSession.id] = false // allow retry
+        hasFetchedSession.current[sessionId] = false // allow retry
         setError(err.response?.data?.detail || err.message || 'Could not load recommendations')
       } finally {
         setLoading(false)
       }
     }
     fetchSession()
-  }, [selectedSession, mode])
+  }, [sessionId, mode])
 
   // Load overall recommendations only once per user session (ref prevents re-fetch on tab switch)
   useEffect(() => {
@@ -140,9 +122,9 @@ export default function AnalyticsRecommendationsNew() {
     setLoading(true)
     setError('')
     try {
-      if (mode === 'session' && selectedSession) {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, true)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+      if (mode === 'session' && sessionId) {
+        const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, true)
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
       } else if (mode === 'overall') {
         const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, true)
         setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
@@ -224,27 +206,19 @@ export default function AnalyticsRecommendationsNew() {
             {/* Session Selector */}
             {mode === 'session' && (
               <div className="bg-card/30 border border-border/50 rounded-xl p-5 backdrop-blur-sm">
-                <label className="grid gap-2 text-sm">
+                <div className="grid gap-3 text-sm">
                   <span className="font-semibold text-foreground flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-primary" />
                     Which practice session would you like to review?
                   </span>
-                  <select 
-                    value={selectedSession?.id || ''} 
-                    onChange={(e) => {
-                      const session = sessions.find(s => s.id === e.target.value)
-                      setSelectedSession(session || null)
-                    }}
-                    className="h-11 w-full rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
-                  >
-                    <option value="" className="bg-background text-foreground">Select a session to see your feedback...</option>
-                    {sessions.map(session => (
-                      <option key={session.id} value={session.id} className="bg-background text-foreground">
-                        {session.label} • {session.subtitle}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <AnalyticsSessionSelect
+                    value={sessionId}
+                    options={sessionOptions}
+                    onChange={setSessionId}
+                    label="Session"
+                    minWidthClass="w-full max-w-xl"
+                  />
+                </div>
               </div>
             )}
 
