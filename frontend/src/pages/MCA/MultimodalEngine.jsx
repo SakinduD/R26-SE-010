@@ -5,7 +5,7 @@ import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
+import { Video, Activity, Mic, X, Play, Square, PictureInPicture2 } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import { mcaService } from '../../services/mca/mcaService';
 import clsx from 'clsx';
@@ -19,6 +19,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog";
+
+// word-wrap for canvas text — canvas has no native text-wrapping
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = '';
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (currentLine && ctx.measureText(testLine).width > maxWidth) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
 
 const MultimodalEngine = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -66,6 +84,19 @@ const MultimodalEngine = () => {
   const [isLiveEnding, setIsLiveEnding] = useState(false);
   const [friendlyId, setFriendlyId] = useState(null);
 
+  // Picture-in-Picture (Meet-style floating mini view when the tab is minimized or
+  // switched away from). Uses the native <video> Picture-in-Picture API.
+  const pipVideoRef = useRef(null);
+  const pipCaptureStreamRef = useRef(null);
+  const [isPipActive, setIsPipActive] = useState(false);
+  const isPipActiveRef = useRef(false);
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
+
+  // Mirrors of state that onResults (a stable useCallback) needs to read fresh
+  // values from without being recreated every render — same pattern as showMeshRef.
+  const nudgesRef = useRef([]);
+  const sessionDurationRef = useRef(0);
+
   const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
     if (!liveSessionIdRef.current) return;
 
@@ -92,6 +123,108 @@ const MultimodalEngine = () => {
   useEffect(() => {
     showMeshRef.current = showMesh;
   }, [showMesh]);
+
+  useEffect(() => {
+    nudgesRef.current = nudges;
+  }, [nudges]);
+
+  useEffect(() => {
+    sessionDurationRef.current = sessionDuration;
+  }, [sessionDuration]);
+
+  // Reflect the browser's own enter/exit PiP events into state (drives the "Popped
+  // Out" button label and the main-tab overlay)
+  useEffect(() => {
+    const video = pipVideoRef.current;
+    if (!video) return undefined;
+    const onEnter = () => { setIsPipActive(true); isPipActiveRef.current = true; };
+    const onLeave = () => { setIsPipActive(false); isPipActiveRef.current = false; };
+    video.addEventListener('enterpictureinpicture', onEnter);
+    video.addEventListener('leavepictureinpicture', onLeave);
+    return () => {
+      video.removeEventListener('enterpictureinpicture', onEnter);
+      video.removeEventListener('leavepictureinpicture', onLeave);
+    };
+  }, [isCameraActive]);
+
+  // Opens the floating PiP window.
+  const openPip = useCallback(async (silent = false) => {
+    if (!pipSupported || !pipVideoRef.current || document.pictureInPictureElement) return;
+    const video = pipVideoRef.current;
+    try {
+      // Self-heal: re-sync from the mirrored canvas capture stream here too
+      if (!pipCaptureStreamRef.current && canvasRef.current?.captureStream) {
+        pipCaptureStreamRef.current = canvasRef.current.captureStream(25);
+      }
+      if (pipCaptureStreamRef.current && video.srcObject !== pipCaptureStreamRef.current) {
+        video.srcObject = pipCaptureStreamRef.current;
+      }
+      if (!video.srcObject) {
+        if (!silent) toast.error("Camera isn't ready yet — try again in a moment.");
+        return;
+      }
+      if (video.paused) {
+        await video.play().catch(() => {});
+      }
+      // requestPictureInPicture needs actual frame data — wait for it if the video just got its source
+      if (video.readyState < 2) {
+        await new Promise((resolve) => {
+          video.addEventListener('loadeddata', resolve, { once: true });
+          setTimeout(resolve, 2000); // safety timeout — don't hang forever
+        });
+      }
+      await video.requestPictureInPicture();
+    } catch (err) {
+      console.warn('[MCA] Could not enter Picture-in-Picture:', err);
+      if (!silent) {
+        toast.error("Couldn't open the floating window.", { description: err?.message || String(err) });
+      }
+    }
+  }, [pipSupported]);
+
+  const closePip = useCallback(() => {
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    }
+  }, []);
+
+  // Pop out automatically on minimize/tab-switch, and close automatically on return.
+  useEffect(() => {
+    if (!pipSupported) return undefined;
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (liveSessionIdRef.current && isCameraActive && !document.pictureInPictureElement) {
+          openPip(/* silent */ true);
+        }
+      } else {
+        closePip();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Supplementary signal: on some platforms, minimizing the browser window fires
+    // window "blur" without (or slightly before) document.visibilitychange.
+    const handleBlur = () => {
+      if (document.hidden && liveSessionIdRef.current && isCameraActive && !document.pictureInPictureElement) {
+        openPip(/* silent */ true);
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [pipSupported, isCameraActive, openPip, closePip]);
+
+  // Exit PiP if the component unmounts (session ended, navigated away).
+  useEffect(() => {
+    return () => {
+      if (document.pictureInPictureElement === pipVideoRef.current) {
+        document.exitPictureInPicture().catch(() => {});
+      }
+    };
+  }, []);
 
   // Warn on navigation if session is active
   useEffect(() => {
@@ -164,6 +297,149 @@ const MultimodalEngine = () => {
       }
     }
     canvasCtx.restore();
+
+    // Burn the session timer + latest nudge into the canvas itself (drawn in normal,
+    // non-mirrored space, after restore()) — only while actually popped out.
+    if (isPipActiveRef.current) {
+      const w = canvasElement.width;
+      const h = canvasElement.height;
+      const scale = w / 320; // keep sizes legible and consistent across camera resolutions
+      const PANEL_BG = 'rgba(15, 15, 20, 0.78)';
+      const BORDER = 'rgba(255, 255, 255, 0.14)';
+
+      canvasCtx.save();
+      canvasCtx.textBaseline = 'middle';
+
+      // Session timer — rounded pill, top-left
+      const mins = Math.floor(sessionDurationRef.current / 60);
+      const secs = (sessionDurationRef.current % 60).toString().padStart(2, '0');
+      const timerText = `${mins}:${secs}`;
+      const pillH = 30 * scale;
+      const pillPadX = 12 * scale;
+      const dotR = 4 * scale;
+
+      canvasCtx.font = `700 ${15 * scale}px -apple-system, system-ui, sans-serif`;
+      const timerW = canvasCtx.measureText(timerText).width;
+      const pillW = dotR * 2 + 8 * scale + timerW + pillPadX * 2;
+      const pillX = 10 * scale;
+      const pillY = 10 * scale;
+
+      canvasCtx.fillStyle = PANEL_BG;
+      canvasCtx.strokeStyle = BORDER;
+      canvasCtx.lineWidth = 1;
+      canvasCtx.beginPath();
+      canvasCtx.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      canvasCtx.fillStyle = '#00bb87';
+      canvasCtx.beginPath();
+      canvasCtx.arc(pillX + pillPadX + dotR, pillY + pillH / 2, dotR, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      canvasCtx.fillStyle = '#ffffff';
+      canvasCtx.fillText(timerText, pillX + pillPadX + dotR * 2 + 8 * scale, pillY + pillH / 2 + 1);
+
+      const latestNudge = nudgesRef.current[0];
+      if (latestNudge) {
+        const SEVERITY_STYLE = {
+          critical: { color: '#ec5a63', label: 'Critical' }, // --destructive / --danger
+          warning:  { color: '#e4a339', label: 'Warning' },  // --warning
+        };
+        const sev = SEVERITY_STYLE[latestNudge.severity] || { color: '#926dff', label: 'Info' }; // --primary / --accent
+
+        const fontSize = 12.5 * scale;
+        const lineHeight = fontSize * 1.4;
+        const labelHeight = 11 * scale;
+        const panelPad = 14 * scale;
+        const iconSize = 26 * scale;
+        const gapIconText = 10 * scale;
+        const marginX = 10 * scale;
+        const radius = 16 * scale;
+        const textX0 = panelPad + iconSize + gapIconText;
+        const maxTextWidth = w - marginX * 2 - panelPad * 2 - iconSize - gapIconText;
+
+        canvasCtx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+        const lines = wrapCanvasText(canvasCtx, latestNudge.text, maxTextWidth).slice(0, 2);
+
+        const panelH = panelPad * 2 + labelHeight + 4 * scale + lines.length * lineHeight;
+        const panelW = w - marginX * 2;
+        const panelX = marginX;
+        const panelY = h - panelH - 12 * scale;
+
+        // Elevation shadow, cast by the card only
+        canvasCtx.save();
+        canvasCtx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        canvasCtx.shadowBlur = 18 * scale;
+        canvasCtx.shadowOffsetY = 6 * scale;
+        const bgGrad = canvasCtx.createLinearGradient(0, panelY, 0, panelY + panelH);
+        bgGrad.addColorStop(0, 'rgba(30, 30, 38, 0.90)');
+        bgGrad.addColorStop(1, 'rgba(14, 14, 19, 0.94)');
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(panelX, panelY, panelW, panelH, radius);
+        canvasCtx.fillStyle = bgGrad;
+        canvasCtx.fill();
+        canvasCtx.restore();
+
+        // Faint severity-tinted border for a subtle glow edge
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1, radius);
+        canvasCtx.strokeStyle = `${sev.color}55`;
+        canvasCtx.lineWidth = 1.25 * scale;
+        canvasCtx.stroke();
+
+        // Icon badge — glowing ring with a solid centre dot
+        const iconCx = panelX + panelPad + iconSize / 2;
+        const iconCy = panelY + panelH / 2;
+        canvasCtx.save();
+        canvasCtx.shadowColor = sev.color;
+        canvasCtx.shadowBlur = 10 * scale;
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, iconSize / 2, 0, Math.PI * 2);
+        canvasCtx.fillStyle = `${sev.color}2A`;
+        canvasCtx.fill();
+        canvasCtx.restore();
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, iconSize / 2, 0, Math.PI * 2);
+        canvasCtx.strokeStyle = sev.color;
+        canvasCtx.lineWidth = 1.5 * scale;
+        canvasCtx.stroke();
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, 4 * scale, 0, Math.PI * 2);
+        canvasCtx.fillStyle = sev.color;
+        canvasCtx.fill();
+
+        // Text block — uppercase category label, then the wrapped message
+        const textX = panelX + textX0;
+        let textY = panelY + panelPad;
+        canvasCtx.textBaseline = 'top';
+
+        canvasCtx.font = `700 ${10 * scale}px -apple-system, system-ui, sans-serif`;
+        canvasCtx.fillStyle = sev.color;
+        canvasCtx.fillText(sev.label.toUpperCase(), textX, textY);
+        textY += labelHeight + 4 * scale;
+
+        canvasCtx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+        canvasCtx.fillStyle = '#f4f4f6';
+        lines.forEach((line, i) => {
+          canvasCtx.fillText(line, textX, textY + lineHeight * i);
+        });
+
+        canvasCtx.textBaseline = 'middle';
+      }
+
+      canvasCtx.textBaseline = 'alphabetic';
+      canvasCtx.restore();
+    }
+
+    // Keep the PiP video fed from this same mirrored/mesh-overlaid canvas
+    if (!pipCaptureStreamRef.current && canvasElement.captureStream) {
+      pipCaptureStreamRef.current = canvasElement.captureStream(25);
+    }
+    if (pipVideoRef.current && pipCaptureStreamRef.current && pipVideoRef.current.srcObject !== pipCaptureStreamRef.current) {
+      pipVideoRef.current.srcObject = pipCaptureStreamRef.current;
+      pipVideoRef.current.play().catch(() => {});
+    }
   }, []);
 
   const startAudioCapture = async () => {
@@ -419,6 +695,8 @@ const MultimodalEngine = () => {
       if (faceMeshModel) {
         faceMeshModel.close();
       }
+      // The <canvas> unmounts/remounts with the camera (new DOM node each time)
+      pipCaptureStreamRef.current = null;
     };
   }, [isCameraActive, onResults]);
 
@@ -556,6 +834,15 @@ const MultimodalEngine = () => {
                       ref={canvasRef}
                       className="absolute inset-0 w-full h-full object-cover rounded-xl"
                     />
+                    {/* Feeds the native Picture-in-Picture window (see openPip). */}
+                    <video
+                      ref={pipVideoRef}
+                      autoPictureInPicture
+                      autoPlay
+                      muted
+                      playsInline
+                      style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                    />
                   </>
                 ) : (
                   <>
@@ -568,6 +855,19 @@ const MultimodalEngine = () => {
                       </div>
                     </div>
                   </>
+                )}
+
+                {isPipActive && (
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/90 backdrop-blur-sm rounded-xl">
+                    <PictureInPicture2 size={28} className="text-primary animate-pulse" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Live view popped out</p>
+                    <button
+                      onClick={closePip}
+                      className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                    >
+                      Bring it back
+                    </button>
+                  </div>
                 )}
 
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
@@ -668,6 +968,19 @@ const MultimodalEngine = () => {
                       >
                         <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
                         Mesh
+                      </button>
+                    )}
+                    {pipSupported && isCameraActive && (
+                      <button
+                        onClick={() => (isPipActive ? closePip() : openPip())}
+                        title="Pop out a floating mini window — auto-appears on minimize/tab-switch after first use, and closes automatically when you come back"
+                        className={clsx(
+                          "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                          isPipActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        )}
+                      >
+                        <PictureInPicture2 size={14} className={clsx(isPipActive && "animate-pulse")} />
+                        {isPipActive ? "Popped Out" : "Pop Out"}
                       </button>
                     )}
                   </div>
