@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
   ShieldAlert, Target,
@@ -84,8 +85,11 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
 
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
+  const [searchParams] = useSearchParams()
   const [userId, setUserId] = useState(cid || '')
-  const [sessionId, setSessionId] = useState('')
+  // ?sessionId=… (e.g. the redirect after self-reflection) opens that session's
+  // results; without it the dashboard starts on the "All Sessions" overall view.
+  const [sessionId, setSessionId] = useState(searchParams.get('sessionId') || '')
   const [sessOpts, setSessOpts] = useState([])
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('loading')
@@ -204,8 +208,12 @@ export default function AnalyticsDashboard() {
     } catch { return [] }
   }
 
-  // Default view is "All Sessions" (no session selected) → user-level overall totals.
-  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess(); load(cid,'') } }, [cid,isAuthLoading,isAuthenticated])
+  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess() } }, [cid,isAuthLoading,isAuthenticated])
+
+  // Load whatever the dropdown points at — '' means "All Sessions" (user-level
+  // overall totals), a session id means that session's own results. Runs on mount
+  // (honouring ?sessionId=) and again whenever the selection changes.
+  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) load(cid,sessionId) }, [cid,isAuthLoading,isAuthenticated,sessionId])
 
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
