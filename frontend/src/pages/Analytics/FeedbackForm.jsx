@@ -124,7 +124,10 @@ export default function FeedbackForm() {
       setStatus('success')
       setMessage('Self-evaluation completed!')
       if (params.sessionId) {
-        setTimeout(() => navigate('/analytics-dashboard'), 2000)
+        // Carry the session forward so the dashboard opens on THIS session's
+        // results instead of the "All Sessions" overall view.
+        const target = `/analytics-dashboard?sessionId=${encodeURIComponent(form.session_id.trim())}`
+        setTimeout(() => navigate(target), 2000)
       }
     } catch (error) {
       setStatus('error')
