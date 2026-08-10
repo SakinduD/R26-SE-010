@@ -15,7 +15,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Literal
 
-from app.config import get_settings
+from app.config import get_apm_gemini_key, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,28 @@ class GeminiClient:
 
 @lru_cache(maxsize=1)
 def get_llm_client() -> GeminiClient:
-    """FastAPI dependency. Cached singleton per process."""
+    """
+    FastAPI dependency for NON-APM Gemini callers. Cached singleton per process.
+
+    Credentialed with the shared GEMINI_API_KEY. Anything under
+    app/services/pedagogy/ must use get_apm_llm_client() instead.
+    """
     settings = get_settings()
     model = getattr(settings, "gemini_model", "gemini-2.5-flash")
     return GeminiClient(api_key=settings.gemini_api_key, model=model)
+
+
+@lru_cache(maxsize=1)
+def get_apm_llm_client() -> GeminiClient:
+    """
+    FastAPI dependency for APM Gemini callers. Cached singleton per process.
+
+    Same GeminiClient class as get_llm_client() — only the credential differs.
+    The key is resolved by app.config.get_apm_gemini_key() (GEMINI_API_KEY_APM,
+    falling back to GEMINI_API_KEY with a warning). An empty key is allowed:
+    GeminiClient raises LLMError("api_error") lazily on first use, which every
+    APM caller already treats as a degradation path rather than a failure.
+    """
+    settings = get_settings()
+    model = getattr(settings, "gemini_model", "gemini-2.5-flash")
+    return GeminiClient(api_key=get_apm_gemini_key(), model=model)

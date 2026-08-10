@@ -24,7 +24,7 @@ from app.api.dependencies import get_db
 from app.api.v1.pedagogy import _plan_to_out
 from app.config import get_settings
 from app.core.auth import get_current_user
-from app.core.llm_client import get_llm_client
+from app.core.llm_client import get_apm_llm_client
 from app.core.rpe_client import get_rpe_client
 from app.contracts.rpe import CoachingAdvice, FeedbackResponse, TurnMetric
 from app.models.baseline_snapshot import BaselineSnapshot
@@ -200,7 +200,7 @@ async def inject_persona(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     rpe=Depends(get_rpe_client),
-    llm=Depends(get_llm_client),
+    llm=Depends(get_apm_llm_client),
 ) -> TrainingPlanOut:
     """
     Inject a pre-canned persona for the current user and generate a training plan.

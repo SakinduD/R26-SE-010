@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Swords,
+  Target,
   BarChart3,
   MoreHorizontal,
 } from 'lucide-react';
@@ -19,7 +20,13 @@ const ITEMS = [
     to: '/survey',
     icon: ClipboardList,
     label: 'Learn',
-    match: ['/survey', '/baseline', '/training-plan'],
+    match: ['/survey', '/baseline'],
+  },
+  {
+    to: '/training-plan',
+    icon: Target,
+    label: 'Plan',
+    match: ['/training-plan'],
   },
   {
     to: '/roleplay',

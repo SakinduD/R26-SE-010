@@ -1,6 +1,9 @@
+import logging
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -9,6 +12,7 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str
     gemini_api_key: str = ""
+    gemini_api_key_apm: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     groq_api_key: str = ""
     openai_api_key: str = ""
@@ -41,3 +45,33 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a cached Settings instance."""
     return Settings()
+
+
+def get_apm_gemini_key() -> str:
+    """
+    Resolve the Gemini API key for the APM module — the ONE place APM key
+    resolution happens. Never read GEMINI_API_KEY* inline anywhere else.
+
+    Resolution order:
+      1. GEMINI_API_KEY_APM if set
+      2. else GEMINI_API_KEY, with a single WARNING logged
+      3. else "" — callers must degrade, never raise. intent_parser falls back
+         to rule_based parsing; scenario_selector keeps its never-raises
+         degradation path. The API still returns 200 either way.
+
+    Callers reach this through app.core.llm_client.get_apm_llm_client(), which
+    is lru_cached — so in practice the fallback warning is emitted once per
+    process rather than on every plan generation.
+    """
+    settings = get_settings()
+
+    if settings.gemini_api_key_apm:
+        return settings.gemini_api_key_apm
+
+    if settings.gemini_api_key:
+        logger.warning(
+            "GEMINI_API_KEY_APM not set — APM falling back to shared GEMINI_API_KEY"
+        )
+        return settings.gemini_api_key
+
+    return ""

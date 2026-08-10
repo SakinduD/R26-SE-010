@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Activity, ArrowRight, Brain, Loader2, RefreshCw, Sparkles, Target, TrendingUp,
+  Activity, ArrowRight, Brain, Loader2, Plus, RefreshCw, Sparkles, Target, TrendingUp,
 } from 'lucide-react'
 import { getMyTrainingPlan, generateTrainingPlan, getAdjustmentHistory } from '@/lib/api/pedagogy'
 import { getMyBaseline } from '@/lib/api/baseline'
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute'
 import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
+import Section from '@/components/ui/Section'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Banner from '@/components/ui/Banner'
@@ -16,6 +17,12 @@ import ScoreBar from '@/components/ui/ScoreBar'
 import EmptyState from '@/components/ui/EmptyState'
 import AccordionItem from '@/components/ui/AccordionItem'
 import ChipToggle from '@/components/ui/ChipToggle'
+import { trainingPlanService } from '@/services/trainingPlan/trainingPlanService'
+import PersonalisationBriefCard from '@/components/training-plan/PersonalisationBriefCard'
+import PlanSummaryCard from '@/components/training-plan/PlanSummaryCard'
+import PlanHistoryList from '@/components/training-plan/PlanHistoryList'
+import StartRolePlayButton from '@/components/training-plan/StartRolePlayButton'
+import { PlanCardSkeleton, PlanListSkeleton } from '@/components/training-plan/PlanSkeleton'
 
 const IS_DEMO = import.meta.env.VITE_DEMO_MODE === 'true'
 
@@ -466,6 +473,117 @@ function AdjustmentHistorySection({ history }) {
 }
 
 // --------------------------------------------------------------------------
+// Personalised (goal-conditioned) plans — /apa/training-plan/*
+//
+// Distinct from the adaptive-state plan rendered further down: these are the
+// plans a learner asks for by describing a situation they want to practise.
+// --------------------------------------------------------------------------
+
+function PracticePlanSection({ activePlan, historyItems, total, loading, error, onRetry }) {
+  if (loading) {
+    return (
+      <div className="col" style={{ gap: 16 }}>
+        <PlanCardSkeleton lines={3} />
+        <PlanListSkeleton rows={2} />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <motion.div variants={fadeInUp}>
+        <Card>
+          <Banner variant="danger">
+            <div className="fg" style={{ fontWeight: 500 }}>{error.message}</div>
+          </Banner>
+          <div style={{ marginTop: 12 }}>
+            <button type="button" className="btn btn-secondary" onClick={onRetry}>
+              <span className="btn-label">Try again</span>
+            </button>
+          </div>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  if (!activePlan && historyItems.length === 0) {
+    return (
+      <motion.div variants={fadeInUp}>
+        <Card>
+          <EmptyState
+            icon={Target}
+            title="No practice plans yet"
+            description="Tell us the workplace situation you want to rehearse and we'll build a scenario brief around your personality profile."
+            action={
+              <Link to="/training-plan/new" className="btn btn-primary btn-lg">
+                <span
+                  className="btn-label"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                >
+                  <Plus size={14} strokeWidth={1.8} />
+                  Create a training plan
+                </span>
+              </Link>
+            }
+          />
+        </Card>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      {activePlan ? (
+        <>
+          <PersonalisationBriefCard plan={activePlan} />
+          <PlanSummaryCard plan={activePlan} />
+          <motion.div
+            variants={fadeInUp}
+            style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}
+          >
+            <Link
+              to={`/training-plan/${activePlan.plan_id}`}
+              className="btn btn-primary btn-lg"
+              style={{ flex: '1 1 200px' }}
+            >
+              <span
+                className="btn-label"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                View full plan
+                <ArrowRight size={14} strokeWidth={1.8} />
+              </span>
+            </Link>
+            <StartRolePlayButton planId={activePlan.plan_id} />
+          </motion.div>
+        </>
+      ) : (
+        <motion.div variants={fadeInUp}>
+          <Card>
+            <EmptyState
+              icon={Target}
+              title="No active practice plan"
+              description="Your previous plans are archived below. Create a new one to get back to practising."
+              action={
+                <Link to="/training-plan/new" className="btn btn-primary">
+                  <span className="btn-label">Create a training plan</span>
+                </Link>
+              }
+            />
+          </Card>
+        </motion.div>
+      )}
+
+      <PlanHistoryList
+        items={historyItems}
+        total={total}
+        currentPlanId={activePlan?.plan_id}
+      />
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------
 // Main page
 // --------------------------------------------------------------------------
 
@@ -476,6 +594,27 @@ export default function TrainingPlan() {
   const [snapshot, setSnapshot] = useState(undefined) // undefined = loading, null = none
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
+
+  // Goal-conditioned plans (separate API from the adaptive-state plan above)
+  const [activePlan, setActivePlan] = useState(null)
+  const [planHistory, setPlanHistory] = useState({ items: [], total: 0 })
+  const [plansLoading, setPlansLoading] = useState(true)
+  const [plansError, setPlansError] = useState(null)
+
+  const loadPractisePlans = useCallback(() => {
+    setPlansLoading(true)
+    setPlansError(null)
+    Promise.all([
+      trainingPlanService.getActive(),
+      trainingPlanService.list({ limit: 10, offset: 0 }),
+    ])
+      .then(([active, listing]) => {
+        setActivePlan(active)
+        setPlanHistory({ items: listing?.items ?? [], total: listing?.total ?? 0 })
+      })
+      .catch((err) => setPlansError(err))
+      .finally(() => setPlansLoading(false))
+  }, [])
 
   useEffect(() => {
     if (authLoading) return
@@ -491,6 +630,11 @@ export default function TrainingPlan() {
         setSnapshot(null)
       })
   }, [authLoading])
+
+  useEffect(() => {
+    if (authLoading) return
+    loadPractisePlans()
+  }, [authLoading, loadPractisePlans])
 
   async function handleGenerate() {
     setGenerating(true)
@@ -539,6 +683,17 @@ export default function TrainingPlan() {
         eyebrow="Adaptive Pedagogy"
         title="Your training plan"
         sub="Personalised to your Big Five profile — adapts after every session."
+        right={
+          <Link to="/training-plan/new" className="btn btn-primary">
+            <span
+              className="btn-label"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Plus size={14} strokeWidth={1.8} />
+              New plan
+            </span>
+          </Link>
+        }
       />
 
       {/* Demo banner */}
@@ -557,6 +712,30 @@ export default function TrainingPlan() {
           </Banner>
         </motion.div>
       )}
+
+      {/* Goal-conditioned practice plans */}
+      <div style={{ marginBottom: 32 }}>
+        <Section
+          title="Practice plans"
+          sub="Built from a situation you describe — the brief RPE uses to generate your scenario."
+        >
+          <PracticePlanSection
+            activePlan={activePlan}
+            historyItems={planHistory.items}
+            total={planHistory.total}
+            loading={plansLoading}
+            error={plansError}
+            onRetry={loadPractisePlans}
+          />
+        </Section>
+      </div>
+
+      {/* Adaptive profile — the running strategy/difficulty state */}
+      <Section
+        title="Adaptive profile"
+        sub="Your current teaching strategy and difficulty, recalibrated after every session."
+        topRule
+      >
 
       {/* No plan yet */}
       {plan === null && (
@@ -641,6 +820,7 @@ export default function TrainingPlan() {
           </motion.div>
         </div>
       )}
+      </Section>
     </motion.div>
   )
 }

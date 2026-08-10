@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { RotateCcw, BarChart2, Loader2, CheckCircle2 } from 'lucide-react';
 import { getMyProfile } from '@/lib/api/survey';
@@ -7,6 +7,7 @@ import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
 import { fadeInUp, staggerContainer, buttonMotion } from '@/lib/animations';
 import PageHead from '@/components/ui/PageHead';
 import Card from '@/components/ui/Card';
+import Banner from '@/components/ui/Banner';
 import SurveyIntro from './survey/SurveyIntro';
 import SurveyForm from './survey/SurveyForm';
 
@@ -15,8 +16,12 @@ const VIEW = { LOADING: 'loading', INTRO: 'intro', FORM: 'form', TAKEN: 'taken' 
 
 export default function Survey() {
   const { isLoading: authLoading } = useProtectedRoute();
+  const [searchParams] = useSearchParams();
   const [view, setView] = useState(VIEW.LOADING);
   const [existingProfile, setExistingProfile] = useState(null);
+
+  // Set when the training-plan flow bounced the user here for a missing profile.
+  const sentFromTrainingPlan = searchParams.get('from') === 'training-plan';
 
   useEffect(() => {
     if (authLoading) return;
@@ -108,5 +113,25 @@ export default function Survey() {
   }
 
   // Default: INTRO state
+  if (sentFromTrainingPlan) {
+    return (
+      <>
+        <div className="page page-read" style={{ paddingBottom: 0 }}>
+          <Banner variant="info">
+            <div className="fg" style={{ fontWeight: 500 }}>
+              Complete the personality survey first
+            </div>
+            <div className="t-cap" style={{ marginTop: 2 }}>
+              Your training plan is built from it — we use your Big Five profile to set the
+              difficulty, tone and focus skills. It takes about five minutes, and you'll be able
+              to create your plan straight afterwards.
+            </div>
+          </Banner>
+        </div>
+        <SurveyIntro onBegin={() => setView(VIEW.FORM)} />
+      </>
+    );
+  }
+
   return <SurveyIntro onBegin={() => setView(VIEW.FORM)} />;
 }

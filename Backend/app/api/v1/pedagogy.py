@@ -23,7 +23,7 @@ from app.api.dependencies import get_db
 from app.config import get_settings
 from app.contracts.rpe import FeedbackResponse
 from app.core.auth import get_current_user, verify_jwt
-from app.core.llm_client import get_llm_client
+from app.core.llm_client import get_apm_llm_client
 from app.core.rpe_client import get_rpe_client
 from app.models.baseline_snapshot import BaselineSnapshot
 from app.models.personality_profile import PersonalityProfile
@@ -89,7 +89,7 @@ async def generate_plan(
 ) -> TrainingPlanOut:
     """Generate (or regenerate) a personalised training plan for the current user."""
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(
             current_user.id, db, rpe, llm, skill=body.skill
@@ -309,7 +309,7 @@ async def complete_baseline(
 
     # e. Trigger plan (re-)generation
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(current_user.id, db, rpe, llm)
     except ValueError as exc:
@@ -362,7 +362,7 @@ async def baseline_skip(
     Returns 404 if no PersonalityProfile exists (survey must be done first).
     """
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(
             current_user.id, db, rpe, llm, skill=body.skill
@@ -427,7 +427,7 @@ async def baseline_skip_with_snapshot(
     logger.info("BaselineSnapshot (skipped) upserted for user %s", current_user.id)
 
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(current_user.id, db, rpe, llm)
     except ValueError as exc:

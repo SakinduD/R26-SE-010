@@ -24,6 +24,8 @@ import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
 import TrainingPlan from './pages/app/TrainingPlan'
+import TrainingPlanNew from './pages/app/TrainingPlanNew'
+import TrainingPlanDetail from './pages/app/TrainingPlanDetail'
 import Styleguide from './pages/app/Styleguide'
 import Settings from './pages/app/Settings'
 
@@ -76,6 +78,8 @@ export default function App() {
               <Route path="/baseline/consent" element={<BaselineConsent />} />
               <Route path="/baseline" element={<Baseline />} />
               <Route path="/training-plan" element={<TrainingPlan />} />
+              <Route path="/training-plan/new" element={<TrainingPlanNew />} />
+              <Route path="/training-plan/:planId" element={<TrainingPlanDetail />} />
               <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
               <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
               <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />

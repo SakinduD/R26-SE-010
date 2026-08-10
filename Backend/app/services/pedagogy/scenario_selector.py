@@ -13,6 +13,13 @@ Strategy:
 
 No raw OCEAN numbers go into the Gemini prompt — only low/mid/high levels.
 Never raises: always returns a ScenarioSelectionResult.
+
+Credentialing: the GeminiClient passed as `llm` must be APM-credentialed —
+callers build it with app.core.llm_client.get_apm_llm_client(), which resolves
+GEMINI_API_KEY_APM (falling back to GEMINI_API_KEY with a warning) via
+app.config.get_apm_gemini_key(). Never read GEMINI_API_KEY* in this module.
+An unset key surfaces as LLMError("api_error") on first use and is absorbed by
+the existing never-raises fallback chain below.
 """
 from __future__ import annotations
 

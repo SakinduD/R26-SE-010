@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Mic,
   Brain,
+  Target,
   Swords,
   Video,
   BarChart3,
@@ -107,6 +108,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       <SidebarLink to="/survey" icon={ClipboardList} label="Assessment" collapsed={collapsed} />
       <SidebarLink to="/baseline" icon={Mic} label="Baseline" collapsed={collapsed} />
       <SidebarLink to="/training-plan" icon={Brain} label="Training Plan" collapsed={collapsed} />
+      <SidebarLink to="/training-plan/new" icon={Target} label="New Plan" collapsed={collapsed} />
 
       {/* Practice */}
       <div className="sb-section-label">Practice</div>
