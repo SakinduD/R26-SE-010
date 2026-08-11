@@ -44,6 +44,12 @@ export const analyticsService = {
       params: forceRefresh ? { force_refresh: true } : {},
     }).then(unwrap),
 
+  getGamificationByUser: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/gamification`).then(unwrap),
+
+  syncGamificationByUser: (userId) =>
+    api.post(`/api/v1/analytics/users/${encodeURIComponent(userId)}/gamification/sync`).then(unwrap),
+
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
 

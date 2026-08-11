@@ -43,6 +43,7 @@ import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
 import AnalyticsRecommendations from './pages/Analytics/AnalyticsRecommendations'
 import BlindSpotDetail from './pages/Analytics/BlindSpotDetail'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
+import GamifiedProgress from './pages/Analytics/GamifiedProgress'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
 import PredictiveAnalytics from './pages/Analytics/PredictiveAnalytics'
 import ProgressTrendsDetail from './pages/Analytics/ProgressTrendsDetail'
@@ -94,6 +95,8 @@ export default function App() {
               <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
               <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
               <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
+              <Route path="/analytics-journey" element={<GamifiedProgress />} />
+              <Route path="/analytics/users/:userId/journey" element={<GamifiedProgress />} />
               <Route path="/analytics-session-report" element={<PostSessionReport />} />
               <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
               {/* Settings — Phase 6.10 */}

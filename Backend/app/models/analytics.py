@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, JSON, Enum
+from sqlalchemy import CheckConstraint, Date, DateTime, Float, Index, Integer, String, Text, JSON, Enum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -141,4 +141,75 @@ class MentoringRecommendation(Base):
     __table_args__ = (
         Index("ix_mentoring_recommendations_user_session", "user_id", "session_id"),
         Index("ix_mentoring_recommendations_user_type", "user_id", "recommendation_type"),
+    )
+
+
+class UserGamificationProfile(Base):
+    """Running gamification state for one learner.
+
+    One row per user. Everything here is derived from analytics data, so the row
+    can always be rebuilt from scratch by replaying the user's sessions — it is a
+    cache for fast reads, never the source of truth.
+    """
+
+    __tablename__ = "user_gamification_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+
+    total_xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    current_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    longest_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_learning_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_activity_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    session_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # {skill_area: xp} for the four tracked soft-skill dimensions.
+    skill_xp: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Session ids already awarded XP, so replaying an integration never double-counts.
+    scored_session_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    rules_version: Mapped[str] = mapped_column(String(40), nullable=False, default="gamification-rules-v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("total_xp >= 0", name="ck_gamification_total_xp_non_negative"),
+        CheckConstraint("level >= 1", name="ck_gamification_level_min"),
+        CheckConstraint("current_streak >= 0", name="ck_gamification_current_streak_non_negative"),
+        CheckConstraint("longest_streak >= 0", name="ck_gamification_longest_streak_non_negative"),
+    )
+
+
+class UserBadge(Base):
+    """An unlocked achievement badge.
+
+    A row only exists once the badge rule has been satisfied; locked badges are
+    computed on read so the criteria stay in one place (gamification_service).
+    """
+
+    __tablename__ = "user_badges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    badge_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    badge_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="bronze")
+    skill_area: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Human-readable snapshot of why it unlocked — keeps the award explainable.
+    criteria: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=True)
+    rules_version: Mapped[str] = mapped_column(String(40), nullable=False, default="gamification-rules-v1")
+    earned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "badge_key", name="uq_user_badges_user_badge"),
+        CheckConstraint(
+            "badge_tier IN ('bronze', 'silver', 'gold')",
+            name="ck_user_badges_tier",
+        ),
+        Index("ix_user_badges_user_earned", "user_id", "earned_at"),
     )

@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/analytics-progress-trends', label: 'Trends' },
   { to: '/analytics-blind-spots', label: 'Blind Spots' },
   { to: '/analytics-recommendations', label: 'Recommendations' },
+  { to: '/analytics-journey', label: 'Skill Journey' },
   { to: '/analytics-session-report', label: 'Report' },
 ]
 

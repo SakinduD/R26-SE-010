@@ -16,6 +16,8 @@ from app.schemas.analytics import (
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
     AnalyticsSessionIntegrationResult,
+    GamificationProfileResult,
+    GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
     PostSessionReportResult,
@@ -34,6 +36,7 @@ from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    gamification_service,
     llm_mentoring_service,
     post_session_report_service,
     predictive_modeling_service,
@@ -324,6 +327,34 @@ def get_user_skill_predicted_outcome(
     db: Session = Depends(get_db),
 ):
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
+
+
+@router.get(
+    "/users/{user_id}/gamification",
+    response_model=GamificationProfileResult,
+)
+def get_user_gamification(user_id: str, db: Session = Depends(get_db)):
+    """Current XP, level, streak and badge state. Read-only."""
+    return gamification_service.get_user_gamification(db, user_id)
+
+
+@router.post(
+    "/users/{user_id}/gamification/sync",
+    response_model=GamificationSyncResult,
+)
+def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
+    """Award XP for any unscored sessions and re-check every badge rule.
+
+    Idempotent — replaying it never double-counts a session.
+    """
+    try:
+        return gamification_service.sync_user_gamification(db, user_id)
+    except Exception as exc:
+        logger.error("Gamification sync failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync gamification progress: {exc}",
+        ) from exc
 
 
 @router.get(
