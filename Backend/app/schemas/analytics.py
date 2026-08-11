@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -477,3 +477,96 @@ class PostSessionReportResult(BaseModel):
     computed_predictions: list[PredictiveModelingItem] = []
     generated_at: datetime
     report_version: str
+
+
+class GamificationLevelProgress(BaseModel):
+    level: int
+    total_xp: int
+    xp_into_level: int
+    xp_for_next_level: int
+    xp_to_next_level: int
+    progress_percent: float = Field(..., ge=0, le=100)
+
+
+class GamificationStreak(BaseModel):
+    current_streak: int
+    longest_streak: int
+    total_learning_days: int
+    last_activity_date: date | None = None
+    active_today: bool
+    # Mon..Sun flags for the current calendar week.
+    week_activity: list[bool] = []
+
+
+class GamificationSkillLevel(BaseModel):
+    skill_area: str
+    label: str
+    xp: int
+    level: int
+    latest_score: Score = None
+    progress_percent: float = Field(..., ge=0, le=100)
+    xp_to_next_level: int
+
+
+class GamificationBadgeItem(BaseModel):
+    badge_key: str
+    title: str
+    description: str
+    criteria: str
+    tier: Literal["bronze", "silver", "gold"]
+    skill_area: str | None = None
+    earned: bool
+    earned_at: datetime | None = None
+    progress_percent: float = Field(default=0.0, ge=0, le=100)
+    progress_hint: str | None = None
+
+
+class GamificationBadgeSummary(BaseModel):
+    earned_count: int
+    total_count: int
+    latest_badge: GamificationBadgeItem | None = None
+
+
+class GamificationXpAward(BaseModel):
+    session_id: str
+    base_xp: int
+    performance_xp: int
+    streak_bonus_xp: int
+    total_xp_awarded: int
+    overall_score: Score = None
+    already_scored: bool = False
+
+
+class GamificationRules(BaseModel):
+    """The XP formula, published so the UI never restates it from memory."""
+
+    base_session_xp: int
+    performance_xp_factor: float
+    max_performance_xp: int
+    streak_xp_per_day: int
+    max_streak_bonus_days: int
+    max_streak_bonus_xp: int
+    level_base_xp: int
+    level_growth_xp: int
+    timezone: str
+
+
+class GamificationProfileResult(BaseModel):
+    user_id: str
+    level_progress: GamificationLevelProgress
+    streak: GamificationStreak
+    session_count: int
+    skill_levels: list[GamificationSkillLevel]
+    badges: list[GamificationBadgeItem]
+    badge_summary: GamificationBadgeSummary
+    rules: GamificationRules
+    generated_at: datetime
+    rules_version: str
+
+
+class GamificationSyncResult(BaseModel):
+    user_id: str
+    profile: GamificationProfileResult
+    awards: list[GamificationXpAward] = []
+    newly_earned_badges: list[GamificationBadgeItem] = []
+    xp_gained: int = 0

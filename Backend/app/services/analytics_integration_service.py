@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,8 @@ from app.services import analytics_service, data_aggregation_service
 
 
 MAPPING_VERSION = "component-contract-mapping-v1"
+
+logger = logging.getLogger(__name__)
 
 
 def integrate_component_session_data(
@@ -57,6 +60,8 @@ def integrate_component_session_data(
         ],
     ]
 
+    _sync_gamification(db, payload.user_id)
+
     aggregate = data_aggregation_service.get_session_aggregate(db, payload.session_id)
     return AnalyticsSessionIntegrationResult(
         user_id=payload.user_id,
@@ -76,6 +81,21 @@ def integrate_component_session_data(
         ),
         mapping_version=MAPPING_VERSION,
     )
+
+
+def _sync_gamification(db: Session, user_id: str) -> None:
+    """Award XP / badges for the session that just landed.
+
+    Imported lazily to keep the module import graph flat, and deliberately
+    non-fatal: gamification is a motivational layer, so a failure here must never
+    stop a session's analytics from being recorded.
+    """
+    try:
+        from app.services import gamification_service
+
+        gamification_service.sync_user_gamification(db, user_id)
+    except Exception:
+        logger.exception("Gamification sync failed for user %s", user_id)
 
 
 def _upsert_session_metric(

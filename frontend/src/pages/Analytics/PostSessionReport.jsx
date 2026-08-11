@@ -12,7 +12,7 @@ import {
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsLoadButton from './AnalyticsLoadButton'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 import { fadeInUp, staggerContainer } from '@/lib/animations'
@@ -210,7 +210,6 @@ export default function PostSessionReport() {
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
-        <AnalyticsNav />
         <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadReport()} />
