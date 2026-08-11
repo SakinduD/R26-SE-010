@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsLoadButton from './AnalyticsLoadButton'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
@@ -138,10 +138,7 @@ export default function GamifiedProgress() {
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
-        <AnalyticsNav />
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadProgress(connectedUserId)} />
-        </div>
+        <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadProgress(connectedUserId)} />
       </motion.div>
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>

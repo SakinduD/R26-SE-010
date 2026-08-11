@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsLoadButton from './AnalyticsLoadButton'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
@@ -160,7 +160,6 @@ export default function PredictiveAnalytics() {
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
-        <AnalyticsNav />
         <AnalyticsSessionSelect
           value={selectedSessionId}
           options={sessionOptions}

@@ -11,7 +11,7 @@ import ProgressTrendVisualization from '../../components/analytics/ProgressTrend
 import SkillTwinRadar from '../../components/analytics/SkillTwinRadar'
 import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsLoadButton from './AnalyticsLoadButton'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
@@ -265,7 +265,6 @@ export default function AnalyticsDashboard() {
             <h1 className="text-lg font-bold">My Skills Dashboard</h1>
           </div>
           <div className="flex items-end gap-3 flex-wrap">
-            <AnalyticsNav />
             <AnalyticsSessionSelect
               value={sessionId}
               options={sessOpts}

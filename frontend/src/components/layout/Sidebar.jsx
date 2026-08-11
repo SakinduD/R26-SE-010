@@ -11,6 +11,7 @@ import {
   BarChart3,
   User,
   TrendingUp,
+  Trophy,
   Sparkles,
   Eye,
   Lightbulb,
@@ -147,6 +148,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         <div className="sb-sub">
           <SidebarLink to="/analytics-skill-twin" icon={User} label="Skill Twin" />
           <SidebarLink to="/analytics-progress-trends" icon={TrendingUp} label="Trends" />
+          <SidebarLink to="/analytics-journey" icon={Trophy} label="Skill Journey" />
           <SidebarLink to="/analytics-predictions" icon={Sparkles} label="Predictions" />
           <SidebarLink to="/analytics-blind-spots" icon={Eye} label="Blind Spots" />
           <SidebarLink to="/analytics-recommendations" icon={Lightbulb} label="Recommendations" />

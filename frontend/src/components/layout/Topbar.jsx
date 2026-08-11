@@ -21,6 +21,7 @@ const CRUMB_MAP = {
   '/analytics-predictions': ['Progress', 'Predictions'],
   '/analytics-blind-spots': ['Progress', 'Blind Spots'],
   '/analytics-progress-trends': ['Progress', 'Trends'],
+  '/analytics-journey': ['Progress', 'Skill Journey'],
   '/analytics-session-report': ['Progress', 'Session Report'],
   '/settings': ['Settings'],
   '/admin': ['Admin'],
@@ -37,6 +38,7 @@ function getCrumbs(pathname) {
     if (pathname.endsWith('/predictions')) return ['Progress', 'Predictions'];
     if (pathname.endsWith('/blind-spots')) return ['Progress', 'Blind Spots'];
     if (pathname.endsWith('/progress')) return ['Progress', 'Trends'];
+    if (pathname.endsWith('/journey')) return ['Progress', 'Skill Journey'];
     if (pathname.endsWith('/recommendations')) return ['Progress', 'Recommendations'];
     return ['Progress'];
   }
