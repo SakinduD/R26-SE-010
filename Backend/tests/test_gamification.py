@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+import random
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from app.models.analytics import AnalyticsSessionMetric, FeedbackEntry, UserBadge
-from app.services import gamification_service
+from app.services import blind_spot_service, gamification_service
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +358,223 @@ def test_session_integration_awards_gamification_automatically(client):
     assert gamification.status_code == 200
     assert gamification.json()["session_count"] == 1
     assert gamification.json()["level_progress"]["total_xp"] > 0
+
+
+# ---------------------------------------------------------------------------
+# calendar days use the learner's local timezone, not UTC
+# ---------------------------------------------------------------------------
+
+def _add_session_at(db, user_id, session_id, when, **scores):
+    metric = AnalyticsSessionMetric(
+        user_id=user_id, session_id=session_id, created_at=when, **scores
+    )
+    db.add(metric)
+    db.commit()
+    return metric
+
+
+def test_a_stored_utc_timestamp_is_bucketed_into_the_local_day():
+    # Asia/Colombo is UTC+5:30, so 20:00 UTC is already 01:30 the next morning.
+    assert gamification_service.local_day(datetime(2026, 3, 1, 20, 0)) == date(2026, 3, 2)
+    assert gamification_service.local_day(datetime(2026, 3, 1, 6, 0)) == date(2026, 3, 1)
+
+
+def test_two_late_night_sessions_on_one_local_day_count_as_one_learning_day(db_session):
+    """Guards the timezone fix.
+
+    20:00 and next-morning 06:00 UTC fall on two different UTC days but the same
+    Colombo day, so this must be one learning day with a streak of 1. Bucketing
+    on UTC would report two days and a streak of 2.
+    """
+    user_id = "gam-tz-user"
+    _add_session_at(db_session, user_id, "gam-tz-s1", datetime(2026, 3, 1, 20, 0), overall_score=60)
+    _add_session_at(db_session, user_id, "gam-tz-s2", datetime(2026, 3, 2, 6, 0), overall_score=60)
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    assert result.profile.streak.total_learning_days == 1
+    assert result.profile.streak.longest_streak == 1
+    assert result.profile.session_count == 2
+
+
+# ---------------------------------------------------------------------------
+# recompute: order independence and backdated sessions
+# ---------------------------------------------------------------------------
+
+def test_compute_progress_is_independent_of_input_order():
+    sessions = [
+        gamification_service.SessionSummary(f"s{i}", datetime(2026, 3, i, 9, 0),
+                                            date(2026, 3, i), 70.0)
+        for i in range(1, 6)
+    ]
+    expected = gamification_service.compute_progress(sessions, {})
+
+    shuffled = sessions[:]
+    random.Random(7).shuffle(shuffled)
+    actual = gamification_service.compute_progress(shuffled, {})
+
+    assert actual.total_xp == expected.total_xp
+    assert actual.longest_streak == expected.longest_streak
+    assert actual.learning_days == expected.learning_days
+
+
+def test_a_backdated_session_repairs_the_streak(db_session):
+    """A session that arrives late but happened earlier must be folded in properly.
+
+    Days 1 and 3 alone are not a streak. When the day-2 session shows up
+    afterwards the three days become a run of 3 — an incremental counter would
+    have missed this entirely.
+    """
+    user_id = "gam-backdate-user"
+    _add_session_at(db_session, user_id, "gam-bd-s1", datetime(2026, 4, 1, 9, 0), overall_score=60)
+    _add_session_at(db_session, user_id, "gam-bd-s3", datetime(2026, 4, 3, 9, 0), overall_score=60)
+
+    before = gamification_service.sync_user_gamification(db_session, user_id)
+    assert before.profile.streak.longest_streak == 1
+
+    # the missing middle day is integrated afterwards
+    _add_session_at(db_session, user_id, "gam-bd-s2", datetime(2026, 4, 2, 9, 0), overall_score=60)
+    after = gamification_service.sync_user_gamification(db_session, user_id)
+
+    assert after.profile.streak.longest_streak == 3
+    assert after.profile.streak.total_learning_days == 3
+
+
+def test_repeated_sync_converges_instead_of_accumulating(db_session):
+    user_id = "gam-converge-user"
+    for day in (1, 2, 3):
+        _add_session_at(db_session, user_id, f"gam-cv-s{day}",
+                        datetime(2026, 5, day, 9, 0), overall_score=75)
+
+    totals = [
+        gamification_service.sync_user_gamification(db_session, user_id)
+        .profile.level_progress.total_xp
+        for _ in range(3)
+    ]
+
+    assert totals[0] == totals[1] == totals[2]
+
+
+def test_stored_profile_equals_an_independent_recompute(db_session):
+    """The cache must never drift from the derivation it claims to cache."""
+    user_id = "gam-audit-user"
+    for day in (1, 2, 4):
+        _add_session_at(db_session, user_id, f"gam-au-s{day}",
+                        datetime(2026, 6, day, 9, 0), overall_score=80)
+
+    stored = gamification_service.sync_user_gamification(db_session, user_id).profile
+
+    sessions = gamification_service._session_summaries(db_session, user_id)
+    _, skill_by_session, _ = gamification_service._skill_series(db_session, user_id)
+    replay = gamification_service.compute_progress(sessions, skill_by_session)
+
+    assert stored.level_progress.total_xp == replay.total_xp
+    assert stored.level_progress.level == replay.level
+    assert stored.session_count == replay.session_count
+    assert stored.streak.longest_streak == replay.longest_streak
+
+
+# ---------------------------------------------------------------------------
+# badges fail closed
+# ---------------------------------------------------------------------------
+
+def test_self_aware_is_not_awarded_when_blind_spot_analysis_fails(db_session, monkeypatch):
+    """An unavailable analysis is not evidence of being clean."""
+    user_id = "gam-failclosed-user"
+    _add_session_at(db_session, user_id, "gam-fc-s1", datetime(2026, 7, 1, 9, 0), overall_score=70)
+    db_session.add(FeedbackEntry(user_id=user_id, session_id="gam-fc-s1",
+                                 feedback_type="self", skill_area="speech_fluency", rating=70))
+    db_session.commit()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("blind spot engine unavailable")
+
+    monkeypatch.setattr(blind_spot_service, "detect_user_blind_spots", boom)
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    badge = _badge(result.profile, "self_aware")
+    assert badge.earned is False
+    assert "unavailable" in badge.progress_hint
+    assert db_session.query(UserBadge).filter(
+        UserBadge.user_id == user_id, UserBadge.badge_key == "self_aware"
+    ).count() == 0
+
+
+def test_high_blind_spot_count_reports_unknown_rather_than_zero(db_session, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(blind_spot_service, "detect_user_blind_spots", boom)
+    assert gamification_service._high_blind_spot_count(db_session, "anyone") is None
+
+
+# ---------------------------------------------------------------------------
+# skill XP covers the full history
+# ---------------------------------------------------------------------------
+
+def test_skill_xp_counts_sessions_beyond_the_trend_pages_window(db_session):
+    """Skill XP must not be capped by the Trends page's 100-row read window."""
+    user_id = "gam-window-user"
+    total = 105
+    for i in range(total):
+        db_session.add(AnalyticsSessionMetric(
+            user_id=user_id, session_id=f"gam-win-s{i}",
+            overall_score=80, speech_pace_score=80, clarity_score=80,
+            created_at=datetime(2026, 1, 1) + timedelta(hours=i),
+        ))
+    db_session.commit()
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    by_area = {level.skill_area: level for level in result.profile.skill_levels}
+    # speech_fluency = mean(80, 80) = 80  ->  5 + round(80 * 0.15) = 17 XP per session
+    assert result.profile.session_count == total
+    assert by_area["speech_fluency"].xp == total * 17   # 1785, not the capped 1700
+
+
+# ---------------------------------------------------------------------------
+# reads never claim an award that was not persisted
+# ---------------------------------------------------------------------------
+
+def test_read_does_not_claim_a_badge_that_was_never_persisted(db_session):
+    user_id = "gam-readonly-badge-user"
+    _add_session_at(db_session, user_id, "gam-rb-s1", datetime(2026, 7, 5, 9, 0), overall_score=70)
+
+    profile = gamification_service.get_user_gamification(db_session, user_id)
+
+    badge = _badge(profile, "first_steps")
+    assert badge.earned is False
+    assert badge.progress_percent == 100.0
+    assert badge.progress_hint == "unlocks on your next sync"
+    assert badge.earned_at is None
+
+    # ...and a sync then actually awards it
+    synced = gamification_service.sync_user_gamification(db_session, user_id)
+    assert _badge(synced.profile, "first_steps").earned is True
+
+
+# ---------------------------------------------------------------------------
+# the published formula matches the engine
+# ---------------------------------------------------------------------------
+
+def test_rules_published_in_the_response_match_the_engine_constants(db_session):
+    rules = gamification_service.get_user_gamification(db_session, "gam-rules-user").rules
+
+    assert rules.base_session_xp == gamification_service.BASE_SESSION_XP
+    assert rules.performance_xp_factor == gamification_service.PERFORMANCE_XP_FACTOR
+    assert rules.streak_xp_per_day == gamification_service.STREAK_XP_PER_DAY
+    assert rules.max_streak_bonus_days == gamification_service.MAX_STREAK_BONUS_DAYS
+    assert rules.max_streak_bonus_xp == (
+        gamification_service.STREAK_XP_PER_DAY * gamification_service.MAX_STREAK_BONUS_DAYS
+    )
+    assert rules.level_base_xp == gamification_service.LEVEL_BASE_XP
+    assert rules.level_growth_xp == gamification_service.LEVEL_GROWTH_XP
+    assert rules.timezone
+
+
+def test_api_exposes_rules(client):
+    body = client.get("/api/v1/analytics/users/gam-api-rules/gamification").json()
+    assert body["rules"]["base_session_xp"] == 10
+    assert body["rules"]["max_performance_xp"] == 20
+    assert body["rules"]["max_streak_bonus_xp"] == 14

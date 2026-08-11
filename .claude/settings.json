@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -m alembic upgrade head)",
-      "Bash(python -m alembic upgrade heads)"
+      "Bash(python -m alembic upgrade heads)",
+      "Bash(rm -f test.db)",
+      "Bash(python -m pytest tests/test_gamification.py -q -p no:warnings)"
     ]
   }
 }

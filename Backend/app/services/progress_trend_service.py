@@ -34,12 +34,18 @@ FEEDBACK_SKILL_ALIASES = {
 
 
 def analyze_user_progress_trends(
-    db: Session, user_id: str, session_id: str | None = None
+    db: Session, user_id: str, session_id: str | None = None, limit: int = 100
 ) -> ProgressTrendResult:
+    """Trend lines for the four tracked skills.
+
+    ``limit`` caps how many metric rows are considered (most recent first). The
+    default keeps the Trends page responsive; callers that need the learner's
+    complete history — gamification XP, for example — pass a larger value.
+    """
     cutoff_id = _session_cutoff_id(db, user_id, session_id)
-    metrics = _query_user_metrics(db, user_id, limit=100, cutoff_id=cutoff_id)
+    metrics = _query_user_metrics(db, user_id, limit=limit, cutoff_id=cutoff_id)
     session_ids = {m.session_id for m in metrics} if cutoff_id is not None else None
-    feedback = _query_user_feedback(db, user_id, limit=100, session_ids=session_ids)
+    feedback = _query_user_feedback(db, user_id, limit=limit, session_ids=session_ids)
     trends = [
         _build_skill_trend(skill_area, field, metrics, feedback)
         for skill_area, field in TREND_SCORE_FIELDS.items()

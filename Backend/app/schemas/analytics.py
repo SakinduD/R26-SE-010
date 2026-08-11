@@ -537,6 +537,20 @@ class GamificationXpAward(BaseModel):
     already_scored: bool = False
 
 
+class GamificationRules(BaseModel):
+    """The XP formula, published so the UI never restates it from memory."""
+
+    base_session_xp: int
+    performance_xp_factor: float
+    max_performance_xp: int
+    streak_xp_per_day: int
+    max_streak_bonus_days: int
+    max_streak_bonus_xp: int
+    level_base_xp: int
+    level_growth_xp: int
+    timezone: str
+
+
 class GamificationProfileResult(BaseModel):
     user_id: str
     level_progress: GamificationLevelProgress
@@ -545,6 +559,7 @@ class GamificationProfileResult(BaseModel):
     skill_levels: list[GamificationSkillLevel]
     badges: list[GamificationBadgeItem]
     badge_summary: GamificationBadgeSummary
+    rules: GamificationRules
     generated_at: datetime
     rules_version: str
 

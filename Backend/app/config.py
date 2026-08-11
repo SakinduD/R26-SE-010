@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     apm_rpe_timeout_s: float = 5.0
     apm_demo_mode: bool = False           # enables /apa/demo/* endpoints for live demos
 
+    # Local timezone used whenever a timestamp has to be bucketed into a calendar
+    # day the learner would recognise — learning streaks, "trained today", the
+    # weekly activity strip. Timestamps are stored in UTC; only day boundaries
+    # are localised. IANA name, e.g. "Asia/Colombo", "UTC".
+    app_timezone: str = "Asia/Colombo"
+
     model_config = {
         "env_file": ".env",
         "extra": "ignore",

@@ -8,9 +8,25 @@ Design notes
 Every number here is *derived* from data the analytics module already stores
 (``analytics_session_metrics`` and ``feedback_entries``). The two gamification
 tables are a cache: deleting them and re-running :func:`sync_user_gamification`
-reproduces the exact same state. That keeps the feature auditable and means a
-learner can always be told precisely why a badge unlocked, which is what the
-"transparent explanations for analytics results" requirement asks for.
+reproduces the exact same state.
+
+The whole profile is recomputed from the learner's complete history on every
+sync rather than accumulated incrementally. That costs one extra pass over a few
+dozen rows and buys four properties that matter:
+
+* **Idempotent** — syncing twice can never inflate XP.
+* **Order independent** — a backdated session that arrives late still produces
+  the correct streaks, because streaks are derived from the full set of learning
+  days rather than folded in one session at a time.
+* **Concurrency safe** — two syncs racing converge on the same value instead of
+  double-awarding.
+* **Auditable** — the stored numbers always equal what an independent replay of
+  the raw rows produces, which is what makes a badge defensible.
+
+Calendar days are bucketed in the learner's local timezone (``app_timezone``),
+not UTC. Timestamps are stored in UTC; only the day boundary is localised. In
+Asia/Colombo (UTC+5:30) a session at 00:30 local is 19:00 UTC the previous day,
+so bucketing on UTC would silently break streaks for anyone training at night.
 
 All rules are deterministic and rule-based — no LLM is involved — so an award can
 be reproduced and defended.
@@ -18,13 +34,17 @@ be reproduced and defended.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.analytics import (
     AnalyticsSessionMetric,
     FeedbackEntry,
@@ -36,6 +56,7 @@ from app.schemas.analytics import (
     GamificationBadgeSummary,
     GamificationLevelProgress,
     GamificationProfileResult,
+    GamificationRules,
     GamificationSkillLevel,
     GamificationStreak,
     GamificationSyncResult,
@@ -43,6 +64,8 @@ from app.schemas.analytics import (
 )
 from app.services import blind_spot_service, progress_trend_service
 
+
+logger = logging.getLogger(__name__)
 
 RULES_VERSION = "gamification-rules-v1"
 
@@ -68,12 +91,44 @@ SKILL_PERFORMANCE_XP_FACTOR = 0.15
 
 MAX_LEVEL = 99
 
+# The learner's full history is replayed on every sync, so the trend engine has
+# to hand back every session rather than its default recent window.
+FULL_HISTORY_LIMIT = 10_000
+
 SKILL_LABELS = {
     "vocal_command": "Vocal Command",
     "speech_fluency": "Speech Fluency",
     "presence_engagement": "Presence & Engagement",
     "emotional_intelligence": "Emotional Intelligence",
 }
+
+
+# =============================================================================
+# Calendar days in the learner's timezone
+# =============================================================================
+
+@lru_cache(maxsize=4)
+def _zone(name: str) -> ZoneInfo | timezone:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("Unknown app_timezone %r — falling back to UTC for day bucketing", name)
+        return timezone.utc
+
+
+def _local_zone():
+    return _zone(get_settings().app_timezone)
+
+
+def local_day(moment: datetime) -> date:
+    """Bucket a stored (UTC) timestamp into the learner's local calendar day."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(_local_zone()).date()
+
+
+def today_local() -> date:
+    return datetime.now(timezone.utc).astimezone(_local_zone()).date()
 
 
 # =============================================================================
@@ -112,6 +167,21 @@ def _level_progress(total_xp: int) -> GamificationLevelProgress:
     )
 
 
+def _rules() -> GamificationRules:
+    """The XP formula, published so the UI cannot drift from the engine."""
+    return GamificationRules(
+        base_session_xp=BASE_SESSION_XP,
+        performance_xp_factor=PERFORMANCE_XP_FACTOR,
+        max_performance_xp=round(100 * PERFORMANCE_XP_FACTOR),
+        streak_xp_per_day=STREAK_XP_PER_DAY,
+        max_streak_bonus_days=MAX_STREAK_BONUS_DAYS,
+        max_streak_bonus_xp=STREAK_XP_PER_DAY * MAX_STREAK_BONUS_DAYS,
+        level_base_xp=LEVEL_BASE_XP,
+        level_growth_xp=LEVEL_GROWTH_XP,
+        timezone=get_settings().app_timezone,
+    )
+
+
 # =============================================================================
 # Badge rules
 # =============================================================================
@@ -126,7 +196,9 @@ class BadgeContext:
     total_learning_days: int
     level: int
     self_feedback_count: int
-    high_blind_spot_count: int
+    # None means the blind-spot analysis could not be computed. Rules must treat
+    # that as "unknown", never as "clean" — a badge is not awarded on a guess.
+    high_blind_spot_count: int | None
     improving_skill_count: int
     # skill_area -> chronological list of that skill's session scores
     skill_series: dict[str, list[float]]
@@ -187,6 +259,9 @@ def _self_aware_rule(ctx: BadgeContext) -> tuple[bool, float, str]:
     """Self-assessment submitted and no high-severity blind spot left."""
     if ctx.self_feedback_count < 1:
         return False, 0.0, "submit a self-assessment first"
+    if ctx.high_blind_spot_count is None:
+        # Fail closed: an unavailable analysis is not evidence of being clean.
+        return False, 0.5, "blind spot analysis unavailable — try again later"
     if ctx.high_blind_spot_count > 0:
         return False, 0.5, f"{ctx.high_blind_spot_count} high-severity blind spot(s) to close"
     return True, 1.0, "no high-severity blind spots"
@@ -299,13 +374,14 @@ BADGE_RULES_BY_KEY = {rule.key: rule for rule in BADGE_RULES}
 
 
 # =============================================================================
-# Session extraction
+# Reading the learner's history
 # =============================================================================
 
 @dataclass(frozen=True)
 class SessionSummary:
     session_id: str
     occurred_at: datetime
+    day: date
     overall_score: float | None
 
 
@@ -313,7 +389,8 @@ def _session_summaries(db: Session, user_id: str) -> list[SessionSummary]:
     """One entry per distinct session, oldest first.
 
     A session can produce several metric rows (one per component that reports in),
-    so they are collapsed: earliest timestamp wins, scores are averaged.
+    so they are collapsed: earliest timestamp wins, scores are averaged. No row
+    limit — XP must reflect the learner's entire history.
     """
     metrics = (
         db.query(AnalyticsSessionMetric)
@@ -336,6 +413,7 @@ def _session_summaries(db: Session, user_id: str) -> list[SessionSummary]:
         SessionSummary(
             session_id=session_id,
             occurred_at=occurred_at,
+            day=local_day(occurred_at),
             overall_score=(
                 round(sum(scores[session_id]) / len(scores[session_id]), 2)
                 if scores.get(session_id)
@@ -348,12 +426,16 @@ def _session_summaries(db: Session, user_id: str) -> list[SessionSummary]:
     return summaries
 
 
-def _skill_series(db: Session, user_id: str) -> tuple[dict[str, list[float]], dict[str, dict[str, float]], int]:
+def _skill_series(
+    db: Session, user_id: str
+) -> tuple[dict[str, list[float]], dict[str, dict[str, float]], int]:
     """Per-skill score history, reusing the trend engine so numbers always agree.
 
     Returns ``(series, score_by_skill_and_session, improving_skill_count)``.
     """
-    trends = progress_trend_service.analyze_user_progress_trends(db, user_id)
+    trends = progress_trend_service.analyze_user_progress_trends(
+        db, user_id, limit=FULL_HISTORY_LIMIT
+    )
 
     series: dict[str, list[float]] = {}
     by_session: dict[str, dict[str, float]] = {}
@@ -380,101 +462,116 @@ def _self_feedback_count(db: Session, user_id: str) -> int:
     )
 
 
-def _high_blind_spot_count(db: Session, user_id: str) -> int:
+def _high_blind_spot_count(db: Session, user_id: str) -> int | None:
+    """High-severity blind spots, or None when the analysis could not be run.
+
+    Returning None rather than 0 matters: the Self Aware badge is awarded for
+    having *no* high-severity blind spots, so a failure that looked like 0 would
+    hand out the badge on no evidence at all.
+    """
     try:
         return blind_spot_service.detect_user_blind_spots(db, user_id).summary.high_count
-    except Exception:  # blind spot analysis is advisory here — never block XP
-        return 0
+    except Exception:
+        logger.exception("Blind spot analysis failed for user %s — treating as unknown", user_id)
+        return None
 
 
 # =============================================================================
-# Profile persistence
+# Derived state — pure functions of the history
 # =============================================================================
 
-def _get_or_create_profile(db: Session, user_id: str) -> UserGamificationProfile:
-    profile = (
-        db.query(UserGamificationProfile)
-        .filter(UserGamificationProfile.user_id == user_id)
-        .one_or_none()
-    )
-    if profile is not None:
-        return profile
+def _streak_by_day(days: set[date]) -> dict[date, int]:
+    """Length of the consecutive-day run ending on each learning day.
 
-    profile = UserGamificationProfile(
-        user_id=user_id,
-        total_xp=0,
-        level=1,
-        current_streak=0,
-        longest_streak=0,
-        total_learning_days=0,
-        session_count=0,
-        skill_xp={},
-        scored_session_ids=[],
-        rules_version=RULES_VERSION,
-    )
-    db.add(profile)
-    db.flush()
-    return profile
-
-
-def _advance_streak(profile: UserGamificationProfile, activity_day: date) -> None:
-    """Fold one training day into the streak counters.
-
-    Sessions are replayed oldest-first, so ``activity_day`` never moves backwards
-    in normal operation; an out-of-order day is ignored rather than resetting a
-    streak the learner legitimately earned.
+    Deriving this from the complete day set (rather than folding one session in
+    at a time) is what makes a late-arriving backdated session produce the right
+    answer.
     """
-    last = profile.last_activity_date
+    result: dict[date, int] = {}
+    run = 0
+    previous: date | None = None
 
-    if last is not None and activity_day <= last:
-        return
+    for day in sorted(days):
+        run = run + 1 if previous is not None and day - previous == timedelta(days=1) else 1
+        result[day] = run
+        previous = day
 
-    if last is not None and activity_day - last == timedelta(days=1):
-        profile.current_streak = (profile.current_streak or 0) + 1
-    else:
-        profile.current_streak = 1
-
-    profile.longest_streak = max(profile.longest_streak or 0, profile.current_streak)
-    profile.total_learning_days = (profile.total_learning_days or 0) + 1
-    profile.last_activity_date = activity_day
+    return result
 
 
-def _award_session_xp(
-    profile: UserGamificationProfile,
-    summary: SessionSummary,
-    skill_scores_by_session: dict[str, dict[str, float]],
-) -> GamificationXpAward:
-    _advance_streak(profile, summary.occurred_at.date())
-
-    performance_xp = (
-        int(round(summary.overall_score * PERFORMANCE_XP_FACTOR))
-        if summary.overall_score is not None
-        else 0
+def _session_xp(overall_score: float | None, streak_on_that_day: int) -> tuple[int, int, int]:
+    """``(base, performance, streak_bonus)`` for one session."""
+    performance = (
+        int(round(overall_score * PERFORMANCE_XP_FACTOR)) if overall_score is not None else 0
     )
-    streak_bonus = min(profile.current_streak or 0, MAX_STREAK_BONUS_DAYS) * STREAK_XP_PER_DAY
-    total = BASE_SESSION_XP + performance_xp + streak_bonus
+    bonus = min(streak_on_that_day, MAX_STREAK_BONUS_DAYS) * STREAK_XP_PER_DAY
+    return BASE_SESSION_XP, performance, bonus
 
-    profile.total_xp = (profile.total_xp or 0) + total
-    profile.session_count = (profile.session_count or 0) + 1
 
-    skill_xp = dict(profile.skill_xp or {})
-    for skill_area, per_session in skill_scores_by_session.items():
-        score = per_session.get(summary.session_id)
-        if score is None:
-            continue
-        gained = SKILL_BASE_XP + int(round(score * SKILL_PERFORMANCE_XP_FACTOR))
-        skill_xp[skill_area] = int(skill_xp.get(skill_area, 0)) + gained
-    profile.skill_xp = skill_xp
+@dataclass(frozen=True)
+class ComputedProgress:
+    total_xp: int
+    level: int
+    session_count: int
+    learning_days: set[date]
+    streak_by_day: dict[date, int]
+    current_streak: int
+    longest_streak: int
+    last_activity_day: date | None
+    skill_xp: dict[str, int]
+    awards: list[GamificationXpAward]
 
-    profile.scored_session_ids = [*(profile.scored_session_ids or []), summary.session_id]
 
-    return GamificationXpAward(
-        session_id=summary.session_id,
-        base_xp=BASE_SESSION_XP,
-        performance_xp=performance_xp,
-        streak_bonus_xp=streak_bonus,
-        total_xp_awarded=total,
-        overall_score=summary.overall_score,
+def compute_progress(
+    sessions: list[SessionSummary],
+    skill_by_session: dict[str, dict[str, float]],
+) -> ComputedProgress:
+    """Recompute the learner's entire gamification state from their history.
+
+    Pure — same inputs always give the same outputs, in any order.
+    """
+    days = {session.day for session in sessions}
+    streak_by_day = _streak_by_day(days)
+
+    total_xp = 0
+    awards: list[GamificationXpAward] = []
+
+    for session in sessions:
+        base, performance, bonus = _session_xp(session.overall_score, streak_by_day[session.day])
+        total_xp += base + performance + bonus
+        awards.append(
+            GamificationXpAward(
+                session_id=session.session_id,
+                base_xp=base,
+                performance_xp=performance,
+                streak_bonus_xp=bonus,
+                total_xp_awarded=base + performance + bonus,
+                overall_score=session.overall_score,
+            )
+        )
+
+    scored_session_ids = {session.session_id for session in sessions}
+    skill_xp: dict[str, int] = {}
+    for skill_area, per_session in skill_by_session.items():
+        earned = 0
+        for session_id, score in per_session.items():
+            if session_id not in scored_session_ids or score is None:
+                continue
+            earned += SKILL_BASE_XP + int(round(score * SKILL_PERFORMANCE_XP_FACTOR))
+        skill_xp[skill_area] = earned
+
+    last_day = max(days) if days else None
+    return ComputedProgress(
+        total_xp=total_xp,
+        level=resolve_level(total_xp, LEVEL_BASE_XP, LEVEL_GROWTH_XP)[0],
+        session_count=len(sessions),
+        learning_days=days,
+        streak_by_day=streak_by_day,
+        current_streak=streak_by_day[last_day] if last_day else 0,
+        longest_streak=max(streak_by_day.values()) if streak_by_day else 0,
+        last_activity_day=last_day,
+        skill_xp=skill_xp,
+        awards=awards,
     )
 
 
@@ -490,8 +587,9 @@ def _evaluate_badges(
 ) -> tuple[list[GamificationBadgeItem], list[GamificationBadgeItem]]:
     """Return ``(all_badges, newly_earned)``.
 
-    When ``persist`` is false the rules are still evaluated, but nothing is
-    written — that keeps the read endpoint free of side effects.
+    With ``persist`` false nothing is written and a badge is only reported as
+    earned if it is already recorded — a read must never claim an award that
+    does not exist yet.
     """
     existing = {
         badge.badge_key: badge
@@ -503,13 +601,15 @@ def _evaluate_badges(
 
     for rule in BADGE_RULES:
         already = existing.get(rule.key)
-        earned, progress, hint = rule.evaluate(context)
-
         if already is not None:
-            items.append(_badge_item(rule, earned=True, earned_at=already.earned_at, progress=1.0, hint=None))
+            items.append(
+                _badge_item(rule, earned=True, earned_at=already.earned_at, progress=1.0, hint=None)
+            )
             continue
 
-        if earned and persist:
+        qualifies, progress, hint = rule.evaluate(context)
+
+        if qualifies and persist:
             record = UserBadge(
                 user_id=user_id,
                 badge_key=rule.key,
@@ -529,10 +629,10 @@ def _evaluate_badges(
         items.append(
             _badge_item(
                 rule,
-                earned=earned,
+                earned=False,
                 earned_at=None,
-                progress=1.0 if earned else progress,
-                hint=hint,
+                progress=1.0 if qualifies else progress,
+                hint="unlocks on your next sync" if qualifies else hint,
             )
         )
 
@@ -565,40 +665,30 @@ def _badge_item(
 # Result assembly
 # =============================================================================
 
-def _week_activity(db: Session, user_id: str, today: date) -> list[bool]:
-    """Mon..Sun flags for the current calendar week."""
+def _week_activity(learning_days: set[date], today: date) -> list[bool]:
+    """Mon..Sun flags for the current local calendar week."""
     monday = today - timedelta(days=today.weekday())
-    rows = (
-        db.query(AnalyticsSessionMetric.created_at)
-        .filter(
-            AnalyticsSessionMetric.user_id == user_id,
-            AnalyticsSessionMetric.created_at >= datetime.combine(monday, datetime.min.time()),
-        )
-        .all()
-    )
-    active_days = {row[0].date() for row in rows if row[0] is not None}
-    return [(monday + timedelta(days=offset)) in active_days for offset in range(7)]
+    return [(monday + timedelta(days=offset)) in learning_days for offset in range(7)]
 
 
-def _build_streak(profile: UserGamificationProfile, week_activity: list[bool], today: date) -> GamificationStreak:
-    last = profile.last_activity_date
+def _build_streak(progress: ComputedProgress, today: date) -> GamificationStreak:
+    last = progress.last_activity_day
     # A streak only survives if the learner trained today or yesterday.
     broken = last is None or (today - last) > timedelta(days=1)
     return GamificationStreak(
-        current_streak=0 if broken else (profile.current_streak or 0),
-        longest_streak=profile.longest_streak or 0,
-        total_learning_days=profile.total_learning_days or 0,
+        current_streak=0 if broken else progress.current_streak,
+        longest_streak=progress.longest_streak,
+        total_learning_days=len(progress.learning_days),
         last_activity_date=last,
         active_today=last == today,
-        week_activity=week_activity,
+        week_activity=_week_activity(progress.learning_days, today),
     )
 
 
 def _build_skill_levels(
-    profile: UserGamificationProfile,
+    skill_xp: dict[str, int],
     skill_series: dict[str, list[float]],
 ) -> list[GamificationSkillLevel]:
-    skill_xp = profile.skill_xp or {}
     levels = []
 
     for skill_area, label in SKILL_LABELS.items():
@@ -623,16 +713,18 @@ def _build_skill_levels(
 def _build_context(
     db: Session,
     user_id: str,
-    profile: UserGamificationProfile,
+    progress: ComputedProgress,
     skill_series: dict[str, list[float]],
     improving_skill_count: int,
+    today: date,
 ) -> BadgeContext:
+    streak = _build_streak(progress, today)
     return BadgeContext(
-        session_count=profile.session_count or 0,
-        current_streak=profile.current_streak or 0,
-        longest_streak=profile.longest_streak or 0,
-        total_learning_days=profile.total_learning_days or 0,
-        level=resolve_level(profile.total_xp or 0, LEVEL_BASE_XP, LEVEL_GROWTH_XP)[0],
+        session_count=progress.session_count,
+        current_streak=streak.current_streak,
+        longest_streak=progress.longest_streak,
+        total_learning_days=len(progress.learning_days),
+        level=progress.level,
         self_feedback_count=_self_feedback_count(db, user_id),
         high_blind_spot_count=_high_blind_spot_count(db, user_id),
         improving_skill_count=improving_skill_count,
@@ -641,13 +733,12 @@ def _build_context(
 
 
 def _build_profile_result(
-    db: Session,
     user_id: str,
-    profile: UserGamificationProfile,
+    progress: ComputedProgress,
     skill_series: dict[str, list[float]],
     badges: list[GamificationBadgeItem],
+    today: date,
 ) -> GamificationProfileResult:
-    today = datetime.utcnow().date()
     earned = [badge for badge in badges if badge.earned]
     latest = max(
         (badge for badge in earned if badge.earned_at is not None),
@@ -657,19 +748,28 @@ def _build_profile_result(
 
     return GamificationProfileResult(
         user_id=user_id,
-        level_progress=_level_progress(profile.total_xp or 0),
-        streak=_build_streak(profile, _week_activity(db, user_id, today), today),
-        session_count=profile.session_count or 0,
-        skill_levels=_build_skill_levels(profile, skill_series),
+        level_progress=_level_progress(progress.total_xp),
+        streak=_build_streak(progress, today),
+        session_count=progress.session_count,
+        skill_levels=_build_skill_levels(progress.skill_xp, skill_series),
         badges=badges,
         badge_summary=GamificationBadgeSummary(
             earned_count=len(earned),
             total_count=len(BADGE_RULES),
             latest_badge=latest,
         ),
+        rules=_rules(),
         generated_at=datetime.utcnow(),
         rules_version=RULES_VERSION,
     )
+
+
+def _load_progress(db: Session, user_id: str):
+    """Shared read path: history in, fully derived progress out."""
+    sessions = _session_summaries(db, user_id)
+    skill_series, skill_by_session, improving = _skill_series(db, user_id)
+    progress = compute_progress(sessions, skill_by_session)
+    return progress, skill_series, improving
 
 
 # =============================================================================
@@ -678,61 +778,57 @@ def _build_profile_result(
 
 def get_user_gamification(db: Session, user_id: str) -> GamificationProfileResult:
     """Read the learner's current gamification state. No writes."""
+    progress, skill_series, improving = _load_progress(db, user_id)
+    today = today_local()
+    context = _build_context(db, user_id, progress, skill_series, improving, today)
+    badges, _ = _evaluate_badges(db, user_id, context, persist=False)
+    return _build_profile_result(user_id, progress, skill_series, badges, today)
+
+
+def sync_user_gamification(db: Session, user_id: str) -> GamificationSyncResult:
+    """Recompute the profile from the learner's full history and persist it.
+
+    Idempotent by construction: the stored values are a pure function of the
+    recorded sessions, so repeating this — or racing two of them — converges on
+    the same numbers rather than accumulating.
+    """
+    progress, skill_series, improving = _load_progress(db, user_id)
+    today = today_local()
+
     profile = (
         db.query(UserGamificationProfile)
         .filter(UserGamificationProfile.user_id == user_id)
         .one_or_none()
     )
     if profile is None:
-        profile = UserGamificationProfile(
-            user_id=user_id,
-            total_xp=0,
-            level=1,
-            current_streak=0,
-            longest_streak=0,
-            total_learning_days=0,
-            session_count=0,
-            skill_xp={},
-            scored_session_ids=[],
-            rules_version=RULES_VERSION,
-        )
+        profile = UserGamificationProfile(user_id=user_id)
+        db.add(profile)
 
-    skill_series, _, improving = _skill_series(db, user_id)
-    context = _build_context(db, user_id, profile, skill_series, improving)
-    badges, _ = _evaluate_badges(db, user_id, context, persist=False)
-    return _build_profile_result(db, user_id, profile, skill_series, badges)
+    previously_scored = set(profile.scored_session_ids or [])
+    all_session_ids = [award.session_id for award in progress.awards]
+    new_awards = [award for award in progress.awards if award.session_id not in previously_scored]
 
-
-def sync_user_gamification(db: Session, user_id: str) -> GamificationSyncResult:
-    """Replay any not-yet-scored sessions, then re-evaluate every badge rule.
-
-    Idempotent: sessions already listed in ``scored_session_ids`` are skipped, so
-    calling this repeatedly (or after a failed request) never inflates XP.
-    """
-    profile = _get_or_create_profile(db, user_id)
-    skill_series, skill_by_session, improving = _skill_series(db, user_id)
-
-    already_scored = set(profile.scored_session_ids or [])
-    awards: list[GamificationXpAward] = []
-
-    for summary in _session_summaries(db, user_id):
-        if summary.session_id in already_scored:
-            continue
-        awards.append(_award_session_xp(profile, summary, skill_by_session))
-
-    profile.level = resolve_level(profile.total_xp or 0, LEVEL_BASE_XP, LEVEL_GROWTH_XP)[0]
+    streak = _build_streak(progress, today)
+    profile.total_xp = progress.total_xp
+    profile.level = progress.level
+    profile.session_count = progress.session_count
+    profile.current_streak = streak.current_streak
+    profile.longest_streak = progress.longest_streak
+    profile.total_learning_days = len(progress.learning_days)
+    profile.last_activity_date = progress.last_activity_day
+    profile.skill_xp = dict(progress.skill_xp)
+    profile.scored_session_ids = all_session_ids
     profile.rules_version = RULES_VERSION
 
-    context = _build_context(db, user_id, profile, skill_series, improving)
+    context = _build_context(db, user_id, progress, skill_series, improving, today)
     badges, newly_earned = _evaluate_badges(db, user_id, context, persist=True)
 
     db.commit()
-    db.refresh(profile)
 
     return GamificationSyncResult(
         user_id=user_id,
-        profile=_build_profile_result(db, user_id, profile, skill_series, badges),
-        awards=awards,
+        profile=_build_profile_result(user_id, progress, skill_series, badges, today),
+        awards=new_awards,
         newly_earned_badges=newly_earned,
-        xp_gained=sum(award.total_xp_awarded for award in awards),
+        xp_gained=sum(award.total_xp_awarded for award in new_awards),
     )
