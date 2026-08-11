@@ -12,7 +12,11 @@ import { cn } from '@/lib/utils'
 
 const DIFFICULTY_TONE = { beginner: 'success', intermediate: 'warning', advanced: 'danger' }
 const NPC_TONE_TONE   = { cooperative: 'success', neutral: 'warning', hostile: 'danger' }
-const EMOTION_TONE    = { calm: 'success', assertive: 'accent', anxious: 'warning', frustrated: 'danger', confused: 'neutral' }
+// NPC's own emotional reaction (8-value) — see rpe_llm_service.NPCResponse.emotion
+const EMOTION_TONE = {
+  neutral: 'neutral', happy: 'success', surprised: 'warning', frustrated: 'orange',
+  sad: 'sad', skeptical: 'accent', angry: 'danger', thinking: 'indigo',
+}
 
 const SECTIONS = [
   { value: 'overview', label: 'Overview'           },
@@ -418,6 +422,9 @@ const FEEDBACK_STYLES = `
   .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
   .pill.accent{  color:var(--accent);  background:var(--accent-glow); }
   .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
+  .pill.orange{ color:#DB7B2B; background:rgba(219,123,43,0.12); }
+  .pill.sad{    color:#6E9BC7; background:rgba(110,155,199,0.12); }
+  .pill.indigo{ color:#5B7CE0; background:rgba(91,124,224,0.12); }
   .pill-row{ display:flex; flex-wrap:wrap; gap:8px; }
 
   .callout{ font-size:12.5px; font-weight:600; margin:12px 0 0; }
@@ -433,6 +440,9 @@ const FEEDBACK_STYLES = `
   .emotion-fill.danger{  background:var(--danger); }
   .emotion-fill.accent{  background:var(--accent); }
   .emotion-fill.neutral{ background:var(--text-low); }
+  .emotion-fill.orange{ background:#DB7B2B; }
+  .emotion-fill.sad{    background:#6E9BC7; }
+  .emotion-fill.indigo{ background:#5B7CE0; }
   .emotion-count{ font-size:11.5px; color:var(--text-med); width:78px; text-align:right; font-variant-numeric:tabular-nums; flex-shrink:0; }
 
   .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:10px; animation:cinemaShimmer 1.4s ease-in-out infinite; }

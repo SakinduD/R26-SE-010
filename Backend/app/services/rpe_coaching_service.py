@@ -1,18 +1,6 @@
-import json
+import asyncio
 
-from app.config import get_settings
-
-_FALLBACK_ADVICE = {
-    "overall_rating": "needs_work",
-    "summary":        "Session complete. Review your turn-by-turn performance below.",
-    "advice": [
-        "Focus on staying calm and assertive throughout the conversation.",
-        "Use empathetic language early to build trust with the NPC.",
-        "When escalation rises, slow down and acknowledge the NPC's concern.",
-    ],
-    "strengths":   ["Completed the session"],
-    "focus_areas": ["Trust building", "Escalation management"],
-}
+from app.services import rpe_llm_service
 
 _SYSTEM_PROMPT = (
     "You are an expert workplace soft skills coach. "
@@ -28,13 +16,10 @@ _SYSTEM_PROMPT = (
 
 
 class RpeCoachingService:
-    def __init__(self) -> None:
-        api_key = get_settings().groq_api_key
-        if api_key:
-            from groq import Groq
-            self._client = Groq(api_key=api_key)
-        else:
-            self._client = None
+    """
+    Builds coaching-advice prompts from session/turn data and hands them to
+    rpe_llm_service — the only place that talks to an LLM provider SDK.
+    """
 
     def generate_advice(
         self,
@@ -45,31 +30,15 @@ class RpeCoachingService:
         blind_spots:  list[dict],
         end_reason:   str | None = None,
     ) -> dict:
-        if not self._client:
-            rating = "good" if session.get("outcome") == "success" else "needs_work"
-            fallback = dict(_FALLBACK_ADVICE)
-            fallback["overall_rating"] = rating
-            return fallback
-
         prompt = self._build_prompt(
             session, scenario, turn_metrics, risk_flags, blind_spots, end_reason
         )
-        try:
-            response = self._client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user",   "content": prompt},
-                ],
-                max_tokens=600,
+        response = asyncio.run(
+            rpe_llm_service.get_coaching_response(
+                prompt, _SYSTEM_PROMPT, session.get("outcome")
             )
-            raw = response.choices[0].message.content
-            return self._parse_response(raw, session)
-        except Exception:
-            rating = "good" if session.get("outcome") == "success" else "needs_work"
-            fallback = dict(_FALLBACK_ADVICE)
-            fallback["overall_rating"] = rating
-            return fallback
+        )
+        return response.model_dump()
 
     def _build_prompt(
         self,
@@ -101,13 +70,3 @@ class RpeCoachingService:
             f"Blind Spots Detected: {spot_summary}\n\n"
             f"Generate coaching feedback for this learner."
         )
-
-    def _parse_response(self, raw: str, session: dict) -> dict:
-        try:
-            clean = raw.strip().replace("```json", "").replace("```", "")
-            return json.loads(clean)
-        except Exception:
-            rating = "good" if session.get("outcome") == "success" else "needs_work"
-            fallback = dict(_FALLBACK_ADVICE)
-            fallback["overall_rating"] = rating
-            return fallback

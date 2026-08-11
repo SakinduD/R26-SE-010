@@ -114,10 +114,10 @@ def session_respond(
 
         scenario = rpe_scenario_service.get_scenario(state.scenario_id)
 
-        # 1. Profanity check first — bypasses Groq classification
+        # 1. Profanity check first — bypasses LLM classification
         is_profane: bool = rpe_emotion_service.is_profanity(payload.user_input)
 
-        # 2. Combined NPC response + emotion from Groq (returns dict)
+        # 2. Combined NPC response + emotion + animation (OpenAI or Groq, per USE_OPENAI)
         result       = rpe_npc_service.generate_response(
             user_input       = payload.user_input,
             opening_npc_line = opening_npc_line,
@@ -130,15 +130,14 @@ def session_respond(
             npc_behaviour    = scenario.npc_behaviour,
         )
         npc_response = result["npc_response"]
+        animation    = result.get("animation")
 
-        # 3. Profanity override wins over Groq classification
+        # 3. Profanity override wins over LLM classification
         emotion: str = "frustrated" if is_profane else result["detected_emotion"]
 
         # 4. Trust / escalation update
         new_trust = rpe_emotion_service.update_trust(current_trust, emotion, payload.user_input)
         new_esc   = rpe_emotion_service.update_escalation(current_esc, emotion)
-        if is_profane:
-            new_esc = min(5, new_esc + rpe_emotion_service.profanity_escalation_penalty(payload.user_input))
 
         turn_number = rpe_session_service.advance_turn(payload.session_id)
         turn_data = {
@@ -178,6 +177,10 @@ def session_respond(
                     else "failure"
                 )
         else:
+            profanity_count = sum(
+                1 for t in session_data.get("turns", [])
+                if rpe_emotion_service.is_profanity(t.get("user_input", ""))
+            )
             should_end, end_reason = rpe_session_service.should_end_session(
                 session_id        = payload.session_id,
                 max_turns         = scenario.max_turns,
@@ -186,6 +189,7 @@ def session_respond(
                 trust_history     = trust_history,
                 escalation_level  = new_esc,
                 current_turn      = turn_number,
+                profanity_count   = profanity_count,
             )
 
             if should_end:
@@ -212,6 +216,7 @@ def session_respond(
         return RespondResponse(
             npc_response=npc_response,
             emotion=emotion,
+            animation=animation,
             trust_score=new_trust,
             escalation_level=new_esc,
             turn=turn_number,

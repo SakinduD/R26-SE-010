@@ -1,8 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2 } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
+import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
+import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
+
+// NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
+// the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
+const EMOTION_META = {
+  neutral:    { color: '#8B949E', glow: 'rgba(139,148,158,0.10)', Icon: Meh },
+  happy:      { color: '#3FB950', glow: 'rgba(63,185,80,0.10)',   Icon: Smile },
+  surprised:  { color: '#D29922', glow: 'rgba(210,153,34,0.10)',  Icon: AlertCircle },
+  frustrated: { color: '#DB7B2B', glow: 'rgba(219,123,43,0.10)',  Icon: AlertTriangle },
+  sad:        { color: '#6E9BC7', glow: 'rgba(110,155,199,0.10)', Icon: Frown },
+  skeptical:  { color: '#7C3AED', glow: 'rgba(124,58,237,0.10)',  Icon: HelpCircle },
+  angry:      { color: '#F85149', glow: 'rgba(248,81,73,0.12)',   Icon: Angry },
+  thinking:   { color: '#5B7CE0', glow: 'rgba(91,124,224,0.10)',  Icon: Brain },
+}
 
 const END_REASON_COPY = {
   natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
@@ -11,11 +26,6 @@ const END_REASON_COPY = {
   trust_sustained:    { icon: '🎉', title: 'Trust Built',              sub: 'You built enough trust to resolve the situation.' },
   max_turns_reached:  { icon: '⏱', title: 'Maximum Turns Reached',    sub: 'Session ended at the turn limit.' },
 }
-
-const SpeechRecognitionApi =
-  typeof window !== 'undefined'
-    ? window.SpeechRecognition || window.webkitSpeechRecognition
-    : null
 
 const formatDuration = (totalSeconds) => {
   const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0')
@@ -35,13 +45,15 @@ export default function RolePlaySession() {
 
   const bottomRef            = useRef(null)
   const transcriptRef        = useRef(null)
-  const recognitionRef       = useRef(null)
   const startListeningRef    = useRef(() => {})
+  const stopListeningRef     = useRef(() => {})
   const shouldListenRef      = useRef(false)
   const listenFailuresRef    = useRef(0)
   const isNearBottomRef      = useRef(true)
   const completeTimeoutRef   = useRef(null)
   const completeNavStateRef  = useRef(null)
+  const headRef              = useRef(null)
+  const openingSpokenRef     = useRef(false)
 
   const [messages, setMessages]               = useState([])
   const [userInput, setUserInput]             = useState('')
@@ -52,9 +64,11 @@ export default function RolePlaySession() {
   const [endReason, setEndReason]             = useState(null)
   const [showScrollPill, setShowScrollPill]   = useState(false)
   const [elapsedSeconds, setElapsedSeconds]   = useState(0)
+  // Not driven visually yet (3D character is a later step) — kept in state so
+  // it's available and inspectable per turn.
+  const [lastAnimation, setLastAnimation]     = useState(null)
 
-  const [autoMicEnabled, setAutoMicEnabled] = useState(!!SpeechRecognitionApi)
-  const [isListening, setIsListening]       = useState(false)
+  const [autoMicEnabled, setAutoMicEnabled] = useState(canRecord)
   const [npcSpeaking, setNpcSpeaking]       = useState(false)
 
   const [recommendedTurns, setRecommendedTurns] = useState(
@@ -92,7 +106,23 @@ export default function RolePlaySession() {
 
   const speak = useCallback((text) => {
     return new Promise((resolve) => {
-      if (!window.speechSynthesis || !text) { resolve(); return }
+      if (!text) { resolve(); return }
+
+      const head = headRef.current
+      if (head) {
+        // Real avatar voice (Google TTS via /api/gtts) + lip sync.
+        // speakText() queues the utterance; speakMarker() queues a marker
+        // right after it, whose callback fires once the queue reaches that
+        // point — i.e. once the utterance has finished playing.
+        setNpcSpeaking(true)
+        head.speakText(text)
+        head.speakMarker(() => { setNpcSpeaking(false); resolve() })
+        return
+      }
+
+      // Fallback: avatar not loaded/available yet — browser TTS so the
+      // session still has a voice instead of silence.
+      if (!window.speechSynthesis) { resolve(); return }
       window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.onstart = () => setNpcSpeaking(true)
@@ -102,13 +132,19 @@ export default function RolePlaySession() {
     })
   }, [])
 
+  const speakOpeningLine = useCallback(() => {
+    if (openingSpokenRef.current) return
+    openingSpokenRef.current = true
+    speak(openingNpcLine).then(() => {
+      if (autoMicEnabled) startListeningRef.current()
+    })
+  }, [speak, openingNpcLine, autoMicEnabled])
+
   const handleSendWithText = useCallback(async (rawInput) => {
     const input = (rawInput ?? '').trim()
     if (!input || isLoading || sessionComplete) return
 
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch { /* already stopped */ }
-    }
+    stopListeningRef.current()
 
     setMessages(prev => [...prev, { role: 'user', message: input }])
     setUserInput('')
@@ -117,17 +153,18 @@ export default function RolePlaySession() {
     try {
       const response = await rpeService.sendTurn(sessionId, input)
       setCurrentTurn(response.turn)
+      setLastAnimation(response.animation)
+      if (import.meta.env.DEV) {
+        console.log('[RPE] turn', response.turn, '| emotion:', response.emotion, '| animation:', response.animation)
+      }
 
       setMessages(prev => [
         ...prev,
-        { role: 'npc', message: response.npc_response },
+        { role: 'npc', message: response.npc_response, emotion: response.emotion },
       ])
 
       if (response.session_complete) {
         shouldListenRef.current = false
-        setSessionComplete(true)
-        setOutcome(response.outcome)
-        setEndReason(response.end_reason)
 
         completeNavStateRef.current = {
           sessionId,
@@ -143,7 +180,15 @@ export default function RolePlaySession() {
           currentTurn:     response.turn,
         }
 
+        // Let the avatar finish speaking the NPC's final line before
+        // showing the "Session Complete" overlay — sessionComplete drives
+        // data-voice-state="complete", which is what makes the overlay
+        // visible, so setting it any earlier popped the notice up mid-speech.
         await speak(response.npc_response)
+
+        setSessionComplete(true)
+        setOutcome(response.outcome)
+        setEndReason(response.end_reason)
 
         completeTimeoutRef.current = setTimeout(() => {
           navigate('/roleplay/session/complete', { state: completeNavStateRef.current })
@@ -170,54 +215,41 @@ export default function RolePlaySession() {
     }
   }
 
-  const startListening = useCallback(() => {
-    if (!SpeechRecognitionApi || !shouldListenRef.current) return
-
-    const recognition = new SpeechRecognitionApi()
-    recognition.lang            = 'en-US'
-    recognition.interimResults  = false
-    recognition.maxAlternatives = 1
-
-    let gotResult = false
-
-    recognition.onstart = () => setIsListening(true)
-    recognition.onresult = (event) => {
-      gotResult = true
+  const { isListening, startListening: startRecording, stopListening } = useVoiceRecorder({
+    onResult: (transcript) => {
       listenFailuresRef.current = 0
-      const transcript = event.results[0][0].transcript
-      setIsListening(false)
       handleSendWithText(transcript)
-    }
-    recognition.onerror = (event) => {
-      setIsListening(false)
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+    },
+    // Recorded but nothing understood (silence/noise only) — just listen again.
+    onEmpty: () => {
+      if (shouldListenRef.current) setTimeout(() => startListeningRef.current(), 300)
+    },
+    // /api/stt request failed (network, backend, Google STT) — retry like
+    // SpeechRecognition's old 'network' error, then give up after 3 strikes.
+    onError: () => {
+      listenFailuresRef.current += 1
+      if (listenFailuresRef.current >= 3) {
+        listenFailuresRef.current = 0
         setAutoMicEnabled(false)
-      } else if (event.error === 'network') {
-        // Speech recognition backend unreachable — e.g. Brave strips the
-        // Google API key Chromium normally uses, so this never recovers.
-        setAutoMicEnabled(false)
+      } else if (shouldListenRef.current) {
+        setTimeout(() => startListeningRef.current(), 300)
       }
-    }
-    recognition.onend = () => {
-      setIsListening(false)
-      if (!gotResult && shouldListenRef.current) {
-        listenFailuresRef.current += 1
-        if (listenFailuresRef.current >= 3) {
-          listenFailuresRef.current = 0
-          setAutoMicEnabled(false)
-        } else {
-          setTimeout(() => startListeningRef.current(), 300)
-        }
-      }
-    }
+    },
+    onPermissionDenied: () => setAutoMicEnabled(false),
+  })
 
-    recognitionRef.current = recognition
-    try { recognition.start() } catch { /* recognition already active */ }
-  }, [handleSendWithText])
+  const startListening = useCallback(() => {
+    if (!shouldListenRef.current) return
+    startRecording()
+  }, [startRecording])
 
   useEffect(() => {
     startListeningRef.current = startListening
   }, [startListening])
+
+  useEffect(() => {
+    stopListeningRef.current = stopListening
+  }, [stopListening])
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
@@ -233,15 +265,14 @@ export default function RolePlaySession() {
         .catch(() => {})
     }
 
-    speak(openingNpcLine).then(() => {
-      if (autoMicEnabled) startListeningRef.current()
-    })
+    // Opening line is spoken once the avatar is ready (or has failed to
+    // load) — see the TalkingHeadAvatar onReady/onError handlers below.
+    // Speaking it here immediately would almost always fire before the
+    // avatar finishes loading and fall back to the robotic browser voice.
 
     return () => {
       shouldListenRef.current = false
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop() } catch { /* already stopped */ }
-      }
+      stopListeningRef.current()
       if (window.speechSynthesis) window.speechSynthesis.cancel()
       if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current)
     }
@@ -313,6 +344,20 @@ export default function RolePlaySession() {
 
         {/* ── Main column ─────────────────────────────────── */}
         <main className="main">
+          <div className="main-split">
+            {/* Character panel — TalkingHead 3D avatar. Speaks every NPC
+                line (opening + turns) via speak(), which routes through
+                headRef once the avatar is ready. */}
+            <div className="character-panel">
+              <TalkingHeadAvatar
+                onReady={(head) => { headRef.current = head; speakOpeningLine() }}
+                onError={() => speakOpeningLine()}
+                className="character-avatar"
+              />
+            </div>
+
+            {/* Conversation panel — existing chat UI, unchanged. */}
+            <div className="conversation-panel">
           <div className="topbar">
             <button type="button" className="back-btn" onClick={() => navigate('/roleplay')} aria-label="Back">
               <ArrowLeft size={16} strokeWidth={1.8} />
@@ -327,10 +372,16 @@ export default function RolePlaySession() {
             <div className="transcript" ref={transcriptRef} onScroll={handleTranscriptScroll}>
               {messages.map((msg, i) => {
                 const isLatest = i === messages.length - 1
+                const emo = msg.role === 'npc' ? (EMOTION_META[msg.emotion] ?? EMOTION_META.neutral) : null
                 return (
-                  <div key={i} className={cn('msg', msg.role, isLatest && 'latest')}>
+                  <div
+                    key={i}
+                    className={cn('msg', msg.role, isLatest && 'latest')}
+                    style={emo ? { '--msg-emotion': emo.color, '--msg-emotion-glow': emo.glow } : undefined}
+                  >
                     <div className="msg-label">
                       <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'NPC') : 'You'}
+                      {emo && <emo.Icon size={11} strokeWidth={2} className="emo-icon" style={{ color: emo.color }} />}
                     </div>
                     <div className="msg-body">{msg.message}</div>
                   </div>
@@ -399,6 +450,8 @@ export default function RolePlaySession() {
               </div>
             )}
           </div>
+            </div>
+          </div>
 
           <div className="overlay">
             <div className={cn('result-card', cardVariant)}>
@@ -412,6 +465,20 @@ export default function RolePlaySession() {
           </div>
         </main>
       </div>
+
+      {/* Phase 1 dev-only: manual trigger to verify avatar speech + lip sync.
+          Remove once Phase 1 is confirmed. */}
+      {import.meta.env.DEV && (
+        <button
+          type="button"
+          onClick={() => headRef.current?.speakText(
+            'Hello. I am your manager. Please take a seat. We need to discuss your recent work.'
+          )}
+          className="dev-test-speech-btn"
+        >
+          Test Avatar Speech
+        </button>
+      )}
 
       <style>{`
         .rpe-vs{
@@ -539,6 +606,34 @@ export default function RolePlaySession() {
 
         .rpe-vs .main{ display:flex; flex-direction:column; height:100%; min-width:0; position:relative; }
 
+        .rpe-vs .main-split{ display:flex; flex-direction:column; flex:1; min-height:0; }
+        @media (min-width:768px){ .rpe-vs .main-split{ flex-direction:row; } }
+
+        .rpe-vs .character-panel{
+          width:100%; height:256px; flex-shrink:0;
+          background:var(--surface); border-radius:14px; overflow:hidden;
+          margin:16px 16px 0;
+        }
+        @media (min-width:768px){
+          .rpe-vs .character-panel{ width:60%; height:auto; margin:0; border-radius:0; border-right:1px solid var(--border); }
+        }
+        .rpe-vs .character-avatar{ width:100%; height:100%; }
+
+        .rpe-vs .conversation-panel{
+          width:100%; flex:1; min-height:0; min-width:0;
+          display:flex; flex-direction:column; overflow:hidden;
+        }
+        @media (min-width:768px){ .rpe-vs .conversation-panel{ width:40%; } }
+
+        .dev-test-speech-btn{
+          position:fixed; bottom:16px; right:16px; z-index:50;
+          background:#4493F8; color:#fff; border:none; border-radius:10px;
+          padding:10px 16px; font-size:13px; font-weight:650; cursor:pointer;
+          box-shadow:0 8px 24px rgba(0,0,0,0.4);
+          font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+        .dev-test-speech-btn:hover{ filter:brightness(1.08); }
+
         .rpe-vs .topbar{
           height:48px; flex-shrink:0; display:flex; align-items:center; gap:14px;
           padding:0 24px; border-bottom:1px solid var(--border); background:var(--bg);
@@ -573,16 +668,17 @@ export default function RolePlaySession() {
         @keyframes rpevsMsgInRight{ from{ opacity:0; transform:translateX(14px) translateY(6px); } to{ opacity:1; transform:none; } }
 
         .rpe-vs .msg-label{ font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; display:flex; align-items:center; gap:7px; margin-bottom:8px; }
-        .rpe-vs .msg.npc .msg-label{ color:var(--accent); }
+        .rpe-vs .msg.npc .msg-label{ color:var(--msg-emotion, var(--accent)); }
         .rpe-vs .msg.user .msg-label{ color:var(--primary); justify-content:flex-end; }
         .rpe-vs .msg-label .bullet{ font-size:8px; }
+        .rpe-vs .msg-label .emo-icon{ flex-shrink:0; }
 
         .rpe-vs .msg-body{ font-size:18px; line-height:1.7; letter-spacing:-0.003em; padding:2px 0 2px 16px; border-left:2px solid transparent; }
-        .rpe-vs .msg.npc .msg-body{ color:#C9D1D9; border-left-color:var(--accent-glow); }
+        .rpe-vs .msg.npc .msg-body{ color:#C9D1D9; border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
         .rpe-vs .msg.user .msg-body{ color:var(--text-hi); border-left:none; border-right:2px solid var(--primary-glow); padding-left:0; padding-right:16px; }
 
         .rpe-vs .msg.latest .msg-body{ position:relative; border-radius:10px; padding:12px 16px; }
-        .rpe-vs .msg.latest.npc .msg-body{ background:linear-gradient(90deg, rgba(68,147,248,0.055), transparent 70%); border-left-color:rgba(124,58,237,0.5); }
+        .rpe-vs .msg.latest.npc .msg-body{ background:linear-gradient(90deg, var(--msg-emotion-glow, rgba(68,147,248,0.055)), transparent 70%); border-left-color:var(--msg-emotion, rgba(124,58,237,0.5)); }
         .rpe-vs .msg.latest.user .msg-body{ background:linear-gradient(270deg, rgba(68,147,248,0.06), transparent 70%); border-right-color:rgba(68,147,248,0.5); padding-left:16px; }
 
         .rpe-vs .typing{ max-width:640px; margin-bottom:32px; animation: rpevsMsgInLeft .4s var(--ease) forwards; }
