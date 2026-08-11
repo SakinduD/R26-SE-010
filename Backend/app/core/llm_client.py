@@ -119,6 +119,67 @@ class GeminiClient:
             )
         return data
 
+    async def generate_json_from_contents(
+        self,
+        contents: list[dict],
+        *,
+        system_instruction: str | None = None,
+        timeout_s: float = 8.0,
+        temperature: float = 0.7,
+    ) -> dict[str, Any]:
+        """
+        Multi-turn sibling of generate_json(). Takes pre-built Gemini
+        `contents` (list of {"role": "user"|"model", "parts": [text]}) plus
+        an optional system_instruction, instead of a single flat prompt.
+
+        Added for RPE's multi-turn NPC dialogue — kept fully separate from
+        generate_json() so APM's existing single-prompt call path is
+        untouched. Same JSON-mode + timeout + error handling as generate_json().
+        """
+        self._ensure_client()
+        logger.debug("Gemini multi-turn contents: %s", contents)
+
+        config = self._types.GenerateContentConfig(  # type: ignore[union-attr]
+            response_mime_type="application/json",
+            temperature=temperature,
+            system_instruction=system_instruction,
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._client.models.generate_content,  # type: ignore[union-attr]
+                    model=self._model_name,
+                    contents=contents,
+                    config=config,
+                ),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.warning("Gemini generation timed out after %.1fs", timeout_s)
+            raise LLMError("timeout", f"timed out after {timeout_s}s") from exc
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "safety" in msg or "blocked" in msg or "block_reason" in msg:
+                raise LLMError("safety_block", str(exc)) from exc
+            logger.warning("Gemini API error: %s", exc)
+            raise LLMError("api_error", str(exc)) from exc
+
+        text = (getattr(response, "text", None) or "").strip()
+        if not text:
+            raise LLMError("invalid_json", "empty response")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Gemini returned invalid JSON: %s", text[:200])
+            raise LLMError("invalid_json", str(exc)) from exc
+        if not isinstance(data, dict):
+            raise LLMError(
+                "invalid_json",
+                f"expected JSON object, got {type(data).__name__}",
+            )
+        return data
+
 
 @lru_cache(maxsize=1)
 def get_llm_client() -> GeminiClient:

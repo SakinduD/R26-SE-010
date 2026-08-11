@@ -15,7 +15,9 @@ INSULT_PATTERNS: list[str] = [
 class RpeEmotionService:
     """
     Profanity detection + trust/escalation math.
-    Emotion classification is handled by Groq inside RpeNpcService.
+    Emotion classification (8-value: neutral | happy | surprised | frustrated |
+    sad | skeptical | angry | thinking) is handled by rpe_llm_service, called
+    from RpeNpcService.
     """
 
     def _is_profanity(self, text: str) -> bool:
@@ -32,9 +34,29 @@ class RpeEmotionService:
         """Public wrapper — accepts any casing."""
         return self._is_profanity(user_input.lower())
 
-    def profanity_escalation_penalty(self, user_input: str) -> int:
-        """Extra escalation penalty (+1) stacked on top of frustrated (+2) delta."""
-        return 1 if self._is_profanity(user_input.lower()) else 0
+    # emotion -> trust delta. Higher = the user is building trust with the NPC.
+    _TRUST_DELTAS: dict[str, int] = {
+        "happy":      2,
+        "neutral":    0,
+        "thinking":   0,
+        "surprised": -1,
+        "sad":       -1,
+        "skeptical": -2,
+        "frustrated": -3,
+        "angry":      -4,
+    }
+
+    # emotion -> escalation delta. Negative = de-escalating, positive = tension rising.
+    _ESCALATION_DELTAS: dict[str, int] = {
+        "neutral":   -1,
+        "happy":     -2,
+        "thinking":   0,
+        "surprised":  1,
+        "sad":        1,
+        "skeptical":  2,
+        "frustrated": 3,
+        "angry":      4,
+    }
 
     def update_trust(
         self, current_score: int, emotion: str, user_input: str = ""
@@ -43,21 +65,7 @@ class RpeEmotionService:
         if user_input and self._is_profanity(user_input.lower()):
             return max(0, min(100, current_score - 2))
 
-        deltas: dict[str, int] = {
-            "assertive":  2,
-            "calm":       1,
-            "confused":   0,
-            "anxious":   -1,
-            "frustrated": -2,
-        }
-        return max(0, min(100, current_score + deltas.get(emotion, 0)))
+        return max(0, min(100, current_score + self._TRUST_DELTAS.get(emotion, 0)))
 
     def update_escalation(self, current_level: int, emotion: str) -> int:
-        deltas: dict[str, int] = {
-            "frustrated":  2,
-            "anxious":     1,
-            "confused":    0,
-            "calm":       -1,
-            "assertive":  -1,
-        }
-        return max(0, min(5, current_level + deltas.get(emotion, 0)))
+        return max(0, min(5, current_level + self._ESCALATION_DELTAS.get(emotion, 0)))

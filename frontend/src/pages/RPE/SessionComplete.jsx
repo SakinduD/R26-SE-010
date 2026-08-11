@@ -5,12 +5,16 @@ import { rpeService } from '@/services/rpe/rpeService'
 import { submitSessionFeedback } from '@/lib/api/pedagogy'
 import { cn } from '@/lib/utils'
 
+// NPC's own emotional reaction (8-value) — see rpe_llm_service.NPCResponse.emotion
 const EMOTION_TONE = {
-  calm:       'success',
-  assertive:  'accent',
-  anxious:    'warning',
-  frustrated: 'danger',
-  confused:   'neutral',
+  neutral:    'neutral',
+  happy:      'success',
+  surprised:  'warning',
+  frustrated: 'orange',
+  sad:        'sad',
+  skeptical:  'accent',
+  angry:      'danger',
+  thinking:   'indigo',
 }
 
 // Map RPE emotion labels → APM turn metric scores (0-1)
@@ -427,6 +431,9 @@ export default function SessionComplete() {
         .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow);  border-color:rgba(248,81,73,0.3); }
         .rpe-cinema .pill.accent{  color:var(--accent);  background:var(--accent-glow);  border-color:rgba(124,58,237,0.3); }
         .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); border-color:var(--border); }
+        .rpe-cinema .pill.orange{ color:#DB7B2B; background:rgba(219,123,43,0.12); border-color:rgba(219,123,43,0.3); }
+        .rpe-cinema .pill.sad{    color:#6E9BC7; background:rgba(110,155,199,0.12); border-color:rgba(110,155,199,0.3); }
+        .rpe-cinema .pill.indigo{ color:#5B7CE0; background:rgba(91,124,224,0.12); border-color:rgba(91,124,224,0.3); }
 
         .rpe-cinema .turn-list{ display:flex; flex-direction:column; gap:6px; }
         .rpe-cinema .turn-row{

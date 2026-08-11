@@ -1,12 +1,16 @@
 // REDESIGN: bg-slate/bg-emerald/bg-amber/bg-red → semantic tokens; shadow-md/lg removed
 import { cn } from '@/lib/utils'
 
+// NPC's own emotional reaction (8-value) — see rpe_llm_service.NPCResponse.emotion
 const EMOTION_STYLES = {
-  calm:       'bg-success/10 text-success',
-  assertive:  'bg-accent-soft text-accent',
-  anxious:    'bg-warning/10 text-warning',
-  frustrated: 'bg-danger/10 text-danger',
-  confused:   'bg-muted text-muted-foreground',
+  neutral:    'bg-muted text-muted-foreground',
+  happy:      'bg-success/10 text-success',
+  surprised:  'bg-warning/10 text-warning',
+  frustrated: 'bg-orange-500/10 text-orange-500',
+  sad:        'bg-info/10 text-info',
+  skeptical:  'bg-accent-soft text-accent',
+  angry:      'bg-danger/10 text-danger',
+  thinking:   'bg-indigo-500/10 text-indigo-500',
 }
 
 const NPC_TONE_GLOW = {
@@ -46,7 +50,7 @@ export default function ChatBubble({ role, message, emotion, trustDelta, npcTone
         {!isNpc && emotion && (
           <span className={cn(
             'mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-            EMOTION_STYLES[emotion] ?? EMOTION_STYLES.confused
+            EMOTION_STYLES[emotion] ?? EMOTION_STYLES.neutral
           )}>
             {emotion}
           </span>

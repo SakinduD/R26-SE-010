@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     gemini_api_key_apm: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     groq_api_key: str = ""
+    USE_OPENAI: bool = True   # RPE NPC dialogue: OpenAI when true, Groq fallback when false
+    # RPE's own OpenAI model — separate from openai_mentoring_model so it can be
+    # tuned/pinned for live conversational latency without touching mentoring.
+    rpe_openai_model: str = "gpt-5-mini"
+    # RPE avatar voice + speech-to-text — one Google Cloud key backs both
+    # /api/gtts and (Phase 3) /api/stt, proxied server-side so it never
+    # reaches the browser.
+    google_cloud_api_key: str = ""
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_mentoring_model: str = "gpt-5-mini"

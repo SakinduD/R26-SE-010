@@ -14,6 +14,7 @@
     "@mediapipe/camera_utils": "^0.3.1675466862",
     "@mediapipe/drawing_utils": "^0.3.1675466124",
     "@mediapipe/face_mesh": "^0.4.1633559619",
+    "@met4citizen/talkinghead": "^1.7.0",
     "axios": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^1.2.1",
@@ -28,6 +29,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
+    "three": "^0.185.1",
     "tw-animate-css": "^1.4.0",
     "zod": "^4.4.2"
   },

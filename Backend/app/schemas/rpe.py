@@ -36,6 +36,7 @@ class RespondRequest(BaseModel):
 class RespondResponse(BaseModel):
     npc_response:     str
     emotion:          str
+    animation:        str | None = None
     trust_score:      int
     escalation_level: int
     turn:             int

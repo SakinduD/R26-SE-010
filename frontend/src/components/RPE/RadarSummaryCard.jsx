@@ -8,12 +8,16 @@ const TREND_CONFIG = {
   stable:    { icon: Minus,        tone: 'warning', label: 'Stable'    },
 }
 
+// NPC's own emotional reaction (8-value) — see rpe_llm_service.NPCResponse.emotion
 const EMOTION_TONE = {
-  calm:       'success',
-  assertive:  'accent',
-  anxious:    'warning',
-  frustrated: 'danger',
-  confused:   'neutral',
+  neutral:    'neutral',
+  happy:      'success',
+  surprised:  'warning',
+  frustrated: 'orange',
+  sad:        'sad',
+  skeptical:  'accent',
+  angry:      'danger',
+  thinking:   'indigo',
 }
 
 function RadarChart({ axes }) {
@@ -223,6 +227,9 @@ export default function RadarSummaryCard({ summaryScores, emotionDistribution = 
         .side-badge.danger{  color:var(--danger);  background:var(--danger-glow); }
         .side-badge.accent{  color:var(--accent);  background:var(--accent-glow); }
         .side-badge.neutral{ color:var(--text-med); background:var(--bg-card-hi); }
+        .side-badge.orange{ color:#DB7B2B; background:rgba(219,123,43,0.12); }
+        .side-badge.sad{    color:#6E9BC7; background:rgba(110,155,199,0.12); }
+        .side-badge.indigo{ color:#5B7CE0; background:rgba(91,124,224,0.12); }
 
         .no-data{ font-size:11.5px; color:var(--text-low); margin:0; }
         .emotion-bars{ display:flex; flex-direction:column; gap:6px; }
@@ -235,6 +242,9 @@ export default function RadarSummaryCard({ summaryScores, emotionDistribution = 
         .emotion-fill.danger{  background:var(--danger); }
         .emotion-fill.accent{  background:var(--accent); }
         .emotion-fill.neutral{ background:var(--text-low); }
+        .emotion-fill.orange{ background:#DB7B2B; }
+        .emotion-fill.sad{    background:#6E9BC7; }
+        .emotion-fill.indigo{ background:#5B7CE0; }
         .emotion-pct{ font-size:10px; color:var(--text-low); width:30px; text-align:right; flex-shrink:0; }
       `}</style>
     </div>

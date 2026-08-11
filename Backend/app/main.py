@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api_router import router as api_v1_router
+from app.api.v1.rpe.stt_router import router as stt_router
+from app.api.v1.rpe.tts_router import router as tts_router
 from app.config import get_settings
 from app.db.database import check_database_connection
 
@@ -22,6 +24,8 @@ app.add_middleware(
 )
 
 app.include_router(api_v1_router, prefix="/api/v1")
+app.include_router(tts_router, prefix="/api")
+app.include_router(stt_router, prefix="/api")
 
 
 @app.on_event("startup")
