@@ -172,6 +172,65 @@ def _signal_from_metrics(
     )
 
 
+def _longitudinal_signal(
+    user_id: uuid.UUID, db: Session
+) -> tuple[Optional[PerformanceSignal], Optional[dict]]:
+    """The learner profile the analytics module has built across many sessions.
+
+    ``_signal_from_metrics`` above averages the most recent session rows. That is
+    a fair summary of *recent* performance but it cannot see direction: a learner
+    averaging 70 while sliding from 85 looks identical to one climbing from 55.
+
+    The Feedback System & Predictive Analytics module owns that longer view —
+    per-skill trend direction, blind spots where self-perception has drifted from
+    observed behaviour, and the behavioural risk model's forecast — and reduces it
+    to the same normalised PerformanceSignal. Preferring it here is what makes a
+    regenerated plan reflect where the learner is *heading* rather than only where
+    they have been.
+
+    Returns ``(signal, evidence)``; ``(None, None)`` when analytics has no
+    session evidence yet, so the caller falls back to the metric averages.
+    """
+    try:
+        from app.services import analytics_feedback_loop_service
+    except ImportError:  # pragma: no cover - analytics module optional
+        return None, None
+
+    try:
+        profile = analytics_feedback_loop_service.build_learner_profile_signal(
+            db, str(user_id)
+        )
+    except Exception:
+        logger.exception(
+            "Longitudinal analytics signal unavailable for user %s — "
+            "falling back to recent session averages",
+            user_id,
+        )
+        return None, None
+
+    if profile.evidence_sessions == 0:
+        return None, None
+
+    evidence = {
+        "analyzed_skills": profile.analyzed_skill_count,
+        "improving": profile.improving_count,
+        "declining": profile.declining_count,
+        "blind_spots_high": profile.blind_spot_high,
+        "high_risk_skills": profile.high_risk_skill_count,
+        "evidence_sessions": profile.evidence_sessions,
+    }
+    return (
+        PerformanceSignal(
+            engagement_score=profile.engagement_score,
+            confidence_score=profile.confidence_score,
+            objective_completion_rate=profile.objective_completion_rate,
+            stress_level=profile.stress_level,
+            outcome=profile.outcome,
+        ),
+        evidence,
+    )
+
+
 def _rank_target_skills(
     weak_skills: list[str],
     intent_skills: list[str],
@@ -311,16 +370,26 @@ async def _build_plan_body(
     strategy = optimize_strategy(ocean, baseline=baseline)
     difficulty, _rationale = initial_difficulty(ocean, baseline=baseline)
 
-    signal = _signal_from_metrics(metrics)
+    # Prefer the analytics module's longitudinal learner profile — it knows the
+    # direction of travel, not just the recent average. Fall back to averaging
+    # the stored session rows when analytics has nothing to say yet.
+    signal, analytics_evidence = _longitudinal_signal(user_id, db)
+    recalibration_source = "recalibrated_from_analytics"
+    if signal is None:
+        signal = _signal_from_metrics(metrics)
+        recalibration_source = "recalibrated_from_history"
+
     if signal is not None:
         result = adjust(strategy, difficulty, signal, mode="full")
         logger.info(
-            "Recalibrated plan inputs for user %s from %d session(s): "
-            "difficulty %d → %d",
+            "Recalibrated plan inputs for user %s (%s, %d session rows): "
+            "difficulty %d → %d%s",
             user_id,
+            recalibration_source,
             len(metrics),
             difficulty,
             result.new_difficulty,
+            f" evidence={analytics_evidence}" if analytics_evidence else "",
         )
         # dynamic_adjuster drops priority_skills from its output; carry the
         # baseline-derived ones forward so target-skill ranking keeps them.
@@ -328,7 +397,7 @@ async def _build_plan_body(
             update={"priority_skills": strategy.priority_skills}
         )
         difficulty = result.new_difficulty
-        pedagogy_source = "recalibrated_from_history"
+        pedagogy_source = recalibration_source
     else:
         pedagogy_source = "ocean_baseline"
 

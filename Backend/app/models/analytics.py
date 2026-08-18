@@ -62,7 +62,20 @@ class FeedbackEntry(Base):
     skill_area: Mapped[str | None] = mapped_column(String(80), nullable=True)
     rating: Mapped[float | None] = mapped_column(Float, nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # The sentiment attributed to this entry. For human-written feedback this is
+    # the NLP model's reading; for system-generated entries it is rule-derived.
     sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # What the author said about themselves, kept separate so the two can be
+    # compared — a learner who writes something critical but marks it positive is
+    # a blind spot the ratings alone would miss.
+    declared_sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sentiment_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 'model' | 'rule' | 'declared' — makes it answerable at a glance which
+    # entries the NLP module actually judged.
+    sentiment_source: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    sentiment_model_version: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -77,6 +90,14 @@ class FeedbackEntry(Base):
         CheckConstraint(
             "sentiment IS NULL OR sentiment IN ('positive', 'neutral', 'negative')",
             name="ck_feedback_entries_sentiment",
+        ),
+        CheckConstraint(
+            "declared_sentiment IS NULL OR declared_sentiment IN ('positive', 'neutral', 'negative')",
+            name="ck_feedback_entries_declared_sentiment",
+        ),
+        CheckConstraint(
+            "sentiment_source IS NULL OR sentiment_source IN ('model', 'rule', 'declared')",
+            name="ck_feedback_entries_sentiment_source",
         ),
         Index("ix_feedback_entries_user_session", "user_id", "session_id"),
     )

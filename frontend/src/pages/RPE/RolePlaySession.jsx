@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
+import { analyticsService } from '@/services/analytics/analyticsService'
+import { integrateCompletedSession } from '@/pages/Analytics/analyticsIntegrationUtils'
 import { cn } from '@/lib/utils'
 import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
 import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
@@ -165,6 +167,12 @@ export default function RolePlaySession() {
 
       if (response.session_complete) {
         shouldListenRef.current = false
+
+        // Hand the finished session to the analytics module straight away, so
+        // scores, XP and the adapted training plan are ready without the learner
+        // having to open an analytics page first. Fire-and-forget by design: it
+        // never throws and must not delay the completion overlay.
+        integrateCompletedSession(analyticsService, sessionId)
 
         completeNavStateRef.current = {
           sessionId,

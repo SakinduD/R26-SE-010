@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import logging
@@ -15,8 +17,10 @@ from app.schemas.analytics import (
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
+    AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
     GamificationProfileResult,
+    SessionBackfillResult,
     GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
@@ -32,6 +36,7 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    analytics_feedback_loop_service,
     analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
@@ -42,6 +47,7 @@ from app.services import (
     predictive_modeling_service,
     progress_trend_service,
     sentiment_analysis_service,
+    session_backfill_service,
     skill_scoring_service,
 )
 
@@ -327,6 +333,72 @@ def get_user_skill_predicted_outcome(
     db: Session = Depends(get_db),
 ):
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
+
+
+@router.post(
+    "/users/{user_id}/backfill-sessions",
+    response_model=SessionBackfillResult,
+)
+def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
+    """Pull every completed session that has no analytics into the module.
+
+    Reads the role-play and multimodal tables directly, so a session is recorded
+    whether or not anyone opened an analytics page while it was running.
+    Idempotent — sessions that already have metrics are skipped.
+    """
+    try:
+        return session_backfill_service.backfill_user_sessions(db, user_id)
+    except Exception as exc:
+        logger.error("Session backfill failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
+
+
+@router.post(
+    "/sessions/{session_id}/integrate",
+    response_model=SessionBackfillResult,
+)
+def integrate_session(session_id: str, db: Session = Depends(get_db)):
+    """Fold one just-finished session into analytics, reading it from the database.
+
+    The session-end hook used to assemble this payload in the browser from half a
+    dozen component endpoints. Any one of them failing — or the learner simply
+    navigating away before they all returned — left the session with no analytics
+    at all, so its scores never reached the dashboard, the trend lines or the
+    predictions.
+
+    Here the server reads the session it already stored. One call, one id, no
+    assembly, and idempotent: a session that already has metrics is skipped.
+    """
+    owner = session_backfill_service.resolve_session_owner(db, session_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail=f"No session found with id {session_id}")
+    try:
+        return session_backfill_service.backfill_user_sessions(
+            db, owner, session_id=session_id
+        )
+    except Exception as exc:
+        logger.error("Integration failed for session %s: %s", session_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to integrate session: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/learner-profile-signal",
+    response_model=AnalyticsFeedbackLoopResult,
+)
+def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
+    """The longitudinal learner profile analytics hands to the pedagogy engine.
+
+    Read-only. The pedagogy module pulls the same signal when it composes a plan;
+    exposing it here lets the learner see what their history currently says
+    before they regenerate.
+    """
+    signal = analytics_feedback_loop_service.build_learner_profile_signal(db, user_id)
+    return AnalyticsFeedbackLoopResult(
+        user_id=user_id,
+        signal=signal,
+        loop_version=analytics_feedback_loop_service.LOOP_VERSION,
+        generated_at=datetime.utcnow(),
+    )
 
 
 @router.get(

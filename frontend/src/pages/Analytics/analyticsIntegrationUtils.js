@@ -276,3 +276,28 @@ function normalizeSessionOptions(sessions, source) {
     })
     .filter(Boolean)
 }
+
+/**
+ * Hand one finished session to the analytics module.
+ *
+ * The server reads the session out of its own tables, so this is a single call
+ * carrying nothing but an id. It used to assemble the payload here instead —
+ * fetching each component's view of the session and posting the combined
+ * picture — which made a session's analytics depend on six requests all
+ * returning before the learner navigated away. When they did not, the session
+ * was never scored: no skill card, no trend point, no prediction, and a
+ * dashboard reading zero for a session that had really been completed.
+ *
+ * Never throws: a session that fails to integrate must not disturb whatever the
+ * caller was doing. Returns { integrated: boolean }.
+ */
+export async function integrateCompletedSession(analyticsService, sessionId) {
+  if (!sessionId) return { integrated: false }
+
+  try {
+    const result = await analyticsService.integrateSession(sessionId)
+    return { integrated: (result?.integrated_count ?? 0) > 0 }
+  } catch {
+    return { integrated: false }
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
   ShieldAlert, Target,
@@ -85,6 +85,7 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
 
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [userId, setUserId] = useState(cid || '')
   // ?sessionId=… (e.g. the redirect after self-reflection) opens that session's
@@ -96,18 +97,27 @@ export default function AnalyticsDashboard() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
+  // Observed scores only — what the session actually measured.
+  //
+  // These used to fall back to the learner's own rating when no measurement
+  // existed. That made a self-rating masquerade as an observed score: the radar
+  // drew both layers from the same number, every gap came out as zero, and the
+  // page congratulated the learner for matching a performance it had never
+  // measured. A skill with no measurement is now simply blank.
   const scores = useMemo(() => {
     const a = data?.aggregate?.scores?.averages || {}
-    const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     // Each composite skill is the mean of its underlying fields — identical to the
     // Skill Twin radar and Post-Session Report so the numbers agree across pages.
     return [
-      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score) ?? toNum(f.vocal_command)],
-      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score) ?? toNum(f.speech_fluency)],
-      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score) ?? toNum(f.presence_engagement)],
-      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score) ?? toNum(f.emotional_intelligence)],
+      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score)],
+      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score)],
+      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score)],
+      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score)],
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
+
+  // A gap needs a measurement to compare against, not just a self-rating.
+  const hasObserved = useMemo(() => scores.some((s) => s.value !== null), [scores])
 
   const hasLive = status !== 'live' || Boolean(data?.aggregate?.scores?.metric_count || data?.aggregate?.feedback?.total_count)
 
@@ -255,6 +265,11 @@ export default function AnalyticsDashboard() {
      .filter(s => s.value !== null)
   }, [data])
 
+  // Whether the learner rated themselves at all. Without this, "no gaps found"
+  // and "nothing to compare" look identical on screen, and the dashboard ends up
+  // congratulating people on self-awareness they never demonstrated.
+  const hasSelfRating = selfScores.length > 0
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -286,7 +301,7 @@ export default function AnalyticsDashboard() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-border bg-muted">
             <span className={'h-2 w-2 rounded-full '+(status==='live'?'bg-success':status==='loading'?'bg-info animate-pulse':'bg-muted-foreground')}/>
-            {status==='live'?'Live Data':status==='loading'?'Loading...':'Demo Mode'}
+            {status==='live'?'Live Data':status==='loading'?'Loading…':status==='error'?'Unavailable':'Not loaded'}
           </span>
           {/* REDESIGN: text-red-400/bg-red-400 → danger tokens; text-green-400/bg-green-400 → success tokens */}
           {error && <span className="text-xs text-danger bg-danger/10 border border-danger/20 px-3 py-1 rounded-full">{error}</span>}
@@ -385,7 +400,39 @@ export default function AnalyticsDashboard() {
           <div className="rounded-2xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
             <p className="text-xs text-muted-foreground mb-4">How you see yourself vs how others see you</p>
-            {gaps.length === 0 ? (
+            {/* A gap needs two sides. With no self-assessment there is nothing to
+                compare, and saying "your self-view matches" would be claiming a
+                finding the data cannot support. */}
+            {!hasObserved ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📊</span>
+                <p className="font-semibold fg">This session has no measured scores yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  A gap is your rating measured against what the session recorded. Without
+                  the measurement there is nothing to compare your rating with.
+                </p>
+              </div>
+            ) : !hasSelfRating ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📝</span>
+                <p className="font-semibold fg">No self-assessment for this session yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  Rate yourself on this session and your ratings will be compared with what
+                  was measured, to show where the two disagree.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary mt-4"
+                  onClick={() => navigate(
+                    sessionId
+                      ? `/analytics/sessions/${encodeURIComponent(sessionId)}/feedback`
+                      : '/analytics-feedback'
+                  )}
+                >
+                  Add your self-assessment
+                </button>
+              </div>
+            ) : gaps.length === 0 ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">🎯</span>
                 <p className="font-semibold fg">Your self-view matches your performance!</p>

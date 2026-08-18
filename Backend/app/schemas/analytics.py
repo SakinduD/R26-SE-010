@@ -47,7 +47,12 @@ class FeedbackEntryBase(BaseModel):
     skill_area: str | None = Field(default=None, max_length=80)
     rating: Score = Field(default=None, ge=0, le=100)
     comment: str | None = None
+    # For human-written feedback the service overwrites this with the NLP model's
+    # reading; supplying it only sets the fallback for entries with no text.
     sentiment: Literal["positive", "neutral", "negative"] | None = None
+    # What the author says about their own feedback, kept apart from the model's
+    # independent reading of the same words.
+    declared_sentiment: Literal["positive", "neutral", "negative"] | None = None
 
 
 class FeedbackEntryCreate(FeedbackEntryBase):
@@ -55,6 +60,9 @@ class FeedbackEntryCreate(FeedbackEntryBase):
 
 
 class FeedbackEntryRead(FeedbackEntryBase):
+    sentiment_confidence: float | None = None
+    sentiment_source: Literal["model", "rule", "declared"] | None = None
+    sentiment_model_version: str | None = None
     id: int
     created_at: datetime
 
@@ -166,7 +174,27 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
     mca_skill_scores: dict[str, Score] | None = None
     mca_overall_score: Score = Field(default=None, ge=0, le=100)
     self_feedback: ComponentSubmittedFeedback | None = None
-    peer_feedback: list[ComponentSubmittedFeedback] = []
+
+
+class SessionBackfillItem(BaseModel):
+    session_id: str
+    source: Literal["mca", "rpe"]
+    label: str
+    integrated: bool
+    overall_score: Score = None
+    reason: str | None = None
+
+
+class SessionBackfillResult(BaseModel):
+    user_id: str
+    examined_count: int
+    integrated_count: int
+    # Sessions that were started but recorded nothing analysable - counted, never
+    # turned into empty metric rows.
+    skipped_count: int = 0
+    failed_count: int
+    items: list[SessionBackfillItem]
+    backfill_version: str
 
 
 class AnalyticsIntegrationSourceSummary(BaseModel):
@@ -259,7 +287,6 @@ class SkillScoreInputs(BaseModel):
     speech_volume_score: Score = Field(default=None, ge=0, le=100)
     response_quality_score: Score = Field(default=None, ge=0, le=100)
     self_rating: Score = Field(default=None, ge=0, le=100)
-    peer_rating: Score = Field(default=None, ge=0, le=100)
 
 
 class SkillScoreRequest(BaseModel):
@@ -286,16 +313,12 @@ class SkillScoreResult(BaseModel):
 class FeedbackAlignmentItem(BaseModel):
     skill_area: str
     self_rating: float | None = None
-    peer_rating: float | None = None
     observed_score: float | None = None
-    self_peer_gap: float | None = None
     self_observed_gap: float | None = None
-    peer_observed_gap: float | None = None
     alignment: Literal[
         "aligned",
         "self_overestimation",
         "self_underestimation",
-        "peer_misalignment",
         "insufficient_data",
     ]
     severity: Literal["none", "low", "medium", "high"]
@@ -304,12 +327,10 @@ class FeedbackAlignmentItem(BaseModel):
 
 class FeedbackAnalysisSummary(BaseModel):
     self_feedback_count: int
-    peer_feedback_count: int
     analyzed_skill_count: int
     aligned_count: int
     blind_spot_count: int
     average_self_rating: float | None = None
-    average_peer_rating: float | None = None
     average_observed_score: float | None = None
 
 
@@ -329,10 +350,30 @@ class BlindSpotItem(BaseModel):
     severity: Literal["low", "medium", "high"]
     self_rating: float
     comparison_score: float
-    comparison_source: Literal["observed", "peer"]
+    comparison_source: Literal["observed"]
     gap: float
     confidence: float
     recommendation: str
+
+
+class SentimentBlindSpotItem(BaseModel):
+    """A gap between how the learner rated a session and how they wrote about it.
+
+    The rating-based blind spots compare numbers; this compares the learner's own
+    stated sentiment against what the NLP model reads in their words. A learner
+    who marks a session positive while describing it critically is showing the
+    same self-perception gap, expressed in language rather than scores.
+    """
+
+    session_id: str
+    declared_sentiment: Literal["positive", "neutral", "negative"]
+    detected_sentiment: Literal["positive", "neutral", "negative"]
+    severity: Literal["low", "medium", "high"]
+    confidence: float = Field(..., ge=0, le=1)
+    comment_excerpt: str
+    model_version: str | None = None
+    recommendation: str
+    created_at: datetime
 
 
 class BlindSpotSummary(BaseModel):
@@ -341,6 +382,9 @@ class BlindSpotSummary(BaseModel):
     medium_count: int
     low_count: int
     strongest_blind_spot: BlindSpotItem | None = None
+    # Counted separately: a sentiment gap is different evidence from a rating gap
+    # and lumping the two totals together would blur what the learner is told.
+    sentiment_gap_count: int = 0
 
 
 class BlindSpotDetectionResult(BaseModel):
@@ -349,6 +393,7 @@ class BlindSpotDetectionResult(BaseModel):
     session_id: str | None = None
     summary: BlindSpotSummary
     blind_spots: list[BlindSpotItem]
+    sentiment_gaps: list[SentimentBlindSpotItem] = []
     generated_at: datetime
     detection_version: str
 
@@ -535,6 +580,38 @@ class GamificationXpAward(BaseModel):
     total_xp_awarded: int
     overall_score: Score = None
     already_scored: bool = False
+
+
+class AnalyticsLearnerProfileSignal(BaseModel):
+    """The learner's longitudinal profile, normalised for the pedagogy engine.
+
+    The first five fields are the contract the Adaptive Pedagogical Architecture
+    already consumes; the rest are the evidence they were derived from, carried
+    along so an adjustment can be explained rather than just asserted.
+    """
+
+    engagement_score: float = Field(..., ge=0, le=1)
+    confidence_score: float = Field(..., ge=0, le=1)
+    objective_completion_rate: float = Field(..., ge=0, le=1)
+    stress_level: float = Field(..., ge=0, le=1)
+    outcome: Literal["success", "partial", "failure"]
+
+    analyzed_skill_count: int
+    improving_count: int
+    declining_count: int
+    blind_spot_total: int
+    blind_spot_high: int
+    high_risk_skill_count: int
+    mean_latest_score: Score = None
+    mean_predicted_score: Score = None
+    evidence_sessions: int
+
+
+class AnalyticsFeedbackLoopResult(BaseModel):
+    user_id: str
+    signal: AnalyticsLearnerProfileSignal
+    loop_version: str
+    generated_at: datetime
 
 
 class GamificationRules(BaseModel):

@@ -28,97 +28,42 @@ const SKILL_LABELS = {
   overall: 'Overall',
 }
 
-const DEMO_REPORT = {
-  session_id: 'demo-session',
-  user_id: 'demo-user',
+// Empty shape, never sample values: a failed load must show nothing rather than
+// someone else's report. Keeping the shape means every render path below stays
+// valid and the existing empty states do the work.
+const EMPTY_REPORT = {
+  session_id: '',
+  user_id: null,
   summary: {
-    headline: 'Session completed with focused improvement areas.',
-    strengths: ['Vocal Command', 'Speech Fluency'],
-    improvement_areas: ['Presence & Engagement', 'Emotional Intelligence'],
-    completion_status: 'complete',
+    headline: '',
+    strengths: [],
+    improvement_areas: [],
+    completion_status: 'empty',
   },
   aggregate: {
-    scores: { metric_count: 1 },
+    scores: { metric_count: 0, averages: {} },
     feedback: {
-      total_count: 4,
-      average_rating: 78,
-      self_rating_averages: {
-        vocal_command: 85,
-        speech_fluency: 72,
-        presence_engagement: 90,
-        emotional_intelligence: 68,
-      },
-      latest_entries: [
-        {
-          id: 1,
-          feedback_type: 'self',
-          skill_area: 'presence_engagement',
-          rating: 90,
-          sentiment: 'positive',
-          comment: 'I felt confident and engaged during the negotiation.',
-        },
-        {
-          id: 2,
-          feedback_type: 'system',
-          skill_area: 'presence_engagement',
-          rating: 56,
-          sentiment: 'neutral',
-          comment: 'Observed performance shows eye contact and engagement need work.',
-        },
-      ],
+      total_count: 0,
+      average_rating: null,
+      by_type: {},
+      skill_rating_averages: {},
+      self_rating_averages: {},
+      latest_entries: [],
     },
-    predictions: {
-      total_count: 1,
-      latest_predictions: [
-        {
-          id: 1,
-          predicted_skill: 'presence_engagement',
-          current_score: 58,
-          predicted_score: 52,
-          risk_level: 'high',
-          recommendation: 'Practice maintaining eye contact and presence before the next scenario.',
-        },
-      ],
-    },
+    predictions: { total_count: 0, latest_predictions: [] },
   },
-  skill_scores: {
-    overall_score: 76,
-    completeness: 0.86,
-    skill_scores: {
-      vocal_command: 80,
-      speech_fluency: 74,
-      presence_engagement: 58,
-      emotional_intelligence: 82,
-    },
-  },
+  skill_scores: { skill_scores: {}, overall_score: null, breakdown: {}, completeness: 0 },
+  feedback_analysis: { summary: {}, items: [] },
   blind_spots: {
-    summary: { total_count: 1, high_count: 1, medium_count: 0, low_count: 0 },
-    blind_spots: [
-      {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        gap: 34,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable eye-contact goal.',
-      },
-    ],
+    summary: { total_count: 0, high_count: 0, medium_count: 0, low_count: 0, sentiment_gap_count: 0 },
+    blind_spots: [],
+    sentiment_gaps: [],
   },
-  action_items: [
-    {
-      priority: 'high',
-      skill_area: 'presence_engagement',
-      title: 'Review Presence & Engagement blind spot',
-      detail: 'Compare self-rating with observed system evidence before the next session.',
-    },
-    {
-      priority: 'medium',
-      skill_area: 'emotional_intelligence',
-      title: 'Practice Emotional Intelligence',
-      detail: 'Use a pause-breathe-answer pattern during difficult role-play prompts.',
-    },
-  ],
+  action_items: [],
+  computed_predictions: [],
+  generated_at: null,
+  report_version: 'rule-based-v1',
 }
-
 const RAW_TO_COMPOSITE = {
   confidence: 'Presence & Engagement',
   eye_contact: 'Presence & Engagement',
@@ -145,8 +90,8 @@ export default function PostSessionReport() {
   const params = useParams()
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [report, setReport] = useState(DEMO_REPORT)
-  const [status, setStatus] = useState('demo')
+  const [report, setReport] = useState(EMPTY_REPORT)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
   const loadedSessionRef = useRef(null)
 
@@ -174,8 +119,8 @@ export default function PostSessionReport() {
       const nextReport = await analyticsService.getPostSessionReport(targetSessionId)
       setReport(nextReport); setStatus('live')
     } catch {
-      setReport(DEMO_REPORT); setStatus('demo')
-      setError('Backend report unavailable. Showing demo report.')
+      setReport(EMPTY_REPORT); setStatus('error')
+      setError('This session report could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -218,7 +163,7 @@ export default function PostSessionReport() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API report' : status === 'loading' ? 'Loading…' : 'Demo report'}
+          {status === 'live' ? 'Live report' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
       </motion.div>
@@ -230,7 +175,7 @@ export default function PostSessionReport() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <FileText size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
                 <span className="t-cap">
-                  {sessionOptions.find((o) => o.id === sessionId)?.label || (status === 'live' ? 'Session Report' : 'Demo Report')}
+                  {sessionOptions.find((o) => o.id === sessionId)?.label || 'Session Report'}
                 </span>
               </div>
               <div className="t-h3" style={{ maxWidth: 520 }}>{report.summary?.headline}</div>

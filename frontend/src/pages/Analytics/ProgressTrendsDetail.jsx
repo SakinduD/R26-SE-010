@@ -34,45 +34,21 @@ const SKILL_LABELS = {
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
 const TREND_VARIANT = { improving: 'success', stable: 'neutral', declining: 'danger', insufficient_data: 'info' }
 
-const DEMO_DATA = {
-  user_id: 'demo-user',
+const EMPTY_DATA = {
+  user_id: '',
   summary: {
-    analyzed_skill_count: 4,
-    improving_count: 2,
-    stable_count: 1,
-    declining_count: 1,
+    analyzed_skill_count: 0,
+    improving_count: 0,
+    stable_count: 0,
+    declining_count: 0,
     insufficient_data_count: 0,
-    strongest_improvement: trend('vocal_command', 'improving', [55, 65, 78]),
-    strongest_decline: trend('emotional_intelligence', 'declining', [82, 76, 70]),
+    strongest_improvement: null,
+    strongest_decline: null,
   },
-  trends: [
-    trend('vocal_command', 'improving', [55, 65, 78]),
-    trend('speech_fluency', 'stable', [72, 73, 74]),
-    trend('presence_engagement', 'improving', [66, 72, 79]),
-    trend('emotional_intelligence', 'declining', [82, 76, 70]),
-  ],
-  generated_at: '2026-05-03T00:00:00',
+  trends: [],
+  generated_at: null,
   trend_version: 'rule-based-v1',
 }
-
-function trend(skillArea, trendLabel, scores) {
-  return {
-    skill_area: skillArea,
-    trend_label: trendLabel,
-    first_score: scores[0],
-    latest_score: scores[scores.length - 1],
-    delta: scores[scores.length - 1] - scores[0],
-    slope: scores.length > 1 ? (scores[scores.length - 1] - scores[0]) / (scores.length - 1) : 0,
-    session_count: scores.length,
-    recommendation: `${labelFor(skillArea)} trend should be reviewed before the next training plan.`,
-    points: scores.map((score, index) => ({
-      session_id: `S${index + 1}`,
-      score,
-      created_at: `2026-05-${String(index + 1).padStart(2, '0')}T00:00:00`,
-    })),
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -89,9 +65,9 @@ export default function ProgressTrendsDetail() {
   const [sessionId, setSessionId] = useState('')
   const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSkill, setSelectedSkill] = useState('vocal_command')
-  const [data, setData] = useState(DEMO_DATA)
-  const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(EMPTY_DATA)
+  const [selectedTrend, setSelectedTrend] = useState(EMPTY_DATA.trends[0])
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const sortedTrends = useMemo(
@@ -124,10 +100,10 @@ export default function ProgressTrendsDetail() {
       ])
       setData(trendResult); setSelectedTrend(skillResult); setStatus('live')
     } catch {
-      setData(DEMO_DATA)
-      setSelectedTrend(DEMO_DATA.trends.find((item) => item.skill_area === selectedSkill) || DEMO_DATA.trends[0])
-      setStatus('demo')
-      setError('Backend trend data unavailable. Showing demo progress trends.')
+      setData(EMPTY_DATA)
+      setSelectedTrend(EMPTY_DATA.trends.find((item) => item.skill_area === selectedSkill) || EMPTY_DATA.trends[0])
+      setStatus('error')
+      setError('Your progress trends could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -164,7 +140,7 @@ export default function ProgressTrendsDetail() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API trends' : status === 'loading' ? 'Loading…' : 'Demo trends'}
+          {status === 'live' ? 'Live trends' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         <span className="t-cap">{data.trend_version || 'rule-based-v1'}</span>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}

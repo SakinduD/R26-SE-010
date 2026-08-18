@@ -36,38 +36,19 @@ const SKILL_LABELS = {
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
 const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
-const DEMO_DATA = {
-  user_id: 'demo-user',
-  predictions: [
-    prediction('emotional_intelligence', 48, 39, 'declining', 'high', 0.78, 3),
-    prediction('speech_fluency', 70, 58, 'declining', 'medium', 0.72, 3),
-    prediction('vocal_command', 78, 90, 'improving', 'low', 0.65, 3),
-    prediction('presence_engagement', 80, 84, 'improving', 'low', 0.61, 2),
-  ],
+const EMPTY_DATA = {
+  user_id: '',
   summary: {
-    predicted_count: 4,
-    low_risk_count: 2,
-    medium_risk_count: 1,
-    high_risk_count: 1,
-    highest_risk_prediction: prediction('emotional_intelligence', 48, 39, 'declining', 'high', 0.78, 3),
+    predicted_count: 0,
+    low_risk_count: 0,
+    medium_risk_count: 0,
+    high_risk_count: 0,
+    highest_risk: null,
   },
-  generated_at: '2026-05-03T00:00:00',
-  model_version: 'ml-predictive-behavioral-analytics-v1',
+  predictions: [],
+  generated_at: null,
+  model_version: 'rule-based-baseline-v1',
 }
-
-function prediction(skillArea, currentScore, predictedScore, trendLabel, riskLevel, confidence, evidencePoints) {
-  return {
-    predicted_skill: skillArea,
-    current_score: currentScore,
-    predicted_score: predictedScore,
-    trend_label: trendLabel,
-    risk_level: riskLevel,
-    confidence,
-    evidence_points: evidencePoints,
-    recommendation: `${labelFor(skillArea)} should be reviewed before the next session.`,
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -93,9 +74,9 @@ export default function PredictiveAnalytics() {
   const [selectedSkill, setSelectedSkill] = useState('vocal_command')
   const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSessionId, setSelectedSessionId] = useState('')
-  const [data, setData] = useState(DEMO_DATA)
+  const [data, setData] = useState(EMPTY_DATA)
   const [skillPrediction, setSkillPrediction] = useState(null)
-  const [status, setStatus] = useState('demo')
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const sortedPredictions = useMemo(
@@ -124,8 +105,8 @@ export default function PredictiveAnalytics() {
       ])
       setData(predictionResult); setSkillPrediction(selectedResult); setStatus('live')
     } catch {
-      setData(DEMO_DATA); setSkillPrediction(null); setStatus('demo')
-      setError('Backend predictions unavailable. Showing demo predictions.')
+      setData(EMPTY_DATA); setSkillPrediction(null); setStatus('error')
+      setError('Your predictions could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -174,7 +155,7 @@ export default function PredictiveAnalytics() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API predictions' : status === 'loading' ? 'Loading…' : 'Demo predictions'}
+          {status === 'live' ? 'Live predictions' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         <Badge variant={isMlModel ? 'accent' : 'neutral'}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
