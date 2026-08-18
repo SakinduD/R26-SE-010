@@ -10,6 +10,7 @@ import {
   User,
   Layout,
   Activity,
+  ArrowRight,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
@@ -95,6 +96,16 @@ export default function FeedbackForm() {
   const reflection = form.comment.trim()
   const reflectionTooShort = reflection.length > 0 && reflection.length < MIN_REFLECTION_LENGTH
 
+  // Where "View my dashboard" goes once the evaluation is saved. The session id
+  // travels with it so the dashboard opens on the session just reflected on,
+  // not the "All Sessions" overall view.
+  const dashboardTarget = useMemo(() => {
+    const sessionId = form.session_id.trim()
+    return sessionId
+      ? `/analytics-dashboard?sessionId=${encodeURIComponent(sessionId)}`
+      : '/analytics-dashboard'
+  }, [form.session_id])
+
   const canSubmit = useMemo(
     () =>
       Boolean(form.user_id.trim())
@@ -156,14 +167,11 @@ export default function FeedbackForm() {
           ? 'Self-evaluation saved and your reflection was analysed.'
           : 'Self-evaluation saved.'
       )
-      // Carry the session forward so the dashboard opens on THIS session's
-      // results instead of the "All Sessions" overall view. When there is a
-      // reading to show, stay put — whisking the page away before the learner
-      // has read it would waste the one moment the analysis is useful.
-      if (params.sessionId && !analysed) {
-        const target = `/analytics-dashboard?sessionId=${encodeURIComponent(form.session_id.trim())}`
-        setTimeout(() => navigate(target), 2000)
-      }
+      // No timed redirect. The learner is shown their sentiment reading here and
+      // decides when to move on; a page that navigates itself away mid-read takes
+      // the one moment that analysis is useful. The button below carries the
+      // session id forward so the dashboard opens on THIS session's results
+      // rather than the "All Sessions" overall view.
     } catch (error) {
       setStatus('error')
       setMessage('Error saving feedback.')
@@ -370,20 +378,39 @@ export default function FeedbackForm() {
             )}
 
             {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
-            {/* REDESIGN: bg-indigo-600 submit button replaced with Button primary */}
-            <Button
-              type="submit"
-              disabled={!canSubmit || status === 'saving'}
-              loading={status === 'saving'}
-              size="lg"
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                {status === 'saving'
-                  ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
-                  : <Save size={14} strokeWidth={1.8} />}
-                Complete evaluation
-              </span>
-            </Button>
+
+            {/* Once the evaluation is saved, "Complete evaluation" is no longer
+                the action available — offering it again invites a duplicate
+                submission and leaves the learner with no way onward. The saved
+                state hands them their results instead. */}
+            {status === 'success' ? (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => navigate(dashboardTarget)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Layout size={14} strokeWidth={1.8} />
+                  View my dashboard
+                  <ArrowRight size={14} strokeWidth={1.8} />
+                </span>
+              </Button>
+            ) : (
+              /* REDESIGN: bg-indigo-600 submit button replaced with Button primary */
+              <Button
+                type="submit"
+                disabled={!canSubmit || status === 'saving'}
+                loading={status === 'saving'}
+                size="lg"
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {status === 'saving'
+                    ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
+                    : <Save size={14} strokeWidth={1.8} />}
+                  Complete evaluation
+                </span>
+              </Button>
+            )}
           </div>
         </form>
 
