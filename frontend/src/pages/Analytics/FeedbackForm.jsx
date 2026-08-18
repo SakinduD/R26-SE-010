@@ -58,6 +58,8 @@ export default function FeedbackForm() {
 
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
+  // The model's own reading of the written reflection, returned on save.
+  const [reading, setReading] = useState(null)
   // Session options + status are loaded but not displayed in this restyle —
   // sidebar nav handles session selection. Kept to preserve existing fetch logic.
   // eslint-disable-next-line no-unused-vars
@@ -108,6 +110,10 @@ export default function FeedbackForm() {
     setMessage('')
 
     try {
+      // The written reflection travels with one entry; the sentiment you chose
+      // is recorded as *your* view, and the NLP model reads your words
+      // independently so the two can be compared afterwards.
+      const written = form.comment.trim()
       const promises = Object.entries(form.ratings).map(([skill, val]) => {
         return analyticsService.createFeedbackEntry({
           user_id: form.user_id.trim(),
@@ -115,17 +121,26 @@ export default function FeedbackForm() {
           feedback_type: 'self',
           skill_area: skill,
           rating: val,
-          sentiment: form.sentiment,
-          comment: skill === 'vocal_command' ? form.comment : null
+          declared_sentiment: form.sentiment,
+          comment: skill === 'vocal_command' && written ? written : null
         })
       })
 
-      await Promise.all(promises)
+      const saved = await Promise.all(promises)
+      const analysed = saved.find((entry) => entry?.sentiment_source === 'model')
+      setReading(analysed || null)
+
       setStatus('success')
-      setMessage('Self-evaluation completed!')
-      if (params.sessionId) {
-        // Carry the session forward so the dashboard opens on THIS session's
-        // results instead of the "All Sessions" overall view.
+      setMessage(
+        written
+          ? 'Self-evaluation saved and your reflection was analysed.'
+          : 'Self-evaluation saved.'
+      )
+      // Carry the session forward so the dashboard opens on THIS session's
+      // results instead of the "All Sessions" overall view. When there is a
+      // reading to show, stay put — whisking the page away before the learner
+      // has read it would waste the one moment the analysis is useful.
+      if (params.sessionId && !analysed) {
         const target = `/analytics-dashboard?sessionId=${encodeURIComponent(form.session_id.trim())}`
         setTimeout(() => navigate(target), 2000)
       }
@@ -289,9 +304,14 @@ export default function FeedbackForm() {
               <MessageSquare size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
               Additional observations
             </div>
+            <p className="t-cap" style={{ margin: '0 0 10px', lineHeight: 1.6 }}>
+              Write a sentence or two about how the session went. Your words are
+              analysed on their own, so you can see whether they match the
+              sentiment you chose above.
+            </p>
             <textarea
               className="input textarea"
-              placeholder="What specific moment in the session made you feel this way? (Optional)"
+              placeholder="What specific moment in the session made you feel this way?"
               value={form.comment}
               onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
               style={{ minHeight: 120, padding: 14 }}
@@ -313,6 +333,8 @@ export default function FeedbackForm() {
                 </Banner>
               </div>
             )}
+
+            {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
             {/* REDESIGN: bg-indigo-600 submit button replaced with Button primary */}
             <Button
               type="submit"
@@ -376,6 +398,77 @@ export default function FeedbackForm() {
           .hide-mobile-aside { display: none; }
         }
       `}</style>
+    </div>
+  )
+}
+
+const SENTIMENT_TONE = {
+  positive: 'var(--success)',
+  neutral: 'var(--text-secondary)',
+  negative: 'var(--danger)',
+}
+
+/**
+ * What the learner said about their reflection, beside what the NLP model read
+ * in the same words.
+ *
+ * When the two disagree it is worth surfacing: a learner who writes something
+ * critical but marks the session positive is showing the same self-perception
+ * gap the blind-spot detector looks for in ratings — only in their own words.
+ */
+function SentimentReading({ reading, declared }) {
+  const detected = reading.sentiment
+  const agrees = detected === declared
+  const confidence = Math.round((reading.sentiment_confidence || 0) * 100)
+
+  return (
+    <div style={{ width: '100%' }}>
+      <Card>
+        <div className="t-over" style={{ marginBottom: 12 }}>Sentiment analysis of your reflection</div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <ReadingBox label="You marked it" value={declared} />
+          <ReadingBox label="Your words read as" value={detected} hint={`${confidence}% confidence`} />
+        </div>
+
+        <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>
+          {agrees
+            ? 'Your words and your rating agree — your self-perception matches what you wrote.'
+            : `You marked the session ${declared}, but the wording reads as ${detected}. That gap is worth a second look: it is the same kind of mismatch the blind-spot detector looks for in your ratings.`}
+        </p>
+
+        <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>
+          Read by {reading.sentiment_model_version}. Nothing was overwritten — both readings are kept.
+        </p>
+      </Card>
+    </div>
+  )
+}
+
+function ReadingBox({ label, value, hint }) {
+  return (
+    <div
+      style={{
+        flex: '1 1 160px',
+        padding: 12,
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-subtle)',
+        background: 'var(--bg-input)',
+      }}
+    >
+      <div className="t-cap">{label}</div>
+      <div
+        style={{
+          fontSize: 17,
+          fontWeight: 600,
+          marginTop: 4,
+          textTransform: 'capitalize',
+          color: SENTIMENT_TONE[value] || 'var(--text-primary)',
+        }}
+      >
+        {value || '—'}
+      </div>
+      {hint && <div className="t-cap" style={{ marginTop: 2 }}>{hint}</div>}
     </div>
   )
 }

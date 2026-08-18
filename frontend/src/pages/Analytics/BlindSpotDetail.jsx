@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
+  MessageSquare,
   ShieldAlert,
   Target,
   UserCircle,
@@ -28,83 +29,34 @@ const SKILL_LABELS = {
   overall: 'Overall',
 }
 
-const DEMO_DATA = {
+const EMPTY_DATA = {
   blindSpots: {
     scope: 'user',
-    user_id: 'demo-user',
+    user_id: '',
     session_id: null,
     summary: {
-      total_count: 2,
-      high_count: 1,
-      medium_count: 1,
+      total_count: 0,
+      high_count: 0,
+      medium_count: 0,
       low_count: 0,
-      strongest_blind_spot: {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
-      },
+      strongest_blind_spot: null,
+      sentiment_gap_count: 0,
     },
-    blind_spots: [
-      {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
-      },
-      {
-        skill_area: 'emotional_intelligence',
-        blind_spot_type: 'underestimation',
-        severity: 'medium',
-        self_rating: 64,
-        comparison_score: 90,
-        comparison_source: 'observed',
-        gap: 26,
-        confidence: 0.81,
-        recommendation: 'Your Emotional Intelligence performance appears stronger than your self-rating. Build confidence with evidence.',
-      },
-    ],
+    blind_spots: [],
+    sentiment_gaps: [],
   },
   feedbackAnalysis: {
     summary: {
-      self_feedback_count: 3,
-      peer_feedback_count: 0,
-      analyzed_skill_count: 4,
-      aligned_count: 2,
-      blind_spot_count: 2,
-      average_self_rating: 78,
-      average_observed_score: 72,
+      self_feedback_count: 0,
+      analyzed_skill_count: 0,
+      aligned_count: 0,
+      blind_spot_count: 0,
+      average_self_rating: null,
+      average_observed_score: null,
     },
-    items: [
-      alignment('presence_engagement', 92, 55, 'self_overestimation', 'high'),
-      alignment('emotional_intelligence', 64, 90, 'self_underestimation', 'medium'),
-      alignment('vocal_command', 78, 76, 'aligned', 'none'),
-    ],
+    items: [],
   },
 }
-
-function alignment(skillArea, selfRating, observedScore, alignmentLabel, severity) {
-  return {
-    skill_area: skillArea,
-    self_rating: selfRating,
-    observed_score: observedScore,
-    self_observed_gap: selfRating - observedScore,
-    alignment: alignmentLabel,
-    severity,
-    recommendation: `${labelFor(skillArea)} feedback should be reviewed with evidence from the session.`,
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -123,12 +75,13 @@ export default function BlindSpotDetail() {
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [data, setData] = useState(DEMO_DATA)
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(EMPTY_DATA)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const currentId = scope === 'session' ? sessionId : userId
   const blindSpots = data.blindSpots?.blind_spots || []
+  const sentimentGaps = data.blindSpots?.sentiment_gaps || []
   const analysisItems = data.feedbackAnalysis?.items || []
   const strongest = data.blindSpots?.summary?.strongest_blind_spot || blindSpots[0]
 
@@ -149,8 +102,8 @@ export default function BlindSpotDetail() {
       setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult })
       setStatus('live')
     } catch {
-      setData(DEMO_DATA); setStatus('demo')
-      setError('Backend blind spot data unavailable. Showing demo analysis.')
+      setData(EMPTY_DATA); setStatus('error')
+      setError('Your blind spot analysis could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -210,7 +163,7 @@ export default function BlindSpotDetail() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API blind spots' : status === 'loading' ? 'Loading…' : 'Demo blind spots'}
+          {status === 'live' ? 'Live blind spots' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
       </motion.div>
@@ -262,6 +215,15 @@ export default function BlindSpotDetail() {
       <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
         <Panel title="Detected Blind Spots" icon={AlertTriangle}>
           <BlindSpotList items={blindSpots} />
+        </Panel>
+      </motion.div>
+
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Panel
+          title={`In Your Own Words — ${sentimentGaps.length} gap${sentimentGaps.length === 1 ? '' : 's'}`}
+          icon={MessageSquare}
+        >
+          <SentimentGapList items={sentimentGaps} />
         </Panel>
       </motion.div>
 
@@ -413,6 +375,69 @@ function SelectInput({ label, value, onChange, options }) {
         ))}
       </select>
     </label>
+  )
+}
+
+const GAP_TONE = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--info)' }
+
+/**
+ * Blind spots found in what the learner wrote, rather than in what they scored.
+ *
+ * The panel above compares numbers: a self-rating against measured performance.
+ * This compares the sentiment the learner selected against the sentiment the NLP
+ * model reads in their own reflection — the same self-perception gap, expressed
+ * in language. Their words are quoted back so the finding is checkable.
+ */
+function SentimentGapList({ items }) {
+  if (!items.length) {
+    return (
+      <EmptyMsg text="No gaps between your ratings and your written reflections. Write a reflection after a session to have this checked." />
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {items.map((gap, index) => (
+        <div
+          key={`${gap.session_id}-${index}`}
+          style={{
+            padding: 16,
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            borderLeft: `3px solid ${GAP_TONE[gap.severity] || 'var(--accent)'}`,
+            background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span className="t-cap">You marked it</span>
+            <strong style={{ textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+              {gap.declared_sentiment}
+            </strong>
+            <span className="t-cap">but your words read as</span>
+            <strong style={{ textTransform: 'capitalize', color: GAP_TONE[gap.severity] }}>
+              {gap.detected_sentiment}
+            </strong>
+            <span className="t-cap">({Math.round(gap.confidence * 100)}% confidence)</span>
+          </div>
+
+          <blockquote
+            style={{
+              margin: 0,
+              padding: '10px 14px',
+              borderLeft: '2px solid var(--border-subtle)',
+              fontStyle: 'italic',
+              color: 'var(--text-secondary)',
+              fontSize: 14,
+              lineHeight: 1.6,
+            }}
+          >
+            {gap.comment_excerpt}
+          </blockquote>
+
+          <p className="t-cap" style={{ marginTop: 10, lineHeight: 1.6 }}>{gap.recommendation}</p>
+        </div>
+      ))}
+    </div>
   )
 }
 

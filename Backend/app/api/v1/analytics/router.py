@@ -20,6 +20,7 @@ from app.schemas.analytics import (
     AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
     GamificationProfileResult,
+    SessionBackfillResult,
     GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
@@ -46,6 +47,7 @@ from app.services import (
     predictive_modeling_service,
     progress_trend_service,
     sentiment_analysis_service,
+    session_backfill_service,
     skill_scoring_service,
 )
 
@@ -331,6 +333,24 @@ def get_user_skill_predicted_outcome(
     db: Session = Depends(get_db),
 ):
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
+
+
+@router.post(
+    "/users/{user_id}/backfill-sessions",
+    response_model=SessionBackfillResult,
+)
+def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
+    """Pull every completed session that has no analytics into the module.
+
+    Reads the role-play and multimodal tables directly, so a session is recorded
+    whether or not anyone opened an analytics page while it was running.
+    Idempotent — sessions that already have metrics are skipped.
+    """
+    try:
+        return session_backfill_service.backfill_user_sessions(db, user_id)
+    except Exception as exc:
+        logger.error("Session backfill failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
 
 
 @router.get(

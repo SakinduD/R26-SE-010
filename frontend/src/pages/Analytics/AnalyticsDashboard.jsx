@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
   ShieldAlert, Target,
@@ -85,6 +85,7 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
 
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [userId, setUserId] = useState(cid || '')
   // ?sessionId=… (e.g. the redirect after self-reflection) opens that session's
@@ -255,6 +256,11 @@ export default function AnalyticsDashboard() {
      .filter(s => s.value !== null)
   }, [data])
 
+  // Whether the learner rated themselves at all. Without this, "no gaps found"
+  // and "nothing to compare" look identical on screen, and the dashboard ends up
+  // congratulating people on self-awareness they never demonstrated.
+  const hasSelfRating = selfScores.length > 0
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -286,7 +292,7 @@ export default function AnalyticsDashboard() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-border bg-muted">
             <span className={'h-2 w-2 rounded-full '+(status==='live'?'bg-success':status==='loading'?'bg-info animate-pulse':'bg-muted-foreground')}/>
-            {status==='live'?'Live Data':status==='loading'?'Loading...':'Demo Mode'}
+            {status==='live'?'Live Data':status==='loading'?'Loading…':status==='error'?'Unavailable':'Not loaded'}
           </span>
           {/* REDESIGN: text-red-400/bg-red-400 → danger tokens; text-green-400/bg-green-400 → success tokens */}
           {error && <span className="text-xs text-danger bg-danger/10 border border-danger/20 px-3 py-1 rounded-full">{error}</span>}
@@ -385,7 +391,30 @@ export default function AnalyticsDashboard() {
           <div className="rounded-2xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
             <p className="text-xs text-muted-foreground mb-4">How you see yourself vs how others see you</p>
-            {gaps.length === 0 ? (
+            {/* A gap needs two sides. With no self-assessment there is nothing to
+                compare, and saying "your self-view matches" would be claiming a
+                finding the data cannot support. */}
+            {!hasSelfRating ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📝</span>
+                <p className="font-semibold fg">No self-assessment for this session yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  Rate yourself on this session and your ratings will be compared with what
+                  was measured, to show where the two disagree.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary mt-4"
+                  onClick={() => navigate(
+                    sessionId
+                      ? `/analytics/sessions/${encodeURIComponent(sessionId)}/feedback`
+                      : '/analytics-feedback'
+                  )}
+                >
+                  Add your self-assessment
+                </button>
+              </div>
+            ) : gaps.length === 0 ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">🎯</span>
                 <p className="font-semibold fg">Your self-view matches your performance!</p>

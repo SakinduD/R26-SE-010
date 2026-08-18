@@ -27,7 +27,15 @@ logger = logging.getLogger(__name__)
 def integrate_component_session_data(
     db: Session,
     payload: AnalyticsComponentIntegrationRequest,
+    run_downstream: bool = True,
 ) -> AnalyticsSessionIntegrationResult:
+    """Fold one completed session into the analytics module.
+
+    ``run_downstream`` controls the after-effects (currently the gamification
+    sync). A bulk backfill turns it off and runs them once at the end instead:
+    each sync replays the learner's whole history, so doing it per session would
+    make importing fifty sessions quadratic for no benefit.
+    """
     rpe_feedback = _coerce_model(payload.rpe_feedback, ComponentRpeFeedback)
     rpe_session = _coerce_model(payload.rpe_session, ComponentRpeSession)
     adaptive_plan = _coerce_model(payload.adaptive_plan, ComponentAdaptivePlan)
@@ -63,7 +71,8 @@ def integrate_component_session_data(
     # The session's own analytics are now stored; award the learner for it. The
     # pedagogy engine picks up the refreshed learner profile itself, the next
     # time it composes a plan.
-    _sync_gamification(db, payload.user_id)
+    if run_downstream:
+        _sync_gamification(db, payload.user_id)
 
     aggregate = data_aggregation_service.get_session_aggregate(db, payload.session_id)
     return AnalyticsSessionIntegrationResult(
