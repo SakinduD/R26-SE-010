@@ -537,6 +537,38 @@ class GamificationXpAward(BaseModel):
     already_scored: bool = False
 
 
+class AnalyticsLearnerProfileSignal(BaseModel):
+    """The learner's longitudinal profile, normalised for the pedagogy engine.
+
+    The first five fields are the contract the Adaptive Pedagogical Architecture
+    already consumes; the rest are the evidence they were derived from, carried
+    along so an adjustment can be explained rather than just asserted.
+    """
+
+    engagement_score: float = Field(..., ge=0, le=1)
+    confidence_score: float = Field(..., ge=0, le=1)
+    objective_completion_rate: float = Field(..., ge=0, le=1)
+    stress_level: float = Field(..., ge=0, le=1)
+    outcome: Literal["success", "partial", "failure"]
+
+    analyzed_skill_count: int
+    improving_count: int
+    declining_count: int
+    blind_spot_total: int
+    blind_spot_high: int
+    high_risk_skill_count: int
+    mean_latest_score: Score = None
+    mean_predicted_score: Score = None
+    evidence_sessions: int
+
+
+class AnalyticsFeedbackLoopResult(BaseModel):
+    user_id: str
+    signal: AnalyticsLearnerProfileSignal
+    loop_version: str
+    generated_at: datetime
+
+
 class GamificationRules(BaseModel):
     """The XP formula, published so the UI never restates it from memory."""
 

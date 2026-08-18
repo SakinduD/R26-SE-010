@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import logging
@@ -15,6 +17,7 @@ from app.schemas.analytics import (
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
+    AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
     GamificationProfileResult,
     GamificationSyncResult,
@@ -32,6 +35,7 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    analytics_feedback_loop_service,
     analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
@@ -327,6 +331,26 @@ def get_user_skill_predicted_outcome(
     db: Session = Depends(get_db),
 ):
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
+
+
+@router.get(
+    "/users/{user_id}/learner-profile-signal",
+    response_model=AnalyticsFeedbackLoopResult,
+)
+def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
+    """The longitudinal learner profile analytics hands to the pedagogy engine.
+
+    Read-only. The pedagogy module pulls the same signal when it composes a plan;
+    exposing it here lets the learner see what their history currently says
+    before they regenerate.
+    """
+    signal = analytics_feedback_loop_service.build_learner_profile_signal(db, user_id)
+    return AnalyticsFeedbackLoopResult(
+        user_id=user_id,
+        signal=signal,
+        loop_version=analytics_feedback_loop_service.LOOP_VERSION,
+        generated_at=datetime.utcnow(),
+    )
 
 
 @router.get(

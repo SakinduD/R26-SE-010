@@ -44,6 +44,9 @@ export const analyticsService = {
       params: forceRefresh ? { force_refresh: true } : {},
     }).then(unwrap),
 
+  getLearnerProfileSignal: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/learner-profile-signal`).then(unwrap),
+
   getGamificationByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/gamification`).then(unwrap),
 
@@ -64,6 +67,10 @@ export const analyticsService = {
 
   integrateCompletedSession: (payload) =>
     api.post('/api/v1/analytics/integrations/session-complete', payload).then(unwrap),
+
+  // Lets the session-end hook resolve the learner without the RPE/MCA screens
+  // having to wire in the auth context themselves.
+  getCurrentUserId: () => api.get('/api/v1/auth/me').then((r) => r.data?.id || ''),
 
   getComponentSurveyProfile: () =>
     api.get('/api/v1/survey/profile/me').then(unwrap),

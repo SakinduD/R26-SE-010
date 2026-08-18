@@ -8,6 +8,8 @@ import * as draw from '@mediapipe/drawing_utils';
 import { Video, Activity, Mic, X, Play, Square, PictureInPicture2 } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import { mcaService } from '../../services/mca/mcaService';
+import { analyticsService } from '../../services/analytics/analyticsService';
+import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -628,6 +630,12 @@ const MultimodalEngine = () => {
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
+
+          // Hand the finished session to the analytics module immediately, so
+          // scores, XP and the adapted training plan are ready by the time the
+          // learner lands on the feedback page. Fire-and-forget: never throws.
+          integrateCompletedSession(analyticsService, sid);
+
           const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           setTimeout(() => navigate(redirectUrl), 1500);
         } else {

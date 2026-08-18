@@ -60,6 +60,9 @@ def integrate_component_session_data(
         ],
     ]
 
+    # The session's own analytics are now stored; award the learner for it. The
+    # pedagogy engine picks up the refreshed learner profile itself, the next
+    # time it composes a plan.
     _sync_gamification(db, payload.user_id)
 
     aggregate = data_aggregation_service.get_session_aggregate(db, payload.session_id)

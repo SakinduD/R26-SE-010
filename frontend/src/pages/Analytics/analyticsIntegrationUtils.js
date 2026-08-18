@@ -276,3 +276,71 @@ function normalizeSessionOptions(sessions, source) {
     })
     .filter(Boolean)
 }
+
+/**
+ * Pull every component's view of one session and push the combined picture into
+ * the analytics module.
+ *
+ * This is the single place that assembles the integration payload. The Analytics
+ * pages call it when a session is selected, and the RPE / MCA screens call it the
+ * moment a session finishes — so a learner who never opens an analytics page
+ * still gets their session scored, their XP awarded, and their training plan
+ * adapted. Duplicating this assembly per call site would let the two drift.
+ *
+ * Never throws: a session that fails to integrate must not disturb whatever the
+ * caller was doing. Returns { integrated: boolean }.
+ */
+export async function integrateCompletedSession(analyticsService, sessionId, userId = null) {
+  if (!sessionId) return { integrated: false }
+
+  try {
+    const learnerId = userId || (await analyticsService.getCurrentUserId())
+    if (!learnerId) return { integrated: false }
+
+    const [survey, plan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
+      optionalRequest(() => analyticsService.getComponentSurveyProfile()),
+      optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
+      optionalRequest(() => analyticsService.getComponentRpeSession(sessionId)),
+      optionalRequest(() => analyticsService.getComponentRpeFeedback(sessionId)),
+      optionalRequest(() => analyticsService.getComponentMcaSessions()),
+    ])
+
+    const mcaSession = selectMcaSession(mcaSessions.data, sessionId)
+    const nudges = normalizeMcaSessionNudges(mcaSession)
+
+    // MCA's own skill scores only apply when the session being integrated *is*
+    // that MCA session — otherwise they would be attributed to the wrong run.
+    const isSelectedMca = mcaSession && String(mcaSession.id) === String(sessionId)
+    const mcaSkillScores = isSelectedMca ? normalizeMcaSkillScores(mcaSession) : null
+    const mcaOverallScore = isSelectedMca ? normalizeMcaOverallScore(mcaSession) : null
+
+    const sources = {
+      surveyProfile: survey,
+      adaptivePlan: plan,
+      rpeSession,
+      rpeFeedback,
+      mcaNudges: { ok: nudges.length > 0 || Boolean(mcaSkillScores), data: nudges },
+    }
+    if (!hasPulledComponentData(sources)) return { integrated: false }
+
+    await analyticsService.integrateCompletedSession({
+      user_id: learnerId,
+      session_id: sessionId,
+      scenario_id:
+        rpeSession.data?.scenario_id ||
+        rpeFeedback.data?.scenario_id ||
+        plan.data?.primary_scenario,
+      skill_type: plan.data?.skill || rpeFeedback.data?.skill_type || 'communication',
+      survey_profile: normalizeSurveyProfile(survey.data),
+      adaptive_plan: normalizeAdaptivePlan(plan.data),
+      rpe_session: normalizeRpeSession(rpeSession.data),
+      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
+      mca_nudges: normalizeMcaNudges(nudges),
+      mca_skill_scores: mcaSkillScores || undefined,
+      mca_overall_score: mcaOverallScore ?? undefined,
+    })
+    return { integrated: true }
+  } catch {
+    return { integrated: false }
+  }
+}
