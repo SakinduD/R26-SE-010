@@ -195,24 +195,71 @@ def _payload_for_rpe(user_id: str, row: dict) -> AnalyticsComponentIntegrationRe
     )
 
 
+def resolve_session_owner(db: Session, session_id: str) -> str | None:
+    """Which learner does this session belong to?
+
+    Lets a caller integrate a session knowing only its id. The session-end hook
+    fires from screens that do not carry the analytics learner id, and asking the
+    browser for it adds a request that can fail on its own.
+    """
+    try:
+        row = (
+            db.query(SessionResult.user_id)
+            .filter(SessionResult.id == session_id)
+            .first()
+        )
+        if row and row[0]:
+            return str(row[0])
+    except Exception:
+        db.rollback()
+        logger.debug("Session %s is not a multimodal session id", session_id)
+
+    try:
+        row = db.execute(
+            text(
+                "SELECT COALESCE(auth_user_id, user_id) FROM rpe_sessions "
+                "WHERE session_id = :sid LIMIT 1"
+            ),
+            {"sid": session_id},
+        ).first()
+    except Exception:
+        db.rollback()
+        logger.exception("Could not resolve owner of role-play session %s", session_id)
+        return None
+    return str(row[0]) if row and row[0] else None
+
+
 def backfill_user_sessions(
     db: Session,
     user_id: str,
     include_rpe: bool = True,
+    session_id: str | None = None,
 ) -> SessionBackfillResult:
     """Bring every completed session that has no analytics into the module.
 
     Returns a per-session account of what happened, so a caller can show the
     learner what was recovered rather than silently changing their numbers.
+
+    ``session_id`` narrows the sweep to a single session. That is what a screen
+    calls the moment a session ends: same reader, same mapping, same idempotency
+    as the bulk sweep, but it touches only the session that just finished.
     """
-    already = _sessions_with_metrics(db, user_id)
+    # A targeted call re-reads the session even if it already has a metric row.
+    # The scores are computed a moment after the session closes, so the hook that
+    # fires on completion can arrive first and store a row with nudges but no
+    # scores. Skipping it then would freeze that empty row in place for good.
+    # Re-integration is an upsert and replaces only generated feedback, so
+    # running it again is safe.
+    already = set() if session_id is not None else _sessions_with_metrics(db, user_id)
     items: list[SessionBackfillItem] = []
 
     skipped = 0
 
     for session in _mca_candidates(db, user_id):
-        session_id = str(session.id)
-        if session_id in already:
+        candidate_id = str(session.id)
+        if session_id is not None and candidate_id != session_id:
+            continue
+        if candidate_id in already:
             continue
         payload = _payload_for_mca(user_id, session)
         if payload is None:
@@ -222,14 +269,16 @@ def backfill_user_sessions(
 
     if include_rpe:
         for row in _rpe_candidates(db, user_id):
-            session_id = str(row["session_id"])
-            if session_id in already:
+            candidate_id = str(row["session_id"])
+            if session_id is not None and candidate_id != session_id:
+                continue
+            if candidate_id in already:
                 continue
             payload = _payload_for_rpe(user_id, row)
             if payload is None:
                 skipped += 1
                 continue
-            items.append(_integrate(db, payload, "rpe", session_id))
+            items.append(_integrate(db, payload, "rpe", candidate_id))
 
     integrated = [item for item in items if item.integrated]
 

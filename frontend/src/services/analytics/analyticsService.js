@@ -68,6 +68,11 @@ export const analyticsService = {
   integrateCompletedSession: (payload) =>
     api.post('/api/v1/analytics/integrations/session-complete', payload).then(unwrap),
 
+  // Server-side integration of a single finished session: the backend reads the
+  // session from its own tables, so the caller needs nothing but the id.
+  integrateSession: (sessionId) =>
+    api.post(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/integrate`).then(unwrap),
+
   // Lets the session-end hook resolve the learner without the RPE/MCA screens
   // having to wire in the auth context themselves.
   getCurrentUserId: () => api.get('/api/v1/auth/me').then((r) => r.data?.id || ''),

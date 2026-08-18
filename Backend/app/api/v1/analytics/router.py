@@ -353,6 +353,34 @@ def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
 
 
+@router.post(
+    "/sessions/{session_id}/integrate",
+    response_model=SessionBackfillResult,
+)
+def integrate_session(session_id: str, db: Session = Depends(get_db)):
+    """Fold one just-finished session into analytics, reading it from the database.
+
+    The session-end hook used to assemble this payload in the browser from half a
+    dozen component endpoints. Any one of them failing — or the learner simply
+    navigating away before they all returned — left the session with no analytics
+    at all, so its scores never reached the dashboard, the trend lines or the
+    predictions.
+
+    Here the server reads the session it already stored. One call, one id, no
+    assembly, and idempotent: a session that already has metrics is skipped.
+    """
+    owner = session_backfill_service.resolve_session_owner(db, session_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail=f"No session found with id {session_id}")
+    try:
+        return session_backfill_service.backfill_user_sessions(
+            db, owner, session_id=session_id
+        )
+    except Exception as exc:
+        logger.error("Integration failed for session %s: %s", session_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to integrate session: {exc}") from exc
+
+
 @router.get(
     "/users/{user_id}/learner-profile-signal",
     response_model=AnalyticsFeedbackLoopResult,

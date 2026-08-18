@@ -88,12 +88,20 @@ def _query_user_metrics(
     if cutoff_id is not None:
         query = query.filter(AnalyticsSessionMetric.id <= cutoff_id)
 
-    return (
+    # Take the most recent `limit` rows, then put them back in chronological
+    # order for the trend line.
+    #
+    # This previously ordered ascending before applying the limit, which kept the
+    # OLDEST rows and silently dropped the newest — so once a learner passed the
+    # limit, their latest sessions stopped appearing in trends and predictions
+    # altogether, and "latest score" reported a session from weeks earlier.
+    rows = (
         query
-        .order_by(AnalyticsSessionMetric.id.asc())
+        .order_by(AnalyticsSessionMetric.id.desc())
         .limit(limit)
         .all()
     )
+    return list(reversed(rows))
 
 
 def _query_user_feedback(
@@ -106,7 +114,10 @@ def _query_user_feedback(
     if session_ids is not None:
         query = query.filter(FeedbackEntry.session_id.in_(session_ids))
 
-    return query.order_by(FeedbackEntry.id.asc()).limit(limit).all()
+    # Newest first for the limit, then back into chronological order — same
+    # reasoning as the metric query above.
+    rows = query.order_by(FeedbackEntry.id.desc()).limit(limit).all()
+    return list(reversed(rows))
 
 
 def _session_cutoff_id(

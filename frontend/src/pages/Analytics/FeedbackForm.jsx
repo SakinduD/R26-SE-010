@@ -86,8 +86,20 @@ export default function FeedbackForm() {
     return session?.friendlyId || null;
   }, [friendlyId, sessionOptions, form.session_id]);
 
+  // A written reflection is required, not optional. It is the only human text
+  // the sentiment module ever receives — with it left blank the analysis has
+  // nothing to read, which is exactly how 163 self-assessments were recorded
+  // without the model ever running once.
+  const MIN_REFLECTION_LENGTH = 15
+
+  const reflection = form.comment.trim()
+  const reflectionTooShort = reflection.length > 0 && reflection.length < MIN_REFLECTION_LENGTH
+
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim(),
+    () =>
+      Boolean(form.user_id.trim())
+      && Boolean(form.session_id.trim())
+      && form.comment.trim().length >= MIN_REFLECTION_LENGTH,
     [form]
   )
 
@@ -101,8 +113,16 @@ export default function FeedbackForm() {
 
   const submitFeedback = async (event) => {
     event.preventDefault()
+    // Guard the handler, not just the button: a double click, an Enter keypress
+    // while the button is focused, or a re-render mid-flight could all fire this
+    // twice, and each run writes a full set of ratings.
+    if (status === 'saving') return
     if (!canSubmit) {
-      setMessage('Session ID is required.')
+      setMessage(
+        !form.session_id.trim()
+          ? 'Select a session first.'
+          : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
+      )
       return
     }
 
@@ -307,7 +327,7 @@ export default function FeedbackForm() {
             <p className="t-cap" style={{ margin: '0 0 10px', lineHeight: 1.6 }}>
               Write a sentence or two about how the session went. Your words are
               analysed on their own, so you can see whether they match the
-              sentiment you chose above.
+              sentiment you chose above. <strong>Required.</strong>
             </p>
             <textarea
               className="input textarea"
@@ -315,7 +335,22 @@ export default function FeedbackForm() {
               value={form.comment}
               onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
               style={{ minHeight: 120, padding: 14 }}
+              aria-invalid={reflectionTooShort || undefined}
+              required
             />
+            <div
+              className="t-cap"
+              style={{
+                marginTop: 6,
+                color: reflectionTooShort ? 'var(--danger)' : 'var(--text-quaternary)',
+              }}
+            >
+              {reflection.length === 0
+                ? `Write at least ${MIN_REFLECTION_LENGTH} characters.`
+                : reflectionTooShort
+                  ? `${MIN_REFLECTION_LENGTH - reflection.length} more characters needed.`
+                  : `${reflection.length} characters — ready to analyse.`}
+            </div>
           </Card>
 
           {/* REDESIGN: status message replaced bg-red-500/10/etc. ad-hoc colors with Banner */}

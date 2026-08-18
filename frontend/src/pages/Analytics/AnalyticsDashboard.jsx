@@ -97,18 +97,27 @@ export default function AnalyticsDashboard() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
+  // Observed scores only — what the session actually measured.
+  //
+  // These used to fall back to the learner's own rating when no measurement
+  // existed. That made a self-rating masquerade as an observed score: the radar
+  // drew both layers from the same number, every gap came out as zero, and the
+  // page congratulated the learner for matching a performance it had never
+  // measured. A skill with no measurement is now simply blank.
   const scores = useMemo(() => {
     const a = data?.aggregate?.scores?.averages || {}
-    const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     // Each composite skill is the mean of its underlying fields — identical to the
     // Skill Twin radar and Post-Session Report so the numbers agree across pages.
     return [
-      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score) ?? toNum(f.vocal_command)],
-      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score) ?? toNum(f.speech_fluency)],
-      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score) ?? toNum(f.presence_engagement)],
-      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score) ?? toNum(f.emotional_intelligence)],
+      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score)],
+      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score)],
+      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score)],
+      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score)],
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
+
+  // A gap needs a measurement to compare against, not just a self-rating.
+  const hasObserved = useMemo(() => scores.some((s) => s.value !== null), [scores])
 
   const hasLive = status !== 'live' || Boolean(data?.aggregate?.scores?.metric_count || data?.aggregate?.feedback?.total_count)
 
@@ -394,7 +403,16 @@ export default function AnalyticsDashboard() {
             {/* A gap needs two sides. With no self-assessment there is nothing to
                 compare, and saying "your self-view matches" would be claiming a
                 finding the data cannot support. */}
-            {!hasSelfRating ? (
+            {!hasObserved ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📊</span>
+                <p className="font-semibold fg">This session has no measured scores yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  A gap is your rating measured against what the session recorded. Without
+                  the measurement there is nothing to compare your rating with.
+                </p>
+              </div>
+            ) : !hasSelfRating ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">📝</span>
                 <p className="font-semibold fg">No self-assessment for this session yet</p>
