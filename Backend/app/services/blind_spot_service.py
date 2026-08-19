@@ -24,6 +24,35 @@ HIGH_BLIND_SPOT_GAP = 30.0
 # blind spot on the strength of a 0.51 prediction would be inventing a finding.
 MIN_SENTIMENT_CONFIDENCE = 0.60
 
+# The model is only trusted to report one direction of disagreement.
+#
+# Measured against the hand-labelled workplace set in
+# training/feedback_analytics/datasets/validation/, at this same confidence gate:
+#
+#     reads "positive"  ->  7 of 7 correct
+#     reads "negative"  ->  9 of 21 correct
+#
+# The asymmetry is not noise, it is the training data showing through.
+# Sentiment140 is emoticon-labelled tweets, where negative sentiment travels with
+# complaint vocabulary. A workplace reflection uses "not", "difficult",
+# "mistake", "uncomfortable" descriptively - "I did not rush a single answer" is
+# praise built entirely from words this model has learned to read as negative,
+# and it calls that sentence negative at 0.86 confidence. Raising the gate does
+# not help: the wrong readings are among the most confident ones.
+#
+# So a reading of "negative" cannot support a finding. Reporting one anyway would
+# tell a learner their own words betray a difficulty they never described - wrong
+# roughly three times in five, stated with authority, about themselves. A tool for
+# self-awareness that does that is worse than one that stays quiet.
+#
+# A reading of "positive" is trustworthy, and the finding it supports is a real
+# one: a learner marking themselves down while writing an account that does not
+# justify it. That is the direction this stays open for.
+#
+# Remove this restriction when a replacement model earns it on the same
+# validation set - not before.
+TRUSTED_DETECTED_SENTIMENTS = frozenset({"positive"})
+
 # Opposite poles disagree more than either does with "neutral".
 _OPPOSITE_POLES = {frozenset({"positive", "negative"})}
 
@@ -107,6 +136,12 @@ def _sentiment_gap_from_entry(entry: FeedbackEntry) -> SentimentBlindSpotItem | 
 
     confidence = entry.sentiment_confidence or 0.0
     if confidence < MIN_SENTIMENT_CONFIDENCE:
+        return None
+
+    if entry.sentiment not in TRUSTED_DETECTED_SENTIMENTS:
+        # Measured unreliable in this direction. The reading is still stored on
+        # the entry and still shown to the learner as a reading; it just is not
+        # promoted into a finding about them. See TRUSTED_DETECTED_SENTIMENTS.
         return None
 
     severity = (

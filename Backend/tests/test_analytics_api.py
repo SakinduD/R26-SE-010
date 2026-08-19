@@ -1180,14 +1180,19 @@ def _self_entry(client, user_id, session_id, comment, declared, skill="presence_
     )
 
 
-def test_a_positive_rating_over_negative_words_is_reported_as_a_gap(client):
-    """The text-based counterpart of a rating blind spot."""
+def test_a_negative_rating_over_positive_words_is_reported_as_a_gap(client):
+    """The text-based counterpart of a rating blind spot.
+
+    Only this direction is reported. The reverse - a positive rating over words
+    the model reads as negative - was measured at 43% precision on workplace text
+    and is suppressed; see TRUSTED_DETECTED_SENTIMENTS in blind_spot_service.
+    """
     created = _self_entry(
         client,
         "sent-gap-user",
         "sent-gap-session",
-        "I kept losing my train of thought and the whole thing felt awkward and rushed.",
-        "positive",
+        "I am proud of how I handled that and I listened properly before replying.",
+        "negative",
     )
     assert created.status_code == 201
     entry = created.json()
@@ -1197,18 +1202,44 @@ def test_a_positive_rating_over_negative_words_is_reported_as_a_gap(client):
     assert response.status_code == 200
     data = response.json()
 
-    if entry["sentiment"] == "positive":
-        pytest.skip("model agreed with the learner on this wording")
+    if entry["sentiment"] != "positive":
+        pytest.skip("model did not read this wording as positive")
 
     gaps = data["sentiment_gaps"]
     assert len(gaps) == 1
     gap = gaps[0]
-    assert gap["declared_sentiment"] == "positive"
-    assert gap["detected_sentiment"] == entry["sentiment"]
+    assert gap["declared_sentiment"] == "negative"
+    assert gap["detected_sentiment"] == "positive"
     assert gap["severity"] in {"medium", "high"}
-    assert gap["comment_excerpt"].startswith("I kept losing my train of thought")
+    assert gap["comment_excerpt"].startswith("I am proud of how I handled that")
     assert gap["recommendation"]
     assert data["summary"]["sentiment_gap_count"] == 1
+
+
+def test_a_positive_rating_over_negative_words_is_not_reported(client):
+    """The direction the model has not earned stays out of the findings."""
+    created = _self_entry(
+        client,
+        "sent-suppressed-user",
+        "sent-suppressed-session",
+        "I kept losing my train of thought and the whole thing felt awkward and rushed.",
+        "positive",
+    )
+    assert created.status_code == 201
+    entry = created.json()
+    if entry["sentiment"] != "negative":
+        pytest.skip("model did not read this wording as negative")
+
+    response = client.get(
+        "/api/v1/analytics/sessions/sent-suppressed-session/blind-spots"
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    # The reading is still stored on the entry and still shown to the learner as
+    # a reading. It simply is not promoted into a finding about them.
+    assert data["sentiment_gaps"] == []
+    assert data["summary"]["sentiment_gap_count"] == 0
 
 
 def test_agreement_produces_no_gap(client):
@@ -1260,9 +1291,11 @@ def test_opposite_poles_are_more_severe_than_a_neutral_disagreement(db_session):
     from app.models.analytics import FeedbackEntry
     from app.services import blind_spot_service
 
+    # Both use a detected "positive": that is the only reading trusted to
+    # produce a finding, so severity has to be compared within it.
     for session_id, declared, detected in [
-        ("sent-sev-opposite", "positive", "negative"),
-        ("sent-sev-neutral", "neutral", "negative"),
+        ("sent-sev-opposite", "negative", "positive"),
+        ("sent-sev-neutral", "neutral", "positive"),
     ]:
         db_session.add(
             FeedbackEntry(
