@@ -10,6 +10,12 @@ from app.schemas.analytics import (
     FeedbackAnalysisSummary,
 )
 
+# A learner-wide analysis summarises their whole history, so this cap must never
+# quietly act as a page size. At 100 it did: on the development account it read
+# 100 of 392 feedback entries and reported the result as the learner's overall
+# picture. Same reasoning as FULL_HISTORY_LIMIT in data_aggregation_service.
+FULL_HISTORY_LIMIT = 10_000
+
 
 ANALYSIS_VERSION = "rule-based-v1"
 ALIGNMENT_THRESHOLD = 10.0
@@ -54,7 +60,9 @@ def analyze_session_feedback(db: Session, session_id: str) -> FeedbackAnalysisRe
     )
 
 
-def analyze_user_feedback(db: Session, user_id: str, limit: int = 100) -> FeedbackAnalysisResult:
+def analyze_user_feedback(
+    db: Session, user_id: str, limit: int = FULL_HISTORY_LIMIT
+) -> FeedbackAnalysisResult:
     metrics = (
         db.query(AnalyticsSessionMetric)
         .filter(AnalyticsSessionMetric.user_id == user_id)

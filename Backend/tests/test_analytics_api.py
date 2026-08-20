@@ -533,23 +533,34 @@ def test_component_integration_maps_mca_skill_scores_directly(client):
 
 
 def test_post_session_report_combines_session_analytics(client):
-    session_id = "report-session"
+    """A self-rating far from the observed score is a blind spot.
+
+    Metrics and feedback must belong to the same learner and session: a blind
+    spot is the distance between what someone thought and what was measured, so
+    with no measurement there is nothing to be distant from.
+    """
+    session_id = "blind-session"
     client.post(
         "/api/v1/analytics/session-metrics",
         json={
-            "user_id": "report-user",
+            "user_id": "blind-user",
             "session_id": session_id,
-            "confidence_score": 58,
-            "clarity_score": 74,
+            # presence_engagement reads eye_contact and confidence together
+            "eye_contact_score": 55,
+            "confidence_score": 55,
+            # emotional_intelligence reads empathy and emotional_control together
             "empathy_score": 82,
-            "listening_score": 77,
-            "overall_score": 73,
+            "emotional_control_score": 82,
+            # speech_fluency reads pace and clarity together
+            "speech_pace_score": 74,
+            "clarity_score": 74,
+            "overall_score": 70,
         },
     )
     client.post(
         "/api/v1/analytics/feedback",
         json={
-            "user_id": "report-user",
+            "user_id": "blind-user",
             "session_id": session_id,
             "feedback_type": "self",
             "skill_area": "presence_engagement",
@@ -560,17 +571,17 @@ def test_post_session_report_combines_session_analytics(client):
         "/api/v1/analytics/feedback",
         json={
             "user_id": "blind-user",
-            "session_id": "blind-session",
+            "session_id": session_id,
             "feedback_type": "self",
             "skill_area": "emotional_intelligence",
-            "rating": 64,
+            "rating": 56,
         },
     )
     client.post(
         "/api/v1/analytics/feedback",
         json={
             "user_id": "blind-user",
-            "session_id": "blind-session",
+            "session_id": session_id,
             "feedback_type": "self",
             "skill_area": "speech_fluency",
             "rating": 78,
@@ -592,10 +603,12 @@ def test_post_session_report_combines_session_analytics(client):
     assert data["detection_version"] == "rule-based-v1"
 
     blind_spots = {item["skill_area"]: item for item in data["blind_spots"]}
+    # rated 92, measured 55
     assert blind_spots["presence_engagement"]["blind_spot_type"] == "overestimation"
     assert blind_spots["presence_engagement"]["severity"] == "high"
     assert blind_spots["presence_engagement"]["comparison_source"] == "observed"
     assert blind_spots["presence_engagement"]["gap"] == 37
+    # rated 56, measured 82
     assert blind_spots["emotional_intelligence"]["blind_spot_type"] == "underestimation"
     assert blind_spots["emotional_intelligence"]["severity"] == "medium"
     assert blind_spots["emotional_intelligence"]["gap"] == 26
@@ -626,23 +639,28 @@ def test_user_progress_trends_detects_improving_declining_and_stable_skills(clie
     session_payloads = [
         {
             "session_id": "trend-session-1",
-            "confidence_score": 55,
-            "empathy_score": 90,
-            "clarity_score": 72,
+            # Each tracked skill is a composite of two metric columns, so both
+            # halves are written; the trend value is their mean.
+            "speech_volume_score": 60,                                  # vocal_command
+            "speech_pace_score": 72, "clarity_score": 72,               # speech_fluency
+            "eye_contact_score": 55, "confidence_score": 55,            # presence_engagement
+            "empathy_score": 90, "emotional_control_score": 90,         # emotional_intelligence
             "overall_score": 70,
         },
         {
             "session_id": "trend-session-2",
-            "confidence_score": 65,
-            "empathy_score": 82,
-            "clarity_score": 73,
+            "speech_volume_score": 68,
+            "speech_pace_score": 73, "clarity_score": 73,
+            "eye_contact_score": 65, "confidence_score": 65,
+            "empathy_score": 82, "emotional_control_score": 82,
             "overall_score": 74,
         },
         {
             "session_id": "trend-session-3",
-            "confidence_score": 78,
-            "empathy_score": 70,
-            "clarity_score": 74,
+            "speech_volume_score": 74,
+            "speech_pace_score": 74, "clarity_score": 74,
+            "eye_contact_score": 78, "confidence_score": 78,
+            "empathy_score": 70, "emotional_control_score": 70,
             "overall_score": 80,
         },
     ]
@@ -665,20 +683,21 @@ def test_user_progress_trends_detects_improving_declining_and_stable_skills(clie
     assert data["summary"]["improving_count"] >= 2
     assert data["summary"]["declining_count"] == 1
     assert data["summary"]["stable_count"] == 1
-    assert data["summary"]["strongest_improvement"]["skill_area"] == "confidence"
-    assert data["summary"]["strongest_decline"]["skill_area"] == "empathy"
+    assert data["summary"]["strongest_improvement"]["skill_area"] == "presence_engagement"
+    assert data["summary"]["strongest_decline"]["skill_area"] == "emotional_intelligence"
 
     trends = {item["skill_area"]: item for item in data["trends"]}
-    assert trends["confidence"]["trend_label"] == "improving"
-    assert trends["confidence"]["first_score"] == 55
-    assert trends["confidence"]["latest_score"] == 78
-    assert trends["confidence"]["delta"] == 23
-    assert trends["confidence"]["slope"] == 11.5
-    assert len(trends["confidence"]["points"]) == 3
-    assert trends["empathy"]["trend_label"] == "declining"
-    assert trends["empathy"]["delta"] == -20
-    assert trends["communication_clarity"]["trend_label"] == "stable"
-    assert trends["adaptability"]["trend_label"] == "insufficient_data"
+    assert trends["presence_engagement"]["trend_label"] == "improving"
+    assert trends["presence_engagement"]["first_score"] == 55
+    assert trends["presence_engagement"]["latest_score"] == 78
+    assert trends["presence_engagement"]["delta"] == 23
+    assert trends["presence_engagement"]["slope"] == 11.5
+    assert len(trends["presence_engagement"]["points"]) == 3
+    assert trends["emotional_intelligence"]["trend_label"] == "declining"
+    assert trends["emotional_intelligence"]["delta"] == -20
+    assert trends["speech_fluency"]["trend_label"] == "stable"
+    # Every tracked skill has data here, so none falls back to insufficient_data.
+    assert trends["vocal_command"]["trend_label"] == "improving"
 
 
 def test_user_skill_progress_trend_returns_single_skill(client):
@@ -754,11 +773,13 @@ def test_user_progress_trends_can_filter_history_up_to_selected_session(client):
     )
 
     assert response.status_code == 200
+    # confidence_score is one half of presence_engagement; with no eye_contact
+    # score recorded the composite is the confidence figure alone.
     trends = {item["skill_area"]: item for item in response.json()["trends"]}
-    assert trends["confidence"]["session_count"] == 2
-    assert trends["confidence"]["first_score"] == 40
-    assert trends["confidence"]["latest_score"] == 60
-    assert trends["confidence"]["delta"] == 20
+    assert trends["presence_engagement"]["session_count"] == 2
+    assert trends["presence_engagement"]["first_score"] == 40
+    assert trends["presence_engagement"]["latest_score"] == 60
+    assert trends["presence_engagement"]["delta"] == 20
 
 
 def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client):
@@ -778,23 +799,26 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     session_payloads = [
         {
             "session_id": "prediction-session-1",
-            "confidence_score": 55,
-            "empathy_score": 90,
-            "clarity_score": 72,
+            "speech_volume_score": 60,
+            "speech_pace_score": 72, "clarity_score": 72,
+            "eye_contact_score": 55, "confidence_score": 55,
+            "empathy_score": 90, "emotional_control_score": 90,
             "overall_score": 70,
         },
         {
             "session_id": "prediction-session-2",
-            "confidence_score": 65,
-            "empathy_score": 72,
-            "clarity_score": 73,
+            "speech_volume_score": 68,
+            "speech_pace_score": 73, "clarity_score": 73,
+            "eye_contact_score": 65, "confidence_score": 65,
+            "empathy_score": 72, "emotional_control_score": 72,
             "overall_score": 74,
         },
         {
             "session_id": "prediction-session-3",
-            "confidence_score": 78,
-            "empathy_score": 45,
-            "clarity_score": 74,
+            "speech_volume_score": 74,
+            "speech_pace_score": 74, "clarity_score": 74,
+            "eye_contact_score": 78, "confidence_score": 78,
+            "empathy_score": 45, "emotional_control_score": 45,
             "overall_score": 80,
         },
     ]
@@ -814,19 +838,29 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     data = response.json()
     assert data["user_id"] == "prediction-user"
     assert data["model_version"] == "rule-based-baseline-v1"
+    # One prediction per tracked skill. "Overall" is a summary of the four, not
+    # a fifth skill, so it is not predicted separately.
     assert data["summary"]["predicted_count"] == 4
     assert data["summary"]["high_risk_count"] == 1
     assert data["summary"]["low_risk_count"] >= 2
-    assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
+    assert (
+        data["summary"]["highest_risk_prediction"]["predicted_skill"]
+        == "emotional_intelligence"
+    )
 
     predictions = {item["predicted_skill"]: item for item in data["predictions"]}
-    assert predictions["confidence"]["predicted_score"] == 88
-    assert predictions["confidence"]["risk_level"] == "low"
-    assert predictions["confidence"]["confidence"] == 0.65
-    assert predictions["empathy"]["predicted_score"] == 35
-    assert predictions["empathy"]["risk_level"] == "high"
-    assert predictions["communication_clarity"]["risk_level"] == "low"
-    assert predictions["overall"]["predicted_score"] == 85
+    assert predictions["presence_engagement"]["risk_level"] == "low"
+    assert predictions["speech_fluency"]["risk_level"] == "low"
+    assert predictions["emotional_intelligence"]["risk_level"] == "high"
+    # A falling skill is projected to keep falling, a rising one to keep rising.
+    assert (
+        predictions["emotional_intelligence"]["predicted_score"]
+        < predictions["emotional_intelligence"]["current_score"]
+    )
+    assert (
+        predictions["presence_engagement"]["predicted_score"]
+        > predictions["presence_engagement"]["current_score"]
+    )
 
 
 def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(client, monkeypatch):
@@ -872,8 +906,8 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
         json={
             "user_id": "ml-prediction-user",
             "session_id": "ml-prediction-session-2",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 58,
             "comment": "The answer was unclear and needs stronger confidence.",
             "sentiment": "negative",
@@ -886,7 +920,7 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
     data = response.json()
     assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
     prediction = data["predictions"][0]
-    assert prediction["predicted_skill"] == "confidence"
+    assert prediction["predicted_skill"] == "presence_engagement"
     assert prediction["predicted_score"] == 52
     assert prediction["risk_level"] == "high"
     assert prediction["confidence"] == 0.91
@@ -924,19 +958,19 @@ def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
         json={
             "user_id": "real-ml-api-user",
             "session_id": "real-ml-api-session-2",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 72,
             "comment": "The learner showed better confidence and clearer delivery.",
             "sentiment": "positive",
         },
     )
 
-    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/confidence")
+    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/presence_engagement")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["predicted_skill"] == "confidence"
+    assert data["predicted_skill"] == "presence_engagement"
     assert data["current_score"] == 74
     assert data["predicted_score"] is not None
     assert 0 <= data["predicted_score"] <= 100
@@ -952,7 +986,7 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
             "user_id": user_id,
             "session_id": "calibrated-session-1",
             "feedback_type": "self",
-            "skill_area": "confidence",
+            "skill_area": "presence_engagement",
             "rating": 84,
             "sentiment": "positive",
         },
@@ -960,15 +994,15 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
             "user_id": user_id,
             "session_id": "calibrated-session-2",
             "feedback_type": "self",
-            "skill_area": "confidence",
+            "skill_area": "presence_engagement",
             "rating": 58,
             "sentiment": "neutral",
         },
         {
             "user_id": user_id,
             "session_id": "calibrated-session-3",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 40,
             "sentiment": "negative",
         },
@@ -991,7 +1025,7 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
         fake_extreme_ml_prediction,
     )
 
-    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/confidence")
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/presence_engagement")
     assert response.status_code == 200
 
     data = response.json()

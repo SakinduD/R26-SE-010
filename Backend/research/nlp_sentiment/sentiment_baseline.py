@@ -53,11 +53,16 @@ def predict_sentiment(model: Pipeline, text: str) -> dict:
     label = classes[best_index]
     confidence = float(probabilities[best_index])
 
+    # A signed score for callers that want direction rather than a class.
+    # "mixed" scores zero like "neutral", but for a different reason: neutral
+    # text carries no judgement, mixed text carries two that cancel. Both are
+    # equally wrong to treat as leaning one way.
     sentiment_score = {
         "negative": -confidence,
         "neutral": 0.0,
+        "mixed": 0.0,
         "positive": confidence,
-    }[label]
+    }.get(label, 0.0)
 
     return {
         "text": text,

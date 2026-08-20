@@ -12,6 +12,12 @@ from app.schemas.analytics import (
 )
 from app.services import feedback_analysis_service
 
+# A learner-wide analysis summarises their whole history, so this cap must never
+# quietly act as a page size. At 100 it did: on the development account it read
+# 100 of 392 feedback entries and reported the result as the learner's overall
+# picture. Same reasoning as FULL_HISTORY_LIMIT in data_aggregation_service.
+FULL_HISTORY_LIMIT = 10_000
+
 
 DETECTION_VERSION = "rule-based-v1"
 MIN_BLIND_SPOT_GAP = 10.0
@@ -24,34 +30,32 @@ HIGH_BLIND_SPOT_GAP = 30.0
 # blind spot on the strength of a 0.51 prediction would be inventing a finding.
 MIN_SENTIMENT_CONFIDENCE = 0.60
 
-# The model is only trusted to report one direction of disagreement.
+# Not every reading the model produces is trusted to become a finding about the
+# learner. Measured against the hand-labelled workplace validation set, at this
+# same confidence gate, counting rows the model has no class for as failures:
 #
-# Measured against the hand-labelled workplace set in
-# training/feedback_analytics/datasets/validation/, at this same confidence gate:
+#     reads "positive"  precision 0.91   (11 flagged, 10 right)
+#     reads "mixed"     precision 0.73   (15 flagged, 11 right)
+#     reads "negative"  precision 0.69   (16 flagged, 11 right)
 #
-#     reads "positive"  ->  7 of 7 correct
-#     reads "negative"  ->  9 of 21 correct
+# The cutoff is not drawn on the numbers alone - it is drawn on how each one
+# fails. When "mixed" is wrong it is almost always calling a positive sentence
+# mixed, and the resulting message ("your words carry more than one feeling") is
+# mild and still worth reading. When "negative" is wrong it calls a positive
+# sentence negative, and the message tells a learner their own account betrays a
+# difficulty they never described. Wrong three times in ten, stated with
+# authority, about themselves. A tool for self-awareness that does that is worse
+# than one that stays quiet, so that direction stays closed.
 #
-# The asymmetry is not noise, it is the training data showing through.
-# Sentiment140 is emoticon-labelled tweets, where negative sentiment travels with
-# complaint vocabulary. A workplace reflection uses "not", "difficult",
-# "mistake", "uncomfortable" descriptively - "I did not rush a single answer" is
-# praise built entirely from words this model has learned to read as negative,
-# and it calls that sentence negative at 0.86 confidence. Raising the gate does
-# not help: the wrong readings are among the most confident ones.
+# Most of what "negative" gets wrong is text that passes no judgement at all
+# ("I used the practice plan that was assigned to me"), which this model has no
+# class for and resolves to negative at 0.99. No learner has yet written a
+# reflection of that kind - the form asks how the session went - so a neutral
+# class has not been worth adding a dataset for. If real reflections of that
+# shape start appearing, that is the point to reconsider.
 #
-# So a reading of "negative" cannot support a finding. Reporting one anyway would
-# tell a learner their own words betray a difficulty they never described - wrong
-# roughly three times in five, stated with authority, about themselves. A tool for
-# self-awareness that does that is worse than one that stays quiet.
-#
-# A reading of "positive" is trustworthy, and the finding it supports is a real
-# one: a learner marking themselves down while writing an account that does not
-# justify it. That is the direction this stays open for.
-#
-# Remove this restriction when a replacement model earns it on the same
-# validation set - not before.
-TRUSTED_DETECTED_SENTIMENTS = frozenset({"positive"})
+# Widen this only after re-measuring a model on that same validation set.
+TRUSTED_DETECTED_SENTIMENTS = frozenset({"positive", "mixed"})
 
 # Opposite poles disagree more than either does with "neutral".
 _OPPOSITE_POLES = {frozenset({"positive", "negative"})}
@@ -85,7 +89,7 @@ def detect_session_blind_spots(db: Session, session_id: str) -> BlindSpotDetecti
 def detect_user_blind_spots(
     db: Session,
     user_id: str,
-    limit: int = 100,
+    limit: int = FULL_HISTORY_LIMIT,
 ) -> BlindSpotDetectionResult:
     analysis = feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
     return _build_result(
@@ -102,7 +106,7 @@ def _detect_sentiment_gaps(
     *,
     session_id: str | None = None,
     user_id: str | None = None,
-    limit: int = 100,
+    limit: int = FULL_HISTORY_LIMIT,
 ) -> list[SentimentBlindSpotItem]:
     """Where the learner's stated sentiment disagrees with their own wording.
 
@@ -175,6 +179,12 @@ def _sentiment_recommendation(declared: str, detected: str, severity: str) -> st
             "You rated the session positively, but your own description reads as "
             "negative. Re-read what you wrote - the difficulty you described may "
             "be worth working on."
+        )
+    if detected == "mixed":
+        return (
+            "Your description carries more than one feeling at once - something "
+            "that went well and something that did not. Both are worth keeping. "
+            "Look at which one you gave the session's rating to."
         )
     if declared == "negative" and detected == "positive":
         return (

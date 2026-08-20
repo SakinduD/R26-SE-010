@@ -223,7 +223,11 @@ def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_aggregate(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return data_aggregation_service.get_user_aggregate(db, user_id, limit)
@@ -259,7 +263,11 @@ def get_session_feedback_analysis(session_id: str, db: Session = Depends(get_db)
 )
 def get_user_feedback_analysis(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=feedback_analysis_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=feedback_analysis_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
@@ -279,7 +287,11 @@ def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_blind_spots(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=blind_spot_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=blind_spot_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return blind_spot_service.detect_user_blind_spots(db, user_id, limit)

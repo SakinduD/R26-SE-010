@@ -49,10 +49,10 @@ class FeedbackEntryBase(BaseModel):
     comment: str | None = None
     # For human-written feedback the service overwrites this with the NLP model's
     # reading; supplying it only sets the fallback for entries with no text.
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
     # What the author says about their own feedback, kept apart from the model's
     # independent reading of the same words.
-    declared_sentiment: Literal["positive", "neutral", "negative"] | None = None
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class FeedbackEntryCreate(FeedbackEntryBase):
@@ -76,7 +76,7 @@ class FeedbackSentimentRequest(BaseModel):
 class FeedbackSentimentResult(BaseModel):
     text: str
     cleaned_text: str
-    sentiment: Literal["positive", "neutral", "negative"]
+    sentiment: Literal["positive", "neutral", "negative", "mixed"]
     confidence: float = Field(..., ge=0, le=1)
     sentiment_score: float = Field(..., ge=-1, le=1)
     class_probabilities: dict[str, float]
@@ -154,7 +154,7 @@ class ComponentSubmittedFeedback(BaseModel):
     skill_area: str | None = Field(default=None, max_length=80)
     rating: Score = Field(default=None, ge=0, le=100)
     comment: str | None = None
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class AnalyticsComponentIntegrationRequest(BaseModel):
@@ -366,8 +366,8 @@ class SentimentBlindSpotItem(BaseModel):
     """
 
     session_id: str
-    declared_sentiment: Literal["positive", "neutral", "negative"]
-    detected_sentiment: Literal["positive", "neutral", "negative"]
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"]
     severity: Literal["low", "medium", "high"]
     confidence: float = Field(..., ge=0, le=1)
     comment_excerpt: str

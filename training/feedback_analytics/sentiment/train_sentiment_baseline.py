@@ -6,6 +6,10 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from training.feedback_analytics.sentiment.glassdoor_dataset import (
+    DEFAULT_DATASET as DEFAULT_GLASSDOOR_DATASET,
+    load_glassdoor_reviews,
+)
 from training.feedback_analytics.sentiment.sentiment_baseline import (
     load_sentiment140,
     model_display_name,
@@ -15,19 +19,58 @@ from training.feedback_analytics.sentiment.sentiment_baseline import (
 )
 
 MODEL_VERSION = "tfidf-sentiment-model-comparison-v1"
+
+DEFAULT_SENTIMENT140_DATASET = Path(
+    "training/feedback_analytics/datasets/raw/sentiment140.csv"
+)
+
+# Each corpus writes to its own artifacts. Training on Glassdoor must not
+# overwrite the Sentiment140 model that the application is currently serving -
+# a new model replaces it only once it has been measured and chosen.
+SOURCE_OUTPUTS = {
+    "sentiment140": {
+        "model": "training/feedback_analytics/models/sentiment_model.joblib",
+        "evaluation": "training/feedback_analytics/evaluation/sentiment_evaluation.json",
+        "comparison": "training/feedback_analytics/evaluation/sentiment_model_comparison.csv",
+    },
+    "glassdoor": {
+        "model": "training/feedback_analytics/models/sentiment_model_glassdoor.joblib",
+        "evaluation": "training/feedback_analytics/evaluation/sentiment_evaluation_glassdoor.json",
+        "comparison": "training/feedback_analytics/evaluation/sentiment_model_comparison_glassdoor.csv",
+    },
+}
 DEFAULT_CLASSIFIERS = ("naive_bayes", "logistic_regression", "linear_svm")
 
 
 def main() -> None:
     args = parse_args()
-    dataset = load_sentiment140(
-        args.dataset,
-        limit=args.limit,
-        limit_per_class=args.limit_per_class,
-        min_text_length=args.min_text_length,
-        remove_duplicates=not args.keep_duplicates,
-        output_processed_path=args.output_processed,
-    )
+    if args.source == "glassdoor":
+        # Workplace reviews, three classes including the mixed one that no public
+        # sentiment corpus ships. See glassdoor_dataset for how the labels are read.
+        dataset_path = (
+            args.dataset if args.dataset != DEFAULT_SENTIMENT140_DATASET
+            else DEFAULT_GLASSDOOR_DATASET
+        )
+        dataset = load_glassdoor_reviews(
+            dataset_path,
+            limit_per_class=args.limit_per_class,
+            min_text_length=max(args.min_text_length, 12),
+            remove_duplicates=not args.keep_duplicates,
+        )
+        dataset_name = "Glassdoor Job Reviews"
+    else:
+        dataset = load_sentiment140(
+            args.dataset,
+            limit=args.limit,
+            limit_per_class=args.limit_per_class,
+            min_text_length=args.min_text_length,
+            remove_duplicates=not args.keep_duplicates,
+            output_processed_path=args.output_processed,
+        )
+        dataset_name = "Sentiment140"
+        dataset_path = args.dataset
+
+    _apply_source_defaults(args)
 
     classifier_names = args.classifiers or list(DEFAULT_CLASSIFIERS)
     trained_models = []
@@ -48,8 +91,8 @@ def main() -> None:
 
     metadata = {
         "model_version": MODEL_VERSION,
-        "dataset_name": "Sentiment140",
-        "dataset_path": str(args.dataset),
+        "dataset_name": dataset_name,
+        "dataset_path": str(dataset_path),
         "rows_used": len(dataset.texts),
         "trained_at": datetime.now(UTC).isoformat(),
         "text_preprocessing": [
@@ -101,14 +144,33 @@ def main() -> None:
     )
 
 
+def _apply_source_defaults(args: argparse.Namespace) -> None:
+    """Point the outputs at this source's artifacts unless the caller chose otherwise."""
+    outputs = SOURCE_OUTPUTS[args.source]
+    defaults = SOURCE_OUTPUTS["sentiment140"]
+    for attribute, key in (
+        ("output_model", "model"),
+        ("output_evaluation", "evaluation"),
+        ("output_comparison_csv", "comparison"),
+    ):
+        if getattr(args, attribute) == Path(defaults[key]):
+            setattr(args, attribute, Path(outputs[key]))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train the Sentiment140 TF-IDF + Logistic Regression baseline."
     )
     parser.add_argument(
+        "--source",
+        choices=("sentiment140", "glassdoor"),
+        default="sentiment140",
+        help="Which corpus to train on. Output paths default per source.",
+    )
+    parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("training/feedback_analytics/datasets/raw/sentiment140.csv"),
+        default=DEFAULT_SENTIMENT140_DATASET,
         help="Path to Sentiment140 CSV file.",
     )
     parser.add_argument(

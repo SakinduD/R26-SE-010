@@ -89,8 +89,13 @@ def main() -> None:
         row["predicted"] = prediction["sentiment"]
         row["confidence"] = prediction["confidence"]
 
-    scorable = [row for row in rows if row["label"] in BINARY_LABELS]
-    unscorable = [row for row in rows if row["label"] in UNSCORABLE_LABELS]
+    # A label is scorable when the model is capable of predicting it. The
+    # two-class Sentiment140 model cannot answer "mixed" at all, so scoring it on
+    # mixed rows would only measure which wrong box it fell into. A three-class
+    # model trained on workplace reviews can, and there it is a fair question.
+    predictable = {str(name) for name in model.classes_}
+    scorable = [row for row in rows if row["label"] in predictable]
+    unscorable = [row for row in rows if row["label"] not in predictable]
 
     report = {
         "evaluated_at": datetime.now(UTC).isoformat(),
@@ -154,7 +159,8 @@ def score(rows: list[dict]) -> dict | None:
     correct_above_gate = sum(1 for row in above_gate if row["predicted"] == row["label"])
 
     per_class = {}
-    for label in sorted(BINARY_LABELS):
+    labels_present = sorted({row["label"] for row in rows} | {row["predicted"] for row in rows})
+    for label in labels_present:
         true_positive = sum(
             1 for row in rows if row["label"] == label and row["predicted"] == label
         )
@@ -204,13 +210,15 @@ def unscorable_behaviour(rows: list[dict]) -> dict | None:
     confident = [row for row in rows if row["confidence"] >= PRODUCTION_CONFIDENCE_GATE]
     return {
         "count": len(rows),
+        "labels": dict(Counter(row["label"] for row in rows)),
         "predicted_distribution": dict(Counter(row["predicted"] for row in rows)),
         "mean_confidence": rounded(statistics.fmean(confidences)),
         "asserted_above_gate": len(confident),
         "note": (
-            "These rows have no single correct sentiment. Predictions above the "
-            "gate are cases where the application would act on a confident answer "
-            "to an ambiguous question."
+            "Rows carrying a label this model has no class for. It must answer "
+            "something, so predictions above the gate are cases where the "
+            "application would act on a confident answer to a question the model "
+            "was never able to answer."
         ),
     }
 
@@ -259,7 +267,8 @@ def print_report(report: dict) -> None:
 
     ambiguous = report["unscorable_behaviour"]
     if ambiguous:
-        print(f"MIXED / NEUTRAL  (n={ambiguous['count']})")
+        print(f"NOT PREDICTABLE BY THIS MODEL  (n={ambiguous['count']})")
+        print(f"  true labels         {ambiguous['labels']}")
         print(f"  model predicted     {ambiguous['predicted_distribution']}")
         print(f"  mean confidence     {ambiguous['mean_confidence']}")
         print(f"  asserted above gate {ambiguous['asserted_above_gate']}")

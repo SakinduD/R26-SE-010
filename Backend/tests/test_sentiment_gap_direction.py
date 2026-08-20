@@ -1,8 +1,9 @@
-"""The sentiment blind spot may only fire in the direction the model earned.
+"""The sentiment blind spot may only fire in the directions the model earned.
 
-Measured on the hand-labelled workplace validation set, the serving classifier
-reads "positive" correctly 7 times out of 7 and "negative" correctly 9 times out
-of 21, at the same confidence gate. Only the first supports telling a learner
+Measured on the hand-labelled workplace validation set at the serving confidence
+gate, the fine-tuned classifier reads "positive" at 0.91 precision and "mixed" at
+0.73, but "negative" at only 0.69 - and what it gets wrong there is mostly
+positive or judgement-free text. Only the first two support telling a learner
 something about themselves.
 
 These tests exist so that restriction cannot be dropped silently. If a future
@@ -43,7 +44,7 @@ def test_reading_the_learner_more_kindly_than_they_rated_is_reported():
 
 
 def test_reading_the_learner_more_harshly_than_they_rated_is_not_reported():
-    """The direction measured at 43% precision stays out of the findings.
+    """The direction measured at 0.69 precision stays out of the findings.
 
     A confident wrong reading here would tell a learner their own account
     betrays a difficulty they never described.
@@ -56,9 +57,9 @@ def test_reading_the_learner_more_harshly_than_they_rated_is_not_reported():
 def test_high_confidence_does_not_buy_back_the_untrusted_direction():
     """Raising confidence does not make the negative reading safe.
 
-    On the validation set the wrong negative readings were among the most
-    confident: "My voice was steady and I did not rush a single answer" is read
-    as negative at 0.86.
+    On the validation set the wrong negative readings are among the most
+    confident: "I used the practice plan that was assigned to me" is read as
+    negative at 0.99.
     """
     assert blind_spot_service._sentiment_gap_from_entry(
         _entry("positive", "negative", confidence=0.99)
@@ -77,6 +78,21 @@ def test_agreement_is_not_a_gap():
     ) is None
 
 
+def test_a_mixed_reading_is_reported():
+    """The class real learners' reflections actually fall into.
+
+    Every reflection collected from a real user so far is either positive or
+    mixed; none is negative or judgement-free.
+    """
+    gap = blind_spot_service._sentiment_gap_from_entry(_entry("positive", "mixed"))
+
+    assert gap is not None
+    assert gap.detected_sentiment == "mixed"
+    assert gap.recommendation
+
+
 def test_trusted_set_is_explicit_about_what_it_excludes():
     """A guard on the constant itself, so widening it is a deliberate edit."""
-    assert blind_spot_service.TRUSTED_DETECTED_SENTIMENTS == frozenset({"positive"})
+    assert blind_spot_service.TRUSTED_DETECTED_SENTIMENTS == frozenset(
+        {"positive", "mixed"}
+    )
