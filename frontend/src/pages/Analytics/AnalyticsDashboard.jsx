@@ -23,6 +23,43 @@ import {
   optionalRequest, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
+const TREND_MARK = {
+  improving: '↗ improving',
+  declining: '↘ declining',
+  stable: '→ stable',
+  insufficient_data: '',
+}
+
+const TREND_TONE = {
+  improving: 'var(--success)',
+  declining: 'var(--danger)',
+  stable: 'var(--text-secondary)',
+  insufficient_data: 'var(--text-quaternary)',
+}
+
+// How a recurring self-assessment gap is described. The wording matters: these
+// are patterns across many sessions, not a verdict on one, and the third is the
+// finding an average destroys — wrong in both directions, cancelling to a mean
+// near zero that reads as accuracy.
+const PATTERN_COPY = {
+  consistent_overestimation: {
+    label: 'Rates higher than measured, almost every time',
+    tone: 'var(--danger)',
+  },
+  consistent_underestimation: {
+    label: 'Rates lower than measured, almost every time',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  inconsistent: {
+    label: 'Sometimes high, sometimes low',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  aligned: {
+    label: 'Reads this one accurately, session after session',
+    tone: 'var(--success)',
+  },
+}
+
 const SKILL_LABELS = {
   vocal_command: { label: 'Vocal Command', sub: 'Speech Volume' },
   speech_fluency: { label: 'Speech Fluency', sub: 'Speech Pace & Clarity' },
@@ -83,6 +120,41 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
   recommendation: 'Focus on improving ' + labelFor(skill) + ' in your next session.',
 })
 
+/**
+ * Self-assessment patterns counted across sessions.
+ *
+ * Deliberately leads with a count rather than a magnitude. "20 of your 29
+ * sessions" tells a learner whether this is a habit; "average gap 15" does not,
+ * and worse, an average cancels when someone is wrong in both directions —
+ * reporting a learner who is never right as perfectly self-aware.
+ */
+function RecurringPatterns({ items }) {
+  return (
+    <div className="space-y-3">
+      {items.map((item) => {
+        const copy = PATTERN_COPY[item.pattern] || PATTERN_COPY.inconsistent
+        const info = getInfo(item.skill_area)
+        const pct = Math.round((item.gap_rate || 0) * 100)
+        return (
+          <div key={item.skill_area} className="rounded-xl border border-border p-3">
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <p className="text-sm font-semibold">{info.label}</p>
+              <span className="text-[11px] font-semibold" style={{ color: copy.tone }}>
+                {item.sessions_with_gap} of {item.sessions_rated} sessions
+              </span>
+            </div>
+            <p className="text-[11px] mb-2" style={{ color: copy.tone }}>{copy.label}</p>
+            <div className="h-1.5 rounded-full overflow-hidden bg-muted mb-2">
+              <div className="h-full rounded-full" style={{ width: pct + '%', backgroundColor: copy.tone }} />
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">{item.recommendation}</p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
   const navigate = useNavigate()
@@ -116,8 +188,35 @@ export default function AnalyticsDashboard() {
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
 
+  // Without a session selected the page is describing a history, not a moment.
+  const isAllSessions = !sessionId
+
+  // Per-skill history, keyed by skill. Absent while loading, or if the endpoint
+  // fails — every use falls back to the averaged view rather than blanking.
+  const history = useMemo(() => {
+    const items = data?.history?.skills || []
+    return Object.fromEntries(items.map((item) => [item.skill_area, item]))
+  }, [data])
+
+  // In history mode the headline figure is the latest session, not the mean of
+  // every session. The mean was answering "how have you done", under a heading
+  // that asks "how are you doing" — which let four consecutive declines read as
+  // "Great job". The mean is still shown, beside it, where it belongs.
+  const scoresShown = useMemo(() => {
+    if (!isAllSessions || !data?.history) return scores
+    return scores.map((s) => {
+      const h = history[s.key]
+      return h?.latest_score != null ? { ...s, value: h.latest_score } : s
+    })
+  }, [scores, history, isAllSessions, data])
+
+  // Only patterns with enough sessions behind them; the service already drops
+  // anything under three, and "aligned" is kept because a skill someone reads
+  // accurately every time is worth telling them about.
+  const recurring = useMemo(() => data?.recurring?.items || [], [data])
+
   // A gap needs a measurement to compare against, not just a self-rating.
-  const hasObserved = useMemo(() => scores.some((s) => s.value !== null), [scores])
+  const hasObserved = useMemo(() => scoresShown.some((s) => s.value !== null), [scoresShown])
 
   const hasLive = status !== 'live' || Boolean(data?.aggregate?.scores?.metric_count || data?.aggregate?.feedback?.total_count)
 
@@ -160,14 +259,23 @@ export default function AnalyticsDashboard() {
           predictions: pr || { predictions: [] }
         }
       } else {
-        const [bs, tr, pr] = await Promise.all([
+        // "All Sessions" asks different questions from a single session, so it
+        // loads different answers: where the learner is now against where they
+        // started, and which self-assessment gaps recur rather than what the
+        // average gap is. See learner_history_service for why averaging a
+        // history is the wrong operation.
+        const [bs, tr, pr, hist, recur] = await Promise.all([
           analyticsService.getBlindSpotsByUser(tu).catch(() => null),
           analyticsService.getProgressTrendsByUser(tu).catch(() => null),
           analyticsService.getPredictedOutcomesByUser(tu).catch(() => null),
+          analyticsService.getSkillHistory(tu).catch(() => null),
+          analyticsService.getRecurringBlindSpots(tu).catch(() => null),
         ])
         finalData.blindSpots = bs || { summary: { total_count: 0 }, blind_spots: [] }
         finalData.trends = tr || { trends: [] }
         finalData.predictions = pr || { predictions: [] }
+        finalData.history = hist
+        finalData.recurring = recur
       }
 
       setData(finalData)
@@ -245,12 +353,20 @@ export default function AnalyticsDashboard() {
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
   const overall = useMemo(() => {
-    const vals = scores.map(s => s.value).filter(v => v != null)
+    const vals = scoresShown.map(s => s.value).filter(v => v != null)
     if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
     return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
-  }, [scores, data])
+  }, [scoresShown, data])
 
-  // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
+  // Build self-rating scores from feedback averages + blind spot data for dual-layer radar.
+  //
+  // These are means of every self-rating the learner has given. For one session
+  // that is exactly right. Across a whole history it is not: this learner rates
+  // themselves high in some sessions and low in others for three of four skills,
+  // so the mean lands near the middle and draws a steady self-perception that
+  // does not exist. The honest version of self-versus-observed over a history is
+  // the recurring-patterns panel, which counts rather than averages, so the
+  // second radar layer is dropped in that mode rather than faked.
   const selfScores = useMemo(() => {
     const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     const b = data?.blindSpots?.blind_spots || []
@@ -269,6 +385,11 @@ export default function AnalyticsDashboard() {
   // and "nothing to compare" look identical on screen, and the dashboard ends up
   // congratulating people on self-awareness they never demonstrated.
   const hasSelfRating = selfScores.length > 0
+
+  // What the radar draws. In history mode the observed layer is the latest
+  // session, matching the cards above it, and the averaged self layer is left
+  // off — see the note on selfScores.
+  const radarSelfScores = isAllSessions ? [] : selfScores
 
   return (
     <div className="min-h-screen">
@@ -358,9 +479,14 @@ export default function AnalyticsDashboard() {
         {/* Skill Score Cards */}
         <div>
           <h2 className="text-base font-bold mb-3">📊 Your Skill Scores</h2>
-          <p className="text-xs text-muted-foreground mb-3">Each card shows how well you are doing in a specific skill</p>
+          <p className="text-xs text-muted-foreground mb-3">
+            {isAllSessions
+              ? 'Where you are now, with your best and your average for comparison'
+              : 'Each card shows how well you are doing in a specific skill'}
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[...scores, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
+            {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
+              const h = isAllSessions ? history[s.key] : null
               const v = s.value != null ? Math.round(s.value) : 0
               const isOverall = s.key === 'overall'
               const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
@@ -379,6 +505,16 @@ export default function AnalyticsDashboard() {
                     <motion.div initial={{width:0}} animate={{width:v+'%'}} transition={{duration:0.8,delay:i*0.05}}
                       className="h-full rounded-full" style={{backgroundColor: barColor}}/>
                   </div>
+                  {/* The number above is one session. Without the average and the
+                      best beside it, a good day reads as a level and a bad one
+                      reads as a collapse. */}
+                  {h && (
+                    <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>best {Math.round(h.best_score ?? 0)}</span>
+                      <span>avg {Math.round(h.average_score ?? 0)}</span>
+                      <span style={{ color: TREND_TONE[h.trend_label] }}>{TREND_MARK[h.trend_label]}</span>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -389,21 +525,40 @@ export default function AnalyticsDashboard() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-1">🕸️ Skill Overview Chart</h2>
-            <p className="text-xs text-muted-foreground mb-4">{selfScores.length > 0 ? 'Teal = Observed scores · Amber = Your self-rating' : 'All your skills shown together in one view'}</p>
-            <SkillTwinRadar 
-              scores={scores} 
-              selfScores={selfScores} 
+            <p className="text-xs text-muted-foreground mb-4">
+              {isAllSessions
+                ? 'Your latest session across all four skills'
+                : radarSelfScores.length > 0
+                  ? 'Teal = Observed scores · Amber = Your self-rating'
+                  : 'All your skills shown together in one view'}
+            </p>
+            <SkillTwinRadar
+              scores={scoresShown}
+              selfScores={radarSelfScores}
               overallScore={overall}
             />
+            {isAllSessions && selfScores.length > 0 && (
+              <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+                Your self-ratings are not drawn here. Averaged over every session they
+                would smooth out the very thing worth seeing — see the patterns beside
+                this chart for how your ratings compared, session by session.
+              </p>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
-            <p className="text-xs text-muted-foreground mb-4">How you see yourself vs how others see you</p>
+            <p className="text-xs text-muted-foreground mb-4">
+              {isAllSessions
+                ? 'Patterns across all your sessions — how often, not how much'
+                : 'How you see yourself vs what this session measured'}
+            </p>
             {/* A gap needs two sides. With no self-assessment there is nothing to
                 compare, and saying "your self-view matches" would be claiming a
                 finding the data cannot support. */}
-            {!hasObserved ? (
+            {isAllSessions && recurring.length > 0 ? (
+              <RecurringPatterns items={recurring} />
+            ) : !hasObserved ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">📊</span>
                 <p className="font-semibold fg">This session has no measured scores yet</p>

@@ -13,6 +13,12 @@ from app.schemas.analytics import (
 
 
 TREND_VERSION = "rule-based-v1"
+
+# What a caller passes when it wants the learner's whole history rather than a
+# page of it. Same reasoning as the constant of this name in
+# data_aggregation_service: a summary that silently drops rows reports a number
+# that is not about what its label says it is about.
+FULL_HISTORY_LIMIT = 10_000
 STABLE_DELTA_THRESHOLD = 5.0
 STABLE_SLOPE_THRESHOLD = 2.0
 
@@ -34,13 +40,18 @@ FEEDBACK_SKILL_ALIASES = {
 
 
 def analyze_user_progress_trends(
-    db: Session, user_id: str, session_id: str | None = None, limit: int = 100
+    db: Session, user_id: str, session_id: str | None = None, limit: int = FULL_HISTORY_LIMIT
 ) -> ProgressTrendResult:
     """Trend lines for the four tracked skills.
 
-    ``limit`` caps how many metric rows are considered (most recent first). The
-    default keeps the Trends page responsive; callers that need the learner's
-    complete history — gamification XP, for example — pass a larger value.
+    ``limit`` caps how many metric rows are considered (most recent first).
+
+    It defaults to the learner's whole history, and has to. The default was 100,
+    chosen for responsiveness, and it silently changed the answer: with 118
+    sessions it dropped the oldest 18 — the ones that establish where the learner
+    started — and two skills that were declining across the full history came
+    back labelled "stable". A trend measured from an arbitrary point is not a
+    trend, and the saving was 18 rows.
     """
     cutoff_id = _session_cutoff_id(db, user_id, session_id)
     metrics = _query_user_metrics(db, user_id, limit=limit, cutoff_id=cutoff_id)

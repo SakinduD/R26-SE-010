@@ -20,6 +20,8 @@ from app.schemas.analytics import (
     AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
     GamificationProfileResult,
+    LearnerHistorySummary,
+    RecurringBlindSpotResult,
     SessionBackfillResult,
     GamificationSyncResult,
     MentoringRecommendationItem,
@@ -47,6 +49,7 @@ from app.services import (
     predictive_modeling_service,
     progress_trend_service,
     sentiment_analysis_service,
+    learner_history_service,
     session_backfill_service,
     skill_scoring_service,
 )
@@ -363,6 +366,37 @@ def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
     except Exception as exc:
         logger.error("Session backfill failed for user %s: %s", user_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/skill-history",
+    response_model=LearnerHistorySummary,
+)
+def get_learner_skill_history(user_id: str, db: Session = Depends(get_db)):
+    """Every skill across the learner's whole history.
+
+    Answers the questions the "All Sessions" view actually asks, which the
+    per-session panels cannot: where am I now versus where I started, what is my
+    best, and how much do I vary between sessions. Latest and average are both
+    returned because either alone misleads - one is a single session, the other
+    hides which way the learner is moving.
+    """
+    return learner_history_service.summarise_skill_history(db, user_id)
+
+
+@router.get(
+    "/users/{user_id}/recurring-blind-spots",
+    response_model=RecurringBlindSpotResult,
+)
+def get_recurring_blind_spots(user_id: str, db: Session = Depends(get_db)):
+    """Self-assessment gaps counted across sessions, not averaged over them.
+
+    Averaging cannot tell a habit from a bad day, and worse, it cancels: a
+    learner who is 20 points high one session and 20 low the next averages to
+    zero and reads as perfectly self-aware. Counting keeps both facts - how often
+    they were wrong, and whether they were wrong in a consistent direction.
+    """
+    return learner_history_service.detect_recurring_blind_spots(db, user_id)
 
 
 @router.post(
