@@ -352,6 +352,13 @@ export default function AnalyticsDashboard() {
   ].filter(Boolean).join(' · ')
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
+  // One sentence telling a first-time reader what the headline number is. The
+  // number alone invites the wrong reading: people assume a single score out of
+  // 100 is a grade, and act on it accordingly.
+  const overallCaption = isAllSessions
+    ? 'Your four skills from your most recent session, averaged'
+    : 'This session’s four skills, averaged'
+
   const overall = useMemo(() => {
     const vals = scoresShown.map(s => s.value).filter(v => v != null)
     if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
@@ -449,6 +456,10 @@ export default function AnalyticsDashboard() {
               <span className="score-num" style={{ fontSize: 60, fontWeight: 600, lineHeight: 1 }}>{overall}</span>
               <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 20, marginBottom: 6 }}>/100</span>
             </div>
+            {/* Where the number came from, before any encouragement about it. A
+                score out of 100 with no source reads as a grade, and a first-time
+                reader has no way to tell whether it is one session or a year. */}
+            <p style={{ color: 'rgba(255,255,255,0.75)' }} className="text-xs mt-1">{overallCaption}</p>
             <p style={{ color: 'rgba(255,255,255,0.85)' }} className="text-sm mt-2">
               {Number(overall)>=75 ? 'Great job! Keep it up!' : Number(overall)>=50 ? 'Good progress. Keep practising!' : 'Every session makes you better!'}
             </p>
@@ -479,10 +490,14 @@ export default function AnalyticsDashboard() {
         {/* Skill Score Cards */}
         <div>
           <h2 className="text-base font-bold mb-3">📊 Your Skill Scores</h2>
+          {/* Written for someone opening this page for the first time. The big
+              number and the small ones underneath answer different questions,
+              and without saying which is which a reader assumes the largest one
+              is the important one. */}
           <p className="text-xs text-muted-foreground mb-3">
             {isAllSessions
-              ? 'Where you are now, with your best and your average for comparison'
-              : 'Each card shows how well you are doing in a specific skill'}
+              ? 'The big number is your most recent session. Underneath: your highest score ever, your average across all sessions, and which way you have been moving lately.'
+              : 'How this one session scored, out of 100, in each skill.'}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
@@ -634,7 +649,10 @@ export default function AnalyticsDashboard() {
         {/* Progress Trends */}
         <div className="rounded-2xl border border-border bg-card p-6">
           <h2 className="text-base font-bold mb-1">📈 How You Are Improving Over Time</h2>
-          <p className="text-xs text-muted-foreground mb-4">See if your skills are going up, staying the same, or need attention</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Every session you have completed, oldest on the left. A line going up means
+            that skill is improving.
+          </p>
           <div className="min-h-[280px]">
             <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
           </div>
@@ -643,7 +661,10 @@ export default function AnalyticsDashboard() {
         {/* Predictions */}
         <div className="rounded-2xl border border-border bg-card p-6">
           <h2 className="text-base font-bold mb-1">🔮 What to Expect Next</h2>
-          <p className="text-xs text-muted-foreground mb-4">AI predictions based on your recent sessions</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Where each skill is heading if you carry on exactly as you have been. Not a
+            target and not a promise — a continuation of your own trend line.
+          </p>
           {preds.length === 0 ? (
             <div className="text-center py-8">
               <span className="text-4xl block mb-2">🤖</span>

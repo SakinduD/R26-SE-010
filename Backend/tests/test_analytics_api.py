@@ -978,6 +978,14 @@ def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
 
 
 def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkeypatch):
+    """A high but informative prediction is pulled back toward the evidence.
+
+    95 is extreme for a learner sitting at 40, and it is still a reading: the
+    model distinguished this input from others. It gets blended and bounded
+    rather than discarded. Contrast with the saturation test below, where the
+    model returns the very top of its range and has stopped distinguishing
+    anything at all.
+    """
     from app.services import ml_predictive_model_service
 
     user_id = "calibrated-ml-user"
@@ -1013,7 +1021,7 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
 
     def fake_extreme_ml_prediction(_features):
         return {
-            "predicted_score": 100,
+            "predicted_score": 95,
             "risk_level": "high",
             "confidence": 0.91,
             "model_version": "fake-extreme-model",
@@ -1030,11 +1038,74 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
 
     data = response.json()
     assert data["current_score"] == 40
-    assert data["predicted_score"] == 50
+    # The raw 95 is pulled most of the way back to the evidence, and never
+    # further from the current score than the allowed step for this little
+    # history. The exact landing point depends on the blend weight; that it
+    # cannot run away from the evidence is the property worth pinning.
+    assert data["predicted_score"] < 95
+    assert data["predicted_score"] - data["current_score"] <= 10
     assert data["risk_level"] == "high"
     assert 0 <= data["confidence"] <= 1
     assert data["evidence_points"] == 3
 
+
+
+def test_a_saturated_ml_prediction_is_discarded(client, monkeypatch):
+    """A model pinned to the top of its range is not predicting anything.
+
+    On real learner histories the trained regressor returns exactly 100.0 for
+    every skill. Blended at 55% that made every visible prediction "current score
+    + 15", shown beside a declining trend and a recommendation warning about
+    decline - three parts of one screen contradicting each other. A reading at
+    the boundary is treated as no reading, and the trend projection is used.
+    """
+    from app.services import ml_predictive_model_service
+
+    user_id = "saturated-ml-user"
+    for index, value in enumerate([80, 70, 60], start=1):
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": user_id,
+                "session_id": f"saturated-session-{index}",
+                "eye_contact_score": value,
+                "confidence_score": value,
+            },
+        )
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": user_id,
+                "session_id": f"saturated-session-{index}",
+                "feedback_type": "self",
+                "skill_area": "presence_engagement",
+                "rating": value,
+            },
+        )
+
+    monkeypatch.setattr(
+        ml_predictive_model_service,
+        "predict_behavioral_outcome",
+        lambda _features: {
+            "predicted_score": 100.0,
+            "risk_level": "low",
+            "confidence": 0.95,
+            "model_version": "saturated-model",
+            "model_type": {"regressor": "linear_regression"},
+        },
+    )
+
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_version"] == "rule-based-baseline-v1"
+
+    prediction = {
+        item["predicted_skill"]: item for item in data["predictions"]
+    }["presence_engagement"]
+    # Falling, so the projection falls too - not "+15 and a warning".
+    assert prediction["predicted_score"] <= prediction["current_score"]
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):
     client.post(
