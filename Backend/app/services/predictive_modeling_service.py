@@ -35,7 +35,13 @@ MAX_NEXT_SESSION_DELTA = 15.0
 # a confident number that was never about this learner.
 ML_SATURATION_MARGIN = 0.01
 LOW_EVIDENCE_MAX_DELTA = 10.0
-SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
+# A signed direction per sentiment. "mixed" scores zero like "neutral", for the
+# opposite reason: neutral text carries no judgement, mixed text carries two that
+# cancel. It has to be here at all because the serving classifier emits it and
+# the lookup below silently drops anything it does not recognise - so without
+# this line the reflections learners most often write, the ones weighing a good
+# thing against a bad one, contributed nothing to the forecast.
+SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "mixed": 0.0, "negative": -1.0}
 
 
 def predict_user_skill_outcomes(

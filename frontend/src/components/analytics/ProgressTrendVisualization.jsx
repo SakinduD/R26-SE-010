@@ -41,7 +41,7 @@ export default function ProgressTrendVisualization({ trends, labelFor }) {
     return (
       <div className="space-y-3">
         <EmptyState text="One real session is available. Add another session to calculate progress trends." />
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
           {singleSessionTrends.map((item) => (
             <SingleSessionTrendRow key={item.skill_area} item={item} labelFor={labelFor} />
           ))}
@@ -59,7 +59,7 @@ export default function ProgressTrendVisualization({ trends, labelFor }) {
         hoveredSkill={hoveredSkill}
         onHover={setHoveredSkill}
       />
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
         {visibleTrends.map((item) => (
           <TrendRow 
             key={item.skill_area} 
@@ -82,9 +82,13 @@ function TrendSummary({ trends }) {
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <TrendStat label="Improving" value={counts.improving || 0} tone="improving" />
-      <TrendStat label="Stable" value={counts.stable || 0} tone="stable" />
-      <TrendStat label="Declining" value={counts.declining || 0} tone="declining" />
+      {/* Same words as the summary above this chart. They were "Improving /
+          Stable / Declining" here and "Getting better / Holding steady /
+          Slipping" there - the same three numbers, twice, in two vocabularies,
+          on one screen. */}
+      <TrendStat label="Getting better" value={counts.improving || 0} tone="improving" />
+      <TrendStat label="Holding steady" value={counts.stable || 0} tone="stable" />
+      <TrendStat label="Slipping" value={counts.declining || 0} tone="declining" />
     </div>
   )
 }
@@ -202,16 +206,23 @@ function TrendRow({ item, labelFor, isHovered, onHover }) {
       onMouseEnter={() => onHover(item.skill_area)}
       onMouseLeave={() => onHover(null)}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: getSkillColor(item.skill_area, item.trend_label) }} />
-          <span className="truncate text-sm font-bold">{labelFor(item.skill_area)}</span>
-        </div>
+      {/* The skill name and its badge used to share one row, so in a four-across
+          grid the name lost: "Vocal Comm...", "Emoti...". The name is the label
+          for everything else in the card — it cannot be the part that gets cut.
+          Badge underneath, name in full. */}
+      <div className="flex items-start gap-2">
+        <div className="h-2 w-2 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: getSkillColor(item.skill_area, item.trend_label) }} />
+        <span className="text-sm font-bold leading-tight">{labelFor(item.skill_area)}</span>
+      </div>
+      <div className="mt-1.5">
         <TrendBadge label={item.trend_label} />
       </div>
       <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
-        <span>Latest {formatScore(item.latest_score)}</span>
-        <span className={item.delta > 0 ? 'text-green-400' : item.delta < 0 ? 'text-rose-400' : ''}>Delta {formatDelta(item.delta)}</span>
+        <span>Now {formatScore(item.latest_score)}</span>
+        {/* "Delta" compares the first and latest single sessions, so it says so. */}
+        <span className={item.delta > 0 ? 'text-green-400' : item.delta < 0 ? 'text-rose-400' : ''}>
+          1st→now {formatDelta(item.delta)}
+        </span>
       </div>
     </div>
   )
@@ -235,13 +246,23 @@ function SingleSessionTrendRow({ item, labelFor }) {
   )
 }
 
+// The service's own values, which this used to print straight onto the badge.
+// "insufficient_data" is the worst of them: it is a statement about our records
+// that reads like a verdict on the learner.
+const TREND_WORDS = {
+  improving: 'getting better',
+  declining: 'slipping',
+  stable: 'holding steady',
+  insufficient_data: 'need more sessions',
+}
+
 function TrendBadge({ label }) {
   const Icon = label === 'improving' ? TrendingUp : label === 'declining' ? TrendingDown : Activity
   const color = TREND_COLORS[label] || TREND_COLORS.stable
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground border border-border/50">
       <Icon className="h-2.5 w-2.5" style={{ color }} />
-      {label}
+      {TREND_WORDS[label] || String(label || '').replaceAll('_', ' ')}
     </span>
   )
 }

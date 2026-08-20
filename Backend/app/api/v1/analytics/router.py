@@ -481,7 +481,11 @@ def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
 )
 def get_user_mentoring_recommendations(
     user_id: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=2,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):

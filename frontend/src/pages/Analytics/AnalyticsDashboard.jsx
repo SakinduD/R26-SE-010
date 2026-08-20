@@ -121,33 +121,22 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
 })
 
 /**
- * An inline explainer a reader can open when a panel raises a question.
+ * The link out of a summary panel to the page that holds the whole story.
  *
- * The alternative was longer captions, but a caption is read by everyone every
- * time and this is needed once. Collapsed it costs a question mark; opened it
- * answers the thing a first-time reader actually wonders, which is almost always
- * "where did this number come from" rather than "what is this called".
+ * Each panel here is a glance: enough to tell whether something needs looking
+ * at. The page behind it has room to actually explain, which is why the panel
+ * does not have to. Keeping this link small and in the same place on every panel
+ * means a reader learns it once.
  */
-function HowToRead({ children }) {
-  const [open, setOpen] = useState(false)
-
+function MoreLink({ to, onOpen }) {
   return (
-    <span className="inline-block align-middle ml-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="rounded-full border border-border text-[10px] leading-none w-4 h-4 text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
-        title="How to read this"
-      >
-        ?
-      </button>
-      {open && (
-        <span className="block mt-2 rounded-lg border border-border bg-muted/40 p-3 text-[11px] text-muted-foreground leading-relaxed font-normal">
-          {children}
-        </span>
-      )}
-    </span>
+    <button
+      type="button"
+      onClick={() => onOpen(to)}
+      className="text-[11px] font-semibold text-primary hover:underline shrink-0"
+    >
+      See details →
+    </button>
   )
 }
 
@@ -230,10 +219,12 @@ function RecurringPatterns({ items }) {
               </span>
             </div>
             <p className="text-[11px] mb-2" style={{ color: copy.tone }}>{copy.label}</p>
-            <div className="h-1.5 rounded-full overflow-hidden bg-muted mb-2">
+            {/* The bar is the message: how much of this learner's history the
+                pattern covers. The sentence explaining what to do about it lives
+                on the Blind Spots page, which has room for four of them. */}
+            <div className="h-1.5 rounded-full overflow-hidden bg-muted">
               <div className="h-full rounded-full" style={{ width: pct + '%', backgroundColor: copy.tone }} />
             </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">{item.recommendation}</p>
           </div>
         )
       })}
@@ -331,7 +322,7 @@ export default function AnalyticsDashboard() {
       return {
         tone: 'var(--danger)',
         title: `${labelFor(falling.skill_area)} needs your attention`,
-        body: `It has fallen from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}, and your best was ${Math.round(falling.best_score ?? 0)}. This is the skill to put your next session into.`,
+        body: `Down from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}. Your best was ${Math.round(falling.best_score ?? 0)}.`,
         cta: 'See what to practise',
         to: '/analytics-recommendations',
       }
@@ -344,7 +335,7 @@ export default function AnalyticsDashboard() {
       return {
         tone: 'var(--warning, #d99a2b)',
         title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
-        body: `That happened in ${pattern.sessions_with_gap} of your ${pattern.sessions_rated} rated sessions. Watching a session back before you rate yourself is the fastest way to close it.`,
+        body: `In ${pattern.sessions_with_gap} of ${pattern.sessions_rated} sessions.`,
         cta: 'See what to practise',
         to: '/analytics-recommendations',
       }
@@ -353,7 +344,7 @@ export default function AnalyticsDashboard() {
     return {
       tone: 'var(--success)',
       title: 'Nothing is slipping right now',
-      body: 'Your skills are holding steady and your self-ratings line up with what was measured. Keep the practice going to build the streak.',
+      body: 'Your skills are holding steady.',
       cta: 'Start another session',
       to: '/multimodal-analysis',
     }
@@ -665,18 +656,9 @@ export default function AnalyticsDashboard() {
         <div>
           <h2 className="text-base font-bold mb-3">
             📊 Your Skill Scores
-            <HowToRead>
-              Each score is measured by the practice engine from what it saw and heard in your session &mdash; how steadily you spoke, whether you held eye contact, how you handled pressure. Nobody grades you by hand and none of it is a guess. A skill shows &ldquo;--&rdquo; when that session recorded nothing for it.
-            </HowToRead>
           </h2>
-          {/* Written for someone opening this page for the first time. The big
-              number and the small ones underneath answer different questions,
-              and without saying which is which a reader assumes the largest one
-              is the important one. */}
           <p className="text-xs text-muted-foreground mb-3">
-            {isAllSessions
-              ? 'The big number is your most recent session. Underneath: your highest score ever, your average across all sessions, and which way you have been moving lately.'
-              : 'How this one session scored, out of 100, in each skill.'}
+            {isAllSessions ? 'Your latest session, out of 100' : 'This session, out of 100'}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
@@ -718,13 +700,14 @@ export default function AnalyticsDashboard() {
         {/* Radar + Blind Spots */}
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-base font-bold mb-1">🕸️ Skill Overview Chart</h2>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🕸️ Skill Overview Chart</h2>
+              <MoreLink to="/analytics-skill-twin" onOpen={(path) => navigate(path)} />
+            </div>
             <p className="text-xs text-muted-foreground mb-4">
-              {isAllSessions
-                ? 'Your latest session across all four skills'
-                : radarSelfScores.length > 0
-                  ? 'Teal = Observed scores · Amber = Your self-rating'
-                  : 'All your skills shown together in one view'}
+              {radarSelfScores.length > 0
+                ? 'Teal = measured · Amber = your rating'
+                : 'All four skills in one shape'}
             </p>
             <SkillTwinRadar
               scores={scoresShown}
@@ -732,25 +715,21 @@ export default function AnalyticsDashboard() {
               overallScore={overall}
             />
             {isAllSessions && selfScores.length > 0 && (
-              <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-                Your self-ratings are not drawn here. Averaged over every session they
-                would smooth out the very thing worth seeing — see the patterns beside
-                this chart for how your ratings compared, session by session.
+              <p className="text-[11px] text-muted-foreground mt-3">
+                Your ratings are in the panel beside this one, counted per session.
               </p>
             )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-base font-bold mb-1">
-            🔍 Things to Know About Yourself
-            <HowToRead>
-              After each session you rate yourself. This compares those ratings with what was measured, and counts how often the two disagreed &mdash; not how big the difference was on average. That matters: being 20 points high one session and 20 low the next averages to zero and looks like perfect self-awareness, when in fact you were wrong both times.
-            </HowToRead>
-          </h2>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🔍 Things to Know About Yourself</h2>
+              <MoreLink to="/analytics-blind-spots" onOpen={(path) => navigate(path)} />
+            </div>
             <p className="text-xs text-muted-foreground mb-4">
               {isAllSessions
-                ? 'Patterns across all your sessions — how often, not how much'
-                : 'How you see yourself vs what this session measured'}
+                ? 'How often your rating missed the mark'
+                : 'Your rating vs what was measured'}
             </p>
             {/* A gap needs two sides. With no self-assessment there is nothing to
                 compare, and saying "your self-view matches" would be claiming a
@@ -832,11 +811,11 @@ export default function AnalyticsDashboard() {
 
         {/* Progress Trends */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-base font-bold mb-1">📈 How You Are Improving Over Time</h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            Every session you have completed, oldest on the left. A line going up means
-            that skill is improving.
-          </p>
+          <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">📈 How You Are Improving Over Time</h2>
+              <MoreLink to="/analytics-progress-trends" onOpen={(path) => navigate(path)} />
+            </div>
+          <p className="text-xs text-muted-foreground mb-4">Every session, oldest first. Up is better.</p>
           <div className="min-h-[280px]">
             <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
           </div>
@@ -844,16 +823,11 @@ export default function AnalyticsDashboard() {
 
         {/* Predictions */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-base font-bold mb-1">
-            🔮 What to Expect Next
-            <HowToRead>
-              Your own trend line carried forward one session. If a skill has been drifting down, the forecast drifts down with it. It says what happens if nothing changes &mdash; which is exactly why it is worth changing something.
-            </HowToRead>
-          </h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            Where each skill is heading if you carry on exactly as you have been. Not a
-            target and not a promise — a continuation of your own trend line.
-          </p>
+          <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🔮 What to Expect Next</h2>
+              <MoreLink to="/analytics-predictions" onOpen={(path) => navigate(path)} />
+            </div>
+          <p className="text-xs text-muted-foreground mb-4">Where each skill lands if nothing changes.</p>
           {preds.length === 0 ? (
             <div className="text-center py-8">
               <span className="text-4xl block mb-2">🤖</span>

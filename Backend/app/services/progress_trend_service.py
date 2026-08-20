@@ -69,9 +69,17 @@ def analyze_user_skill_trend(
     db: Session,
     user_id: str,
     skill_area: str,
-    limit: int = 100,
+    limit: int = FULL_HISTORY_LIMIT,
     session_id: str | None = None,
 ) -> SkillTrendItem:
+    """One skill's trend line.
+
+    The limit matches ``analyze_user_progress_trends`` and has to. When this
+    defaulted to 100 and that one to the full history, the same skill came back
+    "declining" from the all-skills endpoint and "stable" from the single-skill
+    endpoint — 85 sessions of evidence against 76 — and the two risk levels
+    disagreed on screen as a result.
+    """
     normalized_skill = _normalize_skill_area(skill_area)
     if normalized_skill not in TREND_SCORE_FIELDS:
         return SkillTrendItem(
@@ -345,14 +353,27 @@ def _classify_trend(delta: float, slope: float) -> str:
     return "stable"
 
 
+# The learner reads these, not an instructor. They were written the other way
+# round - "assign targeted practice" is an instruction to somebody else about
+# them - and they printed the raw column name, so a learner was told
+# "vocal_command is declining".
+SKILL_LABELS = {
+    "vocal_command": "voice",
+    "speech_fluency": "fluency",
+    "presence_engagement": "presence",
+    "emotional_intelligence": "emotional read",
+}
+
+
 def _recommendation(skill_area: str, trend_label: str) -> str:
+    label = SKILL_LABELS.get(skill_area, skill_area.replace("_", " "))
     if trend_label == "improving":
-        return f"{skill_area} is improving. Continue the current practice pattern."
+        return f"Your {label} is climbing. Whatever you changed, keep doing it."
     if trend_label == "declining":
-        return f"{skill_area} is declining. Review recent sessions and assign targeted practice."
+        return f"Your {label} has been slipping. Worth making it the focus of your next session."
     if trend_label == "stable":
-        return f"{skill_area} is stable. Add a stretch goal to create measurable growth."
-    return f"More session data is needed to identify a reliable {skill_area} trend."
+        return f"Your {label} is holding steady. Try a harder scenario to push it up."
+    return f"A couple more sessions and we can tell which way your {label} is going."
 
 
 def _normalize_skill_area(skill_area: str) -> str:

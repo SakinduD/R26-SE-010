@@ -82,6 +82,22 @@ const RAW_TO_COMPOSITE = {
 
 const PRIORITY_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
+// How a gap reads to the person who has it. The service calls these
+// "overestimation" and "underestimation"; neither is a word anybody uses about
+// themselves, and both sound like an accusation.
+const GAP_WORDS = {
+  overestimation: 'You rated this higher than it measured',
+  underestimation: 'You rated this lower than it measured',
+}
+const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
+// "high" alone is a ranking. What a reader needs is what to do about it.
+const RISK_WORDS = { high: 'needs work now', medium: 'keep an eye on it', low: 'going fine' }
+const riskWords = (value) => RISK_WORDS[value] || value || 'unknown'
+
+const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable', low: 'small', none: 'none' }
+const severityWords = (value) => SEVERITY_WORDS[value] || value || ''
+
 function labelFor(value) {
   return SKILL_LABELS[value] || RAW_TO_COMPOSITE[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -264,9 +280,9 @@ function BlindSpotList({ blindSpots }) {
         <div key={item.skill_area} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{item.severity}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>
           </div>
-          <p className="t-cap" style={{ marginBottom: 4 }}>{item.blind_spot_type} gap of {formatScore(item.gap)}</p>
+          <p className="t-cap" style={{ marginBottom: 4 }}>{gapWords(item.blind_spot_type)} — by {formatScore(item.gap)} points</p>
           <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
         </div>
       ))}
@@ -300,7 +316,7 @@ function PredictionList({ predictions }) {
         <div key={item.id || item.predicted_skill} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.predicted_skill)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
             <span className="t-cap">Current {formatScore(item.current_score)}</span>
