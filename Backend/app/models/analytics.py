@@ -65,6 +65,11 @@ class FeedbackEntry(Base):
 
     # The sentiment attributed to this entry. For human-written feedback this is
     # the NLP model's reading; for system-generated entries it is rule-derived.
+    #
+    # 'mixed' is distinct from 'neutral': neutral text passes no judgement,
+    # mixed text passes two opposing ones ("I perform well but I ran out of
+    # time"). Nearly every reflection learners actually write is the second, so
+    # collapsing it into a pole discards the more useful half of what they said.
     sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # What the author said about themselves, kept separate so the two can be
     # compared — a learner who writes something critical but marks it positive is
@@ -88,11 +93,11 @@ class FeedbackEntry(Base):
             name="ck_feedback_entries_rating_range",
         ),
         CheckConstraint(
-            "sentiment IS NULL OR sentiment IN ('positive', 'neutral', 'negative')",
+            "sentiment IS NULL OR sentiment IN ('positive', 'neutral', 'negative', 'mixed')",
             name="ck_feedback_entries_sentiment",
         ),
         CheckConstraint(
-            "declared_sentiment IS NULL OR declared_sentiment IN ('positive', 'neutral', 'negative')",
+            "declared_sentiment IS NULL OR declared_sentiment IN ('positive', 'neutral', 'negative', 'mixed')",
             name="ck_feedback_entries_declared_sentiment",
         ),
         CheckConstraint(

@@ -1,0 +1,228 @@
+{
+  "evaluated_at": "2026-08-19T11:57:22.950491+00:00",
+  "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
+  "model_path": "training\\feedback_analytics\\models\\sentiment_model_glassdoor.joblib",
+  "model_version": "tfidf-sentiment-model-comparison-v1",
+  "trained_on": "Glassdoor Job Reviews",
+  "confidence_gate": 0.6,
+  "ground_truth": {
+    "labelled_by": {
+      "human": 43
+    },
+    "human_reviewed_share": 1.0
+  },
+  "row_counts": {
+    "labelled_total": 43,
+    "scored": 38,
+    "unscorable_mixed_or_neutral": 5,
+    "by_source": {
+      "authored": 37,
+      "learner": 6
+    }
+  },
+  "overall": {
+    "count": 38,
+    "accuracy": 0.6842,
+    "correct": 26,
+    "per_class": {
+      "mixed": {
+        "support": 12,
+        "precision": 0.7857,
+        "recall": 0.9167,
+        "f1": 0.8462
+      },
+      "negative": {
+        "support": 11,
+        "precision": 0.5294,
+        "recall": 0.8182,
+        "f1": 0.6429
+      },
+      "positive": {
+        "support": 15,
+        "precision": 0.8571,
+        "recall": 0.4,
+        "f1": 0.5455
+      }
+    },
+    "confidence": {
+      "mean": 0.7533,
+      "median": 0.7765,
+      "min": 0.4498,
+      "max": 0.9858
+    },
+    "production_gate": {
+      "reached_gate": 30,
+      "below_gate_discarded": 8,
+      "share_usable": 0.7895,
+      "accuracy_when_used": 0.7667
+    }
+  },
+  "by_source": {
+    "authored": {
+      "count": 32,
+      "accuracy": 0.625,
+      "correct": 20,
+      "per_class": {
+        "mixed": {
+          "support": 9,
+          "precision": 0.7273,
+          "recall": 0.8889,
+          "f1": 0.8
+        },
+        "negative": {
+          "support": 11,
+          "precision": 0.5294,
+          "recall": 0.8182,
+          "f1": 0.6429
+        },
+        "positive": {
+          "support": 12,
+          "precision": 0.75,
+          "recall": 0.25,
+          "f1": 0.375
+        }
+      },
+      "confidence": {
+        "mean": 0.7428,
+        "median": 0.7662,
+        "min": 0.4498,
+        "max": 0.9858
+      },
+      "production_gate": {
+        "reached_gate": 25,
+        "below_gate_discarded": 7,
+        "share_usable": 0.7812,
+        "accuracy_when_used": 0.72
+      }
+    },
+    "learner": {
+      "count": 6,
+      "accuracy": 1.0,
+      "correct": 6,
+      "per_class": {
+        "mixed": {
+          "support": 3,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "positive": {
+          "support": 3,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        }
+      },
+      "confidence": {
+        "mean": 0.8093,
+        "median": 0.8374,
+        "min": 0.5359,
+        "max": 0.9579
+      },
+      "production_gate": {
+        "reached_gate": 5,
+        "below_gate_discarded": 1,
+        "share_usable": 0.8333,
+        "accuracy_when_used": 1.0
+      }
+    }
+  },
+  "unscorable_behaviour": {
+    "count": 5,
+    "labels": {
+      "neutral": 5
+    },
+    "predicted_distribution": {
+      "negative": 5
+    },
+    "mean_confidence": 0.7171,
+    "asserted_above_gate": 4,
+    "note": "Rows carrying a label this model has no class for. It must answer something, so predictions above the gate are cases where the application would act on a confident answer to a question the model was never able to answer."
+  },
+  "errors": [
+    {
+      "text": "I felt confident throughout and kept eye contact the whole way through.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.574
+    },
+    {
+      "text": "My voice was steady and I did not rush a single answer.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.8566
+    },
+    {
+      "text": "This was the best session so far, I finally stopped filling silences with um.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.5204
+    },
+    {
+      "text": "I listened properly before replying and it made the conversation easier.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.6495
+    },
+    {
+      "text": "I am proud of how I handled the difficult question at the end.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.5552
+    },
+    {
+      "text": "I stayed calm even when the scenario got uncomfortable.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.7429
+    },
+    {
+      "text": "This session was frustrating and I felt worse afterwards.",
+      "source": "authored",
+      "expected": "negative",
+      "predicted": "mixed",
+      "confidence": 0.4938
+    },
+    {
+      "text": "I think I did okay but I am not really sure.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "mixed",
+      "confidence": 0.9858
+    },
+    {
+      "text": "It was probably fine, nothing went badly wrong.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.5409
+    },
+    {
+      "text": "Maybe a little better than last time, hard to tell.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "negative",
+      "confidence": 0.6067
+    },
+    {
+      "text": "It could have been a lot better if I am honest.",
+      "source": "authored",
+      "expected": "negative",
+      "predicted": "mixed",
+      "confidence": 0.6198
+    },
+    {
+      "text": "My content was good although my body language was closed.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "positive",
+      "confidence": 0.6466
+    }
+  ]
+}

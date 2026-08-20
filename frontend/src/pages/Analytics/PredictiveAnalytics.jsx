@@ -36,6 +36,17 @@ const SKILL_LABELS = {
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
 const RISK_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
+// "high risk" is how the service ranks it. What a learner needs is what to do.
+const RISK_WORDS = { high: 'needs work now', medium: 'keep an eye on it', low: 'going fine' }
+const TREND_WORDS = {
+  improving: 'getting better',
+  declining: 'slipping',
+  stable: 'holding steady',
+  insufficient_data: 'need more sessions',
+}
+const riskWords = (value) => RISK_WORDS[value] || value || 'unknown'
+const trendWords = (value) => TREND_WORDS[value] || (value || '').replaceAll('_', ' ')
+
 const EMPTY_DATA = {
   user_id: '',
   summary: {
@@ -136,8 +147,8 @@ export default function PredictiveAnalytics() {
     <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
       <PageHead
         eyebrow="Feedback System & Predictive Analytics"
-        title="Predictive Analytics"
-        sub="Next-session risk forecast powered by the trained behavioural analytics model."
+        title="What Happens If Nothing Changes"
+        sub="Your own trend line, carried forward one session. Not a target and not a promise."
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
@@ -147,7 +158,7 @@ export default function PredictiveAnalytics() {
           onChange={setSelectedSessionId}
           minWidthClass="min-w-[260px]"
         />
-        <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
+        <SelectInput label="Show me" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadPredictions()} />
         </div>
@@ -157,10 +168,12 @@ export default function PredictiveAnalytics() {
         <Badge variant="neutral">
           {status === 'live' ? 'Live predictions' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
+        {/* Was printing the raw model id, e.g. "rule-based-baseline-v1". That
+            tells a learner nothing and reads like an error code. */}
         <Badge variant={isMlModel ? 'accent' : 'neutral'}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <Sparkles size={10} strokeWidth={1.8} />
-            {data.model_version || 'rule-based-baseline-v1'}
+            {isMlModel ? 'Trained model' : 'From your own trend'}
           </span>
         </Badge>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
@@ -184,37 +197,42 @@ export default function PredictiveAnalytics() {
                 <BrainCircuit size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
                 <span className="t-cap">{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
-              <div className="t-h3">Live next-session risk forecast</div>
+              <div className="t-h3">Your next session, if you carry on as you are</div>
               <p className="t-cap" style={{ maxWidth: 520, marginTop: 6, lineHeight: 1.6 }}>
-                The trained predictive model combines recent skill trends, feedback ratings, sentiment, and session evidence to forecast the next score and risk level.
+                A skill that has been drifting down is shown drifting down. That is the
+                point of it: the forecast tells you what happens if you change nothing,
+                so you can decide to change something.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 14, maxWidth: 480 }}>
-                <ModelFact label="Runtime" value={isMlModel ? 'Trained ML model' : 'Rule fallback'} />
-                <ModelFact label="Model version" value={data.model_version || 'rule-based-baseline-v1'} />
-                <ModelFact label="Selected skill" value={labelFor(selectedSkill)} />
+                {/* "Rule fallback" made the honest path sound like a failure. The
+                    trained model is skipped whenever it returns a value pinned to the
+                    end of its range, because a model that answers the same thing for
+                    every input is not answering about this learner. */}
+                <ModelFact label="Worked out from" value={isMlModel ? 'Trained model' : 'Your own trend'} />
+                <ModelFact label="Looking at" value={labelFor(selectedSkill)} />
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, minWidth: 200 }}>
-              <MetricBox icon={Target} label="Predicted" value={data.summary?.predicted_count || 0} />
-              <MetricBox icon={ShieldAlert} label="High Risk" value={data.summary?.high_risk_count || 0} />
-              <MetricBox icon={AlertTriangle} label="Medium Risk" value={data.summary?.medium_risk_count || 0} />
-              <MetricBox icon={CheckCircle2} label="Low Risk" value={data.summary?.low_risk_count || 0} />
+              <MetricBox icon={Target} label="Skills forecast" value={data.summary?.predicted_count || 0} />
+              <MetricBox icon={ShieldAlert} label="Needs work now" value={data.summary?.high_risk_count || 0} />
+              <MetricBox icon={AlertTriangle} label="Keep an eye on" value={data.summary?.medium_risk_count || 0} />
+              <MetricBox icon={CheckCircle2} label="Going fine" value={data.summary?.low_risk_count || 0} />
             </div>
           </div>
         </Card>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Highest Priority" icon={ShieldAlert}>
-          {highPriority ? <PriorityCard item={highPriority} /> : <EmptyMsg text="No priority prediction yet" />}
+        <Panel title="Start Here" icon={ShieldAlert}>
+          {highPriority ? <PriorityCard item={highPriority} /> : <EmptyMsg text="Nothing needs urgent attention" />}
         </Panel>
-        <Panel title="Selected Skill Forecast" icon={Gauge}>
+        <Panel title="The Skill You Picked" icon={Gauge}>
           <SelectedSkillCard item={skillPrediction} fallbackSkill={selectedSkill} availableSkills={availablePredictionSkills} />
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp}>
-        <Panel title="Prediction Detail" icon={BrainCircuit}>
+        <Panel title="All Four Skills" icon={BrainCircuit}>
           <PredictionGrid predictions={sortedPredictions} />
         </Panel>
       </motion.div>
@@ -223,7 +241,7 @@ export default function PredictiveAnalytics() {
 }
 
 function PredictionGrid({ predictions }) {
-  if (!predictions.length) return <EmptyMsg text="No predictions yet" />
+  if (!predictions.length) return <EmptyMsg text="Finish a few sessions and forecasts will appear here" />
   return (
     <div className="grid-2">
       {predictions.map((item) => (
@@ -242,12 +260,12 @@ function PredictionCard({ item }) {
           <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
           <div className="t-cap" style={{ marginTop: 2 }}>{item.evidence_points || 0} evidence points</div>
         </div>
-        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
       </div>
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
-        <InfoBox label="Trend" value={item.trend_label} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
-        <InfoBox label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} icon={Activity} />
+        <InfoBox label="Direction" value={trendWords(item.trend_label)} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
+        <InfoBox label="How sure" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} icon={Activity} />
       </div>
       <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
       <p style={{ marginTop: 10, fontSize: 12, color: delta < 0 ? 'var(--danger)' : delta > 0 ? 'var(--success)' : 'var(--text-tertiary)' }}>
@@ -262,7 +280,7 @@ function PriorityCard({ item }) {
     <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
-        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
       </div>
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
       <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
@@ -296,17 +314,17 @@ function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
     <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.predicted_skill)}</div>
-        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
+        <Badge variant={RISK_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
       </div>
       <ScoreMovement current={item.current_score} predicted={item.predicted_score} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 12 }}>
-        <MetricBox icon={Target} label="Current" value={formatScore(item.current_score)} compact />
-        <MetricBox icon={BrainCircuit} label="Predicted" value={formatScore(item.predicted_score)} compact />
-        <MetricBox icon={Activity} label="Evidence" value={item.evidence_points || 0} compact />
-        <MetricBox icon={Gauge} label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} compact />
+        <MetricBox icon={Target} label="Right now" value={formatScore(item.current_score)} compact />
+        <MetricBox icon={BrainCircuit} label="Next session" value={formatScore(item.predicted_score)} compact />
+        <MetricBox icon={Activity} label="Sessions used" value={item.evidence_points || 0} compact />
+        <MetricBox icon={Gauge} label="How sure" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} compact />
       </div>
       <div style={{ marginTop: 10 }}>
-        <InfoBox label="Trend" value={item.trend_label} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
+        <InfoBox label="Direction" value={trendWords(item.trend_label)} icon={item.trend_label === 'declining' ? TrendingDown : TrendingUp} />
       </div>
       <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
@@ -318,8 +336,8 @@ function ScoreMovement({ current, predicted }) {
   const predictedScore = normalizeScore(predicted)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <ScoreBar label="Current" value={currentScore} />
-      <ScoreBar label="Predicted" value={predictedScore} />
+      <ScoreBar label="Right now" value={currentScore} />
+      <ScoreBar label="Next session" value={predictedScore} />
     </div>
   )
 }

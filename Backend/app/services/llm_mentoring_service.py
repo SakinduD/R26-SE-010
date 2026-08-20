@@ -44,8 +44,16 @@ PEER_TEXT_REPLACEMENTS = (
 def generate_user_mentoring_recommendations(
     db: Session,
     user_id: str,
-    limit: int = 100,
+    limit: int = data_aggregation_service.FULL_HISTORY_LIMIT,
 ) -> MentoringRecommendationResult:
+    """Advice for a learner, drawn from everything they have done.
+
+    ``limit`` is passed straight through to the four services this reads, so at
+    100 it truncated all of them at once: the advice was composed from 100 of
+    118 sessions and 100 of 392 feedback entries, and the trend it reasoned
+    about was not the trend the Trends page showed. Recommendations built on a
+    different history than the one the learner can see are worse than none.
+    """
     evidence_bundle = _collect_evidence(db, user_id, limit)
     settings = get_settings()
 

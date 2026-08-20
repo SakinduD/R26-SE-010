@@ -65,6 +65,15 @@ export const analyticsService = {
   createFeedbackEntry: (payload) =>
     api.post('/api/v1/analytics/feedback', payload).then(unwrap),
 
+  // Whole-history views. Only meaningful without a session selected: they
+  // answer "where am I now versus where I started", which a single session
+  // cannot.
+  getSkillHistory: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/skill-history`).then(unwrap),
+
+  getRecurringBlindSpots: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/recurring-blind-spots`).then(unwrap),
+
   integrateCompletedSession: (payload) =>
     api.post('/api/v1/analytics/integrations/session-complete', payload).then(unwrap),
 
