@@ -121,6 +121,92 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
 })
 
 /**
+ * An inline explainer a reader can open when a panel raises a question.
+ *
+ * The alternative was longer captions, but a caption is read by everyone every
+ * time and this is needed once. Collapsed it costs a question mark; opened it
+ * answers the thing a first-time reader actually wonders, which is almost always
+ * "where did this number come from" rather than "what is this called".
+ */
+function HowToRead({ children }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <span className="inline-block align-middle ml-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="rounded-full border border-border text-[10px] leading-none w-4 h-4 text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+        title="How to read this"
+      >
+        ?
+      </button>
+      {open && (
+        <span className="block mt-2 rounded-lg border border-border bg-muted/40 p-3 text-[11px] text-muted-foreground leading-relaxed font-normal">
+          {children}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * What this page shows someone who has not practised yet.
+ *
+ * Previously they got the whole dashboard with every figure at zero or "--", a
+ * radar with no shape, and a small banner above it reading "complete a practice
+ * session". A grid of empty boxes is not a welcome, and worse, it is not even
+ * clear that it is empty rather than broken - a first-time reader has no way to
+ * tell "you have no data" from "this is not working".
+ *
+ * So the page says what it will show, what the four skills mean, and where to
+ * start. Nothing is invented to fill the space.
+ */
+function GettingStarted({ sessionCount, onStart }) {
+  const early = sessionCount > 0
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-8">
+      <div className="max-w-xl mx-auto text-center">
+        <span className="text-4xl">🎯</span>
+        <h2 className="text-lg font-bold mt-3 mb-2">
+          {early ? 'Your results are starting to build' : 'Nothing to show yet — and that is expected'}
+        </h2>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {early
+            ? `You have completed ${sessionCount} session${sessionCount === 1 ? '' : 's'}. Scores appear straight away, but the trend line and the forecast need at least three before they mean anything — two points can only ever draw a straight line.`
+            : 'This page fills in from your practice sessions. Complete one and your scores appear here immediately.'}
+        </p>
+      </div>
+
+      <div className="mt-7 grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto">
+        {['vocal_command', 'speech_fluency', 'presence_engagement', 'emotional_intelligence'].map((key) => {
+          const info = getInfo(key)
+          return (
+            <div key={key} className="rounded-xl border border-border p-3">
+              <p className="text-sm font-semibold">{info.label}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{info.sub}</p>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground text-center mt-5 max-w-xl mx-auto leading-relaxed">
+        Each session measures these four. You also rate yourself afterwards, and this
+        page shows where the two disagree — which is usually the most useful thing on it.
+      </p>
+
+      <div className="flex justify-center mt-6">
+        <button type="button" className="btn btn-primary" onClick={onStart}>
+          Start a practice session
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * Self-assessment patterns counted across sessions.
  *
  * Deliberately leads with a count rather than a magnitude. "20 of your 29
@@ -214,6 +300,64 @@ export default function AnalyticsDashboard() {
   // anything under three, and "aligned" is kept because a skill someone reads
   // accurately every time is worth telling them about.
   const recurring = useMemo(() => data?.recurring?.items || [], [data])
+
+  // How many sessions this learner actually has. Drives whether the page shows
+  // results or explains itself.
+  const sessionCount = data?.aggregate?.scores?.metric_count ?? 0
+  // Trends and forecasts need three points; below that the page would be drawing
+  // conclusions from a line through two dots.
+  const tooEarlyForTrends = isAllSessions && sessionCount > 0 && sessionCount < 3
+  const showGettingStarted = status === 'live' && isAllSessions && sessionCount < 3
+
+  // The single thing this learner should do next.
+  //
+  // The page was ending on "Emotional Intelligence is at high risk" and stopping
+  // there. Telling someone their weakest skill is falling, and then offering no
+  // route out of the page, leaves them with a worry and no action - which is a
+  // worse outcome than not having told them.
+  //
+  // One item, not a list: a page that reports four problems at once is read as
+  // four problems and acted on as none.
+  const nextAction = useMemo(() => {
+    if (!isAllSessions || sessionCount < 3) return null
+
+    // A skill that is both falling and lowest is the clearest call. Failing that,
+    // the self-assessment pattern that shows up most often.
+    const falling = (data?.history?.skills || [])
+      .filter((item) => item.trend_label === 'declining' && item.latest_score != null)
+      .sort((a, b) => a.latest_score - b.latest_score)[0]
+
+    if (falling) {
+      return {
+        tone: 'var(--danger)',
+        title: `${labelFor(falling.skill_area)} needs your attention`,
+        body: `It has fallen from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}, and your best was ${Math.round(falling.best_score ?? 0)}. This is the skill to put your next session into.`,
+        cta: 'See what to practise',
+        to: '/analytics-recommendations',
+      }
+    }
+
+    const pattern = (data?.recurring?.items || []).find(
+      (item) => item.pattern === 'consistent_overestimation' && item.severity !== 'none'
+    )
+    if (pattern) {
+      return {
+        tone: 'var(--warning, #d99a2b)',
+        title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
+        body: `That happened in ${pattern.sessions_with_gap} of your ${pattern.sessions_rated} rated sessions. Watching a session back before you rate yourself is the fastest way to close it.`,
+        cta: 'See what to practise',
+        to: '/analytics-recommendations',
+      }
+    }
+
+    return {
+      tone: 'var(--success)',
+      title: 'Nothing is slipping right now',
+      body: 'Your skills are holding steady and your self-ratings line up with what was measured. Keep the practice going to build the streak.',
+      cta: 'Start another session',
+      to: '/multimodal-analysis',
+    }
+  }, [data, isAllSessions, sessionCount])
 
   // A gap needs a measurement to compare against, not just a self-rating.
   const hasObserved = useMemo(() => scoresShown.some((s) => s.value !== null), [scoresShown])
@@ -437,12 +581,19 @@ export default function AnalyticsDashboard() {
         </div>
 
         {/* REDESIGN: yellow-500 banner replaced with Banner warning */}
-        {!hasLive && (
+        {!hasLive && !showGettingStarted && (
           <div className="banner banner-warning" role="status">
             <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning)' }}/>
             <span>Complete a practice session to see your real results here.</span>
           </div>
         )}
+
+        {/* With fewer than three sessions the panels below would be mostly empty
+            boxes and a two-point trend line. The page explains itself instead. */}
+        {showGettingStarted ? (
+          <GettingStarted sessionCount={sessionCount} onStart={() => navigate('/multimodal-analysis')} />
+        ) : (
+        <>
 
         {/* REDESIGN: big score banner replaced hex gradient (#4f46e5/#7c3aed) + text-white
             with var(--gradient-accent) + tokenised text colors */}
@@ -487,9 +638,37 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
 
+        {/* What to do about all this. Sits directly under the score, before the
+            detail: someone who reads one thing on this page should read this. */}
+        {nextAction && (
+          <div
+            className="rounded-2xl border bg-card p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+            style={{ borderColor: nextAction.tone }}
+          >
+            <div className="flex-1">
+              <p className="text-sm font-bold mb-1" style={{ color: nextAction.tone }}>
+                {nextAction.title}
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{nextAction.body}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary shrink-0"
+              onClick={() => navigate(nextAction.to)}
+            >
+              {nextAction.cta}
+            </button>
+          </div>
+        )}
+
         {/* Skill Score Cards */}
         <div>
-          <h2 className="text-base font-bold mb-3">📊 Your Skill Scores</h2>
+          <h2 className="text-base font-bold mb-3">
+            📊 Your Skill Scores
+            <HowToRead>
+              Each score is measured by the practice engine from what it saw and heard in your session &mdash; how steadily you spoke, whether you held eye contact, how you handled pressure. Nobody grades you by hand and none of it is a guess. A skill shows &ldquo;--&rdquo; when that session recorded nothing for it.
+            </HowToRead>
+          </h2>
           {/* Written for someone opening this page for the first time. The big
               number and the small ones underneath answer different questions,
               and without saying which is which a reader assumes the largest one
@@ -562,7 +741,12 @@ export default function AnalyticsDashboard() {
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
+            <h2 className="text-base font-bold mb-1">
+            🔍 Things to Know About Yourself
+            <HowToRead>
+              After each session you rate yourself. This compares those ratings with what was measured, and counts how often the two disagreed &mdash; not how big the difference was on average. That matters: being 20 points high one session and 20 low the next averages to zero and looks like perfect self-awareness, when in fact you were wrong both times.
+            </HowToRead>
+          </h2>
             <p className="text-xs text-muted-foreground mb-4">
               {isAllSessions
                 ? 'Patterns across all your sessions — how often, not how much'
@@ -660,7 +844,12 @@ export default function AnalyticsDashboard() {
 
         {/* Predictions */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-base font-bold mb-1">🔮 What to Expect Next</h2>
+          <h2 className="text-base font-bold mb-1">
+            🔮 What to Expect Next
+            <HowToRead>
+              Your own trend line carried forward one session. If a skill has been drifting down, the forecast drifts down with it. It says what happens if nothing changes &mdash; which is exactly why it is worth changing something.
+            </HowToRead>
+          </h2>
           <p className="text-xs text-muted-foreground mb-4">
             Where each skill is heading if you carry on exactly as you have been. Not a
             target and not a promise — a continuation of your own trend line.
@@ -703,6 +892,8 @@ export default function AnalyticsDashboard() {
             </div>
           )}
         </div>
+        </>
+        )}
 
       </div>
     </div>
