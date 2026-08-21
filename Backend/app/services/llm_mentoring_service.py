@@ -19,6 +19,8 @@ from app.services import (
     progress_trend_service,
 )
 
+logger = logging.getLogger(__name__)
+
 
 RECOMMENDATION_VERSION = "llm-mentoring-v1"
 FALLBACK_MODEL_VERSION = "rule-based-mentoring-v1"
@@ -133,30 +135,69 @@ def generate_session_mentoring_recommendations(
     return result
 
 
+# Mirrors TREND_SCORE_FIELDS: each tracked skill and the columns it is built
+# from. Kept in this shape so the model is given the same four skills, under the
+# same names, as every screen the learner looks at.
+_TRACKED_SKILL_COLUMNS = {
+    "vocal_command": ["speech_volume_score"],
+    "speech_fluency": ["speech_pace_score", "clarity_score"],
+    "presence_engagement": ["eye_contact_score", "confidence_score"],
+    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
+}
+
+
+def _tracked_skill_scores(averages: dict[str, float]) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for skill, columns in _TRACKED_SKILL_COLUMNS.items():
+        values = [averages[column] for column in columns if averages.get(column) is not None]
+        if values:
+            scores[skill] = round(sum(values) / len(values), 2)
+    if averages.get("overall_score") is not None:
+        scores["overall"] = round(averages["overall_score"], 2)
+    return scores
+
+
 def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
     try:
         aggregate = data_aggregation_service.get_user_aggregate(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read aggregate for mentoring evidence (user %s)", user_id)
+        db.rollback()
         aggregate = None
     
     try:
         feedback_analysis = feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read feedback_analysis for mentoring evidence (user %s)", user_id)
+        db.rollback()
         feedback_analysis = None
     
     try:
         blind_spots = blind_spot_service.detect_user_blind_spots(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read blind_spots for mentoring evidence (user %s)", user_id)
+        db.rollback()
         blind_spots = None
     
+    # Both of these take session_id third, not limit. Passing the limit
+    # positionally sent 10000 in as a session id, Postgres refused to compare a
+    # varchar against an integer, and the bare except swallowed it - so the model
+    # was asked for advice with no trend and no forecast in front of it. Worse,
+    # the failed statement aborted the transaction, which took the prediction
+    # call down with it. The single most important thing this learner's data says
+    # - three skills slipping - never reached the prompt.
     try:
-        trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+        trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit=limit)
     except Exception:
+        logger.exception("Could not read trends for mentoring evidence (user %s)", user_id)
+        db.rollback()
         trends = None
-    
+
     try:
-        predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+        predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id)
     except Exception:
+        logger.exception("Could not read predictions for mentoring evidence (user %s)", user_id)
+        db.rollback()
         predictions = None
 
     return {
@@ -175,7 +216,12 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
             "sentiment_positive_count": aggregate.feedback.sentiment_counts.get("positive", 0) if aggregate else 0,
             "sentiment_negative_count": aggregate.feedback.sentiment_counts.get("negative", 0) if aggregate else 0,
         },
-        "scores": aggregate.scores.averages if aggregate else {},
+        # The four skills this product actually tracks, not the raw metric
+        # columns behind them. Sending the columns meant the model wrote advice
+        # about "professionalism" (20.2) and "response_quality" (47.3) - names
+        # the learner has never seen, on a dashboard that shows four different
+        # ones. Advice about a skill nobody can find is worse than no advice.
+        "scores": _tracked_skill_scores(aggregate.scores.averages if aggregate else {}),
         "latest_feedback": [
             _compact_feedback(entry.model_dump(mode="json"))
             for entry in (aggregate.feedback.latest_entries[:5] if aggregate else [])
@@ -204,16 +250,22 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     try:
         aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
     except Exception:
+        logger.exception("Could not read aggregate for session %s", session_id)
+        db.rollback()
         aggregate = None
     
     try:
         feedback_analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
     except Exception:
+        logger.exception("Could not read feedback_analysis for session %s", session_id)
+        db.rollback()
         feedback_analysis = None
     
     try:
         blind_spots = blind_spot_service.detect_session_blind_spots(db, session_id)
     except Exception:
+        logger.exception("Could not read blind_spots for session %s", session_id)
+        db.rollback()
         blind_spots = None
 
     user_id = aggregate.user_id if aggregate and aggregate.user_id else "unknown"
@@ -231,7 +283,14 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
         "user_id": user_id,
         "session_id": session_id,
         "summary": summary_data,
-        "scores": aggregate.scores.averages if aggregate and aggregate.scores else {},
+        # Same reasoning as the user-scope collector: the four skills the
+        # learner sees, not the metric columns underneath them. Left as raw
+        # columns here, the model wrote session advice about "listening",
+        # "empathy" and "emotional control" - three names that appear on no
+        # screen in this product.
+        "scores": _tracked_skill_scores(
+            aggregate.scores.averages if aggregate and aggregate.scores else {}
+        ),
         "latest_feedback": [
             _compact_feedback(entry.model_dump(mode="json"))
             for entry in (aggregate.feedback.latest_entries[:3] if aggregate else [])
@@ -504,6 +563,49 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
     return sorted(items, key=lambda item: PRIORITY_WEIGHT[item.priority], reverse=True)
 
 
+# Every metric column that feeds a tracked skill, mapped to the skill a learner
+# would recognise. The model is given only the four names now, but it is a
+# language model reading evidence full of blind spots and feedback entries, and
+# it will occasionally answer with something it saw in there. This is the last
+# gate: a recommendation is filed under a skill the product actually shows, or
+# under nothing at all.
+_SKILL_ALIASES = {
+    "speech_volume": "vocal_command", "speech_volume_score": "vocal_command",
+    "professionalism": "vocal_command", "volume": "vocal_command",
+    "voice": "vocal_command", "vocal": "vocal_command",
+    "speech_pace": "speech_fluency", "pace": "speech_fluency",
+    "clarity": "speech_fluency", "communication_clarity": "speech_fluency",
+    "fluency": "speech_fluency", "response_quality": "speech_fluency",
+    "eye_contact": "presence_engagement", "confidence": "presence_engagement",
+    "presence": "presence_engagement", "engagement": "presence_engagement",
+    "adaptability": "presence_engagement",
+    "empathy": "emotional_intelligence", "listening": "emotional_intelligence",
+    "active_listening": "emotional_intelligence",
+    "emotional_control": "emotional_intelligence",
+    "emotional_regulation": "emotional_intelligence",
+}
+_TRACKED_SKILLS = frozenset(_TRACKED_SKILL_COLUMNS)
+
+
+def _normalise_skill_area(value: Any) -> str | None:
+    """The learner's four skills, or None. Never an invented fifth."""
+    if not value:
+        return None
+    key = str(value).strip().lower().replace(" ", "_").replace("-", "_")
+    if key in _TRACKED_SKILLS:
+        return key
+    if key == "overall":
+        return "overall"
+    mapped = _SKILL_ALIASES.get(key) or _SKILL_ALIASES.get(key.removesuffix("_score"))
+    if mapped:
+        logger.info("Mentoring skill_area %r mapped to %r", value, mapped)
+        return mapped
+    # Unrecognised. Filed against no skill rather than shown under a name the
+    # learner cannot find anywhere else in the product.
+    logger.warning("Mentoring skill_area %r is not a tracked skill; dropping it", value)
+    return None
+
+
 def _coerce_recommendations(
     raw_items: list[dict[str, Any]],
     source: str,
@@ -524,7 +626,7 @@ def _coerce_recommendations(
         items.append(
             MentoringRecommendationItem(
                 priority=priority,
-                skill_area=raw.get("skill_area"),
+                skill_area=_normalise_skill_area(raw.get("skill_area")),
                 title=title,
                 reason=reason,
                 detail=detail,
