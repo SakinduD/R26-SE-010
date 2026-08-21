@@ -238,7 +238,14 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
         "user_id": user_id,
         "summary": {
             "session_count": aggregate.scores.metric_count if aggregate else 0,
-            "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+            # Two different numbers, and only one of them means anything to the
+            # learner. total_count is every row in the table - 392 here, of which
+            # 258 are notes this codebase generated itself. Shown on a card next
+            # to "SESSIONS 118" it reads as "you gave 392 pieces of feedback",
+            # which is not true of any of it. self_assessment_count is the thing
+            # they actually did: the sessions they rated themselves on.
+            "feedback_count": aggregate.feedback.self_session_count if aggregate else 0,
+            "feedback_entry_count": aggregate.feedback.total_count if aggregate else 0,
             "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
             "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
             "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,

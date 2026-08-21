@@ -1205,7 +1205,13 @@ def test_user_mentoring_recommendations_returns_rule_based_fallback(client, monk
     assert data["source"] == "rule_based"
     assert data["model_version"] == "rule-based-mentoring-v1"
     assert data["evidence"]["session_count"] == 2
-    assert data["evidence"]["feedback_count"] == 2
+    # feedback_count is now the number of sessions the learner rated themselves
+    # on, not the number of rows in the feedback table. The row count showed 392
+    # on the development account - two thirds of it notes this codebase wrote
+    # itself - beside "Sessions 118", which read as "you gave 392 pieces of
+    # feedback". Only one of these two sessions was self-assessed.
+    assert data["evidence"]["feedback_count"] == 1
+    assert data["evidence"]["feedback_entry_count"] == 2
     assert data["recommendations"]
     assert data["recommendations"][0]["priority"] in {"high", "medium"}
     assert data["recommendations"][0]["next_action"]

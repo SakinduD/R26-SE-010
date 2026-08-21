@@ -264,7 +264,7 @@ export default function AnalyticsRecommendationsNew() {
                       <div className="rounded-xl border border-border bg-card p-5">
                         <div className="flex items-center gap-2 mb-3">
                           <Zap className="h-5 w-5 text-primary" />
-                          <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
+                          <h3 className="font-bold text-foreground">What to work on</h3>
                         </div>
                         <p className="text-xs text-muted-foreground mb-4">
                           {mode === 'session'
@@ -297,7 +297,7 @@ export default function AnalyticsRecommendationsNew() {
                         <div className="rounded-xl border border-border bg-card p-5">
                           <div className="flex items-center gap-2 mb-4">
                             <Target className="h-5 w-5 text-primary" />
-                            <h3 className="font-bold text-foreground">Evidence Summary</h3>
+                            <h3 className="font-bold text-foreground">What we looked at</h3>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             {evidence.session_count !== undefined && (
@@ -306,29 +306,36 @@ export default function AnalyticsRecommendationsNew() {
                                 <span className="text-base font-bold text-foreground">{evidence.session_count}</span>
                               </div>
                             )}
+                            {/* "Feedback" beside "Sessions 118" read as "you gave
+                                392 pieces of feedback". Two thirds of those rows
+                                are notes this codebase wrote itself. What the
+                                learner did is rate themselves — after 30 sessions
+                                overall, on 4 skills within one session. */}
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Feedback</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">
+                                {mode === 'session' ? 'Skills you rated' : 'Times you rated yourself'}
+                              </span>
                               <span className="text-base font-bold text-foreground">{evidence.feedback_count || 0}</span>
                             </div>
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Blind Spots</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Gaps found</span>
                               <span className="text-base font-bold text-foreground">{evidence.blind_spot_count || 0}</span>
                             </div>
                             {evidence.high_risk_prediction_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">High Risk</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Needs work now</span>
                                 <span className="text-base font-bold text-foreground">{evidence.high_risk_prediction_count}</span>
                               </div>
                             )}
                             {evidence.improving_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Improving</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Getting better</span>
                                 <span className="text-base font-bold text-foreground">{evidence.improving_count}</span>
                               </div>
                             )}
                             {evidence.declining_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Declining</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Slipping</span>
                                 <span className="text-base font-bold text-foreground">{evidence.declining_count}</span>
                               </div>
                             )}
