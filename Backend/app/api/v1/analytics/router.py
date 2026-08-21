@@ -1,11 +1,16 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 import logging
 
 from app.api.dependencies import get_db
-from app.models.analytics import MentoringRecommendation
+from app.models.analytics import (
+    AnalyticsSessionMetric,
+    FeedbackEntry,
+    MentoringRecommendation,
+)
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
@@ -475,6 +480,53 @@ def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
         ) from exc
 
 
+# high before medium before low, whatever the strings sort like.
+_PRIORITY_ORDER = case(
+    {"high": 0, "medium": 1, "low": 2},
+    value=MentoringRecommendation.priority,
+    else_=3,
+)
+
+
+def _cached_recommendations_are_stale(db: Session, user_id: str, generated_at) -> bool:
+    """Has the learner done anything since this advice was written?
+
+    The cache had no expiry, so the first set of recommendations a learner ever
+    generated was the set they saw forever. Somebody could practise for another
+    three sessions, watch every score collapse, open this page and still be told
+    they were doing fine - because the page was answering a question asked weeks
+    earlier.
+
+    That defeats the point of the view. "Overall Progress" means "how am I doing
+    across everything", and everything keeps growing. A session or a piece of
+    feedback recorded after the advice was written makes the advice out of date
+    by definition, so it is rebuilt rather than served.
+    """
+    if generated_at is None:
+        return True
+
+    newer_session = (
+        db.query(AnalyticsSessionMetric.id)
+        .filter(
+            AnalyticsSessionMetric.user_id == user_id,
+            AnalyticsSessionMetric.created_at > generated_at,
+        )
+        .first()
+    )
+    if newer_session:
+        return True
+
+    newer_feedback = (
+        db.query(FeedbackEntry.id)
+        .filter(
+            FeedbackEntry.user_id == user_id,
+            FeedbackEntry.created_at > generated_at,
+        )
+        .first()
+    )
+    return newer_feedback is not None
+
+
 @router.get(
     "/users/{user_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
@@ -499,9 +551,22 @@ def get_user_mentoring_recommendations(
                 MentoringRecommendation.session_id.is_(None),
                 MentoringRecommendation.recommendation_type == "overall_user",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).limit(limit).all()
+
+            newest = max((rec.created_at for rec in cached_recs), default=None)
+            if cached_recs and _cached_recommendations_are_stale(db, user_id, newest):
+                logger.info(
+                    "Saved recommendations for user %s predate newer activity; rebuilding",
+                    user_id,
+                )
+                cached_recs = []
 
             if cached_recs:
                 logger.info(f"Using saved recommendations for user {user_id}")
@@ -559,8 +624,13 @@ def get_session_mentoring_recommendations(
                 MentoringRecommendation.session_id == session_id,
                 MentoringRecommendation.recommendation_type == "session_specific",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).all()
 
             if cached_recs:
