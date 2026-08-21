@@ -43,6 +43,32 @@ PEER_TEXT_REPLACEMENTS = (
 )
 
 
+def _has_usable_evidence(evidence_bundle: dict[str, Any]) -> bool:
+    """Is there anything here to give advice about?
+
+    A learner with no sessions still produces a bundle: four trends, all labelled
+    insufficient_data with a session_count of zero. The model sees four skill
+    names in that and writes confident, specific advice about each - "record a
+    60-90 second speaking clip focused on voice" - for somebody it knows nothing
+    about. It reads as personalised and is not, which is the one thing coaching
+    advice must never be.
+
+    It is also the prompt's own rule ("only for skills the evidence actually says
+    something about") being broken by evidence that looks fuller than it is. The
+    fix belongs here rather than in the prompt: do not ask a question there is no
+    material to answer.
+    """
+    summary = evidence_bundle.get("summary") or {}
+    if summary.get("session_count") or summary.get("feedback_count"):
+        return True
+    if evidence_bundle.get("scores"):
+        return True
+    return any(
+        evidence_bundle.get(key)
+        for key in ("blind_spots", "feedback_alignment", "latest_feedback")
+    )
+
+
 def generate_user_mentoring_recommendations(
     db: Session,
     user_id: str,
@@ -59,7 +85,11 @@ def generate_user_mentoring_recommendations(
     evidence_bundle = _collect_evidence(db, user_id, limit)
     settings = get_settings()
 
-    llm_items = _call_openai_mentoring(evidence_bundle) if settings.openai_api_key else None
+    llm_items = (
+        _call_openai_mentoring(evidence_bundle)
+        if settings.openai_api_key and _has_usable_evidence(evidence_bundle)
+        else None
+    )
     if llm_items:
         result = MentoringRecommendationResult(
             user_id=user_id,
@@ -101,7 +131,11 @@ def generate_session_mentoring_recommendations(
     evidence_bundle = _collect_session_evidence(db, session_id)
     settings = get_settings()
 
-    llm_items = _call_openai_session_mentoring(evidence_bundle) if settings.openai_api_key else None
+    llm_items = (
+        _call_openai_session_mentoring(evidence_bundle)
+        if settings.openai_api_key and _has_usable_evidence(evidence_bundle)
+        else None
+    )
     if llm_items:
         result = MentoringRecommendationResult(
             user_id=evidence_bundle.get("user_id", "unknown"),
@@ -245,6 +279,107 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
     }
 
 
+# Everything both prompts share: what the evidence means, what a good
+# recommendation looks like, and the lines this system does not cross.
+#
+# Written once because it was written twice and drifted. The session prompt had
+# lost "non-clinical", the ban on diagnoses, and the score-range guard while the
+# user prompt kept all three. A safety rule with two copies has none.
+
+# What the JSON fields actually mean.
+#
+# Without this the model infers the semantics from field names, and the sign of
+# a gap is the one it cannot afford to get backwards: telling a learner who
+# consistently underrates themselves that they are overconfident is worse than
+# saying nothing. It read the evidence correctly in testing, but "it guessed
+# right" is not a property to rely on.
+_EVIDENCE_GLOSSARY = (
+    "How to read the evidence. "
+    "scores: the learner's average for each tracked skill, 0-100. "
+    "feedback_alignment and blind_spots: the learner rated themselves after a "
+    "session, and that rating is compared with what was measured. A NEGATIVE gap "
+    "means they rated themselves LOWER than measured - they are underselling "
+    "themselves. A POSITIVE gap means they rated themselves HIGHER than measured. "
+    "trends: delta is the change from their first session to their latest, and "
+    "slope_per_session is the direction across all of them; when the two "
+    "disagree, trust the slope, because delta compares two single sessions. "
+    "predictions: where a skill lands next session if nothing changes, with "
+    "risk_level ranking how much that matters. "
+    "latest_feedback: the learner's own words, with sentiment as the model read "
+    "them - 'mixed' means the reflection holds a positive and a negative "
+    "judgement at once, which is not the same as neutral."
+)
+
+# What separates a recommendation worth reading from filler.
+_QUALITY_RULES = (
+    "Each recommendation must name one thing to change and one way to practise "
+    "it in a single upcoming session. Prefer a specific, observable action - "
+    "'pause for one breath before answering' - over a general one - 'work on "
+    "your listening'. Say what the evidence shows and let the learner draw the "
+    "conclusion; do not tell them how they feel. "
+    # Cover every measured skill, but do not manufacture a fault to fill the slot.
+    #
+    # This used to read "only for skills the evidence actually says something
+    # about", which produced three cards where the learner knows they have four
+    # skills - and a missing card reads as a question, not as reassurance.
+    # Forcing a fourth was worse: asked to cover a skill whose self-rating
+    # already matched the measurement, the model wrote "aligned; it's adequate
+    # but can be tightened to improve clarity" - a sentence that could be said
+    # about anything, at any time, and means nothing.
+    #
+    # So: one card per measured skill, and where there is no gap the finding IS
+    # the absence of one. Rating yourself accurately is a real result, and saying
+    # so is information rather than praise.
+    "Give exactly one recommendation for each skill the evidence has a score for, "
+    "and never more than one per skill. "
+    "Where a skill shows a genuine problem - a gap between rating and "
+    "measurement, a low score, a declining trend - say what to change. "
+    "Where a skill shows no problem, do not invent one and do not pad. Say "
+    "plainly that it is on track, name the evidence that shows it - an accurate "
+    "self-rating is itself worth reporting - and give one small thing that keeps "
+    "it there or stretches it. Mark those 'low'. "
+    "Use priority 'high' only where the evidence is strong: a high risk_level, a "
+    "high-severity blind spot, or a clearly declining trend."
+)
+
+# The lines this system does not cross.
+_BOUNDARY_RULES = (
+    "Use only the evidence provided. Do not invent sessions, scores, diagnoses, "
+    "or private facts about the learner. "
+    "All scores are already on a 0-100 scale; never write a negative score or "
+    "one above 100. "
+    "The only skills this system tracks are vocal_command, speech_fluency, "
+    "presence_engagement and emotional_intelligence. Use skill_area values from "
+    "that list only, or null for advice that spans all of them. Never name any "
+    "other skill - the learner has no screen where a fifth skill exists. "
+    # The evidence carries the learner's own written reflections, so their words
+    # reach this model. Coaching a personal disclosure is neither what this
+    # system is for nor something it is qualified to do. The boundary is practice
+    # technique; anything past it is left for a person.
+    "The evidence may contain the learner's own written reflections. Comment only "
+    "on their practice technique. If a reflection mentions distress, anxiety, "
+    "burnout, health, or their personal life, do not respond to it, do not quote "
+    "it, and do not offer reassurance, therapy, counselling or wellbeing advice. "
+    "Give no advice at all on that subject. "
+    "Do not ask the learner to collect peer feedback or peer ratings - this "
+    "system has none. Say 'observed performance evidence' or 'system evidence' "
+    "rather than naming internal components."
+)
+
+# How the words should land.
+_VOICE_RULES = (
+    "Write to the learner as 'you'. They are early in their career, not a "
+    "beginner at being an adult: be direct and practical, never congratulatory "
+    "for its own sake and never patronising. Keep every field to one or two "
+    "short sentences. Titles are imperative and specific - 'Hold eye contact "
+    "through your first answer', not 'Presence improvement'."
+)
+
+_SHARED_PROMPT_RULES = (
+    _EVIDENCE_GLOSSARY + " " + _QUALITY_RULES + " " + _BOUNDARY_RULES + " " + _VOICE_RULES
+)
+
+
 def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     """Collect evidence specific to a single session."""
     try:
@@ -310,15 +445,14 @@ def _call_openai_session_mentoring(evidence_bundle: dict[str, Any]) -> list[Ment
     settings = get_settings()
     schema = _recommendation_json_schema()
     prompt = (
-        "Generate immediate post-session mentoring feedback for a Gen Z workplace soft-skills learner. "
-        "Focus only on what happened in this specific session. "
-        "Use only the analytics evidence provided. "
-        "Return concise, actionable coaching advice for their next attempt. "
-        "Prioritize blind spots and low feedback ratings. "
-        "Do not invent session details or private user facts. "
-        "All score values are normalized to 0-100. "
-        "Do not ask the learner to collect peer feedback or peer ratings. "
-        "Use terms such as observed performance evidence or system evidence instead."
+        "You are a soft-skills practice coach. The learner has just finished one "
+        "practice session and is looking at their results. Tell them what to do "
+        "differently in their next attempt. "
+        "Everything here is about this one session - do not describe long-term "
+        "progress or trends, because a single session cannot show either. "
+        "Lead with the widest gap between what they thought and what was "
+        "measured, then the lowest scores. "
+        + _SHARED_PROMPT_RULES
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -374,7 +508,14 @@ def _build_session_rule_based_recommendations(evidence_bundle: dict[str, Any]) -
                 skill_area=skill,
                 title=f"Work on {_label(skill)} in next session",
                 reason=f"This session showed a {blind_spot['blind_spot_type']} gap in {_label(skill)}.",
-                detail=f"You rated yourself {blind_spot['self_rating']} but observed performance was {blind_spot['observed_rating']}. "
+                # The field is comparison_score. It was written as
+                # observed_rating, which does not exist, so this whole branch
+                # raised KeyError - and because it is the fallback, it only ran
+                # when the LLM was already unavailable. A path that exists to
+                # catch a failure cannot itself be broken; it had never been
+                # executed once in production.
+                detail=f"You rated yourself {blind_spot['self_rating']} but the "
+                       f"session measured {blind_spot.get('comparison_score')}. "
                        f"Practice this skill specifically before your next session.",
                 next_action=f"Focus on {_label(skill)} during your next practice session. Ask for feedback on this specific area.",
                 evidence_sources=["blind_spot_detection", "session_feedback"],
@@ -418,18 +559,15 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
     settings = get_settings()
     schema = _recommendation_json_schema()
     prompt = (
-        "Generate personalized mentoring recommendations for a Gen Z workplace "
-        "soft-skills learner. Use only the analytics evidence provided. "
-        "Return concise, actionable, non-clinical coaching advice. "
-        "Prioritize high-risk predictions, blind spots, declining trends, and low scores. "
-        "Do not invent sessions, scores, diagnoses, or private user facts. "
-        "All score values in the evidence are already normalized to the 0-100 range. "
-        "Never write negative skill scores or a future score outside 0-100. "
-        "When discussing a trend, describe it as a point change, not as a predicted score. "
-        "Do not ask the learner to collect peer feedback or peer ratings. "
-        "This system uses self-reflection feedback plus observed performance evidence from adaptive pedagogy, "
-        "role-play, and multimodal analysis components. Use terms such as observed performance evidence, "
-        "mentor check, or system evidence instead of peer feedback."
+        "You are a soft-skills practice coach. The learner has been practising "
+        "for a while and wants to know where to put their effort next. Work from "
+        "the whole history, not the most recent session. "
+        "Lead with what is getting worse over time, then high-risk predictions, "
+        "then patterns in how they rate themselves. A skill that is merely low "
+        "but steady matters less than one that is falling. "
+        "Describe a trend as a change in points across sessions, never as a "
+        "predicted future score. "
+        + _SHARED_PROMPT_RULES
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -810,7 +948,15 @@ def _recommendation_json_schema() -> dict[str, Any]:
                     "additionalProperties": False,
                     "properties": {
                         "priority": {"type": "string", "enum": ["high", "medium", "low"]},
-                        "skill_area": {"type": ["string", "null"]},
+                        # Constrained rather than free text. The prompt asks for
+                    # these four; the schema is what makes it impossible to
+                    # answer with a fifth, and _normalise_skill_area is the last
+                    # net under both. A recommendation filed under a skill the
+                    # learner cannot find on any screen is not usable advice.
+                    "skill_area": {
+                        "type": ["string", "null"],
+                        "enum": [*sorted(_TRACKED_SKILL_COLUMNS), "overall", None],
+                    },
                         "title": {"type": "string"},
                         "reason": {"type": "string"},
                         "detail": {"type": "string"},

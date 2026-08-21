@@ -267,7 +267,9 @@ export default function AnalyticsRecommendationsNew() {
                           <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
                         </div>
                         <p className="text-xs text-muted-foreground mb-4">
-                          Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
+                          {mode === 'session'
+                            ? 'Built from this session alone: where your rating differed from what was measured, and what you scored.'
+                            : 'Built from your whole history: declining skills, predicted risks, and patterns in how you rate yourself.'}
                         </p>
                         <div className="flex gap-2">
                           <div className="flex-1 bg-muted/50 rounded-lg p-3 border border-border/50 text-center">
@@ -384,13 +386,17 @@ function RecommendationCard({ recommendation }) {
       label: 'Good to Practice',
       actionBtn: 'bg-warning/10 text-warning hover:bg-warning/20'
     },
+    // "low" is how urgent this item is, not how the learner is doing. Labelled
+    // "Doing Great!" it sat in green above a card reading "15-point
+    // overestimation" - praise stamped on a gap. The badge now says where the
+    // item sits in the queue and leaves the verdict to the card.
     low: {
-      wrapper: 'from-success/10 to-transparent border-success/20',
-      header: 'bg-success/5',
-      badge: 'bg-success/10 text-success border-success/20',
-      icon: <Award className="h-5 w-5 text-success" />,
-      label: 'Doing Great!',
-      actionBtn: 'bg-success/10 text-success hover:bg-success/20'
+      wrapper: 'from-info/10 to-transparent border-info/20',
+      header: 'bg-info/5',
+      badge: 'bg-info/10 text-info border-info/20',
+      icon: <Lightbulb className="h-5 w-5 text-info" />,
+      label: 'When You Have Time',
+      actionBtn: 'bg-info/10 text-info hover:bg-info/20'
     },
   }
 
