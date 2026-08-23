@@ -20,6 +20,14 @@ import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 
+// The service's words in the learner's. "medium" ranks an item; "keep an eye on
+// it" tells them what to do with it, which is what a badge is for.
+const PRIORITY_WORDS = { high: 'do this first', medium: 'worth doing', low: 'when you have time' }
+const priorityWords = (value) => PRIORITY_WORDS[value] || value || ''
+
+const SOURCE_WORDS = { self: 'your rating', system: 'measured', mentor: 'system note', peer: 'peer' }
+const sourceWords = (value) => SOURCE_WORDS[value] || value || ''
+
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
@@ -166,8 +174,8 @@ export default function PostSessionReport() {
     <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
       <PageHead
         eyebrow="Feedback System & Predictive Analytics"
-        title="Post-Session Report"
-        sub="Complete performance review synthesised from skill scores, feedback, and predictions."
+        title="How That Session Went"
+        sub="Everything from one session in one place: what was measured, what you thought, and what to do next."
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
@@ -198,39 +206,39 @@ export default function PostSessionReport() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, minWidth: 240 }}>
               <MetricBox label="Overall" value={formatScore(overallScore)} />
-              <MetricBox label="Feedback" value={report.aggregate?.feedback?.total_count || 0} />
-              <MetricBox label="Actions" value={report.action_items?.length || 0} />
+              <MetricBox label="Skills you rated" value={report.aggregate?.feedback?.total_count || 0} />
+              <MetricBox label="Things to try" value={report.action_items?.length || 0} />
             </div>
           </div>
         </Card>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Skill Twin" icon={Target}>
+        <Panel title="All Four Skills" icon={Target}>
           <SkillTwinRadar scores={radarScores} selfScores={selfScores} overallScore={overallScore} />
         </Panel>
-        <Panel title="Report Summary" icon={CheckCircle2}>
-          <SummaryList title="Strengths" items={report.summary?.strengths || []} emptyText="No strengths detected yet" />
+        <Panel title="The Short Version" icon={CheckCircle2}>
+          <SummaryList title="Held up well" items={report.summary?.strengths || []} emptyText="Nothing scored high enough to call a strength this time" />
           <div style={{ marginTop: 16 }}>
-            <SummaryList title="Improvement Areas" items={report.summary?.improvement_areas || []} emptyText="No improvement areas detected yet" />
+            <SummaryList title="Worth working on" items={report.summary?.improvement_areas || []} emptyText="Nothing stood out as weak" />
           </div>
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Action Plan" icon={ClipboardList}>
+        <Panel title="What To Try Next" icon={ClipboardList}>
           <ActionList actions={report.action_items || []} />
         </Panel>
-        <Panel title="Blind Spots" icon={ShieldAlert}>
+        <Panel title="Where Your Rating Missed" icon={ShieldAlert}>
           <BlindSpotList blindSpots={report.blind_spots?.blind_spots || []} />
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2">
-        <Panel title="Feedback Evidence" icon={FileText}>
+        <Panel title="What You Said" icon={FileText}>
           <FeedbackList entries={report.aggregate?.feedback?.latest_entries || []} />
         </Panel>
-        <Panel title="Prediction Evidence" icon={AlertTriangle}>
+        <Panel title="If Nothing Changes" icon={AlertTriangle}>
           <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
         </Panel>
       </motion.div>
@@ -263,7 +271,7 @@ function ActionList({ actions }) {
         <div key={`${item.title}-${index}`} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{item.title}</span>
-            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{item.priority}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{priorityWords(item.priority)}</Badge>
           </div>
           <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.detail}</p>
         </div>
@@ -298,9 +306,13 @@ function FeedbackList({ entries }) {
         <div key={item.id} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area || item.feedback_type)}</span>
-            <Badge variant="neutral">{item.feedback_type}</Badge>
+            {/* "self" is how the row is stored. The learner knows they wrote it;
+                what the badge should say is that this is their own rating. */}
+            <Badge variant="neutral">{sourceWords(item.feedback_type)}</Badge>
           </div>
-          <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>{item.comment || 'No comment provided'}</p>
+                      <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>
+              {item.comment || 'You rated this one without writing anything.'}
+            </p>
           <p className="t-cap">Rating {formatScore(item.rating)}</p>
         </div>
       ))}
