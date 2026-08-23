@@ -1,11 +1,10 @@
 import csv
 from pathlib import Path
 
-from research.nlp_sentiment.sentiment_baseline import (
-    clean_feedback_text,
+from research.nlp_sentiment.sentiment_baseline import clean_feedback_text, predict_sentiment
+from training.feedback_analytics.sentiment.sentiment_baseline import (
     load_sentiment140,
     model_display_name,
-    predict_sentiment,
     train_sentiment_model,
 )
 

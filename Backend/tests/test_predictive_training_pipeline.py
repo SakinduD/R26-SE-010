@@ -92,8 +92,20 @@ def test_predictive_models_train_and_return_comparison_results():
         random_state=9,
     )
 
-    assert len(regression_results) == 3
+    # Four regressors now: Ridge joined the comparison because ordinary least
+    # squares blows up on this feature set, where current_score is built from
+    # previous_score plus trend_slope and the three are nearly dependent.
+    assert len(regression_results) == 4
     assert best_regressor_name in {row["model_name"] for row in regression_results}
+
+    # Every candidate reports how often small input changes push its answer off
+    # the 0-100 scale, and selection uses it. Ranking on accuracy alone is what
+    # picked a model that returned 0 or 100 for 94.5% of nudged inputs while
+    # scoring the second-best RMSE - the test split shares the collinearity that
+    # hides the failure, so RMSE cannot see it.
+    assert all("out_of_range_rate" in row for row in regression_results)
+    best = next(r for r in regression_results if r["model_name"] == best_regressor_name)
+    assert best["out_of_range_rate"] == min(r["out_of_range_rate"] for r in regression_results)
     assert len(classification_results) == 3
     assert best_classifier_name in {row["model_name"] for row in classification_results}
 

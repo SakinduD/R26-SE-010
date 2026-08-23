@@ -318,8 +318,14 @@ export default function FeedbackForm() {
             <SegmentedControl
               value={form.sentiment}
               onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
+              /* "Mixed" is offered because it is what learners actually write:
+                 every reflection collected so far says something went well and
+                 something did not. Without it they must round their own view to
+                 one pole, and the model then records a disagreement that is an
+                 artefact of these buttons rather than a fact about them. */
               options={[
                 { label: 'Positive', value: 'positive' },
+                { label: 'Mixed', value: 'mixed' },
                 { label: 'Neutral', value: 'neutral' },
                 { label: 'Negative', value: 'negative' },
               ]}
@@ -466,6 +472,9 @@ export default function FeedbackForm() {
 
 const SENTIMENT_TONE = {
   positive: 'var(--success)',
+  // Mixed is not a milder negative — it is two feelings at once, so it gets its
+  // own tone rather than a shade of either pole.
+  mixed: 'var(--warning, #d99a2b)',
   neutral: 'var(--text-secondary)',
   negative: 'var(--danger)',
 }
@@ -496,7 +505,9 @@ function SentimentReading({ reading, declared }) {
         <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>
           {agrees
             ? 'Your words and your rating agree — your self-perception matches what you wrote.'
-            : `You marked the session ${declared}, but the wording reads as ${detected}. That gap is worth a second look: it is the same kind of mismatch the blind-spot detector looks for in your ratings.`}
+            : detected === 'mixed'
+              ? `You marked the session ${declared}, but your wording carries more than one feeling at once — something that went well and something that did not. Both are real. Worth asking which one you gave the rating to.`
+              : `You marked the session ${declared}, but the wording reads as ${detected}. That gap is worth a second look: it is the same kind of mismatch the blind-spot detector looks for in your ratings.`}
         </p>
 
         <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>

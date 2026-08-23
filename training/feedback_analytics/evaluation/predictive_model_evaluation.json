@@ -1,6 +1,6 @@
 {
   "model_version": "ml-predictive-behavioral-analytics-v1",
-  "trained_at": "2026-05-04T19:33:09.341226+00:00",
+  "trained_at": "2026-08-20T15:14:30.875991+00:00",
   "dataset_path": "training\\feedback_analytics\\datasets\\processed\\predictive_training_dataset.csv",
   "data_source": "kaggle_employee_performance_evaluation_transformed",
   "row_count": 5000,
@@ -17,11 +17,45 @@
   "regression_target": "target_next_score",
   "classification_target": "target_risk_level",
   "risk_distribution": {
-    "low": 147,
-    "medium": 3312,
-    "high": 1541
+    "low": 891,
+    "medium": 3681,
+    "high": 428
   },
-  "selected_regressor": "linear_regression",
+  "feature_ranges": {
+    "current_score": {
+      "min": 47.941,
+      "max": 81.756
+    },
+    "previous_score": {
+      "min": 50.591,
+      "max": 82.762
+    },
+    "trend_slope": {
+      "min": -2.75,
+      "max": 1.0
+    },
+    "average_feedback_rating": {
+      "min": 50.0,
+      "max": 94.05
+    },
+    "sentiment_score": {
+      "min": -1.0,
+      "max": 1.0
+    },
+    "blind_spot_count": {
+      "min": 0.0,
+      "max": 2.0
+    },
+    "session_count": {
+      "min": 2.0,
+      "max": 5.0
+    },
+    "engagement_score": {
+      "min": 42.0,
+      "max": 90.0
+    }
+  },
+  "selected_regressor": "ridge_regression",
   "selected_classifier": "random_forest_classifier",
   "selection_rule": "lowest RMSE for regression, highest weighted F1 for classification",
   "target_note": "Kaggle raw performance_rating was not used directly because the provided files contain a single class. Targets are derived from real structured, behavioral, and audio feature signals.",
@@ -35,9 +69,9 @@
     "merged_employee_records": 5000,
     "final_processed_rows": 5000,
     "risk_distribution": {
-      "low": 147,
-      "medium": 3312,
-      "high": 1541
+      "low": 891,
+      "medium": 3681,
+      "high": 428
     },
     "original_rating_distribution": {
       "Low": 15000
@@ -52,84 +86,98 @@
   },
   "regression_model_comparison": [
     {
-      "model_name": "linear_regression",
+      "model_name": "ridge_regression",
       "task": "next_score_regression",
-      "mae": 3.7036,
-      "mse": 20.988,
-      "rmse": 4.5813,
-      "r2": 0.6917,
-      "cv_rmse": 4.5502,
-      "training_seconds": 0.0546
+      "out_of_range_rate": 0.0,
+      "mae": 3.7101,
+      "mse": 21.0314,
+      "rmse": 4.586,
+      "r2": 0.7204,
+      "cv_rmse": 4.5561,
+      "training_seconds": 0.0152
     },
     {
       "model_name": "gradient_boosting_regressor",
       "task": "next_score_regression",
-      "mae": 3.8127,
-      "mse": 22.0113,
-      "rmse": 4.6916,
-      "r2": 0.6766,
-      "cv_rmse": 4.6635,
-      "training_seconds": 3.2373
+      "out_of_range_rate": 0.0,
+      "mae": 3.8054,
+      "mse": 22.1802,
+      "rmse": 4.7096,
+      "r2": 0.7051,
+      "cv_rmse": 4.6659,
+      "training_seconds": 3.2538
     },
     {
       "model_name": "random_forest_regressor",
       "task": "next_score_regression",
-      "mae": 3.9001,
-      "mse": 23.4081,
-      "rmse": 4.8382,
-      "r2": 0.6561,
-      "cv_rmse": 4.7692,
-      "training_seconds": 13.0286
+      "out_of_range_rate": 0.0,
+      "mae": 3.9171,
+      "mse": 23.5219,
+      "rmse": 4.8499,
+      "r2": 0.6873,
+      "cv_rmse": 4.7858,
+      "training_seconds": 14.127
+    },
+    {
+      "model_name": "linear_regression",
+      "task": "next_score_regression",
+      "out_of_range_rate": 0.9475,
+      "mae": 3.7074,
+      "mse": 21.0454,
+      "rmse": 4.5875,
+      "r2": 0.7202,
+      "cv_rmse": 4.5551,
+      "training_seconds": 0.0456
     }
   ],
   "classification_model_comparison": [
     {
       "model_name": "random_forest_classifier",
       "task": "risk_level_classification",
-      "accuracy": 0.807,
-      "precision": 0.8026,
-      "recall": 0.807,
-      "f1": 0.804,
-      "roc_auc": 0.8661,
-      "cv_f1": 0.7922,
+      "accuracy": 0.824,
+      "precision": 0.8228,
+      "recall": 0.824,
+      "f1": 0.8234,
+      "roc_auc": 0.8553,
+      "cv_f1": 0.8017,
       "labels": [
         "high",
         "low",
         "medium"
       ],
-      "training_seconds": 4.601
+      "training_seconds": 4.741
     },
     {
       "model_name": "gradient_boosting_classifier",
       "task": "risk_level_classification",
-      "accuracy": 0.806,
-      "precision": 0.7981,
-      "recall": 0.806,
-      "f1": 0.7987,
-      "roc_auc": 0.8791,
-      "cv_f1": 0.7984,
+      "accuracy": 0.829,
+      "precision": 0.8211,
+      "recall": 0.829,
+      "f1": 0.8211,
+      "roc_auc": 0.8618,
+      "cv_f1": 0.8115,
       "labels": [
         "high",
         "low",
         "medium"
       ],
-      "training_seconds": 10.019
+      "training_seconds": 10.6092
     },
     {
       "model_name": "logistic_regression",
       "task": "risk_level_classification",
-      "accuracy": 0.711,
-      "precision": 0.7929,
-      "recall": 0.711,
-      "f1": 0.7335,
-      "roc_auc": 0.8599,
-      "cv_f1": 0.7233,
+      "accuracy": 0.727,
+      "precision": 0.8248,
+      "recall": 0.727,
+      "f1": 0.746,
+      "roc_auc": 0.8805,
+      "cv_f1": 0.7403,
       "labels": [
         "high",
         "low",
         "medium"
       ],
-      "training_seconds": 0.1099
+      "training_seconds": 0.1129
     }
   ]
 }

@@ -264,10 +264,12 @@ export default function AnalyticsRecommendationsNew() {
                       <div className="rounded-xl border border-border bg-card p-5">
                         <div className="flex items-center gap-2 mb-3">
                           <Zap className="h-5 w-5 text-primary" />
-                          <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
+                          <h3 className="font-bold text-foreground">What to work on</h3>
                         </div>
                         <p className="text-xs text-muted-foreground mb-4">
-                          Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
+                          {mode === 'session'
+                            ? 'Built from this session alone: where your rating differed from what was measured, and what you scored.'
+                            : 'Built from your whole history: declining skills, predicted risks, and patterns in how you rate yourself.'}
                         </p>
                         <div className="flex gap-2">
                           <div className="flex-1 bg-muted/50 rounded-lg p-3 border border-border/50 text-center">
@@ -295,7 +297,7 @@ export default function AnalyticsRecommendationsNew() {
                         <div className="rounded-xl border border-border bg-card p-5">
                           <div className="flex items-center gap-2 mb-4">
                             <Target className="h-5 w-5 text-primary" />
-                            <h3 className="font-bold text-foreground">Evidence Summary</h3>
+                            <h3 className="font-bold text-foreground">What we looked at</h3>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             {evidence.session_count !== undefined && (
@@ -304,29 +306,36 @@ export default function AnalyticsRecommendationsNew() {
                                 <span className="text-base font-bold text-foreground">{evidence.session_count}</span>
                               </div>
                             )}
+                            {/* "Feedback" beside "Sessions 118" read as "you gave
+                                392 pieces of feedback". Two thirds of those rows
+                                are notes this codebase wrote itself. What the
+                                learner did is rate themselves — after 30 sessions
+                                overall, on 4 skills within one session. */}
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Feedback</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">
+                                {mode === 'session' ? 'Skills you rated' : 'Times you rated yourself'}
+                              </span>
                               <span className="text-base font-bold text-foreground">{evidence.feedback_count || 0}</span>
                             </div>
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Blind Spots</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Gaps found</span>
                               <span className="text-base font-bold text-foreground">{evidence.blind_spot_count || 0}</span>
                             </div>
                             {evidence.high_risk_prediction_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">High Risk</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Needs work now</span>
                                 <span className="text-base font-bold text-foreground">{evidence.high_risk_prediction_count}</span>
                               </div>
                             )}
                             {evidence.improving_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Improving</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Getting better</span>
                                 <span className="text-base font-bold text-foreground">{evidence.improving_count}</span>
                               </div>
                             )}
                             {evidence.declining_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Declining</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Slipping</span>
                                 <span className="text-base font-bold text-foreground">{evidence.declining_count}</span>
                               </div>
                             )}
@@ -384,13 +393,17 @@ function RecommendationCard({ recommendation }) {
       label: 'Good to Practice',
       actionBtn: 'bg-warning/10 text-warning hover:bg-warning/20'
     },
+    // "low" is how urgent this item is, not how the learner is doing. Labelled
+    // "Doing Great!" it sat in green above a card reading "15-point
+    // overestimation" - praise stamped on a gap. The badge now says where the
+    // item sits in the queue and leaves the verdict to the card.
     low: {
-      wrapper: 'from-success/10 to-transparent border-success/20',
-      header: 'bg-success/5',
-      badge: 'bg-success/10 text-success border-success/20',
-      icon: <Award className="h-5 w-5 text-success" />,
-      label: 'Doing Great!',
-      actionBtn: 'bg-success/10 text-success hover:bg-success/20'
+      wrapper: 'from-info/10 to-transparent border-info/20',
+      header: 'bg-info/5',
+      badge: 'bg-info/10 text-info border-info/20',
+      icon: <Lightbulb className="h-5 w-5 text-info" />,
+      label: 'When You Have Time',
+      actionBtn: 'bg-info/10 text-info hover:bg-info/20'
     },
   }
 

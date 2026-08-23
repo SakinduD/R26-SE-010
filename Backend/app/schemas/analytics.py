@@ -49,10 +49,10 @@ class FeedbackEntryBase(BaseModel):
     comment: str | None = None
     # For human-written feedback the service overwrites this with the NLP model's
     # reading; supplying it only sets the fallback for entries with no text.
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
     # What the author says about their own feedback, kept apart from the model's
     # independent reading of the same words.
-    declared_sentiment: Literal["positive", "neutral", "negative"] | None = None
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class FeedbackEntryCreate(FeedbackEntryBase):
@@ -76,7 +76,7 @@ class FeedbackSentimentRequest(BaseModel):
 class FeedbackSentimentResult(BaseModel):
     text: str
     cleaned_text: str
-    sentiment: Literal["positive", "neutral", "negative"]
+    sentiment: Literal["positive", "neutral", "negative", "mixed"]
     confidence: float = Field(..., ge=0, le=1)
     sentiment_score: float = Field(..., ge=-1, le=1)
     class_probabilities: dict[str, float]
@@ -154,7 +154,7 @@ class ComponentSubmittedFeedback(BaseModel):
     skill_area: str | None = Field(default=None, max_length=80)
     rating: Score = Field(default=None, ge=0, le=100)
     comment: str | None = None
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class AnalyticsComponentIntegrationRequest(BaseModel):
@@ -366,8 +366,8 @@ class SentimentBlindSpotItem(BaseModel):
     """
 
     session_id: str
-    declared_sentiment: Literal["positive", "neutral", "negative"]
-    detected_sentiment: Literal["positive", "neutral", "negative"]
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"]
     severity: Literal["low", "medium", "high"]
     confidence: float = Field(..., ge=0, le=1)
     comment_excerpt: str
@@ -647,3 +647,83 @@ class GamificationSyncResult(BaseModel):
     awards: list[GamificationXpAward] = []
     newly_earned_badges: list[GamificationBadgeItem] = []
     xp_gained: int = 0
+
+
+# --- Whole-history views -----------------------------------------------------
+# The dashboard's "All Sessions" mode was showing the same panels as its
+# single-session mode, with lifetime averages substituted for that session's
+# numbers. An average answers a different question from the one the panel asks:
+# "how are you doing" is about now, and a mean over three months is not now. On
+# the development account the cards read 88 while the learner's last session was
+# 72, so a visible decline was being reported as "Great job".
+
+
+class SkillHistoryItem(BaseModel):
+    """One skill across a learner's whole history.
+
+    Carries latest and average side by side deliberately. Either alone misleads:
+    the latest score is one session and may be a bad day, the average hides which
+    direction the learner is moving.
+    """
+
+    skill_area: str
+    latest_score: float | None = None
+    first_score: float | None = None
+    best_score: float | None = None
+    worst_score: float | None = None
+    average_score: float | None = None
+    delta: float | None = None
+    trend_label: Literal["improving", "stable", "declining", "insufficient_data"]
+    session_count: int
+    # How much the learner varies between sessions. A high figure alongside a
+    # comfortable average means the average is not describing anything real.
+    consistency: float | None = None
+
+
+class LearnerHistorySummary(BaseModel):
+    user_id: str
+    session_count: int
+    first_session_at: datetime | None = None
+    latest_session_at: datetime | None = None
+    skills: list[SkillHistoryItem]
+    improving_count: int
+    declining_count: int
+    strongest_skill: SkillHistoryItem | None = None
+    weakest_skill: SkillHistoryItem | None = None
+    generated_at: datetime
+    history_version: str
+
+
+class RecurringBlindSpotItem(BaseModel):
+    """A self-assessment gap counted across sessions rather than averaged.
+
+    Averaging destroys the distinction this exists to make. A learner who
+    overestimates by 20 in one session and underestimates by 20 in the next has a
+    mean gap of zero and a real problem; a learner who overestimates by 20 every
+    single time has the same mean as one bad session and a completely different
+    situation.
+    """
+
+    skill_area: str
+    sessions_rated: int
+    sessions_with_gap: int
+    gap_rate: float
+    pattern: Literal[
+        "consistent_overestimation",
+        "consistent_underestimation",
+        "inconsistent",
+        "aligned",
+    ]
+    mean_signed_gap: float | None = None
+    typical_gap: float | None = None
+    severity: Literal["none", "low", "medium", "high"]
+    recommendation: str
+
+
+class RecurringBlindSpotResult(BaseModel):
+    user_id: str
+    minimum_gap: float
+    items: list[RecurringBlindSpotItem]
+    strongest_pattern: RecurringBlindSpotItem | None = None
+    generated_at: datetime
+    detection_version: str

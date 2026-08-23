@@ -138,16 +138,22 @@ def _build_summary(
     overestimation_count = sum(
         1 for item in blind_spots.blind_spots if item.blind_spot_type == "overestimation"
     )
+    # The headline is the one line somebody reads before deciding whether to read
+    # the rest. It used to describe the report ("Session completed with focused
+    # improvement areas") rather than the session, which told the learner nothing
+    # they could not see from the panel titles.
     if completion_status == "empty":
-        headline = "No post-session analytics are available yet."
-    elif overestimation_count > 0 and blind_spots.summary.high_count:
-        headline = "Session completed with high-priority blind spots to review."
+        headline = "No results were recorded for this session."
+    elif improvement_areas and strengths:
+        headline = f"{strengths[0]} held up. {improvement_areas[0]} is the one to work on."
     elif improvement_areas:
-        headline = "Session completed with focused improvement areas."
-    elif any(item.blind_spot_type == "underestimation" for item in blind_spots.blind_spots):
-        headline = "Session completed with strong performance — build on your confidence."
+        headline = f"{improvement_areas[0]} needs the most attention from this session."
+    elif overestimation_count and blind_spots.summary.high_count:
+        headline = "Solid scores, but your own read of them was some way off."
+    elif strengths:
+        headline = f"A strong session — {strengths[0]} led the way."
     else:
-        headline = "Session completed with steady skill performance."
+        headline = "Session recorded. Complete another to see how it compares."
 
     return PostSessionReportSummary(
         headline=headline,
@@ -157,45 +163,68 @@ def _build_summary(
     )
 
 
+# Where a score stops being a worry and starts being something to build on.
+#
+# There used to be one line at 75: at or above it a skill was a strength, below
+# it an improvement area, and nothing was allowed to be simply fine. A learner
+# scoring 72, 72, 70 and 50 was told they had no strengths at all and four areas
+# needing work - which is both untrue and useless, because when everything needs
+# work nothing is prioritised. Two points either side of one number decided
+# whether a skill was praised or flagged.
+STRENGTH_SCORE = 70.0
+CONCERN_SCORE = 60.0
+
+# A report that names everything names nothing.
+MAX_LISTED = 3
+
+
 def _top_strengths(skill_scores: SkillScoreResult) -> list[str]:
-    ranked_scores = sorted(
-        [
+    """The skills worth building on, best first."""
+    ranked = sorted(
+        (
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score >= 75
-        ],
+            if score is not None and score >= STRENGTH_SCORE
+        ),
         key=lambda item: item[1],
         reverse=True,
     )
-    return [_label(skill_area) for skill_area, _score in ranked_scores[:3]]
+    return [_label(skill_area) for skill_area, _ in ranked[:MAX_LISTED]]
 
 
 def _improvement_areas(
     skill_scores: SkillScoreResult,
     blind_spots: BlindSpotDetectionResult,
 ) -> list[str]:
-    areas = []
-    for item in blind_spots.blind_spots:
-        if item.blind_spot_type != "overestimation":
-            continue
-        label = _label(item.skill_area)
-        if label not in areas:
-            areas.append(label)
+    """The skills that actually need work, weakest first.
 
-    low_scores = sorted(
-        [
+    Deliberately not the same thing as a blind spot. A blind spot says the
+    learner read themselves wrong; it says nothing about whether the skill is
+    weak, and somebody can misjudge a skill they are good at. Listing blind
+    spots here as well put a 70-scoring skill in the "needs work" column purely
+    because the learner had rated it 85 - while the panel immediately to the
+    right of it was already reporting exactly that gap.
+    """
+    ranked = sorted(
+        (
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 75
-        ],
+            if score is not None and score < STRENGTH_SCORE
+        ),
         key=lambda item: item[1],
     )
-    for skill_area, _score in low_scores:
-        label = _label(skill_area)
-        if label not in areas:
-            areas.append(label)
+    return [_label(skill_area) for skill_area, _ in ranked[:MAX_LISTED]]
 
-    return areas[:4]
+
+def _steady_areas(skill_scores: SkillScoreResult) -> list[str]:
+    """Neither a strength nor a worry - the middle band that used to not exist."""
+    return [
+        _label(skill_area)
+        for skill_area, score in sorted(
+            skill_scores.skill_scores.items(), key=lambda item: item[1] or 0, reverse=True
+        )
+        if score is not None and CONCERN_SCORE <= score < STRENGTH_SCORE
+    ]
 
 
 def _completion_status(aggregate: AnalyticsAggregateSummary) -> str:
