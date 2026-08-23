@@ -339,7 +339,7 @@ export default function Baseline() {
                     {(!aiMicActive && !aiSessionActive && !isAiSpeaking) && (
                       <button
                         onClick={() => setAiMicActive(true)}
-                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                        className="bg-secondary text-secondary-foreground px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
                         Turn on microphone
