@@ -433,11 +433,12 @@ button { font-family: inherit; }
 .sb-brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 18px; }
 .sb-mark {
   width: 28px; height: 28px; border-radius: 8px;
-  background: var(--gradient-accent);
+  background: transparent;
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: white;
   flex-shrink: 0;
 }
+.sb-mark img { width: 100%; height: 100%; object-fit: contain; }
 .sb-brand-text { font-size: 14px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
 .sb-section-label {
   font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;

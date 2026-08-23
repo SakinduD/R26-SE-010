@@ -1,13 +1,16 @@
 import React from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import logoMark from '@/assets/brand/logo-mark.png';
 
 export default function AuthLayout() {
   return (
     <div className="auth-shell">
       {/* Top-left brand */}
       <Link to="/" className="auth-logo" aria-label="EmpowerZ home">
-        <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>EZ</div>
+        <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>
+          <img src={logoMark} alt="" />
+        </div>
         <span className="sb-brand-text">EmpowerZ</span>
       </Link>
 

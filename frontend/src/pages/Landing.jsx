@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Brain, Zap, MessageSquare, ArrowRight } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import logoMark from '@/assets/brand/logo-mark.png';
 
 const FEATURES = [
   {
@@ -56,7 +57,9 @@ export default function Landing() {
         }}
       >
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10 }} aria-label="EmpowerZ home">
-          <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>EZ</div>
+          <div className="sb-mark" style={{ width: 28, height: 28, fontSize: 14 }}>
+            <img src={logoMark} alt="" />
+          </div>
           <span className="sb-brand-text">EmpowerZ</span>
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
