@@ -30,6 +30,16 @@ export const rpeService = {
     }
   },
 
+  startSessionFromPlan: async (planId) => {
+    try {
+      return await authClient
+        .post(`/api/v1/rpe/from-plan/${encodeURIComponent(planId)}`)
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to start session from plan')
+    }
+  },
+
   sendTurn: async (sessionId, userInput) => {
     try {
       return await authClient

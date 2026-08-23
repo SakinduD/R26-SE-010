@@ -256,17 +256,28 @@ def _classify_conversation_end_groq(prompt: str) -> bool:
 async def classify_conversation_end(context: str) -> bool:
     """
     Ask the LLM whether a roleplay conversation has reached a natural
-    conclusion, given a formatted transcript excerpt (`context`). Routes to
-    OpenAI or Groq based on settings.USE_OPENAI, same as get_npc_response().
+    conclusion, given a formatted transcript excerpt (`context`).
+
+    Unlike get_npc_response(), this does NOT follow settings.USE_OPENAI —
+    it always prefers Groq. This call sits in the critical path of every
+    turn from turn 5 onward (session_respond calls it synchronously right
+    after generating the NPC's dialogue), and it's a trivial yes/no
+    classification, not writing — Groq answers it in well under a second,
+    versus several seconds for an OpenAI reasoning-model round trip. Routing
+    it through OpenAI too was doubling the user-facing wait on every later
+    turn for no quality benefit. Falls back to OpenAI only if Groq isn't
+    configured at all.
 
     Returns False on any failure — a detection failure should never end
     a session on its own.
     """
     settings = get_settings()
     prompt = _build_end_detection_prompt(context)
+    if settings.groq_api_key:
+        return _classify_conversation_end_groq(prompt)
     if settings.USE_OPENAI:
         return _classify_conversation_end_openai(prompt)
-    return _classify_conversation_end_groq(prompt)
+    return False
 
 
 class CoachingResponse(BaseModel):
@@ -366,3 +377,52 @@ async def get_coaching_response(
     if settings.USE_OPENAI:
         return _get_coaching_response_openai(prompt, system_prompt, outcome)
     return _get_coaching_response_groq(prompt, system_prompt, outcome)
+
+
+class ScenarioProseResponse(BaseModel):
+    """Generated prose for a plan-imported scenario — see rpe_plan_import_service.py."""
+    opening_npc_line: str
+    context: str
+
+
+def _scenario_prose_fallback(trigger_event: str, situation_summary: str) -> ScenarioProseResponse:
+    return ScenarioProseResponse(
+        opening_npc_line="Alright, let's talk about this.",
+        context=f"{situation_summary} {trigger_event}".strip(),
+    )
+
+
+def generate_scenario_prose(prompt: str, trigger_event: str, situation_summary: str) -> ScenarioProseResponse:
+    """
+    Write the opening NPC line + scene-setting context for a scenario
+    generated from an APM Training Plan brief. Called once at scenario
+    creation time (not per-turn), so this is a one-shot, non-latency-critical
+    generation — Groq only, no OpenAI routing, per the APM handoff doc's
+    explicit suggestion (rpe_plan_import_service.py builds the prompt from
+    the brief's blueprint fields; this just runs it).
+
+    Falls back to a generic line built from the brief's own text on any
+    failure — scenario creation should never hard-fail because prose
+    generation had a bad moment.
+    """
+    client = _get_groq_client()
+    if not client:
+        return _scenario_prose_fallback(trigger_event, situation_summary)
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.8,
+            response_format={"type": "json_object"},
+        )
+        raw: str = response.choices[0].message.content.strip()
+        data: Any = json.loads(raw)
+        return ScenarioProseResponse.model_validate(data)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        logger.warning("RPE scenario prose returned invalid/schema-mismatched JSON: %s", exc)
+        return _scenario_prose_fallback(trigger_event, situation_summary)
+    except Exception as exc:
+        logger.warning("RPE scenario prose Groq call failed: %s", exc)
+        return _scenario_prose_fallback(trigger_event, situation_summary)

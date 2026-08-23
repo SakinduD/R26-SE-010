@@ -1,0 +1,79 @@
+{
+  "scenario_id": "plan_61607293-6734-44f5-9515-2455c5f54e2f",
+  "title": "Negotiation with a Delivery Manager",
+  "difficulty": "beginner",
+  "conflict_type": "negotiation",
+  "npc_role": "Delivery Manager",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, motivated by protect their own priorities in the negotiation situation; be seen as reasonable by anyone who hears about this later",
+  "context": "The intern software engineer has just sat down in the Delivery Manager's office, expecting a routine check-in. The room is tidy and well-lit, with a few project plans pinned to a whiteboard on one wall. The Delivery Manager is seated behind their desk, with a laptop open and a notepad at the ready. The atmosphere is professional, but the air is slightly charged with the unspoken understanding that this conversation may not be entirely straightforward.",
+  "opening_npc_line": "I wanted to touch base with you about your salary, as we're finalizing the budget for the upcoming quarter. As you know, we've had to make some adjustments to ensure we're meeting our project deadlines, and I need to discuss how that impacts your compensation. Can you share your thoughts on where you see your salary fitting into our current budget?",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 85,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 2
+  },
+  "success_criteria": {
+    "min_trust_score": 60,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 85,
+      "neutral": 65,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 2,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "assertiveness",
+      "self_advocacy",
+      "emotional_regulation",
+      "boundary_setting",
+      "accountability"
+    ],
+    "big_five_relevance": [
+      "conscientiousness",
+      "neuroticism"
+    ],
+    "recommended_for_profile": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+    "difficulty_weight": 0.6,
+    "plan_generated": {
+      "plan_id": "61607293-6734-44f5-9515-2455c5f54e2f",
+      "plan_version": 1,
+      "required_beats": [
+        "The counterpart states their position on the negotiation issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "The counterpart applies pressure that the learner must hold their ground against at least once",
+        "A moment where the learner's own contribution or constraint goes unacknowledged unless they raise it",
+        "The counterpart raises the temperature once, testing whether the learner stays composed"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed",
+        "Learner's responses become terse or shut down after pushback",
+        "Learner accepts the extra scope while signalling resentment"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising assertiveness or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

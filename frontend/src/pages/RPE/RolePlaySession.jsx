@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
 import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
@@ -92,9 +92,12 @@ export default function RolePlaySession() {
     setShowScrollPill(false)
   }, [])
 
+  // Only new messages should pull the view back to the bottom — isLoading
+  // toggling twice per turn with no new content was re-running this and
+  // could yank a mid-scroll user back down without anything new to show.
   useEffect(() => {
     if (isNearBottomRef.current) scrollToBottom()
-  }, [messages, isLoading, scrollToBottom])
+  }, [messages, scrollToBottom])
 
   const handleTranscriptScroll = () => {
     const el = transcriptRef.current
@@ -251,6 +254,23 @@ export default function RolePlaySession() {
     stopListeningRef.current = stopListening
   }, [stopListening])
 
+  // Manual override for the auto-mic detection — auto on/off can misfire
+  // (permission hiccup, a few failed STT requests) and there was previously
+  // no way back from "Text Mode" except reloading the page. This lets the
+  // user flip it themselves at any point in the session.
+  const handleToggleMic = useCallback(() => {
+    if (autoMicEnabled) {
+      setAutoMicEnabled(false)
+      stopListeningRef.current()
+    } else {
+      listenFailuresRef.current = 0
+      setAutoMicEnabled(true)
+      if (!npcSpeaking && !isLoading && !sessionComplete) {
+        startListeningRef.current()
+      }
+    }
+  }, [autoMicEnabled, npcSpeaking, isLoading, sessionComplete])
+
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     shouldListenRef.current = true
@@ -363,9 +383,16 @@ export default function RolePlaySession() {
               <ArrowLeft size={16} strokeWidth={1.8} />
             </button>
             <div className="topbar-title">{scenarioTitle}</div>
-            <div className={cn('voice-pill', !autoMicEnabled && 'muted')}>
-              <span className="dot" />{voicePillLabel}
-            </div>
+            <button
+              type="button"
+              className={cn('voice-pill', !autoMicEnabled && 'muted')}
+              onClick={handleToggleMic}
+              disabled={!canRecord || sessionComplete}
+              title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
+            >
+              {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
+              {voicePillLabel}
+            </button>
           </div>
 
           <div className="transcript-wrap">
@@ -610,12 +637,12 @@ export default function RolePlaySession() {
         @media (min-width:768px){ .rpe-vs .main-split{ flex-direction:row; } }
 
         .rpe-vs .character-panel{
-          width:100%; height:256px; flex-shrink:0;
+          width:100%; height:200px; flex-shrink:0;
           background:var(--surface); border-radius:14px; overflow:hidden;
           margin:16px 16px 0;
         }
         @media (min-width:768px){
-          .rpe-vs .character-panel{ width:60%; height:auto; margin:0; border-radius:0; border-right:1px solid var(--border); }
+          .rpe-vs .character-panel{ width:42%; height:auto; margin:0; border-radius:0; border-right:1px solid var(--border); }
         }
         .rpe-vs .character-avatar{ width:100%; height:100%; }
 
@@ -623,7 +650,7 @@ export default function RolePlaySession() {
           width:100%; flex:1; min-height:0; min-width:0;
           display:flex; flex-direction:column; overflow:hidden;
         }
-        @media (min-width:768px){ .rpe-vs .conversation-panel{ width:40%; } }
+        @media (min-width:768px){ .rpe-vs .conversation-panel{ width:58%; } }
 
         .dev-test-speech-btn{
           position:fixed; bottom:16px; right:16px; z-index:50;
@@ -650,13 +677,17 @@ export default function RolePlaySession() {
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
           background:var(--success-glow); border:1px solid rgba(63,185,80,0.3);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
+          cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
-        .rpe-vs .voice-pill .dot{ width:6px; height:6px; border-radius:50%; background:var(--success); animation:rpevsDotBeat 1.6s ease-in-out infinite; }
+        .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
+        .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
         .rpe-vs .voice-pill.muted{ color:var(--text-med); background:var(--surface-hi); border-color:var(--border); }
-        .rpe-vs .voice-pill.muted .dot{ background:var(--text-med); }
 
         .rpe-vs .transcript-wrap{ position:relative; flex:1; min-height:0; }
-        .rpe-vs .transcript{ height:100%; overflow-y:auto; padding:44px clamp(24px, 6vw, 96px) 28px; }
+        .rpe-vs .transcript{
+          height:100%; overflow-y:auto; padding:44px clamp(24px, 6vw, 96px) 28px;
+          overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+        }
         .rpe-vs .transcript::-webkit-scrollbar{ width:8px; }
         .rpe-vs .transcript::-webkit-scrollbar-thumb{ background:var(--surface-hi); border-radius:100px; }
         .rpe-vs .transcript::-webkit-scrollbar-track{ background:transparent; }

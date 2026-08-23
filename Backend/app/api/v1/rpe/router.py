@@ -20,6 +20,7 @@ from app.services.rpe_emotion_service    import RpeEmotionService
 from app.services.rpe_feedback_service   import RpeFeedbackService
 from app.services.rpe_nlp_service        import RpeNlpService
 from app.services.rpe_npc_service        import RpeNpcService
+from app.services              import rpe_plan_import_service
 from app.services.rpe_predictive_service import RpePredictiveService
 from app.services.rpe_scenario_service   import RpeScenarioService
 from app.services.rpe_session_service    import RpeSessionService
@@ -88,6 +89,55 @@ def start_session(
         recommended_turns = scenario.recommended_turns,
         max_turns         = scenario.max_turns,
         is_authenticated  = is_authenticated,
+    )
+
+
+@rpe_router.post("/from-plan/{plan_id}", response_model=StartSessionResponse)
+async def start_session_from_plan(
+    plan_id:      str,
+    current_user: User = Depends(get_current_user),
+) -> StartSessionResponse:
+    """
+    Generate a scenario from an APM Training Plan brief and start a session
+    against it in one call. Target of RolePlaySession's ?planId= entry point
+    (see frontend/src/components/training-plan/StartRolePlayButton.jsx).
+
+    Requires auth (unlike /start-session) — a plan_id carries one learner's
+    Big Five profile and stated goal, so starting a session from it isn't
+    something a guest should be able to do for an arbitrary plan_id.
+    """
+    try:
+        scenario_id = await rpe_plan_import_service.generate_and_persist_scenario(plan_id)
+    except rpe_plan_import_service.PlanImportError as exc:
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc))
+
+    rpe_scenario_service.load_all()
+
+    try:
+        state = rpe_session_service.start_session(
+            scenario_id  = scenario_id,
+            user_id      = str(current_user.id),
+            auth_user_id = str(current_user.id),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    scenario = rpe_scenario_service.get_scenario(scenario_id)
+    rpe_session_service.store_session_config(
+        session_id        = state.session_id,
+        recommended_turns = scenario.recommended_turns,
+        max_turns         = scenario.max_turns,
+    )
+    return StartSessionResponse(
+        session_id        = state.session_id,
+        opening_npc_line  = scenario.opening_npc_line,
+        scenario_title    = scenario.title,
+        difficulty        = scenario.difficulty,
+        conflict_type     = scenario.conflict_type,
+        total_turns       = scenario.recommended_turns,
+        recommended_turns = scenario.recommended_turns,
+        max_turns         = scenario.max_turns,
+        is_authenticated  = True,
     )
 
 

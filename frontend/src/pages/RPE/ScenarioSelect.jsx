@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain, History } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
@@ -19,7 +19,12 @@ const MAX_SKILL_PILLS = 8
 
 export default function ScenarioSelect() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const planId = searchParams.get('planId')
   const { user, isAuthenticated, isLoading: authLoading } = useAuth()
+
+  const [planImporting, setPlanImporting] = useState(!!planId)
+  const [planError, setPlanError]         = useState(null)
 
   const [allScenarios, setAllScenarios]           = useState([])
   const [filteredScenarios, setFilteredScenarios] = useState([])
@@ -54,6 +59,48 @@ export default function ScenarioSelect() {
     }
     load()
   }, [])
+
+  // ?planId=<id> entry point from StartRolePlayButton on the Training Plan
+  // detail page — generate a scenario from that plan and drop straight into
+  // a live session, no manual picker.
+  useEffect(() => {
+    if (!planId || authLoading) return
+    if (!isAuthenticated) {
+      setPlanImporting(false)
+      setPlanError('Sign in to start a role-play from your training plan.')
+      return
+    }
+
+    let cancelled = false
+    const run = async () => {
+      setPlanImporting(true)
+      setPlanError(null)
+      try {
+        const response = await rpeService.startSessionFromPlan(planId)
+        if (cancelled) return
+        navigate('/roleplay/session', {
+          replace: true,
+          state: {
+            sessionId:      response.session_id,
+            openingNpcLine: response.opening_npc_line,
+            scenarioTitle:  response.scenario_title,
+            difficulty:     response.difficulty,
+            conflictType:   response.conflict_type,
+            totalTurns:     response.total_turns,
+            recommendedTurns: response.recommended_turns,
+            maxTurns:       response.max_turns,
+          },
+        })
+      } catch (err) {
+        if (!cancelled) {
+          setPlanError(err.message || 'Failed to generate a scenario from this plan')
+          setPlanImporting(false)
+        }
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [planId, isAuthenticated, authLoading, navigate])
 
   const allSkills = useMemo(() => {
     const set = new Set()
@@ -171,8 +218,40 @@ export default function ScenarioSelect() {
 
   const isFiltered = activeFilter !== 'all' || !!activeSkillFilter
 
+  if (planImporting) {
+    return (
+      <div className="rpe-cinema">
+        <div className="plan-import-screen">
+          <div className="plan-import-spinner" />
+          <p className="plan-import-title">Building your scenario…</p>
+          <p className="plan-import-sub">Generating a role-play from your training plan.</p>
+        </div>
+        <style>{`
+          .rpe-cinema{ min-height:calc(100vh - 48px); background:#0D1117; color:#F0F6FC;
+            font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif; }
+          .plan-import-screen{ min-height:calc(100vh - 48px); display:flex; flex-direction:column;
+            align-items:center; justify-content:center; gap:16px; text-align:center; padding:24px; }
+          .plan-import-spinner{ width:36px; height:36px; border-radius:50%; border:2.5px solid #30363D;
+            border-top-color:#4493F8; animation:planImportSpin .8s linear infinite; }
+          @keyframes planImportSpin{ to{ transform:rotate(360deg); } }
+          .plan-import-title{ font-size:16px; font-weight:700; margin:0; }
+          .plan-import-sub{ font-size:13px; color:#8B949E; margin:0; }
+        `}</style>
+      </div>
+    )
+  }
+
   return (
     <div className="rpe-cinema">
+
+      {planError && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <div className="banner danger">
+            <AlertCircle size={16} strokeWidth={1.8} />
+            <span style={{ flex: 1 }}>{planError}</span>
+          </div>
+        </div>
+      )}
 
       <div className="hero-band">
         <div className="hero-inner">
