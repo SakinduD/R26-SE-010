@@ -7,6 +7,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      // Applies a stored theme choice before first paint, so there's no
+      // flash of the wrong theme. Absent/invalid value = dark (unchanged
+      // default) — see src/lib/theme/useTheme.js for the persisted side.
+      (function () {
+        try {
+          var theme = localStorage.getItem('empowerz:theme:v1');
+          if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
