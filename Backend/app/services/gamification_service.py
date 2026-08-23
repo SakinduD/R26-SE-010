@@ -368,6 +368,22 @@ BADGE_RULES: tuple[BadgeRule, ...] = (
         tier="gold",
         evaluate=_threshold_rule(lambda ctx: ctx.session_count, 10, "sessions"),
     ),
+    BadgeRule(
+        key="momentum_builder",
+        title="Momentum Builder",
+        description="Five sessions in and building real momentum.",
+        criteria="Complete 5 training sessions",
+        tier="silver",
+        evaluate=_threshold_rule(lambda ctx: ctx.session_count, 5, "sessions"),
+    ),
+    BadgeRule(
+        key="practice_veteran",
+        title="Practice Veteran",
+        description="Twenty-five sessions of committed practice.",
+        criteria="Complete 25 training sessions",
+        tier="gold",
+        evaluate=_threshold_rule(lambda ctx: ctx.session_count, 25, "sessions"),
+    ),
 )
 
 BADGE_RULES_BY_KEY = {rule.key: rule for rule in BADGE_RULES}
