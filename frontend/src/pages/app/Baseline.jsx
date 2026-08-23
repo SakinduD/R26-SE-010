@@ -242,9 +242,9 @@ export default function Baseline() {
         <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Dismiss Session?</AlertDialogTitle>
+              <AlertDialogTitle>End this session early?</AlertDialogTitle>
               <AlertDialogDescription>
-                Your baseline session isn't complete yet. Ending now discards all behavioral and emotion data.
+                You haven't finished yet — ending now means none of it gets saved.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -317,8 +317,8 @@ export default function Baseline() {
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30 from-primary/10"></div>
                     <div className="relative flex flex-col items-center gap-4">
                       <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-primary/20 text-primary group-hover/window:border-primary/40">
-                        [ INTELLIGENCE_CORE READY ]<br />
-                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
+                        Camera's off<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">Turn on your camera to begin</span>
                       </div>
                     </div>
                   </>
@@ -333,7 +333,7 @@ export default function Baseline() {
                         className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Video size={14} />
-                        Enable Video Sensing
+                        Turn on camera
                       </button>
                     )}
                     {(!aiMicActive && !aiSessionActive && !isAiSpeaking) && (
@@ -342,7 +342,7 @@ export default function Baseline() {
                         className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
-                        Enable Audio Sensing
+                        Turn on microphone
                       </button>
                     )}
                   </div>
@@ -442,10 +442,10 @@ export default function Baseline() {
               <div className="mt-6 flex flex-wrap justify-center gap-4">
                 <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
                   <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
-                  Privacy: Edge_Only
+                  Processed on your device
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
-                  Module: Intelligence_Core
+                  Multimodal Coaching
                 </div>
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
@@ -455,7 +455,7 @@ export default function Baseline() {
                 {metrics.isSyncing && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
                     <Activity size={12} />
-                    Fusion: Active
+                    Analyzing your voice and face
                   </div>
                 )}
               </div>
@@ -467,7 +467,7 @@ export default function Baseline() {
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
                       <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
+                        {metrics.ear < 0.2 ? "Looking away" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -500,7 +500,7 @@ export default function Baseline() {
                         "text-[9px] font-bold",
                         (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
                       )}>
-                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "Off-center" : "Centered"}
                       </span>
                     </div>
                     <div className="flex gap-1 h-1.5 w-full relative">
@@ -516,7 +516,7 @@ export default function Baseline() {
 
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Vocal Affect</span>
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Voice tone</span>
                       <span className="text-[9px] font-bold text-primary uppercase">
                         {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
                       </span>

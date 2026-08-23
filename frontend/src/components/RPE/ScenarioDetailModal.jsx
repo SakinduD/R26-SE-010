@@ -115,7 +115,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
               )}
               {criteria.max_escalation_level != null && (
                 <div className="info-tile">
-                  <p className="micro-label">Max Escalation</p>
+                  <p className="micro-label">Max Tension</p>
                   <p className="info-value warning">{criteria.max_escalation_level}/5</p>
                 </div>
               )}

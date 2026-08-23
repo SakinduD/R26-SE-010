@@ -116,7 +116,7 @@ export default function BlindSpotDetail() {
       setStatus('live')
     } catch {
       setData(EMPTY_DATA); setStatus('error')
-      setError('Your blind spot analysis could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
+      setError('Your blind spot analysis could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
@@ -185,7 +185,7 @@ export default function BlindSpotDetail() {
         <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
           <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
             <span className="t-cap" style={{ color: 'var(--warning)' }}>
-              Live API is connected, but no blind spot records were found for this {scope}.
+              You're connected, but there's nothing here yet for this {scope}.
             </span>
           </div>
         </motion.div>

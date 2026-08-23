@@ -103,7 +103,7 @@ export default function ProgressTrendsDetail() {
       setData(EMPTY_DATA)
       setSelectedTrend(EMPTY_DATA.trends.find((item) => item.skill_area === selectedSkill) || EMPTY_DATA.trends[0])
       setStatus('error')
-      setError('Your progress trends could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
+      setError('Your progress trends could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
@@ -153,7 +153,7 @@ export default function ProgressTrendsDetail() {
         <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
           <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
             <span className="t-cap" style={{ color: 'var(--warning)' }}>
-              Live API is connected, but no progress trend history was found for this user.
+              You're connected, but there's nothing here yet for this user.
             </span>
           </div>
         </motion.div>

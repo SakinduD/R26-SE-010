@@ -16,7 +16,7 @@ export default function RiskFlagsPanel({ riskFlags = [], limit }) {
       <div className="rp-panel">
         <div className="rp-clear">
           <CheckCircle size={16} strokeWidth={1.8} />
-          No risk patterns detected. Great session!
+          Nothing to flag here. Great session!
         </div>
         <style>{RP_STYLES}</style>
       </div>
@@ -26,7 +26,7 @@ export default function RiskFlagsPanel({ riskFlags = [], limit }) {
   return (
     <div className="rp-panel">
       <div className="rp-head">
-        <h3 className="rp-title">Risk Patterns Detected</h3>
+        <h3 className="rp-title">Patterns to Watch For</h3>
         <span className="rp-count">{riskFlags.length}</span>
       </div>
 
@@ -48,7 +48,7 @@ export default function RiskFlagsPanel({ riskFlags = [], limit }) {
         ))}
       </div>
 
-      {hiddenCount > 0 && <p className="rp-more">+{hiddenCount} more — see Risk &amp; Blind Spots tab</p>}
+      {hiddenCount > 0 && <p className="rp-more">+{hiddenCount} more — see the Heads-Up &amp; Blind Spots tab</p>}
 
       <style>{RP_STYLES}</style>
     </div>

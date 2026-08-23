@@ -21,13 +21,13 @@ const EMOTION_TONE = {
 const SECTIONS = [
   { value: 'overview', label: 'Overview'           },
   { value: 'coaching', label: 'Coaching'           },
-  { value: 'risks',    label: 'Risk & Blind Spots' },
+  { value: 'risks',    label: 'Heads-Up & Blind Spots' },
   { value: 'charts',   label: 'Charts'             },
 ]
 
 function endReasonBadge(endReason, outcome) {
   if (endReason === 'trust_sustained')        return { tone: 'success', label: 'Trust Built'  }
-  if (endReason === 'npc_exit')               return { tone: 'danger',  label: 'NPC Exited'   }
+  if (endReason === 'npc_exit')               return { tone: 'danger',  label: 'They Walked Away' }
   if (endReason === 'max_turns_reached' && outcome === 'success') return { tone: 'accent',  label: 'Completed' }
   if (endReason === 'max_turns_reached' && outcome === 'failure') return { tone: 'warning', label: 'Time Limit' }
   if (outcome === 'success')                  return { tone: 'success', label: 'Success'      }
@@ -96,7 +96,7 @@ export default function FeedbackDashboard() {
       const data = await rpeService.getFeedback(sessionId)
       setFeedbackData(data)
     } catch (err) {
-      setError(err.message || 'Failed to load feedback.')
+      setError(err.message || 'Something went wrong loading it.')
     } finally {
       setIsLoading(false)
     }
@@ -135,7 +135,7 @@ export default function FeedbackDashboard() {
         <div className="fb-error-wrap">
           <div className="fb-error-card">
             <p className="fb-error-emoji">⚠️</p>
-            <h2 className="fb-error-title">Could not load feedback for this session.</h2>
+            <h2 className="fb-error-title">We couldn't load feedback for this session.</h2>
             <p className="fb-error-msg">{error}</p>
             <div className="fb-error-actions">
               <button type="button" onClick={load} className="btn-c primary">
@@ -196,7 +196,7 @@ export default function FeedbackDashboard() {
 
           <div className="stat-grid">
             <StatTile label="Final Trust" value={fd.final_trust ?? '—'} unit="/100" />
-            <StatTile label="Escalation" value={fd.final_escalation ?? '—'} unit="/5" />
+            <StatTile label="Tension" value={fd.final_escalation ?? '—'} unit="/5" />
             <StatTile label="Turns" value={fd.total_turns ?? '—'} unit=" turns" />
             <StatTile label="Avg Quality" value={summary.avg_quality ?? '—'} unit="/10" />
           </div>
@@ -241,7 +241,7 @@ export default function FeedbackDashboard() {
 
               {npcToneJourney.length > 0 && (
                 <div className="panel">
-                  <div className="panel-label">How the NPC saw you across the session</div>
+                  <div className="panel-label">How they saw you during the session</div>
                   <div className="pill-row">
                     {npcToneJourney.map((item, i) => (
                       <span key={i} className={cn('pill', NPC_TONE_TONE[item.tone] ?? 'neutral')}>
@@ -250,10 +250,10 @@ export default function FeedbackDashboard() {
                     ))}
                   </div>
                   {endReason === 'npc_exit' && (
-                    <p className="callout danger">⚠ The NPC exited at turn {fd.total_turns} due to escalation reaching level {fd.final_escalation}/5</p>
+                    <p className="callout danger">⚠ They walked out at turn {fd.total_turns} — tension had climbed to level {fd.final_escalation}/5</p>
                   )}
                   {endReason === 'trust_sustained' && (
-                    <p className="callout success">✅ Trust was sustained above the threshold — NPC resolved.</p>
+                    <p className="callout success">✅ Trust stayed high enough, and they came around.</p>
                   )}
                 </div>
               )}

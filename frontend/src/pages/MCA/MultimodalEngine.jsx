@@ -582,7 +582,7 @@ const MultimodalEngine = () => {
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred.";
-      toast.error("Session Startup Failed", {
+      toast.error("Couldn't start the session", {
         description: errorMsg
       });
     } finally {
@@ -643,7 +643,7 @@ const MultimodalEngine = () => {
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Connection interrupted.";
-        toast.error("Session Sync Failed", {
+        toast.error("Connection interrupted", {
           description: errorMsg
         });
       } finally {
@@ -757,7 +757,7 @@ const MultimodalEngine = () => {
             EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>MCA</span>
           </h1>
           <p className="t-over" style={{ marginTop: 4 }}>
-            Behavioral Intelligence · Real-time Fusion
+            Live coaching, powered by your voice and camera
           </p>
           {liveSessionId && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
@@ -858,8 +858,8 @@ const MultimodalEngine = () => {
 
                     <div className="relative flex flex-col items-center gap-4">
                       <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-secondary/20 text-secondary group-hover/window:border-secondary/40">
-                        [ SENSING_MODULE READY ]<br />
-                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
+                        Camera's off<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">Turn on your camera to begin</span>
                       </div>
                     </div>
                   </>
@@ -886,7 +886,7 @@ const MultimodalEngine = () => {
                         className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Video size={14} />
-                        Enable Video Sensing
+                        Turn on camera
                       </button>
                     )}
                     {!liveMicActive && (
@@ -895,7 +895,7 @@ const MultimodalEngine = () => {
                         className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
-                        Enable Audio Sensing
+                        Turn on microphone
                       </button>
                     )}
                   </div>
@@ -998,10 +998,10 @@ const MultimodalEngine = () => {
               <div className="mt-6 flex flex-wrap justify-center gap-4">
                 <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
                   <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
-                  Privacy: Edge_Only
+                  Processed on your device
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
-                  Module: Multimodal_Sensing
+                  Multimodal Coaching
                 </div>
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
@@ -1011,7 +1011,7 @@ const MultimodalEngine = () => {
                 {metrics.isSyncing && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
                     <Activity size={12} />
-                    Fusion: Active
+                    Analyzing your voice and face
                   </div>
                 )}
               </div>
@@ -1022,7 +1022,7 @@ const MultimodalEngine = () => {
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
                       <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
+                        {metrics.ear < 0.2 ? "Looking away" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -1055,7 +1055,7 @@ const MultimodalEngine = () => {
                         "text-[9px] font-bold",
                         (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
                       )}>
-                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "Off-center" : "Centered"}
                       </span>
                     </div>
                     <div className="flex gap-1 h-1.5 w-full relative">
@@ -1071,7 +1071,7 @@ const MultimodalEngine = () => {
 
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Vocal Affect</span>
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Voice tone</span>
                       <span className="text-[9px] font-bold text-primary uppercase">
                         {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
                       </span>

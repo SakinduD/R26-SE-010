@@ -117,7 +117,7 @@ export default function PredictiveAnalytics() {
       setData(predictionResult); setSkillPrediction(selectedResult); setStatus('live')
     } catch {
       setData(EMPTY_DATA); setSkillPrediction(null); setStatus('error')
-      setError('Your predictions could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
+      setError('Your predictions could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
@@ -183,7 +183,7 @@ export default function PredictiveAnalytics() {
         <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
           <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
             <span className="t-cap" style={{ color: 'var(--warning)' }}>
-              Live API is connected, but no predictive records were found for this user.
+              You're connected, but there's nothing here yet for this user.
             </span>
           </div>
         </motion.div>

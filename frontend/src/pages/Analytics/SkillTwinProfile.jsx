@@ -343,7 +343,7 @@ export default function SkillTwinProfile() {
     } catch (err) {
       setProfile(EMPTY_PROFILE)
       setStatus('error')
-      setError('Your skill twin could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
+      setError('Your skill twin could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
@@ -466,7 +466,7 @@ export default function SkillTwinProfile() {
 
         {!hasLiveData && (
           <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Live API is connected, but no skill twin records were found for this user.
+            You're connected, but there's nothing here yet for this user.
           </div>
         )}
 

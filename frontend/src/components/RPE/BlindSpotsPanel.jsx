@@ -13,7 +13,7 @@ export default function BlindSpotsPanel({ blindSpots = [], limit }) {
       <div className="bs-panel">
         <div className="bs-clear">
           <CheckCircle size={16} strokeWidth={1.8} />
-          No blind spots detected. Strong performance!
+          No blind spots here — nice work!
         </div>
         <style>{BS_STYLES}</style>
       </div>
@@ -23,8 +23,8 @@ export default function BlindSpotsPanel({ blindSpots = [], limit }) {
   return (
     <div className="bs-panel">
       <div>
-        <h3 className="bs-title">Blind Spots Identified</h3>
-        <p className="bs-sub">Areas where your performance consistently fell below the target</p>
+        <h3 className="bs-title">Your Blind Spots</h3>
+        <p className="bs-sub">Patterns where you kept falling short</p>
       </div>
 
       <div className="bs-list">
@@ -51,7 +51,7 @@ export default function BlindSpotsPanel({ blindSpots = [], limit }) {
         ))}
       </div>
 
-      {hiddenCount > 0 && <p className="bs-more">+{hiddenCount} more — see Risk &amp; Blind Spots tab</p>}
+      {hiddenCount > 0 && <p className="bs-more">+{hiddenCount} more — see the Heads-Up &amp; Blind Spots tab</p>}
 
       <style>{BS_STYLES}</style>
     </div>

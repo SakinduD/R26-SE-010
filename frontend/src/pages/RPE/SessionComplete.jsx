@@ -32,10 +32,10 @@ async function _sendApmFeedback(data, sessionId, scenarioTitle) {
     const finalTrust = data.final_trust ?? 50
     const rating = finalTrust >= 70 ? 'good' : finalTrust >= 40 ? 'fair' : 'poor'
     const summary = finalTrust >= 70
-      ? 'Strong trust maintained throughout the session.'
+      ? 'You kept trust strong all the way through this session.'
       : finalTrust >= 40
-      ? 'Moderate trust — focus on clearer assertive communication.'
-      : 'Low trust recorded — review de-escalation and emotional regulation strategies.'
+      ? 'Trust was so-so — try communicating more clearly and assertively.'
+      : 'Trust stayed low — work on staying calm and steady under pressure.'
 
     await submitSessionFeedback({
       session_id: sessionId,
@@ -77,7 +77,7 @@ const OUTCOME_META = {
     variant: 'danger',
     icon: '💢',
     title: 'The Conversation Broke Down',
-    sub: 'The NPC ended the session due to high escalation. Review your feedback below.',
+    sub: 'They ended things because tension got too high. Check your feedback below to see what happened.',
   },
 }
 
@@ -89,9 +89,9 @@ function outcomeMeta(endReason, outcome, scenarioTitle) {
   } else if (endReason === 'max_turns_reached') {
     meta = { variant: outcome === 'success' ? 'success' : 'warning' }
     icon = outcome === 'success' ? '✅' : '⏱'
-    title = outcome === 'success' ? 'Session Complete' : 'Maximum Turns Reached'
+    title = outcome === 'success' ? 'Session Complete' : 'You Reached the Turn Limit'
     sub = outcome === 'success'
-      ? 'You reached the turn limit — scored on final results.'
+      ? "You reached the turn limit — you're scored on how things stood at the end."
       : 'Check your feedback for improvement tips.'
   } else {
     meta = { variant: outcome === 'success' ? 'success' : 'natural' }
@@ -154,21 +154,21 @@ export default function SessionComplete() {
   const closingLine = turns[turns.length - 1]?.npc_response
 
   const trustInsight =
-    finalTrust > 60 ? { icon: '✅', text: 'You maintained strong trust throughout.', tone: 'success' }
-    : finalTrust > 40 ? { icon: '⚠', text: 'Trust was moderate. Try more assertive responses.', tone: 'warning' }
-    : { icon: '❌', text: 'Trust was low. Focus on staying calm and professional.', tone: 'danger' }
+    finalTrust > 60 ? { icon: '✅', text: 'You kept trust high the whole way through.', tone: 'success' }
+    : finalTrust > 40 ? { icon: '⚠', text: 'Trust was so-so — try being a bit more assertive.', tone: 'warning' }
+    : { icon: '❌', text: 'Trust dropped low. Try to stay calm and professional next time.', tone: 'danger' }
 
   const escInsight =
-    finalEsc <= 1 ? { icon: '✅', text: 'You kept the conversation calm and controlled.', tone: 'success' }
-    : finalEsc <= 3 ? { icon: '⚠', text: 'Some tension arose. Try de-escalating earlier.', tone: 'warning' }
-    : { icon: '❌', text: 'High escalation. Avoid reactive or emotional responses.', tone: 'danger' }
+    finalEsc <= 1 ? { icon: '✅', text: 'You kept things calm and steady.', tone: 'success' }
+    : finalEsc <= 3 ? { icon: '⚠', text: 'Things got a little tense. Try calming it down sooner next time.', tone: 'warning' }
+    : { icon: '❌', text: 'Things got heated fast. Try not to react emotionally next time.', tone: 'danger' }
 
   const emotionInsight =
     dom === 'assertive' || dom === 'calm'
-      ? { icon: '✅', text: 'Your tone was professional and composed.', tone: 'success' }
+      ? { icon: '✅', text: 'You came across calm and professional.', tone: 'success' }
       : dom === 'anxious' || dom === 'confused'
-      ? { icon: '⚠', text: 'You seemed uncertain. Practice confident phrasing.', tone: 'warning' }
-      : { icon: '❌', text: 'Frustration came through. Try staying solution-focused.', tone: 'danger' }
+      ? { icon: '⚠', text: 'You seemed a bit unsure — try practicing more confident phrasing.', tone: 'warning' }
+      : { icon: '❌', text: 'Your frustration showed. Try focusing on solutions instead.', tone: 'danger' }
 
   return (
     <div className="rpe-cinema">
@@ -187,7 +187,7 @@ export default function SessionComplete() {
 
           {closingLine && (
             <div className="hero-quote">
-              <span className="hero-quote-label">{npcRole || 'NPC'} · final line</span>
+              <span className="hero-quote-label">{npcRole || 'Character'} · last thing they said</span>
               <p className="hero-quote-text">"{closingLine}"</p>
             </div>
           )}
@@ -200,7 +200,7 @@ export default function SessionComplete() {
               <span className={cn('hero-stat-val', trustScore != null ? getTrustTone(trustScore) : '')}>{trustScore ?? '—'}</span>
             </div>
             <div className="hero-stat">
-              <span className="hero-stat-label">Escalation</span>
+              <span className="hero-stat-label">Tension</span>
               <span className="hero-stat-val">{escalationLevel ?? '—'}<span className="unit">/5</span></span>
             </div>
             <div className="hero-stat">
@@ -217,7 +217,7 @@ export default function SessionComplete() {
               const maxVal = Math.max(...trustHistory)
               const range  = maxVal - minVal || 1
               return (
-                <Panel title="Trust progression">
+                <Panel title="How trust changed over time">
                   <div className="chart">
                     {trustHistory.map((val, i) => {
                       const heightPct = 20 + ((val - minVal) / range) * 80

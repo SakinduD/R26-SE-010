@@ -52,7 +52,7 @@ export default function ScenarioSelect() {
         setFilteredScenarios(data)
         setRecommendedOrder(recs.map((s) => s.scenario_id))
       } catch (err) {
-        setError(err.message || 'Failed to load scenarios')
+        setError(err.message || "We couldn't load the scenarios right now.")
       } finally {
         setIsLoading(false)
       }
@@ -67,7 +67,7 @@ export default function ScenarioSelect() {
     if (!planId || authLoading) return
     if (!isAuthenticated) {
       setPlanImporting(false)
-      setPlanError('Sign in to start a role-play from your training plan.')
+      setPlanError('Sign in first to start a role-play from your training plan.')
       return
     }
 
@@ -93,7 +93,7 @@ export default function ScenarioSelect() {
         })
       } catch (err) {
         if (!cancelled) {
-          setPlanError(err.message || 'Failed to generate a scenario from this plan')
+          setPlanError(err.message || "We couldn't create a scenario from this plan.")
           setPlanImporting(false)
         }
       }
@@ -147,7 +147,7 @@ export default function ScenarioSelect() {
         : await rpeService.getScenariosByDifficulty(level)
       setFilteredScenarios(data)
     } catch (err) {
-      setError(err.message || 'Failed to filter scenarios')
+      setError(err.message || "We couldn't apply that filter.")
     } finally {
       setIsLoading(false)
     }
@@ -168,7 +168,7 @@ export default function ScenarioSelect() {
       const data = await rpeService.getScenariosBySkill(skill)
       setFilteredScenarios(data)
     } catch (err) {
-      setError(err.message || 'Failed to filter by skill')
+      setError(err.message || "We couldn't filter by that skill.")
     } finally {
       setIsLoading(false)
     }
@@ -211,7 +211,7 @@ export default function ScenarioSelect() {
         },
       })
     } catch (err) {
-      setError(err.message || 'Failed to start session')
+      setError(err.message || "We couldn't start that session — please try again.")
       setStartingId(null)
     }
   }
@@ -224,7 +224,7 @@ export default function ScenarioSelect() {
         <div className="plan-import-screen">
           <div className="plan-import-spinner" />
           <p className="plan-import-title">Building your scenario…</p>
-          <p className="plan-import-sub">Generating a role-play from your training plan.</p>
+          <p className="plan-import-sub">Turning your training plan into a live scenario.</p>
         </div>
         <style>{`
           .rpe-cinema{ min-height:calc(100vh - 48px); background:#0D1117; color:#F0F6FC;
@@ -259,7 +259,7 @@ export default function ScenarioSelect() {
             <div>
               <p className="eyebrow">Practice</p>
               <h1 className="hero-title">Role-Play Scenarios</h1>
-              <p className="hero-sub">Practice workplace soft skills with AI-powered simulations</p>
+              <p className="hero-sub">Build workplace soft skills through realistic practice conversations</p>
             </div>
             <div className="hero-actions">
               <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
@@ -279,7 +279,7 @@ export default function ScenarioSelect() {
 
         {!authLoading && !isAuthenticated && (
           <div className="banner warning">
-            You are browsing as a guest.{' '}
+            You're browsing as a guest —{' '}
             <a href="/signin" className="banner-link">Sign in</a>{' '}
             to save your session history.
           </div>
@@ -304,9 +304,9 @@ export default function ScenarioSelect() {
             onChange={(e) => setActiveSortMode(e.target.value)}
             className="sort-select"
           >
-            <option value="default">Sort: Default</option>
-            <option value="difficulty">Sort: By Difficulty</option>
-            <option value="recommended">Sort: Recommended</option>
+            <option value="default">Default order</option>
+            <option value="difficulty">By difficulty</option>
+            <option value="recommended">Recommended for you</option>
           </select>
         </div>
 
@@ -385,7 +385,7 @@ export default function ScenarioSelect() {
                 <div className="empty-state">
                   <Brain size={28} strokeWidth={1.6} />
                   <p className="empty-title">No scenarios match this filter</p>
-                  <p className="empty-desc">Try removing one or more filters to see all available scenarios.</p>
+                  <p className="empty-desc">Remove a filter or two to see more scenarios.</p>
                   <button type="button" onClick={clearAllFilters} className="btn-c secondary">Clear filters</button>
                 </div>
               </div>
@@ -414,7 +414,7 @@ export default function ScenarioSelect() {
                 <table className="compare-table">
                   <thead>
                     <tr>
-                      {['Scenario', 'Difficulty', 'Turns', 'Min Trust', 'NPC Exits At', 'NPC Softens At'].map((h) => (
+                      {['Scenario', 'Difficulty', 'Turns', 'Min Trust', 'They Walk Away At', 'They Warm Up At'].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
