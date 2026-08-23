@@ -10,6 +10,12 @@ from app.schemas.analytics import (
     FeedbackAnalysisSummary,
 )
 
+# A learner-wide analysis summarises their whole history, so this cap must never
+# quietly act as a page size. At 100 it did: on the development account it read
+# 100 of 392 feedback entries and reported the result as the learner's overall
+# picture. Same reasoning as FULL_HISTORY_LIMIT in data_aggregation_service.
+FULL_HISTORY_LIMIT = 10_000
+
 
 ANALYSIS_VERSION = "rule-based-v1"
 ALIGNMENT_THRESHOLD = 10.0
@@ -17,7 +23,8 @@ MEDIUM_GAP_THRESHOLD = 20.0
 HIGH_GAP_THRESHOLD = 30.0
 
 
-# Observed scores are compared against self/peer feedback per skill. "Overall" is
+# Observed scores are compared against the learner's self-rating per skill.
+# "Overall" is
 # a summary (the mean of the four skills), not a skill, so it is excluded here —
 # otherwise every session would surface an extra "Overall" alignment row and
 # inflate the analyzed-skill count.
@@ -53,7 +60,9 @@ def analyze_session_feedback(db: Session, session_id: str) -> FeedbackAnalysisRe
     )
 
 
-def analyze_user_feedback(db: Session, user_id: str, limit: int = 100) -> FeedbackAnalysisResult:
+def analyze_user_feedback(
+    db: Session, user_id: str, limit: int = FULL_HISTORY_LIMIT
+) -> FeedbackAnalysisResult:
     metrics = (
         db.query(AnalyticsSessionMetric)
         .filter(AnalyticsSessionMetric.user_id == user_id)
@@ -95,7 +104,6 @@ def _build_result(
             skill_area=skill_area,
             observed_score=observed_scores.get(skill_area),
             self_rating=_average(grouped_feedback.get(skill_area, {}).get("self", [])),
-            peer_rating=_average(grouped_feedback.get(skill_area, {}).get("peer", [])),
         )
         for skill_area in skill_areas
     ]
@@ -104,11 +112,6 @@ def _build_result(
         entry.rating
         for entry in feedback
         if entry.feedback_type == "self" and entry.rating is not None
-    ]
-    peer_ratings = [
-        entry.rating
-        for entry in feedback
-        if entry.feedback_type == "peer" and entry.rating is not None
     ]
     aligned_count = sum(1 for item in items if item.alignment == "aligned")
     blind_spot_count = sum(
@@ -122,12 +125,10 @@ def _build_result(
         session_id=session_id,
         summary=FeedbackAnalysisSummary(
             self_feedback_count=len(self_ratings),
-            peer_feedback_count=len(peer_ratings),
             analyzed_skill_count=len(items),
             aligned_count=aligned_count,
             blind_spot_count=blind_spot_count,
             average_self_rating=_average(self_ratings),
-            average_peer_rating=_average(peer_ratings),
             average_observed_score=_average(observed_scores_list),
         ),
         items=items,
@@ -141,31 +142,28 @@ def _analyze_skill_area(
     skill_area: str,
     observed_score: float | None,
     self_rating: float | None,
-    peer_rating: float | None,
 ) -> FeedbackAlignmentItem:
-    self_peer_gap = _gap(self_rating, peer_rating)
+    """Compare what the learner claims against what the session measured.
+
+    Peer review was removed from the platform, so self-rating versus observed
+    score is the only comparison available — and the only one this codebase
+    should imply it can make.
+    """
     self_observed_gap = _gap(self_rating, observed_score)
-    peer_observed_gap = _gap(peer_rating, observed_score)
-    gaps = [abs(gap) for gap in [self_peer_gap, self_observed_gap, peer_observed_gap] if gap is not None]
 
     alignment = _classify_alignment(
         self_rating=self_rating,
-        peer_rating=peer_rating,
         observed_score=observed_score,
         self_observed_gap=self_observed_gap,
-        self_peer_gap=self_peer_gap,
     )
 
     return FeedbackAlignmentItem(
         skill_area=skill_area,
         self_rating=self_rating,
-        peer_rating=peer_rating,
         observed_score=observed_score,
-        self_peer_gap=self_peer_gap,
         self_observed_gap=self_observed_gap,
-        peer_observed_gap=peer_observed_gap,
         alignment=alignment,
-        severity=_severity(max(gaps) if gaps else None, alignment),
+        severity=_severity(abs(self_observed_gap) if self_observed_gap is not None else None, alignment),
         recommendation=_recommendation(skill_area, alignment),
     )
 
@@ -173,19 +171,13 @@ def _analyze_skill_area(
 def _classify_alignment(
     *,
     self_rating: float | None,
-    peer_rating: float | None,
     observed_score: float | None,
     self_observed_gap: float | None,
-    self_peer_gap: float | None,
 ) -> str:
-    if self_rating is None and peer_rating is None:
+    if self_rating is None:
         return "insufficient_data"
     if self_observed_gap is not None and abs(self_observed_gap) > ALIGNMENT_THRESHOLD:
         return "self_overestimation" if self_observed_gap > 0 else "self_underestimation"
-    if self_peer_gap is not None and abs(self_peer_gap) > ALIGNMENT_THRESHOLD:
-        return "self_overestimation" if self_peer_gap > 0 else "self_underestimation"
-    if peer_rating is not None and observed_score is not None and abs(peer_rating - observed_score) > ALIGNMENT_THRESHOLD:
-        return "peer_misalignment"
     return "aligned"
 
 
@@ -208,15 +200,13 @@ def _recommendation(skill_area: str, alignment: str) -> str:
         return f"Review {skill_area} examples carefully; your self-rating is higher than external evidence."
     if alignment == "self_underestimation":
         return f"Your {skill_area} performance appears stronger than your self-rating. Build confidence with evidence."
-    if alignment == "peer_misalignment":
-        return f"External feedback for {skill_area} differs from observed performance. Collect more system evidence."
-    return f"Add self ratings and observed performance metrics for {skill_area} to improve feedback analysis."
+    return f"Add a self rating and observed performance metrics for {skill_area} to improve feedback analysis."
 
 
 def _group_feedback_by_skill(feedback: list[FeedbackEntry]) -> dict[str, dict[str, list[float]]]:
     grouped = defaultdict(lambda: defaultdict(list))
     for entry in feedback:
-        if entry.rating is None or entry.feedback_type not in {"self", "peer"}:
+        if entry.rating is None or entry.feedback_type != "self":
             continue
         grouped[_normalize_skill_area(entry.skill_area)][entry.feedback_type].append(entry.rating)
     return grouped

@@ -1,0 +1,4 @@
+classifier_name,model_type,accuracy,weighted_precision,weighted_recall,weighted_f1,training_seconds
+linear_svm,TF-IDF + Linear SVM,0.8856,0.8862,0.8856,0.8851,2.5277
+logistic_regression,TF-IDF + Logistic Regression,0.8805,0.8821,0.8805,0.88,2.8628
+naive_bayes,TF-IDF + Multinomial Naive Bayes,0.8611,0.8611,0.8611,0.861,1.1342

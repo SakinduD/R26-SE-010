@@ -103,91 +103,34 @@ function formatScore(value) {
   return Math.round(Number(value))
 }
 
-// Demo data using the 4 composite skills
-const DEMO_PROFILE = {
+// Empty shape for the four composite skills. Never populated with sample
+// values: a failed load must show nothing rather than someone else's numbers.
+const EMPTY_PROFILE = {
   aggregate: {
-    scores: {
-      metric_count: 5,
-      averages: {
-        speech_volume_score: 74,
-        speech_pace_score: 70,
-        clarity_score: 78,
-        eye_contact_score: 82,
-        confidence_score: 80,
-        empathy_score: 84,
-        emotional_control_score: 67,
-        overall_score: 76,
-      },
-    },
+    scores: { metric_count: 0, averages: {} },
     feedback: {
-      total_count: 9,
-      average_rating: 76,
-      by_type: { self: 4, system: 5 },
+      total_count: 0,
+      average_rating: null,
+      by_type: {},
       skill_rating_averages: {},
       latest_entries: [],
     },
-    predictions: { total_count: 4 },
+    predictions: { total_count: 0 },
   },
   trends: {
-    summary: { improving_count: 2, stable_count: 1, declining_count: 1, insufficient_data_count: 0 },
-    trends: [
-      mkTrend('vocal_command', 'improving', [60, 67, 74]),
-      mkTrend('speech_fluency', 'stable', [73, 74, 74]),
-      mkTrend('presence_engagement', 'improving', [70, 77, 81]),
-      mkTrend('emotional_intelligence', 'declining', [80, 74, 69]),
-    ],
+    summary: { improving_count: 0, stable_count: 0, declining_count: 0, insufficient_data_count: 0 },
+    trends: [],
   },
   predictions: {
-    summary: { predicted_count: 4, low_risk_count: 2, medium_risk_count: 1, high_risk_count: 1 },
-    predictions: [
-      mkPred('emotional_intelligence', 69, 61, 'declining', 'high'),
-      mkPred('vocal_command', 74, 80, 'improving', 'low'),
-      mkPred('presence_engagement', 81, 86, 'improving', 'low'),
-      mkPred('speech_fluency', 74, 70, 'declining', 'medium'),
-    ],
+    summary: { predicted_count: 0, low_risk_count: 0, medium_risk_count: 0, high_risk_count: 0 },
+    predictions: [],
   },
   blindSpots: {
-    summary: { total_count: 1, high_count: 0, medium_count: 1, low_count: 0 },
-    blind_spots: [
-      {
-        skill_area: 'emotional_control',
-        blind_spot_type: 'overestimation',
-        severity: 'medium',
-        gap: 22,
-        self_rating: 89,
-        recommendation: 'Compare your self-rating with observed pacing and tone before the next session.',
-      },
-    ],
+    summary: { total_count: 0, high_count: 0, medium_count: 0, low_count: 0, sentiment_gap_count: 0 },
+    blind_spots: [],
+    sentiment_gaps: [],
   },
 }
-
-function mkTrend(skillArea, trendLabel, scores) {
-  return {
-    skill_area: skillArea,
-    trend_label: trendLabel,
-    first_score: scores[0],
-    latest_score: scores[scores.length - 1],
-    delta: scores[scores.length - 1] - scores[0],
-    points: scores.map((score, index) => ({
-      session_id: `S${index + 1}`,
-      score,
-      created_at: `2026-05-${String(index + 1).padStart(2, '0')}T00:00:00`,
-    })),
-  }
-}
-
-function mkPred(skillArea, currentScore, predictedScore, trendLabel, riskLevel) {
-  return {
-    predicted_skill: skillArea,
-    current_score: currentScore,
-    predicted_score: predictedScore,
-    trend_label: trendLabel,
-    risk_level: riskLevel,
-    confidence: 0.72,
-    recommendation: `${labelFor(skillArea)} should be monitored in the next session.`,
-  }
-}
-
 export default function SkillTwinProfile() {
   const params = useParams()
   const {
@@ -199,8 +142,8 @@ export default function SkillTwinProfile() {
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState('')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [profile, setProfile] = useState(DEMO_PROFILE)
-  const [status, setStatus] = useState('demo')
+  const [profile, setProfile] = useState(EMPTY_PROFILE)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
   const [integrationMessage, setIntegrationMessage] = useState('')
   // Tracks whether the first real load has completed so session-change
@@ -356,7 +299,10 @@ export default function SkillTwinProfile() {
     try {
       // Trigger component data integration first if a session is selected
       if (targetSessionId) {
+        // Integrating is an enhancement, not a precondition for reading. A failure
+        // here used to drop the whole page into its sample profile.
         const integrationResult = await pullAndSaveComponentData(targetUserId, targetSessionId)
+          .catch(() => ({ checked: true, integrated: false }))
         if (integrationResult.integrated)
           setIntegrationMessage('Real component data pulled and saved into analytics for this session.')
         else if (integrationResult.checked)
@@ -395,9 +341,9 @@ export default function SkillTwinProfile() {
       setStatus('live')
       hasLoadedOnce.current = true
     } catch (err) {
-      setProfile(DEMO_PROFILE)
-      setStatus('demo')
-      setError('Backend profile unavailable. Showing demo skill twin.')
+      setProfile(EMPTY_PROFILE)
+      setStatus('error')
+      setError('Your skill twin could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -532,24 +478,25 @@ export default function SkillTwinProfile() {
                 <UserCircle className="h-4 w-4 text-secondary" />
                 <span>{isAuthenticated ? userLabel : userId}</span>
               </div>
-              <h2 className="mt-3 text-xl font-semibold">Long-term soft skill profile</h2>
+              <h2 className="mt-3 text-xl font-semibold">Everything about you, on one page</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                The skill twin combines observed session metrics, self feedback, system evidence, blind spots, and
-                predicted outcomes. Skills with no real evidence yet are shown as N/A.
+                Your scores, your own ratings, where you are heading and where the two do not
+                match &mdash; pulled together so you can see the whole picture at once. A skill
+                shows as N/A until a session has actually measured it.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[520px]">
-              <Metric icon={Activity}    label="Sessions"    value={sessionCount} />
-              <Metric icon={Target}      label="Overall"     value={formatScore(overallScore)} />
-              <Metric icon={TrendingUp}  label="Improving"   value={profile.trends?.summary?.improving_count || 0} />
-              <Metric icon={ShieldAlert} label="Blind Spots" value={profile.blindSpots?.summary?.total_count || 0} />
+              <Metric icon={Activity}    label="Sessions done" value={sessionCount} />
+              <Metric icon={Target}      label="Overall"      value={formatScore(overallScore)} />
+              <Metric icon={TrendingUp}  label="Getting better" value={profile.trends?.summary?.improving_count || 0} />
+              <Metric icon={ShieldAlert} label="Gaps found"  value={profile.blindSpots?.summary?.total_count || 0} />
             </div>
           </div>
         </section>
 
         {/* Radar + Profile Summary */}
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <Panel title="Skill Twin Radar" icon={Target}>
+          <Panel title="All Four Skills At Once" icon={Target}>
             {selfScores.length > 0 && (
               <p className="mb-2 text-[11px] text-muted-foreground">
                 Teal = Observed scores · Amber = Your self-rating
@@ -562,10 +509,10 @@ export default function SkillTwinProfile() {
             />
           </Panel>
 
-          <Panel title="Profile Summary" icon={BrainCircuit}>
-            <SkillGroup title="Strengths"    items={strengths}   emptyText="No clear strengths yet" />
+          <Panel title="Where You Stand" icon={BrainCircuit}>
+            <SkillGroup title="What you are good at" items={strengths} emptyText="Finish a few sessions and your strengths will show up" />
             <div className="mt-4">
-              <SkillGroup title="Growth Areas" items={growthAreas} emptyText="No growth areas detected yet" />
+              <SkillGroup title="What to work on"      items={growthAreas} emptyText="Nothing is standing out as a weak spot" />
             </div>
             <div className="mt-4">
               <EvidenceGapList items={missingScores} />
@@ -575,16 +522,16 @@ export default function SkillTwinProfile() {
 
         {/* Progress + Predictions */}
         <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Progress History" icon={TrendingUp}>
+          <Panel title="How You Have Changed" icon={TrendingUp}>
             <ProgressTrendVisualization trends={profile.trends?.trends || []} labelFor={labelFor} />
           </Panel>
-          <Panel title="Predictive Risks" icon={AlertTriangle}>
+          <Panel title="What Needs Watching" icon={AlertTriangle}>
             <PredictionList predictions={profile.predictions?.predictions || []} />
           </Panel>
         </div>
 
         {/* Blind Spots */}
-        <Panel title="Blind Spot Notes" icon={ShieldAlert}>
+        <Panel title="Where Your Rating Missed" icon={ShieldAlert}>
           <BlindSpotList blindSpots={profile.blindSpots?.blind_spots || []} />
         </Panel>
       </section>
@@ -595,7 +542,7 @@ export default function SkillTwinProfile() {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusPill({ status }) {
-  const label = status === 'live' ? 'Live API profile' : status === 'loading' ? 'Loading profile' : 'Demo profile'
+  const label = status === 'live' ? 'Live profile' : status === 'loading' ? 'Loading profile' : status === 'error' ? 'Unavailable' : 'Not loaded'
   return (
     <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
       {label}
@@ -663,7 +610,7 @@ function EvidenceGapList({ items }) {
 }
 
 function PredictionList({ predictions }) {
-  if (!predictions.length) return <EmptyState text="No predictions yet" />
+  if (!predictions.length) return <EmptyState text="Finish a few sessions and forecasts will appear here" />
   return (
     <div className="space-y-3">
       {predictions.slice(0, 5).map((item, i) => (
@@ -684,17 +631,17 @@ function PredictionList({ predictions }) {
 }
 
 function BlindSpotList({ blindSpots }) {
-  if (!blindSpots.length) return <EmptyState text="No blind spots detected" />
+  if (!blindSpots.length) return <EmptyState text="Your ratings matched what was measured" />
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {blindSpots.map((item, i) => (
         <div key={`${item.skill_area}-${i}`} className="rounded-md border border-border p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">{labelFor(item.skill_area)}</span>
-            <RiskBadge risk={item.severity} />
+            <SeverityBadge severity={item.severity} />
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            {item.blind_spot_type} gap of {formatScore(item.gap)}
+            {gapWords(item.blind_spot_type)} — by {formatScore(item.gap)} points
           </p>
           <p className="mt-2 text-sm text-muted-foreground">{item.recommendation}</p>
         </div>
@@ -703,12 +650,42 @@ function BlindSpotList({ blindSpots }) {
   )
 }
 
+// How a gap reads to the person who has it. The service calls these
+// "overestimation" and "underestimation"; neither is a word anybody uses about
+// themselves, and both sound like an accusation.
+const GAP_WORDS = {
+  overestimation: 'You rated this higher than it measured',
+  underestimation: 'You rated this lower than it measured',
+}
+const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
+// "high" alone is a ranking. What a reader needs is what to do about it.
+const RISK_WORDS = { high: 'needs work now', medium: 'keep an eye on it', low: 'going fine' }
+const riskWords = (value) => RISK_WORDS[value] || value || 'unknown'
+
+// A gap's size and a forecast's urgency are different things, and were sharing
+// one badge - so a blind spot was labelled "needs work now", which is advice
+// about a prediction, not a description of how far off a rating was.
+const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable gap', low: 'small gap', none: 'no gap' }
+
+function SeverityBadge({ severity }) {
+  const className =
+    severity === 'high'   ? 'bg-destructive/20 text-destructive' :
+    severity === 'medium' ? 'bg-warning/20 text-warning' :
+                            'bg-success/20 text-success'
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs ${className}`}>
+      {SEVERITY_WORDS[severity] || severity}
+    </span>
+  )
+}
+
 function RiskBadge({ risk }) {
   const className =
     risk === 'high'   ? 'bg-destructive/20 text-destructive' :
     risk === 'medium' ? 'bg-warning/20 text-warning' :
                         'bg-success/20 text-success'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{risk}</span>
+  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{riskWords(risk)}</span>
 }
 
 function EmptyState({ text }) {

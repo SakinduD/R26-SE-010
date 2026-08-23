@@ -14,6 +14,17 @@ from app.schemas.analytics import (
 )
 
 
+# The "All Sessions" view is a summary of a learner's whole history, so the cap
+# has to be high enough that it never quietly becomes a page size. It was 100,
+# which on this development account meant the lifetime averages were computed
+# from 100 of 118 sessions and 100 of 392 feedback entries - a summary labelled
+# "all sessions" that silently excluded a quarter of them.
+#
+# This is a guard against a pathological row count, not pagination. A learner
+# who genuinely exceeds it has a data problem worth noticing rather than
+# averaging over.
+FULL_HISTORY_LIMIT = 10_000
+
 SCORE_FIELDS = [
     "confidence_score",
     "clarity_score",
@@ -46,7 +57,16 @@ def get_session_aggregate(db: Session, session_id: str) -> AnalyticsAggregateSum
     )
 
 
-def get_user_aggregate(db: Session, user_id: str, limit: int = 100) -> AnalyticsAggregateSummary:
+def get_user_aggregate(
+    db: Session, user_id: str, limit: int = FULL_HISTORY_LIMIT
+) -> AnalyticsAggregateSummary:
+    """Every metric, feedback entry and prediction the learner has.
+
+    ``limit`` caps each of the three, guarding against a runaway row count. It is
+    deliberately far above any realistic history: a summary that drops rows
+    without saying so reports a number for "all sessions" that is not about all
+    sessions.
+    """
     metrics = (
         _query_metrics(db)
         .filter(AnalyticsSessionMetric.user_id == user_id)

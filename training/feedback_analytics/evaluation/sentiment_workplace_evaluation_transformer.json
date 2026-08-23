@@ -1,0 +1,244 @@
+{
+  "evaluated_at": "2026-08-19T12:22:09.265876+00:00",
+  "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
+  "model_path": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "model_version": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+  "trained_on": "pretrained, not fine-tuned on this project's data",
+  "confidence_gate": 0.6,
+  "label_mapping": {
+    "model_labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ],
+    "neutral_scored_as": "mixed",
+    "caveat": "This model has no `mixed` class. Its `neutral` is mapped to `mixed` because both mean the text should not be treated as leaning one way - not because the model detects two opposing judgements."
+  },
+  "ground_truth": {
+    "labelled_by": {
+      "human": 43
+    },
+    "human_reviewed_share": 1.0
+  },
+  "row_counts": {
+    "labelled_total": 43,
+    "scored": 38,
+    "unscorable_mixed_or_neutral": 5,
+    "by_source": {
+      "authored": 37,
+      "learner": 6
+    }
+  },
+  "overall": {
+    "count": 38,
+    "accuracy": 0.6842,
+    "correct": 26,
+    "per_class": {
+      "mixed": {
+        "support": 12,
+        "precision": 0.5,
+        "recall": 0.3333,
+        "f1": 0.4
+      },
+      "negative": {
+        "support": 11,
+        "precision": 0.6111,
+        "recall": 1.0,
+        "f1": 0.7586
+      },
+      "positive": {
+        "support": 15,
+        "precision": 0.9167,
+        "recall": 0.7333,
+        "f1": 0.8148
+      }
+    },
+    "confidence": {
+      "mean": 0.7345,
+      "median": 0.7662,
+      "min": 0.3882,
+      "max": 0.9881
+    },
+    "production_gate": {
+      "reached_gate": 24,
+      "below_gate_discarded": 14,
+      "share_usable": 0.6316,
+      "accuracy_when_used": 0.75
+    }
+  },
+  "by_source": {
+    "authored": {
+      "count": 32,
+      "accuracy": 0.6562,
+      "correct": 21,
+      "per_class": {
+        "mixed": {
+          "support": 9,
+          "precision": 0.3333,
+          "recall": 0.2222,
+          "f1": 0.2667
+        },
+        "negative": {
+          "support": 11,
+          "precision": 0.6471,
+          "recall": 1.0,
+          "f1": 0.7857
+        },
+        "positive": {
+          "support": 12,
+          "precision": 0.8889,
+          "recall": 0.6667,
+          "f1": 0.7619
+        }
+      },
+      "confidence": {
+        "mean": 0.733,
+        "median": 0.7649,
+        "min": 0.393,
+        "max": 0.9881
+      },
+      "production_gate": {
+        "reached_gate": 20,
+        "below_gate_discarded": 12,
+        "share_usable": 0.625,
+        "accuracy_when_used": 0.75
+      }
+    },
+    "learner": {
+      "count": 6,
+      "accuracy": 0.8333,
+      "correct": 5,
+      "per_class": {
+        "mixed": {
+          "support": 3,
+          "precision": 1.0,
+          "recall": 0.6667,
+          "f1": 0.8
+        },
+        "negative": {
+          "support": 0,
+          "precision": 0.0,
+          "recall": null,
+          "f1": 0.0
+        },
+        "positive": {
+          "support": 3,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        }
+      },
+      "confidence": {
+        "mean": 0.743,
+        "median": 0.8523,
+        "min": 0.3882,
+        "max": 0.9774
+      },
+      "production_gate": {
+        "reached_gate": 4,
+        "below_gate_discarded": 2,
+        "share_usable": 0.6667,
+        "accuracy_when_used": 0.75
+      }
+    }
+  },
+  "unscorable_behaviour": {
+    "count": 5,
+    "labels": {
+      "neutral": 5
+    },
+    "predicted_distribution": {
+      "mixed": 4,
+      "positive": 1
+    },
+    "mean_confidence": 0.7214,
+    "asserted_above_gate": 4,
+    "note": "Rows carrying a label this model has no class for. It must answer something, so predictions above the gate are cases where the application would act on a confident answer to a question the model was never able to answer."
+  },
+  "errors": [
+    {
+      "text": "I stayed calm even when the scenario got uncomfortable.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "mixed",
+      "confidence": 0.5435
+    },
+    {
+      "text": "I think I did okay but I am not really sure.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "mixed",
+      "confidence": 0.5861
+    },
+    {
+      "text": "It was probably fine, nothing went badly wrong.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "mixed",
+      "confidence": 0.527
+    },
+    {
+      "text": "Maybe a little better than last time, hard to tell.",
+      "source": "authored",
+      "expected": "positive",
+      "predicted": "mixed",
+      "confidence": 0.5617
+    },
+    {
+      "text": "Something felt off but I cannot say exactly what.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.6854
+    },
+    {
+      "text": "I spoke clearly but I ran out of time before finishing.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.5021
+    },
+    {
+      "text": "I perform well but I did not have enough time to engage properly.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.6841
+    },
+    {
+      "text": "My content was good although my body language was closed.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "positive",
+      "confidence": 0.8606
+    },
+    {
+      "text": "The session was useful but I was too tired to focus.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.4498
+    },
+    {
+      "text": "I liked the scenario but my delivery was weak.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.688
+    },
+    {
+      "text": "I improved on volume but my filler words got worse.",
+      "source": "authored",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.7641
+    },
+    {
+      "text": "I perform well but I don't know it is ok to this session.",
+      "source": "learner",
+      "expected": "mixed",
+      "predicted": "negative",
+      "confidence": 0.7669
+    }
+  ]
+}

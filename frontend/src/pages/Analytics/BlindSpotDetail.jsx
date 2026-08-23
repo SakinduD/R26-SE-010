@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
+  MessageSquare,
   ShieldAlert,
   Target,
   UserCircle,
@@ -28,83 +29,35 @@ const SKILL_LABELS = {
   overall: 'Overall',
 }
 
-const DEMO_DATA = {
+const EMPTY_DATA = {
+  recurring: { items: [] },
   blindSpots: {
     scope: 'user',
-    user_id: 'demo-user',
+    user_id: '',
     session_id: null,
     summary: {
-      total_count: 2,
-      high_count: 1,
-      medium_count: 1,
+      total_count: 0,
+      high_count: 0,
+      medium_count: 0,
       low_count: 0,
-      strongest_blind_spot: {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
-      },
+      strongest_blind_spot: null,
+      sentiment_gap_count: 0,
     },
-    blind_spots: [
-      {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable improvement target.',
-      },
-      {
-        skill_area: 'emotional_intelligence',
-        blind_spot_type: 'underestimation',
-        severity: 'medium',
-        self_rating: 64,
-        comparison_score: 90,
-        comparison_source: 'observed',
-        gap: 26,
-        confidence: 0.81,
-        recommendation: 'Your Emotional Intelligence performance appears stronger than your self-rating. Build confidence with evidence.',
-      },
-    ],
+    blind_spots: [],
+    sentiment_gaps: [],
   },
   feedbackAnalysis: {
     summary: {
-      self_feedback_count: 3,
-      peer_feedback_count: 0,
-      analyzed_skill_count: 4,
-      aligned_count: 2,
-      blind_spot_count: 2,
-      average_self_rating: 78,
-      average_observed_score: 72,
+      self_feedback_count: 0,
+      analyzed_skill_count: 0,
+      aligned_count: 0,
+      blind_spot_count: 0,
+      average_self_rating: null,
+      average_observed_score: null,
     },
-    items: [
-      alignment('presence_engagement', 92, 55, 'self_overestimation', 'high'),
-      alignment('emotional_intelligence', 64, 90, 'self_underestimation', 'medium'),
-      alignment('vocal_command', 78, 76, 'aligned', 'none'),
-    ],
+    items: [],
   },
 }
-
-function alignment(skillArea, selfRating, observedScore, alignmentLabel, severity) {
-  return {
-    skill_area: skillArea,
-    self_rating: selfRating,
-    observed_score: observedScore,
-    self_observed_gap: selfRating - observedScore,
-    alignment: alignmentLabel,
-    severity,
-    recommendation: `${labelFor(skillArea)} feedback should be reviewed with evidence from the session.`,
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -123,12 +76,13 @@ export default function BlindSpotDetail() {
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [data, setData] = useState(DEMO_DATA)
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(EMPTY_DATA)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const currentId = scope === 'session' ? sessionId : userId
   const blindSpots = data.blindSpots?.blind_spots || []
+  const sentimentGaps = data.blindSpots?.sentiment_gaps || []
   const analysisItems = data.feedbackAnalysis?.items || []
   const strongest = data.blindSpots?.summary?.strongest_blind_spot || blindSpots[0]
 
@@ -142,15 +96,27 @@ export default function BlindSpotDetail() {
     if (!targetId) { setError(`Enter a ${nextScope} id`); return }
     setStatus('loading'); setError('')
     try {
-      const [blindSpotResult, analysisResult] =
+      // Recurring patterns only make sense across a history, so they are not
+      // fetched for a single session. The overview shows a bar and a count; the
+      // sentence explaining what to do about each one belongs here, where there
+      // is room for all four.
+      const [blindSpotResult, analysisResult, recurringResult] =
         nextScope === 'session'
-          ? await Promise.all([analyticsService.getBlindSpotsBySession(targetId), analyticsService.getFeedbackAnalysisBySession(targetId)])
-          : await Promise.all([analyticsService.getBlindSpotsByUser(targetId), analyticsService.getFeedbackAnalysisByUser(targetId)])
-      setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult })
+          ? await Promise.all([
+              analyticsService.getBlindSpotsBySession(targetId),
+              analyticsService.getFeedbackAnalysisBySession(targetId),
+              Promise.resolve(null),
+            ])
+          : await Promise.all([
+              analyticsService.getBlindSpotsByUser(targetId),
+              analyticsService.getFeedbackAnalysisByUser(targetId),
+              analyticsService.getRecurringBlindSpots(targetId).catch(() => null),
+            ])
+      setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult, recurring: recurringResult })
       setStatus('live')
     } catch {
-      setData(DEMO_DATA); setStatus('demo')
-      setError('Backend blind spot data unavailable. Showing demo analysis.')
+      setData(EMPTY_DATA); setStatus('error')
+      setError('Your blind spot analysis could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -189,13 +155,13 @@ export default function BlindSpotDetail() {
     <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
       <PageHead
         eyebrow="Feedback System & Predictive Analytics"
-        title="Blind Spot Detection"
-        sub="Compare self-reported ratings with observed performance to surface perception gaps."
+        title="How Well Do You Know Yourself?"
+        sub="You rate yourself after each session. Here is how those ratings compared with what was actually measured."
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
         <SelectInput
-          label="Scope"
+          label="Looking at"
           value={scope}
           onChange={handleScopeChange}
           options={[{ value: 'user', label: 'User' }, { value: 'session', label: 'Session' }]}
@@ -210,7 +176,7 @@ export default function BlindSpotDetail() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API blind spots' : status === 'loading' ? 'Loading…' : 'Demo blind spots'}
+          {status === 'live' ? 'Live blind spots' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
       </motion.div>
@@ -235,38 +201,59 @@ export default function BlindSpotDetail() {
                   : <UserCircle size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />}
                 <span className="t-cap">{scope === 'user' && isAuthenticated ? userLabel : currentId}</span>
               </div>
-              <div className="t-h3">Self-perception gap analysis</div>
+              <div className="t-h3">Your rating vs what was measured</div>
               <p className="t-cap" style={{ maxWidth: 520, marginTop: 6, lineHeight: 1.6 }}>
-                Blind spots compare self feedback against observed performance evidence from role-play, adaptive pedagogy, and multimodal analysis.
+                A gap is not a mark against you. It just means one thing is easier to see
+                from the outside than from where you are standing.
               </p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, minWidth: 260 }}>
-              <MetricBox icon={ShieldAlert} label="Total" value={data.blindSpots?.summary?.total_count || 0} />
-              <MetricBox icon={AlertTriangle} label="High" value={data.blindSpots?.summary?.high_count || 0} />
-              <MetricBox icon={Target} label="Medium" value={data.blindSpots?.summary?.medium_count || 0} />
-              <MetricBox icon={CheckCircle2} label="Aligned" value={data.feedbackAnalysis?.summary?.aligned_count || 0} />
+              <MetricBox icon={ShieldAlert} label="Gaps found" value={data.blindSpots?.summary?.total_count || 0} />
+              <MetricBox icon={AlertTriangle} label="Big ones" value={data.blindSpots?.summary?.high_count || 0} />
+              <MetricBox icon={Target} label="Smaller" value={data.blindSpots?.summary?.medium_count || 0} />
+              <MetricBox icon={CheckCircle2} label="Spot on" value={data.feedbackAnalysis?.summary?.aligned_count || 0} />
             </div>
           </div>
         </Card>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Strongest Blind Spot" icon={ShieldAlert}>
-          {strongest ? <BlindSpotCard item={strongest} featured /> : <EmptyMsg text="No blind spot detected" />}
+        <Panel title="The Biggest Gap" icon={ShieldAlert}>
+          {strongest ? <BlindSpotCard item={strongest} featured /> : <EmptyMsg text="Your rating matched what was measured" />}
         </Panel>
-        <Panel title="Evidence Alignment Summary" icon={BarChart3}>
+        <Panel title="How Close You Were" icon={BarChart3}>
           <AlignmentSummary summary={data.feedbackAnalysis?.summary} />
         </Panel>
       </motion.div>
 
+      {scope === 'user' && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <Panel title="Patterns Across All Your Sessions" icon={Target}>
+            <p className="t-cap" style={{ marginBottom: 14, lineHeight: 1.6 }}>
+              One session can go either way. These are the ones that keep happening.
+            </p>
+            <RecurringPatternList items={data.recurring?.items} />
+          </Panel>
+        </motion.div>
+      )}
+
       <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-        <Panel title="Detected Blind Spots" icon={AlertTriangle}>
+        <Panel title="Every Gap We Found" icon={AlertTriangle}>
           <BlindSpotList items={blindSpots} />
         </Panel>
       </motion.div>
 
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Panel
+          title={`What Your Own Words Said — ${sentimentGaps.length} gap${sentimentGaps.length === 1 ? '' : 's'}`}
+          icon={MessageSquare}
+        >
+          <SentimentGapList items={sentimentGaps} />
+        </Panel>
+      </motion.div>
+
       <motion.div variants={fadeInUp}>
-        <Panel title="Self / Observed Alignment" icon={BarChart3}>
+        <Panel title="Skill by Skill" icon={BarChart3}>
           <AlignmentTable items={analysisItems} />
         </Panel>
       </motion.div>
@@ -274,8 +261,83 @@ export default function BlindSpotDetail() {
   )
 }
 
+const PATTERN_COPY = {
+  consistent_overestimation: {
+    headline: 'You rate this higher than it measures',
+    tone: 'var(--danger)',
+  },
+  consistent_underestimation: {
+    headline: 'You rate this lower than it measures',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  inconsistent: {
+    headline: 'Sometimes high, sometimes low',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  aligned: {
+    headline: 'You read this one well',
+    tone: 'var(--success)',
+  },
+}
+
+/**
+ * Patterns counted across sessions, with the advice that goes with each.
+ *
+ * The overview shows the count and a bar - enough to know a pattern exists. The
+ * sentence about what to do lands here, where four of them can sit together
+ * without turning a summary panel into a wall of text.
+ *
+ * A count, not an average, for the reason the "inconsistent" case makes obvious:
+ * being 20 points high one session and 20 low the next averages to zero and
+ * reads as flawless self-knowledge, when the learner was wrong both times.
+ */
+function RecurringPatternList({ items }) {
+  if (!items?.length) {
+    return <EmptyMsg text="Rate yourself after three or more sessions and patterns will show up here" />
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {items.map((item) => {
+        const copy = PATTERN_COPY[item.pattern] || PATTERN_COPY.inconsistent
+        const pct = Math.round((item.gap_rate || 0) * 100)
+        return (
+          <Card key={item.skill_area}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+              <div className="t-h3">{labelFor(item.skill_area)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: copy.tone }}>
+                {item.sessions_with_gap} of {item.sessions_rated} sessions
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: copy.tone, marginTop: 4 }}>{copy.headline}</div>
+
+            <div style={{ height: 6, borderRadius: 999, background: 'var(--surface-3, rgba(255,255,255,0.08))', overflow: 'hidden', margin: '10px 0' }}>
+              <div style={{ height: '100%', width: pct + '%', background: copy.tone, borderRadius: 999 }} />
+            </div>
+
+            <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>{item.recommendation}</p>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+// How a gap reads to the person who has it. The service calls these
+// "overestimation" and "underestimation"; neither is a word anybody uses about
+// themselves, and both sound like an accusation.
+const GAP_WORDS = {
+  overestimation: 'You rated this higher than it measured',
+  underestimation: 'You rated this lower than it measured',
+}
+const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
+const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable', low: 'small', none: 'none' }
+const severityWords = (value) => SEVERITY_WORDS[value] || value || ''
+
 function BlindSpotList({ items }) {
-  if (!items.length) return <EmptyMsg text="No blind spots detected" />
+  if (!items.length) return <EmptyMsg text="No gaps this time — your ratings matched" />
   return (
     <div className="grid-2">
       {items.map((item) => (
@@ -297,17 +359,19 @@ function BlindSpotCard({ item, featured = false }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
           <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.skill_area)}</div>
-          <div className="t-cap" style={{ marginTop: 2 }}>{item.blind_spot_type} vs {item.comparison_source}</div>
+          <div className="t-cap" style={{ marginTop: 2 }}>{gapWords(item.blind_spot_type)}</div>
         </div>
-        <Badge variant={SEV_VARIANT[item.severity] ?? 'neutral'}>{item.severity}</Badge>
+        <Badge variant={SEV_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-        <ScoreBar label="Self rating" value={item.self_rating} />
-        <ScoreBar label={`${item.comparison_source} score`} value={item.comparison_score} />
+        <ScoreBar label="You said" value={item.self_rating} />
+        {/* The field says "observed", which is what the code calls it. What the
+            reader needs to know is that a machine measured it, not a person. */}
+        <ScoreBar label="Measured" value={item.comparison_score} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-        <InfoBox label="Gap" value={formatScore(item.gap)} />
-        <InfoBox label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} />
+        <InfoBox label="Difference" value={formatScore(item.gap)} />
+        <InfoBox label="How sure" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} />
       </div>
       <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
@@ -315,36 +379,47 @@ function BlindSpotCard({ item, featured = false }) {
 }
 
 function AlignmentSummary({ summary }) {
-  if (!summary) return <EmptyMsg text="No feedback analysis summary yet" />
+  if (!summary) return <EmptyMsg text="Rate yourself after a session to see this" />
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-      <MetricBox icon={UserCircle} label="Self Feedback" value={summary.self_feedback_count || 0} compact />
-      <MetricBox icon={BarChart3} label="Skills Analyzed" value={summary.analyzed_skill_count || 0} compact />
-      <MetricBox icon={Target} label="Self Avg" value={formatScore(summary.average_self_rating)} compact />
-      <MetricBox icon={BarChart3} label="Observed Avg" value={formatScore(summary.average_observed_score)} compact />
-      <MetricBox icon={CheckCircle2} label="Aligned" value={summary.aligned_count || 0} compact />
-      <MetricBox icon={ShieldAlert} label="Blind Spots" value={summary.blind_spot_count || 0} compact />
+      <MetricBox icon={UserCircle} label="Times you rated yourself" value={summary.self_feedback_count || 0} compact />
+      <MetricBox icon={BarChart3} label="Skills checked" value={summary.analyzed_skill_count || 0} compact />
+      <MetricBox icon={Target} label="Your average rating" value={formatScore(summary.average_self_rating)} compact />
+      <MetricBox icon={BarChart3} label="Measured average" value={formatScore(summary.average_observed_score)} compact />
+      <MetricBox icon={CheckCircle2} label="Spot on" value={summary.aligned_count || 0} compact />
+      <MetricBox icon={ShieldAlert} label="Gaps" value={summary.blind_spot_count || 0} compact />
     </div>
   )
 }
 
+const ALIGNMENT_WORDS = {
+  aligned: 'Spot on',
+  self_overestimation: 'You rated it higher',
+  self_underestimation: 'You rated it lower',
+  insufficient_data: 'Not enough sessions',
+}
+const alignmentWords = (value) =>
+  ALIGNMENT_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
 function AlignmentTable({ items }) {
-  if (!items.length) return <EmptyMsg text="No alignment analysis yet" />
+  if (!items.length) return <EmptyMsg text="Rate yourself after a session to see this" />
   return (
     <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
       <div style={{ minWidth: 720 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(3, 0.8fr) 1fr', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
-          {['Skill', 'Self', 'Observed', 'Gap', 'Alignment'].map((h) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.7fr 0.8fr 0.8fr 1.6fr', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+          {['Skill', 'You said', 'Measured', 'Difference', 'How it went'].map((h) => (
             <span key={h} className="t-cap" style={{ fontWeight: 500 }}>{h}</span>
           ))}
         </div>
         {items.map((item) => (
-          <div key={item.skill_area} style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(3, 0.8fr) 1fr', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 }}>
+          <div key={item.skill_area} style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.7fr 0.8fr 0.8fr 1.6fr', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 }}>
             <span className="fg" style={{ fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
             <span className="fg">{formatScore(item.self_rating)}</span>
             <span className="fg">{formatScore(item.observed_score)}</span>
             <span className="fg">{formatGap(item.self_observed_gap)}</span>
-            <span className="t-cap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.alignment}</span>
+            {/* Printed the raw enum, clipped to one line - so a learner read
+                "self_overestimatio…". Both halves of that were wrong. */}
+            <span className="t-cap" style={{ lineHeight: 1.5, whiteSpace: 'normal' }}>{alignmentWords(item.alignment)}</span>
           </div>
         ))}
       </div>
@@ -416,6 +491,69 @@ function SelectInput({ label, value, onChange, options }) {
   )
 }
 
+const GAP_TONE = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--info)' }
+
+/**
+ * Blind spots found in what the learner wrote, rather than in what they scored.
+ *
+ * The panel above compares numbers: a self-rating against measured performance.
+ * This compares the sentiment the learner selected against the sentiment the NLP
+ * model reads in their own reflection — the same self-perception gap, expressed
+ * in language. Their words are quoted back so the finding is checkable.
+ */
+function SentimentGapList({ items }) {
+  if (!items.length) {
+    return (
+      <EmptyMsg text="No gaps between your ratings and your written reflections. Write a reflection after a session to have this checked." />
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {items.map((gap, index) => (
+        <div
+          key={`${gap.session_id}-${index}`}
+          style={{
+            padding: 16,
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            borderLeft: `3px solid ${GAP_TONE[gap.severity] || 'var(--accent)'}`,
+            background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span className="t-cap">You marked it</span>
+            <strong style={{ textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+              {gap.declared_sentiment}
+            </strong>
+            <span className="t-cap">but your words read as</span>
+            <strong style={{ textTransform: 'capitalize', color: GAP_TONE[gap.severity] }}>
+              {gap.detected_sentiment}
+            </strong>
+            <span className="t-cap">({Math.round(gap.confidence * 100)}% confidence)</span>
+          </div>
+
+          <blockquote
+            style={{
+              margin: 0,
+              padding: '10px 14px',
+              borderLeft: '2px solid var(--border-subtle)',
+              fontStyle: 'italic',
+              color: 'var(--text-secondary)',
+              fontSize: 14,
+              lineHeight: 1.6,
+            }}
+          >
+            {gap.comment_excerpt}
+          </blockquote>
+
+          <p className="t-cap" style={{ marginTop: 10, lineHeight: 1.6 }}>{gap.recommendation}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function EmptyMsg({ text }) {
   return (
     <div style={{ padding: 20, borderRadius: 'var(--radius)', border: '1px dashed var(--border-subtle)', textAlign: 'center' }}>
@@ -434,8 +572,19 @@ function formatScore(value) {
   return Math.round(Number(value))
 }
 
+// "N/A" is not a phrase anybody says. A blank cell already means "nothing here".
+function formatScoreOrBlank(value) {
+  const score = formatScore(value)
+  return score === 'N/A' ? '—' : score
+}
+
 function formatGap(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
-  const rounded = Math.round(Number(value))
-  return `${rounded > 0 ? '+' : ''}${rounded}`
+  const gap = Number(value)
+  // Rounded to whole numbers this column stopped agreeing with the two beside
+  // it: a self-rating of 77.19 against a measured 77.50 showed as "77", "78"
+  // and a difference of "0", which reads as an arithmetic mistake. Under a
+  // point, the decimal is the only thing that makes the row add up.
+  const rounded = Math.abs(gap) < 1 ? gap.toFixed(1) : String(Math.round(gap))
+  return `${gap > 0 ? '+' : ''}${rounded}`
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, BarChart3, LineChart,
   ShieldAlert, Target,
@@ -22,6 +22,43 @@ import {
   normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
   optionalRequest, selectMcaSession,
 } from './analyticsIntegrationUtils'
+
+const TREND_MARK = {
+  improving: '↗ improving',
+  declining: '↘ declining',
+  stable: '→ stable',
+  insufficient_data: '',
+}
+
+const TREND_TONE = {
+  improving: 'var(--success)',
+  declining: 'var(--danger)',
+  stable: 'var(--text-secondary)',
+  insufficient_data: 'var(--text-quaternary)',
+}
+
+// How a recurring self-assessment gap is described. The wording matters: these
+// are patterns across many sessions, not a verdict on one, and the third is the
+// finding an average destroys — wrong in both directions, cancelling to a mean
+// near zero that reads as accuracy.
+const PATTERN_COPY = {
+  consistent_overestimation: {
+    label: 'Rates higher than measured, almost every time',
+    tone: 'var(--danger)',
+  },
+  consistent_underestimation: {
+    label: 'Rates lower than measured, almost every time',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  inconsistent: {
+    label: 'Sometimes high, sometimes low',
+    tone: 'var(--warning, #d99a2b)',
+  },
+  aligned: {
+    label: 'Reads this one accurately, session after session',
+    tone: 'var(--success)',
+  },
+}
 
 const SKILL_LABELS = {
   vocal_command: { label: 'Vocal Command', sub: 'Speech Volume' },
@@ -83,8 +120,121 @@ const mkPred = (skill, cur, pred, trend, risk) => ({
   recommendation: 'Focus on improving ' + labelFor(skill) + ' in your next session.',
 })
 
+/**
+ * The link out of a summary panel to the page that holds the whole story.
+ *
+ * Each panel here is a glance: enough to tell whether something needs looking
+ * at. The page behind it has room to actually explain, which is why the panel
+ * does not have to. Keeping this link small and in the same place on every panel
+ * means a reader learns it once.
+ */
+function MoreLink({ to, onOpen }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(to)}
+      className="text-[11px] font-semibold text-primary hover:underline shrink-0"
+    >
+      See details →
+    </button>
+  )
+}
+
+/**
+ * What this page shows someone who has not practised yet.
+ *
+ * Previously they got the whole dashboard with every figure at zero or "--", a
+ * radar with no shape, and a small banner above it reading "complete a practice
+ * session". A grid of empty boxes is not a welcome, and worse, it is not even
+ * clear that it is empty rather than broken - a first-time reader has no way to
+ * tell "you have no data" from "this is not working".
+ *
+ * So the page says what it will show, what the four skills mean, and where to
+ * start. Nothing is invented to fill the space.
+ */
+function GettingStarted({ sessionCount, onStart }) {
+  const early = sessionCount > 0
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-8">
+      <div className="max-w-xl mx-auto text-center">
+        <span className="text-4xl">🎯</span>
+        <h2 className="text-lg font-bold mt-3 mb-2">
+          {early ? 'Your results are starting to build' : 'Nothing to show yet — and that is expected'}
+        </h2>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {early
+            ? `You have completed ${sessionCount} session${sessionCount === 1 ? '' : 's'}. Scores appear straight away, but the trend line and the forecast need at least three before they mean anything — two points can only ever draw a straight line.`
+            : 'This page fills in from your practice sessions. Complete one and your scores appear here immediately.'}
+        </p>
+      </div>
+
+      <div className="mt-7 grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto">
+        {['vocal_command', 'speech_fluency', 'presence_engagement', 'emotional_intelligence'].map((key) => {
+          const info = getInfo(key)
+          return (
+            <div key={key} className="rounded-xl border border-border p-3">
+              <p className="text-sm font-semibold">{info.label}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{info.sub}</p>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground text-center mt-5 max-w-xl mx-auto leading-relaxed">
+        Each session measures these four. You also rate yourself afterwards, and this
+        page shows where the two disagree — which is usually the most useful thing on it.
+      </p>
+
+      <div className="flex justify-center mt-6">
+        <button type="button" className="btn btn-primary" onClick={onStart}>
+          Start a practice session
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Self-assessment patterns counted across sessions.
+ *
+ * Deliberately leads with a count rather than a magnitude. "20 of your 29
+ * sessions" tells a learner whether this is a habit; "average gap 15" does not,
+ * and worse, an average cancels when someone is wrong in both directions —
+ * reporting a learner who is never right as perfectly self-aware.
+ */
+function RecurringPatterns({ items }) {
+  return (
+    <div className="space-y-3">
+      {items.map((item) => {
+        const copy = PATTERN_COPY[item.pattern] || PATTERN_COPY.inconsistent
+        const info = getInfo(item.skill_area)
+        const pct = Math.round((item.gap_rate || 0) * 100)
+        return (
+          <div key={item.skill_area} className="rounded-xl border border-border p-3">
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <p className="text-sm font-semibold">{info.label}</p>
+              <span className="text-[11px] font-semibold" style={{ color: copy.tone }}>
+                {item.sessions_with_gap} of {item.sessions_rated} sessions
+              </span>
+            </div>
+            <p className="text-[11px] mb-2" style={{ color: copy.tone }}>{copy.label}</p>
+            {/* The bar is the message: how much of this learner's history the
+                pattern covers. The sentence explaining what to do about it lives
+                on the Blind Spots page, which has room for four of them. */}
+            <div className="h-1.5 rounded-full overflow-hidden bg-muted">
+              <div className="h-full rounded-full" style={{ width: pct + '%', backgroundColor: copy.tone }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AnalyticsDashboard() {
   const { userId: cid, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [userId, setUserId] = useState(cid || '')
   // ?sessionId=… (e.g. the redirect after self-reflection) opens that session's
@@ -96,18 +246,112 @@ export default function AnalyticsDashboard() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
+  // Observed scores only — what the session actually measured.
+  //
+  // These used to fall back to the learner's own rating when no measurement
+  // existed. That made a self-rating masquerade as an observed score: the radar
+  // drew both layers from the same number, every gap came out as zero, and the
+  // page congratulated the learner for matching a performance it had never
+  // measured. A skill with no measurement is now simply blank.
   const scores = useMemo(() => {
     const a = data?.aggregate?.scores?.averages || {}
-    const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     // Each composite skill is the mean of its underlying fields — identical to the
     // Skill Twin radar and Post-Session Report so the numbers agree across pages.
     return [
-      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score) ?? toNum(f.vocal_command)],
-      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score) ?? toNum(f.speech_fluency)],
-      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score) ?? toNum(f.presence_engagement)],
-      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score) ?? toNum(f.emotional_intelligence)],
+      ['vocal_command', toNum(a.speech_volume_score ?? a.professionalism_score)],
+      ['speech_fluency', avgOf(a.speech_pace_score, a.clarity_score)],
+      ['presence_engagement', avgOf(a.eye_contact_score, a.confidence_score) ?? toNum(a.adaptability_score)],
+      ['emotional_intelligence', avgOf(a.empathy_score, a.emotional_control_score) ?? toNum(a.listening_score)],
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
   }, [data])
+
+  // Without a session selected the page is describing a history, not a moment.
+  const isAllSessions = !sessionId
+
+  // Per-skill history, keyed by skill. Absent while loading, or if the endpoint
+  // fails — every use falls back to the averaged view rather than blanking.
+  const history = useMemo(() => {
+    const items = data?.history?.skills || []
+    return Object.fromEntries(items.map((item) => [item.skill_area, item]))
+  }, [data])
+
+  // In history mode the headline figure is the latest session, not the mean of
+  // every session. The mean was answering "how have you done", under a heading
+  // that asks "how are you doing" — which let four consecutive declines read as
+  // "Great job". The mean is still shown, beside it, where it belongs.
+  const scoresShown = useMemo(() => {
+    if (!isAllSessions || !data?.history) return scores
+    return scores.map((s) => {
+      const h = history[s.key]
+      return h?.latest_score != null ? { ...s, value: h.latest_score } : s
+    })
+  }, [scores, history, isAllSessions, data])
+
+  // Only patterns with enough sessions behind them; the service already drops
+  // anything under three, and "aligned" is kept because a skill someone reads
+  // accurately every time is worth telling them about.
+  const recurring = useMemo(() => data?.recurring?.items || [], [data])
+
+  // How many sessions this learner actually has. Drives whether the page shows
+  // results or explains itself.
+  const sessionCount = data?.aggregate?.scores?.metric_count ?? 0
+  // Trends and forecasts need three points; below that the page would be drawing
+  // conclusions from a line through two dots.
+  const tooEarlyForTrends = isAllSessions && sessionCount > 0 && sessionCount < 3
+  const showGettingStarted = status === 'live' && isAllSessions && sessionCount < 3
+
+  // The single thing this learner should do next.
+  //
+  // The page was ending on "Emotional Intelligence is at high risk" and stopping
+  // there. Telling someone their weakest skill is falling, and then offering no
+  // route out of the page, leaves them with a worry and no action - which is a
+  // worse outcome than not having told them.
+  //
+  // One item, not a list: a page that reports four problems at once is read as
+  // four problems and acted on as none.
+  const nextAction = useMemo(() => {
+    if (!isAllSessions || sessionCount < 3) return null
+
+    // A skill that is both falling and lowest is the clearest call. Failing that,
+    // the self-assessment pattern that shows up most often.
+    const falling = (data?.history?.skills || [])
+      .filter((item) => item.trend_label === 'declining' && item.latest_score != null)
+      .sort((a, b) => a.latest_score - b.latest_score)[0]
+
+    if (falling) {
+      return {
+        tone: 'var(--danger)',
+        title: `${labelFor(falling.skill_area)} needs your attention`,
+        body: `Down from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}. Your best was ${Math.round(falling.best_score ?? 0)}.`,
+        cta: 'See what to practise',
+        to: '/analytics-recommendations',
+      }
+    }
+
+    const pattern = (data?.recurring?.items || []).find(
+      (item) => item.pattern === 'consistent_overestimation' && item.severity !== 'none'
+    )
+    if (pattern) {
+      return {
+        tone: 'var(--warning, #d99a2b)',
+        title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
+        body: `In ${pattern.sessions_with_gap} of ${pattern.sessions_rated} sessions.`,
+        cta: 'See what to practise',
+        to: '/analytics-recommendations',
+      }
+    }
+
+    return {
+      tone: 'var(--success)',
+      title: 'Nothing is slipping right now',
+      body: 'Your skills are holding steady.',
+      cta: 'Start another session',
+      to: '/multimodal-analysis',
+    }
+  }, [data, isAllSessions, sessionCount])
+
+  // A gap needs a measurement to compare against, not just a self-rating.
+  const hasObserved = useMemo(() => scoresShown.some((s) => s.value !== null), [scoresShown])
 
   const hasLive = status !== 'live' || Boolean(data?.aggregate?.scores?.metric_count || data?.aggregate?.feedback?.total_count)
 
@@ -150,14 +394,23 @@ export default function AnalyticsDashboard() {
           predictions: pr || { predictions: [] }
         }
       } else {
-        const [bs, tr, pr] = await Promise.all([
+        // "All Sessions" asks different questions from a single session, so it
+        // loads different answers: where the learner is now against where they
+        // started, and which self-assessment gaps recur rather than what the
+        // average gap is. See learner_history_service for why averaging a
+        // history is the wrong operation.
+        const [bs, tr, pr, hist, recur] = await Promise.all([
           analyticsService.getBlindSpotsByUser(tu).catch(() => null),
           analyticsService.getProgressTrendsByUser(tu).catch(() => null),
           analyticsService.getPredictedOutcomesByUser(tu).catch(() => null),
+          analyticsService.getSkillHistory(tu).catch(() => null),
+          analyticsService.getRecurringBlindSpots(tu).catch(() => null),
         ])
         finalData.blindSpots = bs || { summary: { total_count: 0 }, blind_spots: [] }
         finalData.trends = tr || { trends: [] }
         finalData.predictions = pr || { predictions: [] }
+        finalData.history = hist
+        finalData.recurring = recur
       }
 
       setData(finalData)
@@ -234,13 +487,28 @@ export default function AnalyticsDashboard() {
   ].filter(Boolean).join(' · ')
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
+  // One sentence telling a first-time reader what the headline number is. The
+  // number alone invites the wrong reading: people assume a single score out of
+  // 100 is a grade, and act on it accordingly.
+  const overallCaption = isAllSessions
+    ? 'Your four skills from your most recent session, averaged'
+    : 'This session’s four skills, averaged'
+
   const overall = useMemo(() => {
-    const vals = scores.map(s => s.value).filter(v => v != null)
+    const vals = scoresShown.map(s => s.value).filter(v => v != null)
     if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
     return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
-  }, [scores, data])
+  }, [scoresShown, data])
 
-  // Build self-rating scores from feedback averages + blind spot data for dual-layer radar
+  // Build self-rating scores from feedback averages + blind spot data for dual-layer radar.
+  //
+  // These are means of every self-rating the learner has given. For one session
+  // that is exactly right. Across a whole history it is not: this learner rates
+  // themselves high in some sessions and low in others for three of four skills,
+  // so the mean lands near the middle and draws a steady self-perception that
+  // does not exist. The honest version of self-versus-observed over a history is
+  // the recurring-patterns panel, which counts rather than averages, so the
+  // second radar layer is dropped in that mode rather than faked.
   const selfScores = useMemo(() => {
     const f = data?.aggregate?.feedback?.skill_rating_averages || {}
     const b = data?.blindSpots?.blind_spots || []
@@ -254,6 +522,16 @@ export default function AnalyticsDashboard() {
     ].map(([k, v]) => ({ key: k, label: labelFor(k), value: toNum(v) }))
      .filter(s => s.value !== null)
   }, [data])
+
+  // Whether the learner rated themselves at all. Without this, "no gaps found"
+  // and "nothing to compare" look identical on screen, and the dashboard ends up
+  // congratulating people on self-awareness they never demonstrated.
+  const hasSelfRating = selfScores.length > 0
+
+  // What the radar draws. In history mode the observed layer is the latest
+  // session, matching the cards above it, and the averaged self layer is left
+  // off — see the note on selfScores.
+  const radarSelfScores = isAllSessions ? [] : selfScores
 
   return (
     <div className="min-h-screen">
@@ -286,7 +564,7 @@ export default function AnalyticsDashboard() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-border bg-muted">
             <span className={'h-2 w-2 rounded-full '+(status==='live'?'bg-success':status==='loading'?'bg-info animate-pulse':'bg-muted-foreground')}/>
-            {status==='live'?'Live Data':status==='loading'?'Loading...':'Demo Mode'}
+            {status==='live'?'Live Data':status==='loading'?'Loading…':status==='error'?'Unavailable':'Not loaded'}
           </span>
           {/* REDESIGN: text-red-400/bg-red-400 → danger tokens; text-green-400/bg-green-400 → success tokens */}
           {error && <span className="text-xs text-danger bg-danger/10 border border-danger/20 px-3 py-1 rounded-full">{error}</span>}
@@ -294,12 +572,19 @@ export default function AnalyticsDashboard() {
         </div>
 
         {/* REDESIGN: yellow-500 banner replaced with Banner warning */}
-        {!hasLive && (
+        {!hasLive && !showGettingStarted && (
           <div className="banner banner-warning" role="status">
             <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning)' }}/>
             <span>Complete a practice session to see your real results here.</span>
           </div>
         )}
+
+        {/* With fewer than three sessions the panels below would be mostly empty
+            boxes and a two-point trend line. The page explains itself instead. */}
+        {showGettingStarted ? (
+          <GettingStarted sessionCount={sessionCount} onStart={() => navigate('/multimodal-analysis')} />
+        ) : (
+        <>
 
         {/* REDESIGN: big score banner replaced hex gradient (#4f46e5/#7c3aed) + text-white
             with var(--gradient-accent) + tokenised text colors */}
@@ -313,6 +598,10 @@ export default function AnalyticsDashboard() {
               <span className="score-num" style={{ fontSize: 60, fontWeight: 600, lineHeight: 1 }}>{overall}</span>
               <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 20, marginBottom: 6 }}>/100</span>
             </div>
+            {/* Where the number came from, before any encouragement about it. A
+                score out of 100 with no source reads as a grade, and a first-time
+                reader has no way to tell whether it is one session or a year. */}
+            <p style={{ color: 'rgba(255,255,255,0.75)' }} className="text-xs mt-1">{overallCaption}</p>
             <p style={{ color: 'rgba(255,255,255,0.85)' }} className="text-sm mt-2">
               {Number(overall)>=75 ? 'Great job! Keep it up!' : Number(overall)>=50 ? 'Good progress. Keep practising!' : 'Every session makes you better!'}
             </p>
@@ -340,12 +629,40 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
 
+        {/* What to do about all this. Sits directly under the score, before the
+            detail: someone who reads one thing on this page should read this. */}
+        {nextAction && (
+          <div
+            className="rounded-2xl border bg-card p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+            style={{ borderColor: nextAction.tone }}
+          >
+            <div className="flex-1">
+              <p className="text-sm font-bold mb-1" style={{ color: nextAction.tone }}>
+                {nextAction.title}
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{nextAction.body}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary shrink-0"
+              onClick={() => navigate(nextAction.to)}
+            >
+              {nextAction.cta}
+            </button>
+          </div>
+        )}
+
         {/* Skill Score Cards */}
         <div>
-          <h2 className="text-base font-bold mb-3">📊 Your Skill Scores</h2>
-          <p className="text-xs text-muted-foreground mb-3">Each card shows how well you are doing in a specific skill</p>
+          <h2 className="text-base font-bold mb-3">
+            📊 Your Skill Scores
+          </h2>
+          <p className="text-xs text-muted-foreground mb-3">
+            {isAllSessions ? 'Your latest session, out of 100' : 'This session, out of 100'}
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[...scores, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
+            {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
+              const h = isAllSessions ? history[s.key] : null
               const v = s.value != null ? Math.round(s.value) : 0
               const isOverall = s.key === 'overall'
               const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
@@ -364,6 +681,16 @@ export default function AnalyticsDashboard() {
                     <motion.div initial={{width:0}} animate={{width:v+'%'}} transition={{duration:0.8,delay:i*0.05}}
                       className="h-full rounded-full" style={{backgroundColor: barColor}}/>
                   </div>
+                  {/* The number above is one session. Without the average and the
+                      best beside it, a good day reads as a level and a bad one
+                      reads as a collapse. */}
+                  {h && (
+                    <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>best {Math.round(h.best_score ?? 0)}</span>
+                      <span>avg {Math.round(h.average_score ?? 0)}</span>
+                      <span style={{ color: TREND_TONE[h.trend_label] }}>{TREND_MARK[h.trend_label]}</span>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -373,19 +700,72 @@ export default function AnalyticsDashboard() {
         {/* Radar + Blind Spots */}
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-base font-bold mb-1">🕸️ Skill Overview Chart</h2>
-            <p className="text-xs text-muted-foreground mb-4">{selfScores.length > 0 ? 'Teal = Observed scores · Amber = Your self-rating' : 'All your skills shown together in one view'}</p>
-            <SkillTwinRadar 
-              scores={scores} 
-              selfScores={selfScores} 
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🕸️ Skill Overview Chart</h2>
+              <MoreLink to="/analytics-skill-twin" onOpen={(path) => navigate(path)} />
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              {radarSelfScores.length > 0
+                ? 'Teal = measured · Amber = your rating'
+                : 'All four skills in one shape'}
+            </p>
+            <SkillTwinRadar
+              scores={scoresShown}
+              selfScores={radarSelfScores}
               overallScore={overall}
             />
+            {isAllSessions && selfScores.length > 0 && (
+              <p className="text-[11px] text-muted-foreground mt-3">
+                Your ratings are in the panel beside this one, counted per session.
+              </p>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-base font-bold mb-1">🔍 Things to Know About Yourself</h2>
-            <p className="text-xs text-muted-foreground mb-4">How you see yourself vs how others see you</p>
-            {gaps.length === 0 ? (
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🔍 Things to Know About Yourself</h2>
+              <MoreLink to="/analytics-blind-spots" onOpen={(path) => navigate(path)} />
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              {isAllSessions
+                ? 'How often your rating missed the mark'
+                : 'Your rating vs what was measured'}
+            </p>
+            {/* A gap needs two sides. With no self-assessment there is nothing to
+                compare, and saying "your self-view matches" would be claiming a
+                finding the data cannot support. */}
+            {isAllSessions && recurring.length > 0 ? (
+              <RecurringPatterns items={recurring} />
+            ) : !hasObserved ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📊</span>
+                <p className="font-semibold fg">This session has no measured scores yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  A gap is your rating measured against what the session recorded. Without
+                  the measurement there is nothing to compare your rating with.
+                </p>
+              </div>
+            ) : !hasSelfRating ? (
+              <div className="flex flex-col items-center py-8 text-center">
+                <span className="text-4xl mb-3">📝</span>
+                <p className="font-semibold fg">No self-assessment for this session yet</p>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+                  Rate yourself on this session and your ratings will be compared with what
+                  was measured, to show where the two disagree.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary mt-4"
+                  onClick={() => navigate(
+                    sessionId
+                      ? `/analytics/sessions/${encodeURIComponent(sessionId)}/feedback`
+                      : '/analytics-feedback'
+                  )}
+                >
+                  Add your self-assessment
+                </button>
+              </div>
+            ) : gaps.length === 0 ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">🎯</span>
                 <p className="font-semibold fg">Your self-view matches your performance!</p>
@@ -431,8 +811,11 @@ export default function AnalyticsDashboard() {
 
         {/* Progress Trends */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-base font-bold mb-1">📈 How You Are Improving Over Time</h2>
-          <p className="text-xs text-muted-foreground mb-4">See if your skills are going up, staying the same, or need attention</p>
+          <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">📈 How You Are Improving Over Time</h2>
+              <MoreLink to="/analytics-progress-trends" onOpen={(path) => navigate(path)} />
+            </div>
+          <p className="text-xs text-muted-foreground mb-4">Every session, oldest first. Up is better.</p>
           <div className="min-h-[280px]">
             <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
           </div>
@@ -440,8 +823,11 @@ export default function AnalyticsDashboard() {
 
         {/* Predictions */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-base font-bold mb-1">🔮 What to Expect Next</h2>
-          <p className="text-xs text-muted-foreground mb-4">AI predictions based on your recent sessions</p>
+          <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-base font-bold">🔮 What to Expect Next</h2>
+              <MoreLink to="/analytics-predictions" onOpen={(path) => navigate(path)} />
+            </div>
+          <p className="text-xs text-muted-foreground mb-4">Where each skill lands if nothing changes.</p>
           {preds.length === 0 ? (
             <div className="text-center py-8">
               <span className="text-4xl block mb-2">🤖</span>
@@ -480,6 +866,8 @@ export default function AnalyticsDashboard() {
             </div>
           )}
         </div>
+        </>
+        )}
 
       </div>
     </div>

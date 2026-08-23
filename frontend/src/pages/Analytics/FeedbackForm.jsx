@@ -10,6 +10,7 @@ import {
   User,
   Layout,
   Activity,
+  ArrowRight,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
@@ -58,6 +59,8 @@ export default function FeedbackForm() {
 
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
+  // The model's own reading of the written reflection, returned on save.
+  const [reading, setReading] = useState(null)
   // Session options + status are loaded but not displayed in this restyle —
   // sidebar nav handles session selection. Kept to preserve existing fetch logic.
   // eslint-disable-next-line no-unused-vars
@@ -84,8 +87,30 @@ export default function FeedbackForm() {
     return session?.friendlyId || null;
   }, [friendlyId, sessionOptions, form.session_id]);
 
+  // A written reflection is required, not optional. It is the only human text
+  // the sentiment module ever receives — with it left blank the analysis has
+  // nothing to read, which is exactly how 163 self-assessments were recorded
+  // without the model ever running once.
+  const MIN_REFLECTION_LENGTH = 15
+
+  const reflection = form.comment.trim()
+  const reflectionTooShort = reflection.length > 0 && reflection.length < MIN_REFLECTION_LENGTH
+
+  // Where "View my dashboard" goes once the evaluation is saved. The session id
+  // travels with it so the dashboard opens on the session just reflected on,
+  // not the "All Sessions" overall view.
+  const dashboardTarget = useMemo(() => {
+    const sessionId = form.session_id.trim()
+    return sessionId
+      ? `/analytics-dashboard?sessionId=${encodeURIComponent(sessionId)}`
+      : '/analytics-dashboard'
+  }, [form.session_id])
+
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim(),
+    () =>
+      Boolean(form.user_id.trim())
+      && Boolean(form.session_id.trim())
+      && form.comment.trim().length >= MIN_REFLECTION_LENGTH,
     [form]
   )
 
@@ -99,8 +124,16 @@ export default function FeedbackForm() {
 
   const submitFeedback = async (event) => {
     event.preventDefault()
+    // Guard the handler, not just the button: a double click, an Enter keypress
+    // while the button is focused, or a re-render mid-flight could all fire this
+    // twice, and each run writes a full set of ratings.
+    if (status === 'saving') return
     if (!canSubmit) {
-      setMessage('Session ID is required.')
+      setMessage(
+        !form.session_id.trim()
+          ? 'Select a session first.'
+          : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
+      )
       return
     }
 
@@ -108,6 +141,10 @@ export default function FeedbackForm() {
     setMessage('')
 
     try {
+      // The written reflection travels with one entry; the sentiment you chose
+      // is recorded as *your* view, and the NLP model reads your words
+      // independently so the two can be compared afterwards.
+      const written = form.comment.trim()
       const promises = Object.entries(form.ratings).map(([skill, val]) => {
         return analyticsService.createFeedbackEntry({
           user_id: form.user_id.trim(),
@@ -115,20 +152,26 @@ export default function FeedbackForm() {
           feedback_type: 'self',
           skill_area: skill,
           rating: val,
-          sentiment: form.sentiment,
-          comment: skill === 'vocal_command' ? form.comment : null
+          declared_sentiment: form.sentiment,
+          comment: skill === 'vocal_command' && written ? written : null
         })
       })
 
-      await Promise.all(promises)
+      const saved = await Promise.all(promises)
+      const analysed = saved.find((entry) => entry?.sentiment_source === 'model')
+      setReading(analysed || null)
+
       setStatus('success')
-      setMessage('Self-evaluation completed!')
-      if (params.sessionId) {
-        // Carry the session forward so the dashboard opens on THIS session's
-        // results instead of the "All Sessions" overall view.
-        const target = `/analytics-dashboard?sessionId=${encodeURIComponent(form.session_id.trim())}`
-        setTimeout(() => navigate(target), 2000)
-      }
+      setMessage(
+        written
+          ? 'Self-evaluation saved and your reflection was analysed.'
+          : 'Self-evaluation saved.'
+      )
+      // No timed redirect. The learner is shown their sentiment reading here and
+      // decides when to move on; a page that navigates itself away mid-read takes
+      // the one moment that analysis is useful. The button below carries the
+      // session id forward so the dashboard opens on THIS session's results
+      // rather than the "All Sessions" overall view.
     } catch (error) {
       setStatus('error')
       setMessage('Error saving feedback.')
@@ -275,8 +318,14 @@ export default function FeedbackForm() {
             <SegmentedControl
               value={form.sentiment}
               onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
+              /* "Mixed" is offered because it is what learners actually write:
+                 every reflection collected so far says something went well and
+                 something did not. Without it they must round their own view to
+                 one pole, and the model then records a disagreement that is an
+                 artefact of these buttons rather than a fact about them. */
               options={[
                 { label: 'Positive', value: 'positive' },
+                { label: 'Mixed', value: 'mixed' },
                 { label: 'Neutral', value: 'neutral' },
                 { label: 'Negative', value: 'negative' },
               ]}
@@ -289,13 +338,33 @@ export default function FeedbackForm() {
               <MessageSquare size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
               Additional observations
             </div>
+            <p className="t-cap" style={{ margin: '0 0 10px', lineHeight: 1.6 }}>
+              Write a sentence or two about how the session went. Your words are
+              analysed on their own, so you can see whether they match the
+              sentiment you chose above. <strong>Required.</strong>
+            </p>
             <textarea
               className="input textarea"
-              placeholder="What specific moment in the session made you feel this way? (Optional)"
+              placeholder="What specific moment in the session made you feel this way?"
               value={form.comment}
               onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
               style={{ minHeight: 120, padding: 14 }}
+              aria-invalid={reflectionTooShort || undefined}
+              required
             />
+            <div
+              className="t-cap"
+              style={{
+                marginTop: 6,
+                color: reflectionTooShort ? 'var(--danger)' : 'var(--text-quaternary)',
+              }}
+            >
+              {reflection.length === 0
+                ? `Write at least ${MIN_REFLECTION_LENGTH} characters.`
+                : reflectionTooShort
+                  ? `${MIN_REFLECTION_LENGTH - reflection.length} more characters needed.`
+                  : `${reflection.length} characters — ready to analyse.`}
+            </div>
           </Card>
 
           {/* REDESIGN: status message replaced bg-red-500/10/etc. ad-hoc colors with Banner */}
@@ -313,20 +382,41 @@ export default function FeedbackForm() {
                 </Banner>
               </div>
             )}
-            {/* REDESIGN: bg-indigo-600 submit button replaced with Button primary */}
-            <Button
-              type="submit"
-              disabled={!canSubmit || status === 'saving'}
-              loading={status === 'saving'}
-              size="lg"
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                {status === 'saving'
-                  ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
-                  : <Save size={14} strokeWidth={1.8} />}
-                Complete evaluation
-              </span>
-            </Button>
+
+            {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
+
+            {/* Once the evaluation is saved, "Complete evaluation" is no longer
+                the action available — offering it again invites a duplicate
+                submission and leaves the learner with no way onward. The saved
+                state hands them their results instead. */}
+            {status === 'success' ? (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => navigate(dashboardTarget)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Layout size={14} strokeWidth={1.8} />
+                  View my dashboard
+                  <ArrowRight size={14} strokeWidth={1.8} />
+                </span>
+              </Button>
+            ) : (
+              /* REDESIGN: bg-indigo-600 submit button replaced with Button primary */
+              <Button
+                type="submit"
+                disabled={!canSubmit || status === 'saving'}
+                loading={status === 'saving'}
+                size="lg"
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {status === 'saving'
+                    ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
+                    : <Save size={14} strokeWidth={1.8} />}
+                  Complete evaluation
+                </span>
+              </Button>
+            )}
           </div>
         </form>
 
@@ -376,6 +466,82 @@ export default function FeedbackForm() {
           .hide-mobile-aside { display: none; }
         }
       `}</style>
+    </div>
+  )
+}
+
+const SENTIMENT_TONE = {
+  positive: 'var(--success)',
+  // Mixed is not a milder negative — it is two feelings at once, so it gets its
+  // own tone rather than a shade of either pole.
+  mixed: 'var(--warning, #d99a2b)',
+  neutral: 'var(--text-secondary)',
+  negative: 'var(--danger)',
+}
+
+/**
+ * What the learner said about their reflection, beside what the NLP model read
+ * in the same words.
+ *
+ * When the two disagree it is worth surfacing: a learner who writes something
+ * critical but marks the session positive is showing the same self-perception
+ * gap the blind-spot detector looks for in ratings — only in their own words.
+ */
+function SentimentReading({ reading, declared }) {
+  const detected = reading.sentiment
+  const agrees = detected === declared
+  const confidence = Math.round((reading.sentiment_confidence || 0) * 100)
+
+  return (
+    <div style={{ width: '100%' }}>
+      <Card>
+        <div className="t-over" style={{ marginBottom: 12 }}>Sentiment analysis of your reflection</div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <ReadingBox label="You marked it" value={declared} />
+          <ReadingBox label="Your words read as" value={detected} hint={`${confidence}% confidence`} />
+        </div>
+
+        <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>
+          {agrees
+            ? 'Your words and your rating agree — your self-perception matches what you wrote.'
+            : detected === 'mixed'
+              ? `You marked the session ${declared}, but your wording carries more than one feeling at once — something that went well and something that did not. Both are real. Worth asking which one you gave the rating to.`
+              : `You marked the session ${declared}, but the wording reads as ${detected}. That gap is worth a second look: it is the same kind of mismatch the blind-spot detector looks for in your ratings.`}
+        </p>
+
+        <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>
+          Read by {reading.sentiment_model_version}. Nothing was overwritten — both readings are kept.
+        </p>
+      </Card>
+    </div>
+  )
+}
+
+function ReadingBox({ label, value, hint }) {
+  return (
+    <div
+      style={{
+        flex: '1 1 160px',
+        padding: 12,
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-subtle)',
+        background: 'var(--bg-input)',
+      }}
+    >
+      <div className="t-cap">{label}</div>
+      <div
+        style={{
+          fontSize: 17,
+          fontWeight: 600,
+          marginTop: 4,
+          textTransform: 'capitalize',
+          color: SENTIMENT_TONE[value] || 'var(--text-primary)',
+        }}
+      >
+        {value || '—'}
+      </div>
+      {hint && <div className="t-cap" style={{ marginTop: 2 }}>{hint}</div>}
     </div>
   )
 }

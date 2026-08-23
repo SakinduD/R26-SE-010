@@ -20,6 +20,14 @@ import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 
+// The service's words in the learner's. "medium" ranks an item; "keep an eye on
+// it" tells them what to do with it, which is what a badge is for.
+const PRIORITY_WORDS = { high: 'do this first', medium: 'worth doing', low: 'when you have time' }
+const priorityWords = (value) => PRIORITY_WORDS[value] || value || ''
+
+const SOURCE_WORDS = { self: 'your rating', system: 'measured', mentor: 'system note', peer: 'peer' }
+const sourceWords = (value) => SOURCE_WORDS[value] || value || ''
+
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
@@ -28,97 +36,42 @@ const SKILL_LABELS = {
   overall: 'Overall',
 }
 
-const DEMO_REPORT = {
-  session_id: 'demo-session',
-  user_id: 'demo-user',
+// Empty shape, never sample values: a failed load must show nothing rather than
+// someone else's report. Keeping the shape means every render path below stays
+// valid and the existing empty states do the work.
+const EMPTY_REPORT = {
+  session_id: '',
+  user_id: null,
   summary: {
-    headline: 'Session completed with focused improvement areas.',
-    strengths: ['Vocal Command', 'Speech Fluency'],
-    improvement_areas: ['Presence & Engagement', 'Emotional Intelligence'],
-    completion_status: 'complete',
+    headline: '',
+    strengths: [],
+    improvement_areas: [],
+    completion_status: 'empty',
   },
   aggregate: {
-    scores: { metric_count: 1 },
+    scores: { metric_count: 0, averages: {} },
     feedback: {
-      total_count: 4,
-      average_rating: 78,
-      self_rating_averages: {
-        vocal_command: 85,
-        speech_fluency: 72,
-        presence_engagement: 90,
-        emotional_intelligence: 68,
-      },
-      latest_entries: [
-        {
-          id: 1,
-          feedback_type: 'self',
-          skill_area: 'presence_engagement',
-          rating: 90,
-          sentiment: 'positive',
-          comment: 'I felt confident and engaged during the negotiation.',
-        },
-        {
-          id: 2,
-          feedback_type: 'system',
-          skill_area: 'presence_engagement',
-          rating: 56,
-          sentiment: 'neutral',
-          comment: 'Observed performance shows eye contact and engagement need work.',
-        },
-      ],
+      total_count: 0,
+      average_rating: null,
+      by_type: {},
+      skill_rating_averages: {},
+      self_rating_averages: {},
+      latest_entries: [],
     },
-    predictions: {
-      total_count: 1,
-      latest_predictions: [
-        {
-          id: 1,
-          predicted_skill: 'presence_engagement',
-          current_score: 58,
-          predicted_score: 52,
-          risk_level: 'high',
-          recommendation: 'Practice maintaining eye contact and presence before the next scenario.',
-        },
-      ],
-    },
+    predictions: { total_count: 0, latest_predictions: [] },
   },
-  skill_scores: {
-    overall_score: 76,
-    completeness: 0.86,
-    skill_scores: {
-      vocal_command: 80,
-      speech_fluency: 74,
-      presence_engagement: 58,
-      emotional_intelligence: 82,
-    },
-  },
+  skill_scores: { skill_scores: {}, overall_score: null, breakdown: {}, completeness: 0 },
+  feedback_analysis: { summary: {}, items: [] },
   blind_spots: {
-    summary: { total_count: 1, high_count: 1, medium_count: 0, low_count: 0 },
-    blind_spots: [
-      {
-        skill_area: 'presence_engagement',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        gap: 34,
-        recommendation: 'Review Presence & Engagement evidence and set one measurable eye-contact goal.',
-      },
-    ],
+    summary: { total_count: 0, high_count: 0, medium_count: 0, low_count: 0, sentiment_gap_count: 0 },
+    blind_spots: [],
+    sentiment_gaps: [],
   },
-  action_items: [
-    {
-      priority: 'high',
-      skill_area: 'presence_engagement',
-      title: 'Review Presence & Engagement blind spot',
-      detail: 'Compare self-rating with observed system evidence before the next session.',
-    },
-    {
-      priority: 'medium',
-      skill_area: 'emotional_intelligence',
-      title: 'Practice Emotional Intelligence',
-      detail: 'Use a pause-breathe-answer pattern during difficult role-play prompts.',
-    },
-  ],
+  action_items: [],
+  computed_predictions: [],
+  generated_at: null,
+  report_version: 'rule-based-v1',
 }
-
 const RAW_TO_COMPOSITE = {
   confidence: 'Presence & Engagement',
   eye_contact: 'Presence & Engagement',
@@ -137,6 +90,22 @@ const RAW_TO_COMPOSITE = {
 
 const PRIORITY_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
+// How a gap reads to the person who has it. The service calls these
+// "overestimation" and "underestimation"; neither is a word anybody uses about
+// themselves, and both sound like an accusation.
+const GAP_WORDS = {
+  overestimation: 'You rated this higher than it measured',
+  underestimation: 'You rated this lower than it measured',
+}
+const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
+// "high" alone is a ranking. What a reader needs is what to do about it.
+const RISK_WORDS = { high: 'needs work now', medium: 'keep an eye on it', low: 'going fine' }
+const riskWords = (value) => RISK_WORDS[value] || value || 'unknown'
+
+const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable', low: 'small', none: 'none' }
+const severityWords = (value) => SEVERITY_WORDS[value] || value || ''
+
 function labelFor(value) {
   return SKILL_LABELS[value] || RAW_TO_COMPOSITE[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -145,8 +114,8 @@ export default function PostSessionReport() {
   const params = useParams()
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [report, setReport] = useState(DEMO_REPORT)
-  const [status, setStatus] = useState('demo')
+  const [report, setReport] = useState(EMPTY_REPORT)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
   const loadedSessionRef = useRef(null)
 
@@ -174,8 +143,8 @@ export default function PostSessionReport() {
       const nextReport = await analyticsService.getPostSessionReport(targetSessionId)
       setReport(nextReport); setStatus('live')
     } catch {
-      setReport(DEMO_REPORT); setStatus('demo')
-      setError('Backend report unavailable. Showing demo report.')
+      setReport(EMPTY_REPORT); setStatus('error')
+      setError('This session report could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -205,8 +174,8 @@ export default function PostSessionReport() {
     <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
       <PageHead
         eyebrow="Feedback System & Predictive Analytics"
-        title="Post-Session Report"
-        sub="Complete performance review synthesised from skill scores, feedback, and predictions."
+        title="How That Session Went"
+        sub="Everything from one session in one place: what was measured, what you thought, and what to do next."
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
@@ -218,7 +187,7 @@ export default function PostSessionReport() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API report' : status === 'loading' ? 'Loading…' : 'Demo report'}
+          {status === 'live' ? 'Live report' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
       </motion.div>
@@ -230,46 +199,46 @@ export default function PostSessionReport() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <FileText size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
                 <span className="t-cap">
-                  {sessionOptions.find((o) => o.id === sessionId)?.label || (status === 'live' ? 'Session Report' : 'Demo Report')}
+                  {sessionOptions.find((o) => o.id === sessionId)?.label || 'Session Report'}
                 </span>
               </div>
               <div className="t-h3" style={{ maxWidth: 520 }}>{report.summary?.headline}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, minWidth: 240 }}>
               <MetricBox label="Overall" value={formatScore(overallScore)} />
-              <MetricBox label="Feedback" value={report.aggregate?.feedback?.total_count || 0} />
-              <MetricBox label="Actions" value={report.action_items?.length || 0} />
+              <MetricBox label="Skills you rated" value={report.aggregate?.feedback?.total_count || 0} />
+              <MetricBox label="Things to try" value={report.action_items?.length || 0} />
             </div>
           </div>
         </Card>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Skill Twin" icon={Target}>
+        <Panel title="All Four Skills" icon={Target}>
           <SkillTwinRadar scores={radarScores} selfScores={selfScores} overallScore={overallScore} />
         </Panel>
-        <Panel title="Report Summary" icon={CheckCircle2}>
-          <SummaryList title="Strengths" items={report.summary?.strengths || []} emptyText="No strengths detected yet" />
+        <Panel title="The Short Version" icon={CheckCircle2}>
+          <SummaryList title="Held up well" items={report.summary?.strengths || []} emptyText="Nothing scored high enough to call a strength this time" />
           <div style={{ marginTop: 16 }}>
-            <SummaryList title="Improvement Areas" items={report.summary?.improvement_areas || []} emptyText="No improvement areas detected yet" />
+            <SummaryList title="Worth working on" items={report.summary?.improvement_areas || []} emptyText="Nothing stood out as weak" />
           </div>
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Action Plan" icon={ClipboardList}>
+        <Panel title="What To Try Next" icon={ClipboardList}>
           <ActionList actions={report.action_items || []} />
         </Panel>
-        <Panel title="Blind Spots" icon={ShieldAlert}>
+        <Panel title="Where Your Rating Missed" icon={ShieldAlert}>
           <BlindSpotList blindSpots={report.blind_spots?.blind_spots || []} />
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2">
-        <Panel title="Feedback Evidence" icon={FileText}>
+        <Panel title="What You Said" icon={FileText}>
           <FeedbackList entries={report.aggregate?.feedback?.latest_entries || []} />
         </Panel>
-        <Panel title="Prediction Evidence" icon={AlertTriangle}>
+        <Panel title="If Nothing Changes" icon={AlertTriangle}>
           <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
         </Panel>
       </motion.div>
@@ -302,7 +271,7 @@ function ActionList({ actions }) {
         <div key={`${item.title}-${index}`} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{item.title}</span>
-            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{item.priority}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{priorityWords(item.priority)}</Badge>
           </div>
           <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.detail}</p>
         </div>
@@ -319,9 +288,9 @@ function BlindSpotList({ blindSpots }) {
         <div key={item.skill_area} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{item.severity}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>
           </div>
-          <p className="t-cap" style={{ marginBottom: 4 }}>{item.blind_spot_type} gap of {formatScore(item.gap)}</p>
+          <p className="t-cap" style={{ marginBottom: 4 }}>{gapWords(item.blind_spot_type)} — by {formatScore(item.gap)} points</p>
           <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
         </div>
       ))}
@@ -337,9 +306,13 @@ function FeedbackList({ entries }) {
         <div key={item.id} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area || item.feedback_type)}</span>
-            <Badge variant="neutral">{item.feedback_type}</Badge>
+            {/* "self" is how the row is stored. The learner knows they wrote it;
+                what the badge should say is that this is their own rating. */}
+            <Badge variant="neutral">{sourceWords(item.feedback_type)}</Badge>
           </div>
-          <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>{item.comment || 'No comment provided'}</p>
+                      <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>
+              {item.comment || 'You rated this one without writing anything.'}
+            </p>
           <p className="t-cap">Rating {formatScore(item.rating)}</p>
         </div>
       ))}
@@ -355,7 +328,7 @@ function PredictionList({ predictions }) {
         <div key={item.id || item.predicted_skill} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
             <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.predicted_skill)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{item.risk_level}</Badge>
+            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
             <span className="t-cap">Current {formatScore(item.current_score)}</span>

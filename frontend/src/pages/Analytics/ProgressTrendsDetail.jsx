@@ -34,45 +34,21 @@ const SKILL_LABELS = {
 const SKILL_OPTIONS = Object.entries(SKILL_LABELS).map(([value, label]) => ({ value, label }))
 const TREND_VARIANT = { improving: 'success', stable: 'neutral', declining: 'danger', insufficient_data: 'info' }
 
-const DEMO_DATA = {
-  user_id: 'demo-user',
+const EMPTY_DATA = {
+  user_id: '',
   summary: {
-    analyzed_skill_count: 4,
-    improving_count: 2,
-    stable_count: 1,
-    declining_count: 1,
+    analyzed_skill_count: 0,
+    improving_count: 0,
+    stable_count: 0,
+    declining_count: 0,
     insufficient_data_count: 0,
-    strongest_improvement: trend('vocal_command', 'improving', [55, 65, 78]),
-    strongest_decline: trend('emotional_intelligence', 'declining', [82, 76, 70]),
+    strongest_improvement: null,
+    strongest_decline: null,
   },
-  trends: [
-    trend('vocal_command', 'improving', [55, 65, 78]),
-    trend('speech_fluency', 'stable', [72, 73, 74]),
-    trend('presence_engagement', 'improving', [66, 72, 79]),
-    trend('emotional_intelligence', 'declining', [82, 76, 70]),
-  ],
-  generated_at: '2026-05-03T00:00:00',
+  trends: [],
+  generated_at: null,
   trend_version: 'rule-based-v1',
 }
-
-function trend(skillArea, trendLabel, scores) {
-  return {
-    skill_area: skillArea,
-    trend_label: trendLabel,
-    first_score: scores[0],
-    latest_score: scores[scores.length - 1],
-    delta: scores[scores.length - 1] - scores[0],
-    slope: scores.length > 1 ? (scores[scores.length - 1] - scores[0]) / (scores.length - 1) : 0,
-    session_count: scores.length,
-    recommendation: `${labelFor(skillArea)} trend should be reviewed before the next training plan.`,
-    points: scores.map((score, index) => ({
-      session_id: `S${index + 1}`,
-      score,
-      created_at: `2026-05-${String(index + 1).padStart(2, '0')}T00:00:00`,
-    })),
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
@@ -89,9 +65,9 @@ export default function ProgressTrendsDetail() {
   const [sessionId, setSessionId] = useState('')
   const [sessionOptions, setSessionOptions] = useState([])
   const [selectedSkill, setSelectedSkill] = useState('vocal_command')
-  const [data, setData] = useState(DEMO_DATA)
-  const [selectedTrend, setSelectedTrend] = useState(DEMO_DATA.trends[0])
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(EMPTY_DATA)
+  const [selectedTrend, setSelectedTrend] = useState(EMPTY_DATA.trends[0])
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const sortedTrends = useMemo(
@@ -124,10 +100,10 @@ export default function ProgressTrendsDetail() {
       ])
       setData(trendResult); setSelectedTrend(skillResult); setStatus('live')
     } catch {
-      setData(DEMO_DATA)
-      setSelectedTrend(DEMO_DATA.trends.find((item) => item.skill_area === selectedSkill) || DEMO_DATA.trends[0])
-      setStatus('demo')
-      setError('Backend trend data unavailable. Showing demo progress trends.')
+      setData(EMPTY_DATA)
+      setSelectedTrend(EMPTY_DATA.trends.find((item) => item.skill_area === selectedSkill) || EMPTY_DATA.trends[0])
+      setStatus('error')
+      setError('Your progress trends could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
     }
   }
 
@@ -145,8 +121,8 @@ export default function ProgressTrendsDetail() {
     <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
       <PageHead
         eyebrow="Feedback System & Predictive Analytics"
-        title="Progress Trends"
-        sub="Longitudinal skill analysis across sessions to identify patterns and trajectory."
+        title="How You Are Changing"
+        sub="Every session you have done, in order. This is the one page that shows whether the practice is working."
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
@@ -156,7 +132,7 @@ export default function ProgressTrendsDetail() {
           onChange={setSessionId}
           minWidthClass="min-w-[260px]"
         />
-        <SelectInput label="Skill" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
+        <SelectInput label="Show me" value={selectedSkill} onChange={setSelectedSkill} options={SKILL_OPTIONS} />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadTrends(userId, sessionId)} />
         </div>
@@ -164,9 +140,12 @@ export default function ProgressTrendsDetail() {
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <Badge variant="neutral">
-          {status === 'live' ? 'Live API trends' : status === 'loading' ? 'Loading…' : 'Demo trends'}
+          {status === 'live' ? 'Live trends' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
-        <span className="t-cap">{data.trend_version || 'rule-based-v1'}</span>
+        {/* Printed the raw version id, "rule-based-v1", which reads like an
+            error code. A trend is arithmetic on the learner's own scores - no
+            model is involved and none is claimed. */}
+        <span className="t-cap">Measured from your sessions</span>
         {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
       </motion.div>
 
@@ -188,41 +167,42 @@ export default function ProgressTrendsDetail() {
                 <LineChart size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
                 <span className="t-cap">{isAuthenticated ? userLabel : data.user_id || userId}</span>
               </div>
-              <div className="t-h3">Longitudinal skill progress</div>
+              <div className="t-h3">Are you actually getting better?</div>
               <p className="t-cap" style={{ maxWidth: 520, marginTop: 6, lineHeight: 1.6 }}>
-                Trend analysis compares session scores over time to identify improving, stable, declining, and insufficient-data skills.
+                One session tells you about one day. This compares all of them, which is the
+                only way to tell practice from a good afternoon.
               </p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, minWidth: 260 }}>
-              <MetricBox icon={Target} label="Analyzed" value={data.summary?.analyzed_skill_count || 0} />
-              <MetricBox icon={TrendingUp} label="Improving" value={data.summary?.improving_count || 0} />
-              <MetricBox icon={CheckCircle2} label="Stable" value={data.summary?.stable_count || 0} />
-              <MetricBox icon={TrendingDown} label="Declining" value={data.summary?.declining_count || 0} />
+              <MetricBox icon={Target} label="Skills tracked" value={data.summary?.analyzed_skill_count || 0} />
+              <MetricBox icon={TrendingUp} label="Getting better" value={data.summary?.improving_count || 0} />
+              <MetricBox icon={CheckCircle2} label="Holding steady" value={data.summary?.stable_count || 0} />
+              <MetricBox icon={TrendingDown} label="Slipping" value={data.summary?.declining_count || 0} />
             </div>
           </div>
         </Card>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Trend Visualisation" icon={LineChart}>
+        <Panel title="Every Session, Plotted" icon={LineChart}>
           <ProgressTrendVisualization trends={data.trends || []} labelFor={labelFor} />
         </Panel>
-        <Panel title="Selected Skill" icon={Activity}>
+        <Panel title="The Skill You Picked" icon={Activity}>
           <SelectedTrendCard item={selectedTrend} selectedSkill={selectedSkill} />
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        <Panel title="Strongest Improvement" icon={TrendingUp}>
-          <TrendHighlight item={data.summary?.strongest_improvement} emptyText="No strongest improvement yet" />
+        <Panel title="Your Biggest Win" icon={TrendingUp}>
+          <TrendHighlight item={data.summary?.strongest_improvement} emptyText="Nothing is climbing yet — keep going" />
         </Panel>
-        <Panel title="Strongest Decline" icon={TrendingDown}>
-          <TrendHighlight item={data.summary?.strongest_decline} emptyText="No strongest decline yet" />
+        <Panel title="Slipping The Most" icon={TrendingDown}>
+          <TrendHighlight item={data.summary?.strongest_decline} emptyText="Nothing is slipping. Good." />
         </Panel>
       </motion.div>
 
       <motion.div variants={fadeInUp}>
-        <Panel title="Trend Details" icon={BarChart3}>
+        <Panel title="All Four Skills" icon={BarChart3}>
           <TrendTable trends={sortedTrends} />
         </Panel>
       </motion.div>
@@ -231,11 +211,11 @@ export default function ProgressTrendsDetail() {
 }
 
 function SelectedTrendCard({ item, selectedSkill }) {
-  if (!item) return <EmptyMsg text={`No trend loaded for ${labelFor(selectedSkill)}`} />
+  if (!item) return <EmptyMsg text={`No sessions have measured your ${labelFor(selectedSkill).toLowerCase()} yet`} />
 
   const sessionCount = trendSessionCount(item)
   const hasTrend = hasTrendEvidence(item)
-  const emptyTrendValue = sessionCount > 0 ? 'Needs 2 sessions' : 'No data'
+  const emptyTrendValue = sessionCount > 0 ? 'Need one more session' : 'Nothing yet'
 
   return (
     <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)' }}>
@@ -248,8 +228,16 @@ function SelectedTrendCard({ item, selectedSkill }) {
       </div>
       <ScoreMovement first={item.first_score} latest={item.latest_score} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
-        <InfoBox label="Delta" value={hasTrend ? formatDelta(item.delta) : emptyTrendValue} />
-        <InfoBox label="Slope" value={hasTrend ? formatDelta(item.slope) : emptyTrendValue} />
+        {/* "Delta" and "slope" are what these are called in the code, and both
+            needed renaming — but "change so far" was worse than jargon, it was
+            wrong. It compares two single sessions out of dozens. On a skill
+            varying by 16 points between sessions those two endpoints can differ
+            by 26 while the line through all 68 is flat, which is exactly why the
+            badge above can read "holding steady" beside a number like -26. Both
+            are true; only one is a summary. Saying which sessions the number
+            comes from is what stops it being read as a verdict. */}
+        <InfoBox label="First vs latest session" value={hasTrend ? formatDelta(item.delta) : emptyTrendValue} />
+        <InfoBox label="Trend per session" value={hasTrend ? formatDelta(item.slope) : emptyTrendValue} />
       </div>
       <p className="t-cap" style={{ marginTop: 12, lineHeight: 1.55 }}>
         {sessionCount > 0
@@ -266,28 +254,34 @@ function TrendHighlight({ item, emptyText }) {
 }
 
 function TrendTable({ trends }) {
-  if (!trends.length) return <EmptyMsg text="No trend details yet" />
+  if (!trends.length) return <EmptyMsg text="Finish a couple of sessions and your lines will appear here" />
   return (
     <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-      <div style={{ minWidth: 780 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(5, 0.8fr) 1.4fr', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
-          {['Skill', 'Trend', 'First', 'Latest', 'Delta', 'Sessions', 'Recommendation'].map((h) => (
+      <div style={{ minWidth: 880 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr 0.7fr 0.6fr 0.9fr 0.7fr 2.4fr', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+          {/* Same renaming as the cards. "Delta" in particular compares two
+              single sessions, so it is named after what it compares. */}
+          {['Skill', 'Direction', 'Started at', 'Now', 'First vs latest', 'Sessions', 'What to do'].map((h) => (
             <span key={h} className="t-cap" style={{ fontWeight: 500 }}>{h}</span>
           ))}
         </div>
         {trends.map((item) => {
           const sessionCount = trendSessionCount(item)
           const hasTrend = hasTrendEvidence(item)
-          const emptyTrendValue = sessionCount > 0 ? 'Needs 2' : 'No data'
+          const emptyTrendValue = sessionCount > 0 ? 'One more' : 'Nothing yet'
           return (
-            <div key={item.skill_area} style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(5, 0.8fr) 1.4fr', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 }}>
+            <div key={item.skill_area} style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr 0.7fr 0.6fr 0.9fr 0.7fr 2.4fr', gap: 8, padding: '12px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13, alignItems: 'start' }}>
               <span className="fg" style={{ fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
               <span className="t-cap">{readableTrendLabel(item.trend_label)}</span>
               <span className="fg">{formatScore(item.first_score)}</span>
               <span className="fg">{formatScore(item.latest_score)}</span>
               <span className="fg">{hasTrend ? formatDelta(item.delta) : emptyTrendValue}</span>
               <span className="fg">{sessionCount}</span>
-              <span className="t-cap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.recommendation}</span>
+              {/* Was clipped to one line with an ellipsis, so the sentence telling
+                  the learner what to do about this skill ended mid-word. It is
+                  the only column here worth reading in full; the numbers beside
+                  it are all two or three characters. */}
+              <span className="t-cap" style={{ lineHeight: 1.5, whiteSpace: 'normal' }}>{item.recommendation}</span>
             </div>
           )
         })}
@@ -299,8 +293,8 @@ function TrendTable({ trends }) {
 function ScoreMovement({ first, latest }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <ScoreBar label="First" value={first} />
-      <ScoreBar label="Latest" value={latest} />
+      <ScoreBar label="When you started" value={first} />
+      <ScoreBar label="Where you are now" value={latest} />
     </div>
   )
 }
@@ -413,7 +407,16 @@ function hasTrendEvidence(item) {
   return trendSessionCount(item) >= 2 && item?.trend_label !== 'insufficient_data'
 }
 
+// The service's words, in the reader's. "insufficient_data" in particular is a
+// statement about our records, not about them, and reads like a verdict.
+const TREND_WORDS = {
+  improving: 'getting better',
+  declining: 'slipping',
+  stable: 'holding steady',
+  insufficient_data: 'need more sessions',
+}
+
 function readableTrendLabel(label) {
-  if (!label) return 'No data'
-  return label.replaceAll('_', ' ')
+  if (!label) return 'nothing yet'
+  return TREND_WORDS[label] || label.replaceAll('_', ' ')
 }

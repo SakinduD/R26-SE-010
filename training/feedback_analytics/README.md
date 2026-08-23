@@ -11,18 +11,97 @@ This folder stores the training datasets, generated model artifacts, and evaluat
 
 ## NLP Sentiment Training
 
-From `Backend`:
+From the project root:
 
 ```powershell
-python -m research.nlp_sentiment.train_sentiment_baseline
+python -m training.feedback_analytics.sentiment.train_sentiment_baseline
 ```
 
 The default paths point to this folder:
 
-- `../training/feedback_analytics/datasets/raw/sentiment140.csv`
-- `../training/feedback_analytics/models/sentiment_model.joblib`
-- `../training/feedback_analytics/evaluation/sentiment_evaluation.json`
-- `../training/feedback_analytics/evaluation/sentiment_model_comparison.csv`
+- `training/feedback_analytics/datasets/raw/sentiment140.csv`
+- `training/feedback_analytics/models/sentiment_model.joblib`
+- `training/feedback_analytics/evaluation/sentiment_evaluation.json`
+- `training/feedback_analytics/evaluation/sentiment_model_comparison.csv`
+
+Text cleaning is imported from `Backend/research/nlp_sentiment/sentiment_baseline.py`
+rather than duplicated, so training and serving always prepare text the same way.
+
+## Workplace Sentiment Validation
+
+The sentiment model is trained on Sentiment140 (2009 tweets) but is asked about
+workplace self-reflections. Its 78.01% figure is accuracy on tweets and is not
+evidence about this domain, so a separate hand-labelled set measures it here.
+
+Build or refresh the labelling sheet:
+
+```powershell
+python -m training.feedback_analytics.sentiment.build_validation_set
+```
+
+It collects every real learner reflection from `feedback_entries` and adds
+authored sentences covering phrasings the small real set does not contain. Labels
+are left empty on purpose. Re-running preserves existing labels and appends only
+new sentences.
+
+Label them through the text worksheet rather than by editing the CSV, which has
+quoted fields containing commas:
+
+```powershell
+python -m training.feedback_analytics.sentiment.label_worksheet           # export
+# fill each [__] with p / n / m / x, save, then:
+python -m training.feedback_analytics.sentiment.label_worksheet --apply   # read back
+```
+
+A letter that is not one of the four stops the whole apply and names the line;
+nothing partial is written.
+
+Then measure the current model against it:
+
+```powershell
+python -m training.feedback_analytics.sentiment.evaluate_workplace
+```
+
+Results are written to `evaluation/sentiment_workplace_evaluation.json`, split by
+`learner` and `authored` source, and include how many predictions clear the 0.60
+confidence gate that blind-spot detection requires. Run this before and after any
+model change against the same labelled file - that pair of numbers is the only
+evidence that a change was an improvement.
+
+### What the first measurement found
+
+`evaluation/sentiment_workplace_evaluation.json` records the run. Headline:
+
+| | Sentiment140 test set | workplace validation set |
+|---|---|---|
+| accuracy | 78.01% | 71.43% |
+
+Accuracy is the least interesting number in it. Two others decided how the model
+is used:
+
+- **The model is reliable in one direction only.** At the 0.60 gate it reads
+  "positive" correctly 7 times out of 7, and "negative" correctly 9 times out of
+  21. Raising the gate does not help - the wrong negative readings are among the
+  most confident (`"My voice was steady and I did not rush a single answer"` is
+  read as negative at 0.86). Sentiment140 is emoticon-labelled tweets, where
+  negative sentiment travels with complaint vocabulary; workplace reflections use
+  "not", "difficult", "mistake" descriptively.
+
+- **Mixed reflections are dumped into negative.** Of 15 rows labelled mixed or
+  neutral, 13 were read as negative. The model has two classes and cannot
+  abstain, and the real learner reflections collected so far are mostly mixed.
+
+Because of the first finding, `blind_spot_service.TRUSTED_DETECTED_SENTIMENTS`
+allows a sentiment blind spot to be raised only from a "positive" reading.
+`Backend/tests/test_sentiment_gap_direction.py` pins that. Widening it requires
+re-measuring a replacement model on this same validation set.
+
+Labels currently carry `labelled_by = unreviewed`: a first pass exists, but no
+person has confirmed it. The evaluation prints that share on every run and warns
+while it is below 1.0. The four rows marked `REVIEW` in the CSV are the arguable
+calls and are the ones worth checking first. Change a row's `labelled_by` to
+`human` once you have decided it yourself - the labelling worksheet does this
+automatically for anything you type into it.
 
 ## Predictive Behavioral Analytics Training
 

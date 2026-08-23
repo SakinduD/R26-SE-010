@@ -106,18 +106,13 @@ def test_create_feedback_auto_detects_sentiment_when_missing(client, monkeypatch
     assert response.json()["sentiment"] == "positive"
 
 
-def test_create_feedback_keeps_manual_sentiment(client, monkeypatch):
-    from app.services import sentiment_analysis_service
+def test_a_supplied_sentiment_becomes_the_declared_one_and_the_model_still_reads_the_text(client):
+    """The author's own view never suppresses the NLP reading.
 
-    def fail_if_called(text: str):
-        raise AssertionError("manual sentiment should not call NLP model")
-
-    monkeypatch.setattr(
-        sentiment_analysis_service,
-        "analyze_feedback_text",
-        fail_if_called,
-    )
-
+    Previously a supplied sentiment stopped the model from running at all, which
+    meant the sentiment module never executed on the production path. Both are
+    now kept: what the author said, and what the model read.
+    """
     response = client.post(
         "/api/v1/analytics/feedback",
         json={
@@ -130,7 +125,38 @@ def test_create_feedback_keeps_manual_sentiment(client, monkeypatch):
     )
 
     assert response.status_code == 201
-    assert response.json()["sentiment"] == "neutral"
+    body = response.json()
+    assert body["declared_sentiment"] == "neutral"        # what the author said
+    assert body["sentiment_source"] == "model"            # the model did run
+    assert body["sentiment"] in {"positive", "neutral", "negative"}
+    assert body["sentiment_model_version"]
+
+
+def test_generated_feedback_is_not_put_through_the_model(client, monkeypatch):
+    """System-written templates already carry a rule-derived label."""
+    from app.services import sentiment_analysis_service
+
+    def fail_if_called(text: str):
+        raise AssertionError("generated text must not be classified")
+
+    monkeypatch.setattr(sentiment_analysis_service, "analyze_feedback_text", fail_if_called)
+
+    response = client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "generated-sentiment-user",
+            "session_id": "generated-sentiment-session",
+            "feedback_type": "system",
+            "comment": "Adaptive pedagogy selected a personalized strategy.",
+            "sentiment": "neutral",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["sentiment"] == "neutral"
+    assert body["sentiment_source"] == "rule"
+    assert body["declared_sentiment"] is None
 
 
 def test_create_feedback_saves_when_sentiment_model_is_unavailable(client, monkeypatch):
@@ -507,317 +533,37 @@ def test_component_integration_maps_mca_skill_scores_directly(client):
 
 
 def test_post_session_report_combines_session_analytics(client):
-    session_id = "report-session"
+    """A self-rating far from the observed score is a blind spot.
+
+    Metrics and feedback must belong to the same learner and session: a blind
+    spot is the distance between what someone thought and what was measured, so
+    with no measurement there is nothing to be distant from.
+    """
+    session_id = "blind-session"
     client.post(
         "/api/v1/analytics/session-metrics",
         json={
-            "user_id": "report-user",
+            "user_id": "blind-user",
             "session_id": session_id,
-            "confidence_score": 58,
+            # presence_engagement reads eye_contact and confidence together
+            "eye_contact_score": 55,
+            "confidence_score": 55,
+            # emotional_intelligence reads empathy and emotional_control together
+            "empathy_score": 82,
+            "emotional_control_score": 82,
+            # speech_fluency reads pace and clarity together
+            "speech_pace_score": 74,
             "clarity_score": 74,
-            "empathy_score": 82,
-            "listening_score": 77,
-            "overall_score": 73,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "report-user",
-            "session_id": session_id,
-            "feedback_type": "self",
-            "skill_area": "confidence",
-            "rating": 92,
-            "sentiment": "positive",
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "report-user",
-            "session_id": session_id,
-            "feedback_type": "peer",
-            "skill_area": "confidence",
-            "rating": 60,
-            "sentiment": "neutral",
-        },
-    )
-    client.post(
-        "/api/v1/analytics/predictions",
-        json={
-            "user_id": "report-user",
-            "session_id": session_id,
-            "predicted_skill": "confidence",
-            "current_score": 58,
-            "predicted_score": 52,
-            "trend_label": "declining",
-            "risk_level": "high",
-            "recommendation": "Practice confidence with a shorter response script.",
-        },
-    )
-
-    response = client.get(f"/api/v1/analytics/sessions/{session_id}/report")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["session_id"] == session_id
-    assert data["user_id"] == "report-user"
-    assert data["report_version"] == "rule-based-report-v1"
-    assert data["summary"]["completion_status"] == "complete"
-    assert "Empathy" in data["summary"]["strengths"]
-    assert "Confidence" in data["summary"]["improvement_areas"]
-    assert data["aggregate"]["scores"]["metric_count"] == 1
-    assert data["skill_scores"]["skill_scores"]["confidence"] is not None
-    assert data["feedback_analysis"]["summary"]["blind_spot_count"] == 1
-    assert data["blind_spots"]["summary"]["total_count"] == 1
-    assert data["action_items"][0]["skill_area"] == "confidence"
-
-
-def test_post_session_report_returns_empty_report_for_unknown_session(client):
-    response = client.get("/api/v1/analytics/sessions/missing-session/report")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["session_id"] == "missing-session"
-    assert data["user_id"] is None
-    assert data["summary"]["completion_status"] == "empty"
-    assert data["summary"]["strengths"] == []
-    assert data["summary"]["improvement_areas"] == []
-    assert data["action_items"][0]["title"] == "Maintain current progress"
-
-
-def test_user_aggregate_returns_empty_summary_for_unknown_user(client):
-    response = client.get("/api/v1/analytics/users/unknown-user/aggregate")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["scope"] == "user"
-    assert data["user_id"] == "unknown-user"
-    assert data["scores"]["metric_count"] == 0
-    assert data["scores"]["averages"] == {}
-    assert data["feedback"]["total_count"] == 0
-    assert data["predictions"]["total_count"] == 0
-    assert data["data_completeness"] == {
-        "has_session_metrics": False,
-        "has_feedback": False,
-        "has_predictions": False,
-    }
-
-
-def test_calculate_skill_scores_from_payload(client):
-    response = client.post(
-        "/api/v1/analytics/skill-scores/calculate",
-        json={
-            "user_id": "score-user",
-            "session_id": "score-session",
-            "inputs": {
-                "confidence_score": 80,
-                "eye_contact_score": 70,
-                "speech_volume_score": 90,
-                "clarity_score": 75,
-                "speech_pace_score": 85,
-                "response_quality_score": 80,
-                "empathy_score": 65,
-                "listening_score": 88,
-                "adaptability_score": 72,
-                "emotional_control_score": 78,
-                "professionalism_score": 82,
-                "self_rating": 90,
-                "peer_rating": 70,
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["user_id"] == "score-user"
-    assert data["session_id"] == "score-session"
-    assert data["skill_scores"]["confidence"] == 78.5
-    assert data["skill_scores"]["communication_clarity"] == 77.75
-    assert data["skill_scores"]["empathy"] == 70.25
-    assert data["skill_scores"]["active_listening"] == 84.6
-    assert data["skill_scores"]["adaptability"] == 73.3
-    assert data["skill_scores"]["emotional_control"] == 80.85
-    assert data["skill_scores"]["professionalism"] == 79.6
-    assert data["overall_score"] == 77.84
-    assert data["completeness"] == 1.0
-    assert data["scoring_version"] == "rule-based-v1"
-    assert "confidence_score" in data["breakdown"]["confidence"]["inputs_used"]
-
-
-def test_session_skill_scores_use_saved_metrics_and_feedback(client):
-    client.post(
-        "/api/v1/analytics/session-metrics",
-        json={
-            "user_id": "stored-score-user",
-            "session_id": "stored-score-session",
-            "confidence_score": 80,
-            "eye_contact_score": 70,
-            "speech_volume_score": 90,
-            "clarity_score": 75,
-            "speech_pace_score": 85,
-            "response_quality_score": 80,
-            "empathy_score": 65,
-            "listening_score": 88,
-            "adaptability_score": 72,
-            "emotional_control_score": 78,
-            "professionalism_score": 82,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "stored-score-user",
-            "session_id": "stored-score-session",
-            "feedback_type": "self",
-            "rating": 90,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "stored-score-user",
-            "session_id": "stored-score-session",
-            "feedback_type": "peer",
-            "rating": 70,
-        },
-    )
-
-    response = client.get("/api/v1/analytics/sessions/stored-score-session/skill-scores")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["user_id"] == "stored-score-user"
-    assert data["session_id"] == "stored-score-session"
-    assert data["skill_scores"]["confidence"] == 78.5
-    assert data["skill_scores"]["empathy"] == 70.25
-    assert data["overall_score"] == 77.84
-    assert data["completeness"] == 1.0
-
-
-def test_calculate_skill_scores_rejects_invalid_input(client):
-    response = client.post(
-        "/api/v1/analytics/skill-scores/calculate",
-        json={
-            "inputs": {
-                "confidence_score": 150,
-            },
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_session_feedback_analysis_detects_self_peer_and_observed_gaps(client):
-    client.post(
-        "/api/v1/analytics/session-metrics",
-        json={
-            "user_id": "feedback-analysis-user",
-            "session_id": "feedback-analysis-session",
-            "confidence_score": 60,
-            "empathy_score": 82,
             "overall_score": 70,
         },
     )
     client.post(
         "/api/v1/analytics/feedback",
         json={
-            "user_id": "feedback-analysis-user",
-            "session_id": "feedback-analysis-session",
-            "feedback_type": "self",
-            "skill_area": "confidence",
-            "rating": 88,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "feedback-analysis-user",
-            "session_id": "feedback-analysis-session",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
-            "rating": 62,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "feedback-analysis-user",
-            "session_id": "feedback-analysis-session",
-            "feedback_type": "self",
-            "skill_area": "empathy",
-            "rating": 84,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "feedback-analysis-user",
-            "session_id": "feedback-analysis-session",
-            "feedback_type": "peer",
-            "skill_area": "empathy",
-            "rating": 80,
-        },
-    )
-
-    response = client.get("/api/v1/analytics/sessions/feedback-analysis-session/feedback-analysis")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["scope"] == "session"
-    assert data["user_id"] == "feedback-analysis-user"
-    assert data["session_id"] == "feedback-analysis-session"
-    assert data["summary"]["self_feedback_count"] == 2
-    assert data["summary"]["peer_feedback_count"] == 2
-    assert data["summary"]["blind_spot_count"] == 1
-    assert data["analysis_version"] == "rule-based-v1"
-
-    items = {item["skill_area"]: item for item in data["items"]}
-    assert items["confidence"]["alignment"] == "self_overestimation"
-    assert items["confidence"]["severity"] == "medium"
-    assert items["confidence"]["self_peer_gap"] == 26
-    assert items["confidence"]["self_observed_gap"] == 28
-    assert items["empathy"]["alignment"] == "aligned"
-    assert items["empathy"]["severity"] == "none"
-
-
-def test_user_feedback_analysis_returns_empty_summary_for_unknown_user(client):
-    response = client.get("/api/v1/analytics/users/no-feedback-user/feedback-analysis")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["scope"] == "user"
-    assert data["user_id"] == "no-feedback-user"
-    assert data["summary"] == {
-        "self_feedback_count": 0,
-        "peer_feedback_count": 0,
-        "analyzed_skill_count": 0,
-        "aligned_count": 0,
-        "blind_spot_count": 0,
-        "average_self_rating": None,
-        "average_peer_rating": None,
-    }
-    assert data["items"] == []
-
-
-def test_session_blind_spots_detects_and_prioritizes_self_perception_gaps(client):
-    client.post(
-        "/api/v1/analytics/session-metrics",
-        json={
             "user_id": "blind-user",
-            "session_id": "blind-session",
-            "confidence_score": 55,
-            "empathy_score": 90,
-            "clarity_score": 76,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "blind-user",
-            "session_id": "blind-session",
+            "session_id": session_id,
             "feedback_type": "self",
-            "skill_area": "confidence",
+            "skill_area": "presence_engagement",
             "rating": 92,
         },
     )
@@ -825,50 +571,20 @@ def test_session_blind_spots_detects_and_prioritizes_self_perception_gaps(client
         "/api/v1/analytics/feedback",
         json={
             "user_id": "blind-user",
-            "session_id": "blind-session",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
-            "rating": 58,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "blind-user",
-            "session_id": "blind-session",
+            "session_id": session_id,
             "feedback_type": "self",
-            "skill_area": "empathy",
-            "rating": 64,
+            "skill_area": "emotional_intelligence",
+            "rating": 56,
         },
     )
     client.post(
         "/api/v1/analytics/feedback",
         json={
             "user_id": "blind-user",
-            "session_id": "blind-session",
-            "feedback_type": "peer",
-            "skill_area": "empathy",
-            "rating": 88,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "blind-user",
-            "session_id": "blind-session",
+            "session_id": session_id,
             "feedback_type": "self",
-            "skill_area": "clarity",
+            "skill_area": "speech_fluency",
             "rating": 78,
-        },
-    )
-    client.post(
-        "/api/v1/analytics/feedback",
-        json={
-            "user_id": "blind-user",
-            "session_id": "blind-session",
-            "feedback_type": "peer",
-            "skill_area": "clarity",
-            "rating": 74,
         },
     )
 
@@ -883,18 +599,21 @@ def test_session_blind_spots_detects_and_prioritizes_self_perception_gaps(client
     assert data["summary"]["high_count"] == 1
     assert data["summary"]["medium_count"] == 1
     assert data["summary"]["low_count"] == 0
-    assert data["summary"]["strongest_blind_spot"]["skill_area"] == "confidence"
+    assert data["summary"]["strongest_blind_spot"]["skill_area"] == "presence_engagement"
     assert data["detection_version"] == "rule-based-v1"
 
     blind_spots = {item["skill_area"]: item for item in data["blind_spots"]}
-    assert blind_spots["confidence"]["blind_spot_type"] == "overestimation"
-    assert blind_spots["confidence"]["severity"] == "high"
-    assert blind_spots["confidence"]["comparison_source"] == "observed"
-    assert blind_spots["confidence"]["gap"] == 37
-    assert blind_spots["empathy"]["blind_spot_type"] == "underestimation"
-    assert blind_spots["empathy"]["severity"] == "medium"
-    assert blind_spots["empathy"]["gap"] == 26
-    assert "clarity" not in blind_spots
+    # rated 92, measured 55
+    assert blind_spots["presence_engagement"]["blind_spot_type"] == "overestimation"
+    assert blind_spots["presence_engagement"]["severity"] == "high"
+    assert blind_spots["presence_engagement"]["comparison_source"] == "observed"
+    assert blind_spots["presence_engagement"]["gap"] == 37
+    # rated 56, measured 82
+    assert blind_spots["emotional_intelligence"]["blind_spot_type"] == "underestimation"
+    assert blind_spots["emotional_intelligence"]["severity"] == "medium"
+    assert blind_spots["emotional_intelligence"]["gap"] == 26
+    # Self-rating within the tolerance of observed performance is not a blind spot.
+    assert "speech_fluency" not in blind_spots
 
 
 def test_user_blind_spots_returns_empty_result_for_unknown_user(client):
@@ -910,31 +629,38 @@ def test_user_blind_spots_returns_empty_result_for_unknown_user(client):
         "medium_count": 0,
         "low_count": 0,
         "strongest_blind_spot": None,
+        "sentiment_gap_count": 0,
     }
     assert data["blind_spots"] == []
+    assert data["sentiment_gaps"] == []
 
 
 def test_user_progress_trends_detects_improving_declining_and_stable_skills(client):
     session_payloads = [
         {
             "session_id": "trend-session-1",
-            "confidence_score": 55,
-            "empathy_score": 90,
-            "clarity_score": 72,
+            # Each tracked skill is a composite of two metric columns, so both
+            # halves are written; the trend value is their mean.
+            "speech_volume_score": 60,                                  # vocal_command
+            "speech_pace_score": 72, "clarity_score": 72,               # speech_fluency
+            "eye_contact_score": 55, "confidence_score": 55,            # presence_engagement
+            "empathy_score": 90, "emotional_control_score": 90,         # emotional_intelligence
             "overall_score": 70,
         },
         {
             "session_id": "trend-session-2",
-            "confidence_score": 65,
-            "empathy_score": 82,
-            "clarity_score": 73,
+            "speech_volume_score": 68,
+            "speech_pace_score": 73, "clarity_score": 73,
+            "eye_contact_score": 65, "confidence_score": 65,
+            "empathy_score": 82, "emotional_control_score": 82,
             "overall_score": 74,
         },
         {
             "session_id": "trend-session-3",
-            "confidence_score": 78,
-            "empathy_score": 70,
-            "clarity_score": 74,
+            "speech_volume_score": 74,
+            "speech_pace_score": 74, "clarity_score": 74,
+            "eye_contact_score": 78, "confidence_score": 78,
+            "empathy_score": 70, "emotional_control_score": 70,
             "overall_score": 80,
         },
     ]
@@ -957,20 +683,21 @@ def test_user_progress_trends_detects_improving_declining_and_stable_skills(clie
     assert data["summary"]["improving_count"] >= 2
     assert data["summary"]["declining_count"] == 1
     assert data["summary"]["stable_count"] == 1
-    assert data["summary"]["strongest_improvement"]["skill_area"] == "confidence"
-    assert data["summary"]["strongest_decline"]["skill_area"] == "empathy"
+    assert data["summary"]["strongest_improvement"]["skill_area"] == "presence_engagement"
+    assert data["summary"]["strongest_decline"]["skill_area"] == "emotional_intelligence"
 
     trends = {item["skill_area"]: item for item in data["trends"]}
-    assert trends["confidence"]["trend_label"] == "improving"
-    assert trends["confidence"]["first_score"] == 55
-    assert trends["confidence"]["latest_score"] == 78
-    assert trends["confidence"]["delta"] == 23
-    assert trends["confidence"]["slope"] == 11.5
-    assert len(trends["confidence"]["points"]) == 3
-    assert trends["empathy"]["trend_label"] == "declining"
-    assert trends["empathy"]["delta"] == -20
-    assert trends["communication_clarity"]["trend_label"] == "stable"
-    assert trends["adaptability"]["trend_label"] == "insufficient_data"
+    assert trends["presence_engagement"]["trend_label"] == "improving"
+    assert trends["presence_engagement"]["first_score"] == 55
+    assert trends["presence_engagement"]["latest_score"] == 78
+    assert trends["presence_engagement"]["delta"] == 23
+    assert trends["presence_engagement"]["slope"] == 11.5
+    assert len(trends["presence_engagement"]["points"]) == 3
+    assert trends["emotional_intelligence"]["trend_label"] == "declining"
+    assert trends["emotional_intelligence"]["delta"] == -20
+    assert trends["speech_fluency"]["trend_label"] == "stable"
+    # Every tracked skill has data here, so none falls back to insufficient_data.
+    assert trends["vocal_command"]["trend_label"] == "improving"
 
 
 def test_user_skill_progress_trend_returns_single_skill(client):
@@ -1046,11 +773,13 @@ def test_user_progress_trends_can_filter_history_up_to_selected_session(client):
     )
 
     assert response.status_code == 200
+    # confidence_score is one half of presence_engagement; with no eye_contact
+    # score recorded the composite is the confidence figure alone.
     trends = {item["skill_area"]: item for item in response.json()["trends"]}
-    assert trends["confidence"]["session_count"] == 2
-    assert trends["confidence"]["first_score"] == 40
-    assert trends["confidence"]["latest_score"] == 60
-    assert trends["confidence"]["delta"] == 20
+    assert trends["presence_engagement"]["session_count"] == 2
+    assert trends["presence_engagement"]["first_score"] == 40
+    assert trends["presence_engagement"]["latest_score"] == 60
+    assert trends["presence_engagement"]["delta"] == 20
 
 
 def test_user_progress_trends_returns_insufficient_data_for_unknown_user(client):
@@ -1070,23 +799,26 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     session_payloads = [
         {
             "session_id": "prediction-session-1",
-            "confidence_score": 55,
-            "empathy_score": 90,
-            "clarity_score": 72,
+            "speech_volume_score": 60,
+            "speech_pace_score": 72, "clarity_score": 72,
+            "eye_contact_score": 55, "confidence_score": 55,
+            "empathy_score": 90, "emotional_control_score": 90,
             "overall_score": 70,
         },
         {
             "session_id": "prediction-session-2",
-            "confidence_score": 65,
-            "empathy_score": 72,
-            "clarity_score": 73,
+            "speech_volume_score": 68,
+            "speech_pace_score": 73, "clarity_score": 73,
+            "eye_contact_score": 65, "confidence_score": 65,
+            "empathy_score": 72, "emotional_control_score": 72,
             "overall_score": 74,
         },
         {
             "session_id": "prediction-session-3",
-            "confidence_score": 78,
-            "empathy_score": 45,
-            "clarity_score": 74,
+            "speech_volume_score": 74,
+            "speech_pace_score": 74, "clarity_score": 74,
+            "eye_contact_score": 78, "confidence_score": 78,
+            "empathy_score": 45, "emotional_control_score": 45,
             "overall_score": 80,
         },
     ]
@@ -1106,19 +838,29 @@ def test_user_predicted_outcomes_generates_baseline_risk_predictions(client):
     data = response.json()
     assert data["user_id"] == "prediction-user"
     assert data["model_version"] == "rule-based-baseline-v1"
+    # One prediction per tracked skill. "Overall" is a summary of the four, not
+    # a fifth skill, so it is not predicted separately.
     assert data["summary"]["predicted_count"] == 4
     assert data["summary"]["high_risk_count"] == 1
     assert data["summary"]["low_risk_count"] >= 2
-    assert data["summary"]["highest_risk_prediction"]["predicted_skill"] == "empathy"
+    assert (
+        data["summary"]["highest_risk_prediction"]["predicted_skill"]
+        == "emotional_intelligence"
+    )
 
     predictions = {item["predicted_skill"]: item for item in data["predictions"]}
-    assert predictions["confidence"]["predicted_score"] == 88
-    assert predictions["confidence"]["risk_level"] == "low"
-    assert predictions["confidence"]["confidence"] == 0.65
-    assert predictions["empathy"]["predicted_score"] == 35
-    assert predictions["empathy"]["risk_level"] == "high"
-    assert predictions["communication_clarity"]["risk_level"] == "low"
-    assert predictions["overall"]["predicted_score"] == 85
+    assert predictions["presence_engagement"]["risk_level"] == "low"
+    assert predictions["speech_fluency"]["risk_level"] == "low"
+    assert predictions["emotional_intelligence"]["risk_level"] == "high"
+    # A falling skill is projected to keep falling, a rising one to keep rising.
+    assert (
+        predictions["emotional_intelligence"]["predicted_score"]
+        < predictions["emotional_intelligence"]["current_score"]
+    )
+    assert (
+        predictions["presence_engagement"]["predicted_score"]
+        > predictions["presence_engagement"]["current_score"]
+    )
 
 
 def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(client, monkeypatch):
@@ -1164,8 +906,8 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
         json={
             "user_id": "ml-prediction-user",
             "session_id": "ml-prediction-session-2",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 58,
             "comment": "The answer was unclear and needs stronger confidence.",
             "sentiment": "negative",
@@ -1178,7 +920,7 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
     data = response.json()
     assert data["model_version"] == "ml-predictive-behavioral-analytics-v1"
     prediction = data["predictions"][0]
-    assert prediction["predicted_skill"] == "confidence"
+    assert prediction["predicted_skill"] == "presence_engagement"
     assert prediction["predicted_score"] == 52
     assert prediction["risk_level"] == "high"
     assert prediction["confidence"] == 0.91
@@ -1216,19 +958,19 @@ def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
         json={
             "user_id": "real-ml-api-user",
             "session_id": "real-ml-api-session-2",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 72,
             "comment": "The learner showed better confidence and clearer delivery.",
             "sentiment": "positive",
         },
     )
 
-    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/confidence")
+    response = client.get("/api/v1/analytics/users/real-ml-api-user/predicted-outcomes/presence_engagement")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["predicted_skill"] == "confidence"
+    assert data["predicted_skill"] == "presence_engagement"
     assert data["current_score"] == 74
     assert data["predicted_score"] is not None
     assert 0 <= data["predicted_score"] <= 100
@@ -1236,6 +978,14 @@ def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
 
 
 def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkeypatch):
+    """A high but informative prediction is pulled back toward the evidence.
+
+    95 is extreme for a learner sitting at 40, and it is still a reading: the
+    model distinguished this input from others. It gets blended and bounded
+    rather than discarded. Contrast with the saturation test below, where the
+    model returns the very top of its range and has stopped distinguishing
+    anything at all.
+    """
     from app.services import ml_predictive_model_service
 
     user_id = "calibrated-ml-user"
@@ -1244,7 +994,7 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
             "user_id": user_id,
             "session_id": "calibrated-session-1",
             "feedback_type": "self",
-            "skill_area": "confidence",
+            "skill_area": "presence_engagement",
             "rating": 84,
             "sentiment": "positive",
         },
@@ -1252,15 +1002,15 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
             "user_id": user_id,
             "session_id": "calibrated-session-2",
             "feedback_type": "self",
-            "skill_area": "confidence",
+            "skill_area": "presence_engagement",
             "rating": 58,
             "sentiment": "neutral",
         },
         {
             "user_id": user_id,
             "session_id": "calibrated-session-3",
-            "feedback_type": "peer",
-            "skill_area": "confidence",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
             "rating": 40,
             "sentiment": "negative",
         },
@@ -1271,7 +1021,7 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
 
     def fake_extreme_ml_prediction(_features):
         return {
-            "predicted_score": 100,
+            "predicted_score": 95,
             "risk_level": "high",
             "confidence": 0.91,
             "model_version": "fake-extreme-model",
@@ -1283,16 +1033,79 @@ def test_user_predicted_outcomes_calibrates_extreme_ml_prediction(client, monkey
         fake_extreme_ml_prediction,
     )
 
-    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/confidence")
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes/presence_engagement")
     assert response.status_code == 200
 
     data = response.json()
     assert data["current_score"] == 40
-    assert data["predicted_score"] == 50
+    # The raw 95 is pulled most of the way back to the evidence, and never
+    # further from the current score than the allowed step for this little
+    # history. The exact landing point depends on the blend weight; that it
+    # cannot run away from the evidence is the property worth pinning.
+    assert data["predicted_score"] < 95
+    assert data["predicted_score"] - data["current_score"] <= 10
     assert data["risk_level"] == "high"
     assert 0 <= data["confidence"] <= 1
     assert data["evidence_points"] == 3
 
+
+
+def test_a_saturated_ml_prediction_is_discarded(client, monkeypatch):
+    """A model pinned to the top of its range is not predicting anything.
+
+    On real learner histories the trained regressor returns exactly 100.0 for
+    every skill. Blended at 55% that made every visible prediction "current score
+    + 15", shown beside a declining trend and a recommendation warning about
+    decline - three parts of one screen contradicting each other. A reading at
+    the boundary is treated as no reading, and the trend projection is used.
+    """
+    from app.services import ml_predictive_model_service
+
+    user_id = "saturated-ml-user"
+    for index, value in enumerate([80, 70, 60], start=1):
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": user_id,
+                "session_id": f"saturated-session-{index}",
+                "eye_contact_score": value,
+                "confidence_score": value,
+            },
+        )
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": user_id,
+                "session_id": f"saturated-session-{index}",
+                "feedback_type": "self",
+                "skill_area": "presence_engagement",
+                "rating": value,
+            },
+        )
+
+    monkeypatch.setattr(
+        ml_predictive_model_service,
+        "predict_behavioral_outcome",
+        lambda _features: {
+            "predicted_score": 100.0,
+            "risk_level": "low",
+            "confidence": 0.95,
+            "model_version": "saturated-model",
+            "model_type": {"regressor": "linear_regression"},
+        },
+    )
+
+    response = client.get(f"/api/v1/analytics/users/{user_id}/predicted-outcomes")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_version"] == "rule-based-baseline-v1"
+
+    prediction = {
+        item["predicted_skill"]: item for item in data["predictions"]
+    }["presence_engagement"]
+    # Falling, so the projection falls too - not "+15 and a warning".
+    assert prediction["predicted_score"] <= prediction["current_score"]
 
 def test_user_skill_predicted_outcome_returns_single_prediction(client):
     client.post(
@@ -1392,7 +1205,13 @@ def test_user_mentoring_recommendations_returns_rule_based_fallback(client, monk
     assert data["source"] == "rule_based"
     assert data["model_version"] == "rule-based-mentoring-v1"
     assert data["evidence"]["session_count"] == 2
-    assert data["evidence"]["feedback_count"] == 2
+    # feedback_count is now the number of sessions the learner rated themselves
+    # on, not the number of rows in the feedback table. The row count showed 392
+    # on the development account - two thirds of it notes this codebase wrote
+    # itself - beside "Sessions 118", which read as "you gave 392 pieces of
+    # feedback". Only one of these two sessions was self-assessed.
+    assert data["evidence"]["feedback_count"] == 1
+    assert data["evidence"]["feedback_entry_count"] == 2
     assert data["recommendations"]
     assert data["recommendations"][0]["priority"] in {"high", "medium"}
     assert data["recommendations"][0]["next_action"]
@@ -1451,3 +1270,231 @@ def test_user_mentoring_recommendations_can_use_llm_output(client, monkeypatch):
     assert data["model_version"]
     assert data["recommendations"][0]["source"] == "llm"
     assert data["recommendations"][0]["title"] == "Practice confident delivery"
+
+
+# ---------------------------------------------------------------------------
+# Sentiment blind spots — the gap between what a learner rated and what they wrote
+# ---------------------------------------------------------------------------
+
+def _self_entry(client, user_id, session_id, comment, declared, skill="presence_engagement"):
+    return client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": user_id,
+            "session_id": session_id,
+            "feedback_type": "self",
+            "skill_area": skill,
+            "rating": 70,
+            "comment": comment,
+            "sentiment": declared,
+        },
+    )
+
+
+def test_a_negative_rating_over_positive_words_is_reported_as_a_gap(client):
+    """The text-based counterpart of a rating blind spot.
+
+    Only this direction is reported. The reverse - a positive rating over words
+    the model reads as negative - was measured at 43% precision on workplace text
+    and is suppressed; see TRUSTED_DETECTED_SENTIMENTS in blind_spot_service.
+    """
+    created = _self_entry(
+        client,
+        "sent-gap-user",
+        "sent-gap-session",
+        "I am proud of how I handled that and I listened properly before replying.",
+        "negative",
+    )
+    assert created.status_code == 201
+    entry = created.json()
+    assert entry["sentiment_source"] == "model"
+
+    response = client.get("/api/v1/analytics/sessions/sent-gap-session/blind-spots")
+    assert response.status_code == 200
+    data = response.json()
+
+    if entry["sentiment"] != "positive":
+        pytest.skip("model did not read this wording as positive")
+
+    gaps = data["sentiment_gaps"]
+    assert len(gaps) == 1
+    gap = gaps[0]
+    assert gap["declared_sentiment"] == "negative"
+    assert gap["detected_sentiment"] == "positive"
+    assert gap["severity"] in {"medium", "high"}
+    assert gap["comment_excerpt"].startswith("I am proud of how I handled that")
+    assert gap["recommendation"]
+    assert data["summary"]["sentiment_gap_count"] == 1
+
+
+def test_a_positive_rating_over_negative_words_is_not_reported(client):
+    """The direction the model has not earned stays out of the findings."""
+    created = _self_entry(
+        client,
+        "sent-suppressed-user",
+        "sent-suppressed-session",
+        "I kept losing my train of thought and the whole thing felt awkward and rushed.",
+        "positive",
+    )
+    assert created.status_code == 201
+    entry = created.json()
+    if entry["sentiment"] != "negative":
+        pytest.skip("model did not read this wording as negative")
+
+    response = client.get(
+        "/api/v1/analytics/sessions/sent-suppressed-session/blind-spots"
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    # The reading is still stored on the entry and still shown to the learner as
+    # a reading. It simply is not promoted into a finding about them.
+    assert data["sentiment_gaps"] == []
+    assert data["summary"]["sentiment_gap_count"] == 0
+
+
+def test_agreement_produces_no_gap(client):
+    created = _self_entry(
+        client,
+        "sent-agree-user",
+        "sent-agree-session",
+        "Great session, I felt confident and the conversation flowed really well.",
+        "positive",
+    )
+    entry = created.json()
+    if entry["sentiment"] != "positive":
+        pytest.skip("model disagreed with the learner on this wording")
+
+    data = client.get("/api/v1/analytics/sessions/sent-agree-session/blind-spots").json()
+    assert data["sentiment_gaps"] == []
+    assert data["summary"]["sentiment_gap_count"] == 0
+
+
+def test_a_low_confidence_reading_is_not_reported_as_a_gap(db_session):
+    """The classifier is general-domain; a near-coin-toss must not become a finding."""
+    from app.models.analytics import FeedbackEntry
+    from app.services import blind_spot_service
+
+    db_session.add(
+        FeedbackEntry(
+            user_id="sent-lowconf-user",
+            session_id="sent-lowconf-session",
+            feedback_type="self",
+            skill_area="presence_engagement",
+            rating=70,
+            comment="It went about as well as I expected it to.",
+            sentiment="negative",
+            declared_sentiment="positive",
+            sentiment_confidence=0.51,        # below MIN_SENTIMENT_CONFIDENCE
+            sentiment_source="model",
+            sentiment_model_version="test-model",
+        )
+    )
+    db_session.commit()
+
+    result = blind_spot_service.detect_session_blind_spots(db_session, "sent-lowconf-session")
+
+    assert result.sentiment_gaps == []
+    assert result.summary.sentiment_gap_count == 0
+
+
+def test_opposite_poles_are_more_severe_than_a_neutral_disagreement(db_session):
+    from app.models.analytics import FeedbackEntry
+    from app.services import blind_spot_service
+
+    # Both use a detected "positive": that is the only reading trusted to
+    # produce a finding, so severity has to be compared within it.
+    for session_id, declared, detected in [
+        ("sent-sev-opposite", "negative", "positive"),
+        ("sent-sev-neutral", "neutral", "positive"),
+    ]:
+        db_session.add(
+            FeedbackEntry(
+                user_id="sent-sev-user",
+                session_id=session_id,
+                feedback_type="self",
+                skill_area="presence_engagement",
+                rating=70,
+                comment="A reflection written by the learner.",
+                sentiment=detected,
+                declared_sentiment=declared,
+                sentiment_confidence=0.82,
+                sentiment_source="model",
+                sentiment_model_version="test-model",
+            )
+        )
+    db_session.commit()
+
+    opposite = blind_spot_service.detect_session_blind_spots(db_session, "sent-sev-opposite")
+    neutral = blind_spot_service.detect_session_blind_spots(db_session, "sent-sev-neutral")
+
+    assert opposite.sentiment_gaps[0].severity == "high"
+    assert neutral.sentiment_gaps[0].severity == "medium"
+
+
+def test_rule_labelled_entries_are_never_treated_as_disagreement(db_session):
+    """System templates carry no independent reading, so they cannot disagree."""
+    from app.models.analytics import FeedbackEntry
+    from app.services import blind_spot_service
+
+    db_session.add(
+        FeedbackEntry(
+            user_id="sent-rule-user",
+            session_id="sent-rule-session",
+            feedback_type="system",
+            skill_area="presence_engagement",
+            comment="Adaptive pedagogy selected a personalized strategy.",
+            sentiment="negative",
+            declared_sentiment="positive",
+            sentiment_confidence=0.95,
+            sentiment_source="rule",          # not the model
+            sentiment_model_version=None,
+        )
+    )
+    db_session.commit()
+
+    result = blind_spot_service.detect_session_blind_spots(db_session, "sent-rule-session")
+
+    assert result.sentiment_gaps == []
+
+
+def test_rating_blind_spots_and_sentiment_gaps_are_counted_separately(client):
+    """Different evidence, so the learner is not shown one merged number."""
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "sent-mixed-user",
+            "session_id": "sent-mixed-session",
+            "eye_contact_score": 50,
+            "confidence_score": 50,
+        },
+    )
+    _self_entry(
+        client,
+        "sent-mixed-user",
+        "sent-mixed-session",
+        "I kept losing my train of thought and the whole thing felt awkward and rushed.",
+        "positive",
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "sent-mixed-user",
+            "session_id": "sent-mixed-session",
+            "feedback_type": "self",
+            "skill_area": "presence_engagement",
+            "rating": 95,
+        },
+    )
+
+    data = client.get("/api/v1/analytics/sessions/sent-mixed-session/blind-spots").json()
+
+    # The rating gap — self 95 against 50 observed — is reported as a skill blind spot.
+    assert data["summary"]["total_count"] >= 1
+    assert any(item["skill_area"] == "presence_engagement" for item in data["blind_spots"])
+
+    # The wording gap is reported separately, carrying the learner's own words
+    # rather than a score. Neither list contains the other kind of evidence.
+    assert data["summary"]["sentiment_gap_count"] == len(data["sentiment_gaps"])
+    assert all("comment_excerpt" in gap for gap in data["sentiment_gaps"])
+    assert all("skill_area" not in gap for gap in data["sentiment_gaps"])

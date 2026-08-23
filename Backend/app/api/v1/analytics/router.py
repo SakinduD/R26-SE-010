@@ -1,9 +1,16 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 import logging
 
 from app.api.dependencies import get_db
-from app.models.analytics import MentoringRecommendation
+from app.models.analytics import (
+    AnalyticsSessionMetric,
+    FeedbackEntry,
+    MentoringRecommendation,
+)
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
@@ -15,8 +22,12 @@ from app.schemas.analytics import (
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
+    AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
     GamificationProfileResult,
+    LearnerHistorySummary,
+    RecurringBlindSpotResult,
+    SessionBackfillResult,
     GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
@@ -32,6 +43,7 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    analytics_feedback_loop_service,
     analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
@@ -42,6 +54,8 @@ from app.services import (
     predictive_modeling_service,
     progress_trend_service,
     sentiment_analysis_service,
+    learner_history_service,
+    session_backfill_service,
     skill_scoring_service,
 )
 
@@ -217,7 +231,11 @@ def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_aggregate(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return data_aggregation_service.get_user_aggregate(db, user_id, limit)
@@ -253,7 +271,11 @@ def get_session_feedback_analysis(session_id: str, db: Session = Depends(get_db)
 )
 def get_user_feedback_analysis(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=feedback_analysis_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=feedback_analysis_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
@@ -273,7 +295,11 @@ def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_blind_spots(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=blind_spot_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=blind_spot_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return blind_spot_service.detect_user_blind_spots(db, user_id, limit)
@@ -329,6 +355,103 @@ def get_user_skill_predicted_outcome(
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
 
 
+@router.post(
+    "/users/{user_id}/backfill-sessions",
+    response_model=SessionBackfillResult,
+)
+def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
+    """Pull every completed session that has no analytics into the module.
+
+    Reads the role-play and multimodal tables directly, so a session is recorded
+    whether or not anyone opened an analytics page while it was running.
+    Idempotent — sessions that already have metrics are skipped.
+    """
+    try:
+        return session_backfill_service.backfill_user_sessions(db, user_id)
+    except Exception as exc:
+        logger.error("Session backfill failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/skill-history",
+    response_model=LearnerHistorySummary,
+)
+def get_learner_skill_history(user_id: str, db: Session = Depends(get_db)):
+    """Every skill across the learner's whole history.
+
+    Answers the questions the "All Sessions" view actually asks, which the
+    per-session panels cannot: where am I now versus where I started, what is my
+    best, and how much do I vary between sessions. Latest and average are both
+    returned because either alone misleads - one is a single session, the other
+    hides which way the learner is moving.
+    """
+    return learner_history_service.summarise_skill_history(db, user_id)
+
+
+@router.get(
+    "/users/{user_id}/recurring-blind-spots",
+    response_model=RecurringBlindSpotResult,
+)
+def get_recurring_blind_spots(user_id: str, db: Session = Depends(get_db)):
+    """Self-assessment gaps counted across sessions, not averaged over them.
+
+    Averaging cannot tell a habit from a bad day, and worse, it cancels: a
+    learner who is 20 points high one session and 20 low the next averages to
+    zero and reads as perfectly self-aware. Counting keeps both facts - how often
+    they were wrong, and whether they were wrong in a consistent direction.
+    """
+    return learner_history_service.detect_recurring_blind_spots(db, user_id)
+
+
+@router.post(
+    "/sessions/{session_id}/integrate",
+    response_model=SessionBackfillResult,
+)
+def integrate_session(session_id: str, db: Session = Depends(get_db)):
+    """Fold one just-finished session into analytics, reading it from the database.
+
+    The session-end hook used to assemble this payload in the browser from half a
+    dozen component endpoints. Any one of them failing — or the learner simply
+    navigating away before they all returned — left the session with no analytics
+    at all, so its scores never reached the dashboard, the trend lines or the
+    predictions.
+
+    Here the server reads the session it already stored. One call, one id, no
+    assembly, and idempotent: a session that already has metrics is skipped.
+    """
+    owner = session_backfill_service.resolve_session_owner(db, session_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail=f"No session found with id {session_id}")
+    try:
+        return session_backfill_service.backfill_user_sessions(
+            db, owner, session_id=session_id
+        )
+    except Exception as exc:
+        logger.error("Integration failed for session %s: %s", session_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to integrate session: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/learner-profile-signal",
+    response_model=AnalyticsFeedbackLoopResult,
+)
+def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
+    """The longitudinal learner profile analytics hands to the pedagogy engine.
+
+    Read-only. The pedagogy module pulls the same signal when it composes a plan;
+    exposing it here lets the learner see what their history currently says
+    before they regenerate.
+    """
+    signal = analytics_feedback_loop_service.build_learner_profile_signal(db, user_id)
+    return AnalyticsFeedbackLoopResult(
+        user_id=user_id,
+        signal=signal,
+        loop_version=analytics_feedback_loop_service.LOOP_VERSION,
+        generated_at=datetime.utcnow(),
+    )
+
+
 @router.get(
     "/users/{user_id}/gamification",
     response_model=GamificationProfileResult,
@@ -357,13 +480,64 @@ def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
         ) from exc
 
 
+# high before medium before low, whatever the strings sort like.
+_PRIORITY_ORDER = case(
+    {"high": 0, "medium": 1, "low": 2},
+    value=MentoringRecommendation.priority,
+    else_=3,
+)
+
+
+def _cached_recommendations_are_stale(db: Session, user_id: str, generated_at) -> bool:
+    """Has the learner done anything since this advice was written?
+
+    The cache had no expiry, so the first set of recommendations a learner ever
+    generated was the set they saw forever. Somebody could practise for another
+    three sessions, watch every score collapse, open this page and still be told
+    they were doing fine - because the page was answering a question asked weeks
+    earlier.
+
+    That defeats the point of the view. "Overall Progress" means "how am I doing
+    across everything", and everything keeps growing. A session or a piece of
+    feedback recorded after the advice was written makes the advice out of date
+    by definition, so it is rebuilt rather than served.
+    """
+    if generated_at is None:
+        return True
+
+    newer_session = (
+        db.query(AnalyticsSessionMetric.id)
+        .filter(
+            AnalyticsSessionMetric.user_id == user_id,
+            AnalyticsSessionMetric.created_at > generated_at,
+        )
+        .first()
+    )
+    if newer_session:
+        return True
+
+    newer_feedback = (
+        db.query(FeedbackEntry.id)
+        .filter(
+            FeedbackEntry.user_id == user_id,
+            FeedbackEntry.created_at > generated_at,
+        )
+        .first()
+    )
+    return newer_feedback is not None
+
+
 @router.get(
     "/users/{user_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
 )
 def get_user_mentoring_recommendations(
     user_id: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=2,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
@@ -377,9 +551,22 @@ def get_user_mentoring_recommendations(
                 MentoringRecommendation.session_id.is_(None),
                 MentoringRecommendation.recommendation_type == "overall_user",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).limit(limit).all()
+
+            newest = max((rec.created_at for rec in cached_recs), default=None)
+            if cached_recs and _cached_recommendations_are_stale(db, user_id, newest):
+                logger.info(
+                    "Saved recommendations for user %s predate newer activity; rebuilding",
+                    user_id,
+                )
+                cached_recs = []
 
             if cached_recs:
                 logger.info(f"Using saved recommendations for user {user_id}")
@@ -437,8 +624,13 @@ def get_session_mentoring_recommendations(
                 MentoringRecommendation.session_id == session_id,
                 MentoringRecommendation.recommendation_type == "session_specific",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).all()
 
             if cached_recs:
