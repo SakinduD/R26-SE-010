@@ -578,3 +578,40 @@ def test_api_exposes_rules(client):
     assert body["rules"]["base_session_xp"] == 10
     assert body["rules"]["max_performance_xp"] == 20
     assert body["rules"]["max_streak_bonus_xp"] == 14
+
+
+# ---------------------------------------------------------------------------
+# session-count badge tiers (5 / 25 sessions)
+# ---------------------------------------------------------------------------
+
+def test_momentum_builder_badge_unlocks_at_five_sessions(db_session):
+    user_id = "gam-momentum-user"
+    for i in range(5):
+        _add_session(db_session, user_id, f"gam-momentum-s{i}", overall=60)
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    assert _badge(result.profile, "momentum_builder").earned is True
+
+
+def test_momentum_builder_badge_reports_progress_before_five_sessions(db_session):
+    user_id = "gam-momentum-partial-user"
+    for i in range(4):
+        _add_session(db_session, user_id, f"gam-momentum-partial-s{i}", overall=60)
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    badge = _badge(result.profile, "momentum_builder")
+    assert badge.earned is False
+    assert badge.progress_percent == 80.0  # 4 / 5 sessions
+    assert badge.progress_hint == "4 / 5 sessions"
+
+
+def test_practice_veteran_badge_unlocks_at_twenty_five_sessions(db_session):
+    user_id = "gam-veteran-user"
+    for i in range(25):
+        _add_session(db_session, user_id, f"gam-veteran-s{i}", overall=60)
+
+    result = gamification_service.sync_user_gamification(db_session, user_id)
+
+    assert _badge(result.profile, "practice_veteran").earned is True

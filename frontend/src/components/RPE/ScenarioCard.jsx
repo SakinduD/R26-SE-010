@@ -42,10 +42,10 @@ export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarti
 
         <div className="end-hints">
           {scenario.end_conditions?.success_trust_threshold != null && (
-            <span className="hint">Resolves at trust ≥ {scenario.end_conditions.success_trust_threshold}</span>
+            <span className="hint">Succeeds once trust hits {scenario.end_conditions.success_trust_threshold}+</span>
           )}
           {scenario.end_conditions?.failure_escalation_threshold != null && (
-            <span className="hint danger">NPC exits at escalation ≥ {scenario.end_conditions.failure_escalation_threshold}/5</span>
+            <span className="hint danger">They'll walk away if tension hits {scenario.end_conditions.failure_escalation_threshold}/5</span>
           )}
         </div>
 

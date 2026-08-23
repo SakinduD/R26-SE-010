@@ -20,7 +20,7 @@ function escalationTone(v) {
 const TABS = [
   { id: 'quality',    label: 'Response Quality', dataKey: 'qualityCurve',    maxScale: 10,  refLine: 7,  refLabel: 'Target',    toneFn: qualityTone   },
   { id: 'trust',      label: 'Trust Score',       dataKey: 'trustCurve',      maxScale: 100, refLine: 50, refLabel: 'Baseline',  toneFn: trustTone     },
-  { id: 'escalation', label: 'Escalation',        dataKey: 'escalationCurve', maxScale: 5,   refLine: 2,  refLabel: 'Safe zone', toneFn: escalationTone },
+  { id: 'escalation', label: 'Tension',           dataKey: 'escalationCurve', maxScale: 5,   refLine: 2,  refLabel: 'Safe zone', toneFn: escalationTone },
 ]
 
 function calcStats(data) {
@@ -62,7 +62,7 @@ export default function QualityCurveChart({ qualityCurve = [], trustCurve = [], 
         </div>
 
         {data.length === 0 ? (
-          <div className="qc-empty">No data available</div>
+          <div className="qc-empty">No data yet</div>
         ) : (
           <div className="qc-bars">
             {data.map((point, i) => {

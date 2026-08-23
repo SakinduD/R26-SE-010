@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth/context';
+import logoMark from '@/assets/brand/logo-mark.png';
 
 function SidebarLink({ to, icon: Icon, label, collapsed = false }) {
   const { pathname } = useLocation();
@@ -73,7 +74,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       {/* Brand + collapse toggle */}
       <div className="sb-brand">
         <Link to="/dashboard" className="sb-mark" aria-label="EmpowerZ home">
-          EZ
+          <img src={logoMark} alt="" />
         </Link>
         {!collapsed && <span className="sb-brand-text">EmpowerZ</span>}
         <div style={{ flex: 1 }} />

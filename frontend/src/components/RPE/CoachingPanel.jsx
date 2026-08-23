@@ -26,7 +26,7 @@ export default function CoachingPanel({ coachingAdvice, truncated = false, onExp
 
       {!truncated && advice.length > 0 && (
         <div>
-          <p className="coach-section-label">Your 3 Action Points</p>
+          <p className="coach-section-label">3 Things to Try Next</p>
           <ol className="coach-advice-list">
             {advice.map((point, i) => (
               <li key={i}>
@@ -59,7 +59,7 @@ export default function CoachingPanel({ coachingAdvice, truncated = false, onExp
 
           <div>
             <p className="coach-col-label warning">
-              <Target size={13} strokeWidth={2} /> Focus Areas
+              <Target size={13} strokeWidth={2} /> What to Work On
             </p>
             <ul className="coach-list">
               {focus_areas.map((f, i) => (

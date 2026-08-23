@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { Bell, Info } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
+import NotificationBell from '@/components/achievements/NotificationBell';
 
 const CRUMB_MAP = {
   '/dashboard': ['Overview', 'Dashboard'],
@@ -72,16 +72,7 @@ export default function Topbar() {
       <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <kbd>⌘K</kbd>
-        <span className="t-cap" style={{ marginLeft: 6, marginRight: 14 }}>
-          Search
-        </span>
-        <button className="icon-btn" aria-label="Notifications" type="button">
-          <Bell size={14} strokeWidth={1.6} />
-        </button>
-        <button className="icon-btn" aria-label="Help" type="button">
-          <Info size={14} strokeWidth={1.6} />
-        </button>
+        <NotificationBell />
         <div
           aria-hidden
           style={{

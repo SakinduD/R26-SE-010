@@ -76,7 +76,7 @@ export default function MetricsHUD({
 
         <div>
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest block mb-2">
-            NPC Attitude
+            Their Attitude
           </span>
           <div className="flex items-center gap-2 flex-wrap">
             <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', toneStyle.pill)}>
@@ -92,7 +92,7 @@ export default function MetricsHUD({
 
         <div>
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest block mb-2">
-            Escalation
+            Tension
           </span>
           <div className="flex gap-1.5">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -114,7 +114,7 @@ export default function MetricsHUD({
                 ? 'text-danger font-semibold'
                 : 'text-muted-foreground/50'
             )}>
-              NPC exits at {failureEscalationThreshold}/5
+              They'll walk away at {failureEscalationThreshold}/5
             </p>
           )}
         </div>

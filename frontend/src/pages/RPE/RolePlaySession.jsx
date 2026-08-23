@@ -22,11 +22,11 @@ const EMOTION_META = {
 }
 
 const END_REASON_COPY = {
-  natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
+  natural_resolution: { icon: '✅', title: 'You Worked It Out',        sub: 'You brought the conversation to a good place.' },
   user_exit_intent:   { icon: '👋', title: 'Session Ended',            sub: 'You chose to end the conversation.' },
   npc_exit:           { icon: '💢', title: 'Session Ended',            sub: 'The conversation broke down under pressure.' },
   trust_sustained:    { icon: '🎉', title: 'Trust Built',              sub: 'You built enough trust to resolve the situation.' },
-  max_turns_reached:  { icon: '⏱', title: 'Maximum Turns Reached',    sub: 'Session ended at the turn limit.' },
+  max_turns_reached:  { icon: '⏱', title: 'You Reached the Turn Limit', sub: "You've used up all your turns for this session." },
 }
 
 const formatDuration = (totalSeconds) => {
@@ -323,7 +323,7 @@ export default function RolePlaySession() {
           ? 'listening'
           : autoMicEnabled ? 'listening' : 'manual'
 
-  const voicePillLabel = autoMicEnabled ? 'Voice Active' : 'Text Mode'
+  const voicePillLabel = autoMicEnabled ? 'Voice On' : 'Typing'
 
   return (
     <div className="rpe-vs" data-voice-state={voiceState} style={{ height: 'calc(100vh - 48px)' }}>
@@ -337,7 +337,7 @@ export default function RolePlaySession() {
               <div className="avatar-inner">🧑‍💼</div>
             </div>
             <div>
-              <div className="npc-name">{npcRole || 'NPC'}</div>
+              <div className="npc-name">{npcRole || 'Character'}</div>
               {difficulty && <div className="npc-role">{difficulty} scenario</div>}
             </div>
             <div className="scenario-pill">{scenarioTitle}</div>
@@ -396,7 +396,7 @@ export default function RolePlaySession() {
               className={cn('voice-pill', !autoMicEnabled && 'muted')}
               onClick={handleToggleMic}
               disabled={!canRecord || sessionComplete}
-              title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
+              title={autoMicEnabled ? 'Type instead of talking' : 'Talk instead of typing'}
             >
               {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
               {voicePillLabel}
@@ -415,7 +415,7 @@ export default function RolePlaySession() {
                     style={emo ? { '--msg-emotion': emo.color, '--msg-emotion-glow': emo.glow } : undefined}
                   >
                     <div className="msg-label">
-                      <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'NPC') : 'You'}
+                      <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'Character') : 'You'}
                       {emo && <emo.Icon size={11} strokeWidth={2} className="emo-icon" style={{ color: emo.color }} />}
                     </div>
                     <div className="msg-body">{msg.message}</div>
@@ -425,7 +425,7 @@ export default function RolePlaySession() {
 
               {isLoading && !npcSpeaking && (
                 <div className="typing">
-                  <div className="msg-label"><span className="bullet">●</span>{npcRole || 'NPC'}</div>
+                  <div className="msg-label"><span className="bullet">●</span>{npcRole || 'Character'}</div>
                   <div className="typing-dots"><span /><span /><span /></div>
                 </div>
               )}
@@ -441,14 +441,14 @@ export default function RolePlaySession() {
           <div className="visualizer">
             <div className="state-block state-speaking">
               <div className="wave"><span /><span /><span /><span /><span /><span /><span /></div>
-              <div className="state-text"><div className="state-title">{npcRole || 'NPC'} is speaking…</div></div>
+              <div className="state-text"><div className="state-title">{npcRole || 'Character'} is speaking…</div></div>
             </div>
 
             <div className="state-block state-listening">
               <div className="listen-orb"><div className="ring" /><div className="ring r2" /><div className="dot" /></div>
               <div className="state-text">
                 <div className="state-title">Listening…</div>
-                <div className="state-sub">Speak your response</div>
+                <div className="state-sub">Go ahead and speak</div>
               </div>
             </div>
 
@@ -470,7 +470,7 @@ export default function RolePlaySession() {
                     }
                   }}
                   disabled={isLoading || sessionComplete}
-                  placeholder="Voice unavailable — type your response…"
+                  placeholder="Can't use voice right now? Type your reply instead…"
                   className="manual-input"
                 />
                 <button
