@@ -356,20 +356,45 @@ class NudgeEngine:
         self.last_nudge_time: float = 0.0
         self.COOLDOWN_SECONDS: float = 10.0 # Global gap between any two nudges
         
-        # Frontend sends ~3s clips (was 1s), so a single chunk already covers the old
+        # Frontend sends ~3s clips, so a single chunk already covers the old
         # 3-chunk/3-second sustain window. Threshold lowered accordingly to avoid requiring
         # 9s of continuous behavior before a nudge fires.
         self.behavior_history: dict[str, int] = {}
         self.SUSTAIN_THRESHOLD = 1 # Behavior must persist for 1 chunk (~3 seconds)
 
+        # Fairness bookkeeping for _select_nudge
+        self.category_last_fired: dict[str, float] = {}
+
+    _SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
+
+    def _select_nudge(self, candidates: list[Nudge]) -> Nudge:
+        """
+        Choose which sustained nudge to surface this chunk when multiple
+        analyzers fire at once.
+
+        Priority: highest severity first; ties broken by whichever category
+        has gone longest without being surfaced (least-recently-fired wins).
+        This keeps lower-priority categories (pace/pitch/clarity/silence)
+        from being starved indefinitely by higher-priority ones (fusion/
+        volume) that happen to sit earlier in self._analyzers.
+        """
+        def rank(n: Nudge) -> tuple:
+            return (
+                self._SEVERITY_RANK.get(n.severity, 0),
+                -self.category_last_fired.get(n.category, 0.0),
+            )
+        return max(candidates, key=rank)
+
     def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
         """
-        Runs all analyzers in order. Returns a nudge only if behavior is sustained 
-        and global cooldown has passed.
+        Runs all analyzers and returns at most one nudge — the sustained
+        candidate chosen by _select_nudge — once the global cooldown has
+        passed. Every analyzer is evaluated every chunk (not just the first
+        one that matches), so no category is silently excluded from scoring.
         """
         import time
         current_time = time.time()
-        
+
         # 1. Global Cooldown Check (Don't even try if we recently nudged)
         if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
             return None
@@ -401,22 +426,35 @@ class NudgeEngine:
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 
-        # 3. Analyze and Buffer
+        # 3. Analyze every analyzer this chunk — do NOT stop at the first
+        candidates: list[Nudge] = []
         for analyzer in self._analyzers:
             nudge = analyzer.analyze(features)
-            
             if nudge:
-                # Increment hit count for this specific nudge
-                self.behavior_history[nudge.message] = self.behavior_history.get(nudge.message, 0) + 1
-                
-                # Only fire if sustained
-                if self.behavior_history[nudge.message] >= self.SUSTAIN_THRESHOLD:
-                    self.last_nudge_time = current_time
-                    self.behavior_history = {} # Reset all history after a successful nudge
-                    return nudge
-                
-                return None # Behavior detected but not yet sustained
-            
-        # If no nudge detected for this chunk, gradually clear history
-        self.behavior_history = {} 
-        return None
+                candidates.append(nudge)
+
+        if not candidates:
+            # Nothing detected this chunk — clear history so an isolated
+            # blip doesn't keep counting toward sustain later.
+            self.behavior_history = {}
+            return None
+
+        # Sustain tracking: each candidate behavior must persist for
+        # SUSTAIN_THRESHOLD consecutive chunks before it's eligible to fire.
+        seen_messages = {c.message for c in candidates}
+        sustained: list[Nudge] = []
+        for nudge in candidates:
+            self.behavior_history[nudge.message] = self.behavior_history.get(nudge.message, 0) + 1
+            if self.behavior_history[nudge.message] >= self.SUSTAIN_THRESHOLD:
+                sustained.append(nudge)
+        # Drop history for behaviors that didn't recur this chunk.
+        self.behavior_history = {k: v for k, v in self.behavior_history.items() if k in seen_messages}
+
+        if not sustained:
+            return None # Behavior(s) detected but not yet sustained
+
+        chosen = self._select_nudge(sustained)
+        self.last_nudge_time = current_time
+        self.category_last_fired[chosen.category] = current_time
+        self.behavior_history = {} # Reset all history after a successful nudge
+        return chosen
