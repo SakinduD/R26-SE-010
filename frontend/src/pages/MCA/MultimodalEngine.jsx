@@ -5,9 +5,10 @@ import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity, Mic, X, Play, Square, PictureInPicture2 } from 'lucide-react';
+import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
 import { mcaService } from '../../services/mca/mcaService';
+import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
 import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
 import clsx from 'clsx';
@@ -76,6 +77,17 @@ const MultimodalEngine = () => {
   const audioStreamRef = useRef(null);
   const recordRestartTimeoutRef = useRef(null);
 
+  // Meeting audio (other participant, shared tab/system audio) — optional,
+  // used only to feed the live-mode LLM scorer alongside the user's own voice.
+  const [liveMeetingAudioActive, setLiveMeetingAudioActive] = useState(false);
+  const meetingAudioStreamRef = useRef(null);
+
+  // Continuous transcription (both streams -> /api/stt) for live-mode LLM scoring.
+  const userTranscribeRecorderRef = useRef(null);
+  const meetingTranscribeRecorderRef = useRef(null);
+  const liveUserTranscriptRef = useRef([]);
+  const liveMeetingTranscriptRef = useRef([]);
+
   const liveSessionIdRef = useRef(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
@@ -114,12 +126,64 @@ const MultimodalEngine = () => {
 
     liveNudgeLogRef.current = [
       ...liveNudgeLogRef.current,
-      { message: text, category, severity, timestamp: newNudge.timestamp }
+      { message: text, category, severity, timestamp: newNudge.timestamp, elapsed_seconds: sessionDurationRef.current }
     ];
 
     setTimeout(() => {
       setNudges(prev => prev.filter(n => n.id !== id));
     }, 10000);
+  }, []);
+
+  // Continuously transcribes a media/shared windows media stream in short
+  // self-contained, back-to-back segments
+  const startTranscriptionLoop = useCallback((stream, targetRef, recorderRef, segmentMs = 8000) => {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+
+    const recordSegment = () => {
+      if (!stream.active) return;
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorderRef.current = recorder;
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      const segmentElapsedSeconds = sessionDurationRef.current;
+
+      recorder.onstop = async () => {
+        // Torn down (externally stopped/superseded) or stream ended mid-segment.
+        if (recorderRef.current !== recorder || !stream.active) return;
+
+        // Restart immediately (not after another segmentMs) so recording is
+        // back-to-back with no silent gap between segments.
+        recordSegment();
+
+        if (chunks.length === 0) return;
+        const blob = new Blob(chunks, { type: mimeType });
+        try {
+          const res = await fetch(`${API_URL}/api/stt`, {
+            method: 'POST',
+            headers: { 'Content-Type': mimeType },
+            body: blob,
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const transcript = (data.transcript || '').trim();
+          if (transcript) {
+            targetRef.current = [...targetRef.current, { text: transcript, elapsed_seconds: segmentElapsedSeconds }];
+          }
+        } catch (err) {
+          console.error('[Live transcription] STT request failed:', err);
+        }
+      };
+
+      recorder.start();
+      setTimeout(() => {
+        if (recorder.state !== 'inactive') recorder.stop();
+      }, segmentMs);
+    };
+
+    recordSegment();
   }, []);
 
   useEffect(() => {
@@ -450,6 +514,7 @@ const MultimodalEngine = () => {
       audioStreamRef.current = stream;
 
       setLiveMicActive(true);
+      startTranscriptionLoop(stream, liveUserTranscriptRef, userTranscribeRecorderRef);
 
       const socket = new WebSocket(mcaService.getAudioStreamUrl());
       socketRef.current = socket;
@@ -530,6 +595,11 @@ const MultimodalEngine = () => {
       clearTimeout(recordRestartTimeoutRef.current);
       recordRestartTimeoutRef.current = null;
     }
+    if (userTranscribeRecorderRef.current) {
+      const recorder = userTranscribeRecorderRef.current;
+      userTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
@@ -553,6 +623,58 @@ const MultimodalEngine = () => {
     startAudioCapture();
   };
 
+  // Optional: capture the "meeting" voice (other participant) via a shared
+  // tab/system audio track, so the live-mode LLM scorer can weigh both
+  // sides of the conversation.
+  const stopMeetingAudioCapture = () => {
+    setLiveMeetingAudioActive(false);
+    if (meetingTranscribeRecorderRef.current) {
+      const recorder = meetingTranscribeRecorderRef.current;
+      meetingTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    if (meetingAudioStreamRef.current) {
+      meetingAudioStreamRef.current.getTracks().forEach(track => track.stop());
+      meetingAudioStreamRef.current = null;
+    }
+  };
+
+  const startMeetingAudioCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      if (stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach(track => track.stop());
+        toast.warning("No shared audio detected.", {
+          description: "Re-share and tick 'Share audio' to include meeting voice in scoring."
+        });
+        return;
+      }
+
+      // Video is only required by the browser to grant the share; drop it.
+      stream.getVideoTracks().forEach(track => track.stop());
+
+      meetingAudioStreamRef.current = stream;
+      setLiveMeetingAudioActive(true);
+      startTranscriptionLoop(stream, liveMeetingTranscriptRef, meetingTranscribeRecorderRef);
+
+      // Sharing can be stopped from the browser's own "Stop sharing" bar.
+      stream.getAudioTracks()[0].addEventListener('ended', stopMeetingAudioCapture);
+    } catch (err) {
+      // User cancelled the share prompt — not an error, just stay opted-out.
+      if (err?.name !== 'NotAllowedError') {
+        console.error('Meeting audio capture error:', err);
+      }
+    }
+  };
+
+  const toggleMeetingAudio = () => {
+    if (liveMeetingAudioActive) {
+      stopMeetingAudioCapture();
+      return;
+    }
+    startMeetingAudioCapture();
+  };
+
   const startLiveSession = async () => {
     if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
 
@@ -566,6 +688,8 @@ const MultimodalEngine = () => {
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
     liveEmotionCountsRef.current = {};
+    liveUserTranscriptRef.current = [];
+    liveMeetingTranscriptRef.current = [];
     setSessionDuration(0);
     try {
       const session = await mcaService.startSession('live');
@@ -600,6 +724,7 @@ const MultimodalEngine = () => {
     }
     if (sid) {
       stopAudioCapture();
+      stopMeetingAudioCapture();
       setIsCameraActive(false);
 
       setLiveSessionId(null);
@@ -626,7 +751,9 @@ const MultimodalEngine = () => {
             avg_ear: metrics.ear,
             avg_mar: metrics.mar,
             avg_pitch: metrics.pose.pitch
-          }
+          },
+          liveUserTranscriptRef.current,
+          liveMeetingTranscriptRef.current
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
@@ -657,6 +784,7 @@ const MultimodalEngine = () => {
   useEffect(() => {
     return () => {
       stopAudioCapture();
+      stopMeetingAudioCapture();
       realEndLiveSession();
     };
   }, []);
@@ -761,9 +889,9 @@ const MultimodalEngine = () => {
           </p>
           {liveSessionId && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
-              <div className="px-3 py-1 bg-secondary/10 border border-secondary/20 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-                <span className="text-[10px] font-medium text-secondary tracking-widest uppercase">
+              <div className="px-3 py-1 bg-success/10 border border-success/20 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span className="text-[10px] font-medium text-success tracking-widest uppercase">
                   Session Active: {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
                 </span>
               </div>
@@ -921,6 +1049,15 @@ const MultimodalEngine = () => {
                         </span>
                       </div>
                     </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Meeting Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMeetingAudioActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMeetingAudioActive ? "text-info" : "text-muted-foreground/40")}>
+                          {liveMeetingAudioActive ? "Active" : "Optional"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex justify-center flex-1 shrink-0">
@@ -965,6 +1102,17 @@ const MultimodalEngine = () => {
                     >
                       <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
                       {liveMicActive ? "Stop Mic" : "Mic"}
+                    </button>
+                    <button
+                      onClick={toggleMeetingAudio}
+                      title="Optional: share your meeting tab/window with audio so both voices feed the session score"
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        liveMeetingAudioActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <MonitorUp size={14} className={clsx(liveMeetingAudioActive && "animate-pulse")} />
+                      {liveMeetingAudioActive ? "Stop Meeting Audio" : "Meeting Audio"}
                     </button>
                     {isCameraActive && (
                       <button
