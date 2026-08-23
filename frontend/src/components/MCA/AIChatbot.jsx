@@ -731,7 +731,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border transition-all duration-500 shadow-sm font-bold',
               msg.type === 'user'
-                ? 'bg-secondary/10 border-secondary/20 text-secondary'
+                ? 'bg-secondary/10 border-secondary/20 text-secondary-foreground'
                 : 'bg-primary/10 border-primary/20 text-primary'
             )}>
               {msg.type === 'user' ? <User size={14} /> : <Bot size={14} />}
@@ -739,7 +739,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border break-words overflow-hidden min-w-0',
               msg.type === 'user'
-                ? 'bg-secondary text-white border-secondary/20 rounded-tr-none'
+                ? 'bg-secondary text-secondary-foreground border-secondary/20 rounded-tr-none'
                 : 'bg-primary text-white border-primary/20 rounded-tl-none'
             )}>
               {msg.text}
