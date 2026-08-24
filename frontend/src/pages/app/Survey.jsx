@@ -71,8 +71,8 @@ export default function Survey() {
       >
         <PageHead
           eyebrow="Big Five Inventory"
-          title="Assessment complete"
-          sub={`Last submitted ${updated}`}
+          title="You're all set"
+          sub={`Last taken ${updated}`}
         />
 
         <motion.div variants={fadeInUp}>
@@ -83,8 +83,8 @@ export default function Survey() {
             </div>
             <div className="t-h2" style={{ marginBottom: 6 }}>Your profile is ready.</div>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 22, lineHeight: 1.6 }}>
-              You've already completed the personality assessment. Your profile is powering your
-              personalised training scenarios. You can review your results or retake the assessment.
+              You've already answered the questions, and your profile is shaping the training
+              scenarios you get. Have a look at what it says, or take it again if you'd like.
             </p>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -102,7 +102,7 @@ export default function Survey() {
               >
                 <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <RotateCcw size={14} strokeWidth={1.8} />
-                  Retake assessment
+                  Take it again
                 </span>
               </motion.button>
             </div>
@@ -119,12 +119,12 @@ export default function Survey() {
         <div className="page page-read" style={{ paddingBottom: 0 }}>
           <Banner variant="info">
             <div className="fg" style={{ fontWeight: 500 }}>
-              Complete the personality survey first
+              This survey comes first
             </div>
             <div className="t-cap" style={{ marginTop: 2 }}>
-              Your training plan is built from it — we use your Big Five profile to set the
-              difficulty, tone and focus skills. It takes about five minutes, and you'll be able
-              to create your plan straight afterwards.
+              Your training plan is built from it — your profile sets the difficulty, the tone
+              and which skills to work on. It takes about five minutes, and you can build your
+              plan right after.
             </div>
           </Banner>
         </div>
