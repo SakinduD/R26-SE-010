@@ -759,3 +759,157 @@ kbd {
     scrollbar-width: none;
   }
 }
+
+.survey-hint { line-height: 2.05; }
+.survey-hint kbd { vertical-align: middle; }
+
+/* Deliberately NOT sticky. The shell puts overflow-y:auto on .app-content, so
+   whether the window or that <main> is the real scrollport is ambiguous — and a
+   sticky offset that clears the 48px topbar is only right in one of those two
+   cases. In the other it pins too low and the page scrolls up underneath it,
+   swallowing whatever sits below. Five statements to a page fits on screen, so
+   a following progress bar bought nothing and cost that bug. */
+.survey-bar {
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.survey-bar-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 11px 32px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.survey-bar-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 18px;
+}
+
+/* One pip per page, filled in as each page is completed. Doubles as a jump
+   control, so pages already answered stay reachable without paging back. */
+.survey-pips { display: flex; gap: 4px; align-items: center; }
+.survey-pip {
+  flex: 1 1 0;
+  height: 3px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--dur-fast) var(--ease);
+}
+.survey-pip:hover { background: var(--border-strong); }
+.survey-pip:focus-visible { box-shadow: 0 0 0 2px var(--bg-canvas), 0 0 0 3px var(--border-focus); }
+.survey-pip[data-state="done"] { background: var(--accent); }
+.survey-pip[data-state="current"] { background: var(--text-tertiary); }
+
+/* Scale legend — same grid as .survey-q so the end labels sit directly over
+   the 1 and 5 columns rather than floating loose above them. */
+.survey-legend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+  padding: 0 18px 10px;
+}
+.survey-legend-scale {
+  display: grid;
+  grid-template-columns: repeat(5, 38px);
+  gap: 6px;
+}
+.survey-legend-end {
+  font-size: 10px;
+  line-height: 1.25;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-quaternary);
+  text-align: center;
+}
+.survey-legend-end.is-start { grid-column: 1; text-align: left; }
+.survey-legend-end.is-end { grid-column: 5; text-align: right; }
+
+/* Statement rows */
+.survey-list { display: flex; flex-direction: column; gap: 8px; }
+.survey-q {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 13px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  transition: border-color var(--dur-fast) var(--ease),
+              background var(--dur-fast) var(--ease);
+}
+.survey-q[data-active="true"] { border-color: var(--accent-muted); }
+/* Answered rows settle back visually, so what is left to do stays obvious. */
+.survey-q[data-answered="true"] .survey-q-body { color: var(--text-secondary); }
+.survey-q-text {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.survey-q-num {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-quaternary);
+  flex-shrink: 0;
+  min-width: 18px;
+  font-feature-settings: "tnum";
+}
+.survey-q[data-active="true"] .survey-q-num { color: var(--accent); }
+.survey-q-body {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Option buttons — same selected treatment as .likert-opt, at a compact size
+   that fits five statements on one screen. */
+.survey-scale { display: grid; grid-template-columns: repeat(5, 38px); gap: 6px; }
+.survey-opt {
+  height: 38px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: background var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease),
+              color var(--dur-fast) var(--ease);
+}
+.survey-opt:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.survey-opt:focus-visible { box-shadow: 0 0 0 2px var(--bg-canvas), 0 0 0 4px var(--border-focus); }
+.survey-opt[data-selected="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* Below 640px the two-column row would crush the statement, so the scale
+   drops underneath and stretches to full width. */
+@media (max-width: 640px) {
+  .survey-bar-inner { padding: 10px 16px 11px; }
+  .survey-legend { grid-template-columns: 1fr; gap: 6px; padding: 0 4px 10px; }
+  .survey-legend-scale { grid-template-columns: repeat(5, 1fr); }
+  .survey-q { grid-template-columns: 1fr; gap: 12px; padding: 14px; }
+  .survey-scale { grid-template-columns: repeat(5, 1fr); }
+}
