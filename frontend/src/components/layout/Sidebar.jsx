@@ -15,7 +15,6 @@ import {
   Sparkles,
   Eye,
   Lightbulb,
-  MessageSquare,
   FileText,
   Settings as SettingsIcon,
   ChevronRight,
@@ -152,7 +151,6 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           <SidebarLink to="/analytics-predictions" icon={Sparkles} label="Predictions" />
           <SidebarLink to="/analytics-blind-spots" icon={Eye} label="Blind Spots" />
           <SidebarLink to="/analytics-recommendations" icon={Lightbulb} label="Recommendations" />
-          <SidebarLink to="/analytics-feedback" icon={MessageSquare} label="Self-Reflection" />
           <SidebarLink to="/analytics-session-report" icon={FileText} label="Session Report" />
         </div>
       )}
