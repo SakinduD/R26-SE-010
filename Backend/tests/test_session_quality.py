@@ -165,3 +165,129 @@ def test_the_integration_endpoint_accepts_an_unknown_session(client):
     )
 
     assert response.status_code == 201
+
+
+# ------------------------------------- optional component data must not be fatal
+
+def test_an_adaptive_plan_with_a_numeric_difficulty_integrates(client):
+    """The bug behind "No component session data was found yet for this session".
+
+    The adaptive plan stores difficulty as an integer 1-10. ComponentAdaptivePlan
+    declared it a string, and the service re-validates strictly after FastAPI has
+    already accepted the request as a dict - so the integer 5 raised inside the
+    handler and the whole integration failed. The screen then reported that no
+    component data existed, on a session whose scores were entirely correct.
+    """
+    response = client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "plan-difficulty-user",
+            "session_id": "plan-difficulty-session",
+            "skill_type": "communication",
+            "adaptive_plan": {
+                "skill": "communication",
+                "difficulty": 5,
+                "primary_scenario": "scenario_001",
+            },
+            "mca_overall_score": 61,
+        },
+    )
+
+    assert response.status_code == 201
+
+
+@pytest.mark.parametrize(
+    "component",
+    [
+        {"adaptive_plan": {"recommended_scenario_ids": "not-a-list"}},
+        {"survey_profile": {"ocean_scores": "not-a-mapping"}},
+        {"mca_nudges": [{"confidence": 61, "nudge": "out of range"}]},
+    ],
+)
+def test_component_data_that_does_not_fit_is_dropped_not_fatal(client, component):
+    """Every one of these is context, not the result.
+
+    The session's own scores are what the learner sees; a survey profile or an
+    adaptive plan is extra. Losing one of those is a smaller loss than losing
+    the session, so a component that does not validate is dropped and logged.
+    """
+    response = client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "component-drop-user",
+            "session_id": f"component-drop-{abs(hash(str(component))) % 10000}",
+            "skill_type": "communication",
+            "mca_overall_score": 61,
+            **component,
+        },
+    )
+
+    assert response.status_code == 201
+
+
+def test_a_bad_nudge_does_not_take_the_good_ones_with_it(client):
+    """Dropped entries must leave the list, not sit in it as None.
+
+    A None among the nudges reaches the scorers as if it were one.
+    """
+    response = client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "nudge-mix-user",
+            "session_id": "nudge-mix-session",
+            "skill_type": "communication",
+            "mca_nudges": [
+                {"confidence": 61, "nudge": "out of range"},
+                {"confidence": 0.5, "nudge": "fine", "nudge_category": "pace"},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["source_summary"]["mca_nudge_count"] == 1
+
+
+def test_a_scenario_object_in_scenario_id_is_rejected_clearly(client):
+    """What the browser was actually sending.
+
+    The adaptive plan endpoint returns `primary_scenario` as the whole scenario -
+    title, context, npc_role, thresholds - and three screens passed it straight
+    into `scenario_id`. Every integration request came back 422 and the pages
+    reported "No component session data was found yet for this session ID." on
+    sessions whose scores were entirely correct.
+
+    The frontend now extracts the id (scenarioIdOf). This pins the server side of
+    the contract: a scenario object is not an id, and saying so with a 422 is
+    right - it should not be quietly accepted and stored as one.
+    """
+    response = client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "scenario-object-user",
+            "session_id": "scenario-object-session",
+            "scenario_id": {
+                "scenario_id": "scenario_004",
+                "title": "Sabotaged from Within",
+                "npc_role": "Undermining Colleague",
+            },
+            "mca_overall_score": 61,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "scenario_id"]
+
+
+def test_the_extracted_scenario_id_is_accepted(client):
+    response = client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "scenario-object-user",
+            "session_id": "scenario-string-session",
+            "scenario_id": "scenario_004",
+            "mca_overall_score": 61,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["scenario_id"] == "scenario_004"

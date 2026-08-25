@@ -96,7 +96,10 @@ class ComponentMcaNudge(BaseModel):
 class ComponentAdaptivePlan(BaseModel):
     skill: str | None = None
     strategy: str | None = None
-    difficulty: str | None = None
+    # The adaptive plan stores difficulty as an integer 1-10; earlier callers
+    # sent a word. Declared as a string only, an int failed validation and took
+    # the whole integration down with it - see _coerce_model.
+    difficulty: str | int | None = None
     recommended_scenario_ids: list[str] = []
     primary_scenario: str | None = None
     generation_source: str | None = None

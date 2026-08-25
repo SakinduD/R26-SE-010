@@ -20,7 +20,7 @@ import {
   normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeSurveyProfile,
-  optionalRequest, selectMcaSession,
+  integrateOnce, optionalRequest, scenarioIdOf, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
 const TREND_MARK = {
@@ -365,7 +365,7 @@ export default function AnalyticsDashboard() {
 
       // 1. If a session is selected, trigger integration first to calculate real system scores
       if (ts) {
-        const integrated = await pull(tu, ts)
+        const integrated = await integrateOnce(ts, () => pull(tu, ts))
         if (integrated) setMsg('Session data integrated!')
       }
 
@@ -439,7 +439,7 @@ export default function AnalyticsDashboard() {
       if (!hasPulledComponentData(src)) return {integrated:false}
       await analyticsService.integrateCompletedSession({
         user_id:tu, session_id:ts,
-        scenario_id: ap.data?.primary_scenario,
+        scenario_id: scenarioIdOf(ap.data?.primary_scenario),
         skill_type: ap.data?.skill||'communication',
         survey_profile:normalizeSurveyProfile(sp.data), adaptive_plan:normalizeAdaptivePlan(ap.data),
         mca_nudges:normalizeMcaNudges(nudges),

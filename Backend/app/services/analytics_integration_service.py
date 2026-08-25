@@ -36,7 +36,15 @@ def integrate_component_session_data(
     """
     adaptive_plan = _coerce_model(payload.adaptive_plan, ComponentAdaptivePlan)
     survey_profile = _coerce_model(payload.survey_profile, ComponentSurveyProfile)
-    mca_nudges = [_coerce_model(item, ComponentMcaNudge) for item in payload.mca_nudges]
+    # Dropped, not kept as None: _coerce_model returns None for an entry that
+    # does not validate, and a None in this list reaches the scorers as a nudge.
+    mca_nudges = [
+        nudge
+        for nudge in (
+            _coerce_model(item, ComponentMcaNudge) for item in payload.mca_nudges
+        )
+        if nudge is not None
+    ]
 
     metric_payload = _build_metric_payload(
         payload=payload,
@@ -304,11 +312,31 @@ def _system_feedback(
 
 
 def _coerce_model(value, model_type):
+    """Optional component data, or None when it does not fit.
+
+    Every one of these is an enhancement: the session's own scores are what the
+    learner sees, and a survey profile or adaptive plan is extra context. This
+    used to re-validate strictly and raise, so one malformed optional field
+    aborted the entire integration - an adaptive plan whose difficulty was the
+    integer 5 rather than the string "5" was enough to make the request fail and
+    the screen report that no component data existed at all.
+
+    A component that does not fit is dropped and logged. Losing that context is
+    a smaller loss than losing the session.
+    """
     if value is None:
         return None
     if isinstance(value, model_type):
         return value
-    return model_type.model_validate(value)
+    try:
+        return model_type.model_validate(value)
+    except Exception:
+        logger.warning(
+            "Dropping %s from the integration payload: it did not validate",
+            model_type.__name__,
+            exc_info=True,
+        )
+        return None
 
 
 def _optional_attr(value, attr: str):

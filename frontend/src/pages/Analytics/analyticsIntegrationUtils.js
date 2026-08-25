@@ -15,6 +15,56 @@ export function normalizeSurveyProfile(value) {
   }
 }
 
+/**
+ * A scenario reference, as an id string.
+ *
+ * The adaptive plan endpoint returns `primary_scenario` as the whole scenario -
+ * title, context, npc_role, thresholds - not an id. Passed straight through it
+ * reached the integration endpoint as `scenario_id: {…}` and every request came
+ * back 422 "Input should be a valid string", which the screen reported as "No
+ * component session data was found yet for this session ID."
+ */
+// Integrations already running, keyed by session. Two screens - and React's
+// development double-invoke of effects - fire the same integration for the same
+// session at the same moment. The work is not cheap (it writes a metric row,
+// replaces generated feedback, runs sentiment over the comments) and doing it
+// twice concurrently on one session is at best wasted and at worst two writers
+// racing over the same rows.
+//
+// Module scope on purpose: a ref inside a component does not survive the
+// remount that causes the second call.
+const inFlightIntegrations = new Map()
+
+/**
+ * Run `integrate` for this session, or join the run already in progress.
+ *
+ * Callers get the same promise, so both see the same outcome and the server
+ * sees one request.
+ */
+export function integrateOnce(sessionId, integrate) {
+  const key = String(sessionId || '')
+  if (!key) return integrate()
+
+  const existing = inFlightIntegrations.get(key)
+  if (existing) return existing
+
+  const run = Promise.resolve()
+    .then(integrate)
+    .finally(() => inFlightIntegrations.delete(key))
+
+  inFlightIntegrations.set(key, run)
+  return run
+}
+
+export function scenarioIdOf(value) {
+  if (!value) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'object') {
+    return value.scenario_id || value.id || value.scenarioId || null
+  }
+  return null
+}
+
 export function normalizeAdaptivePlan(value) {
   if (!value) return null
   return {
@@ -22,7 +72,10 @@ export function normalizeAdaptivePlan(value) {
     strategy: value.strategy || value.strategy_name || stringifyShort(value.strategy_json),
     difficulty: value.difficulty,
     recommended_scenario_ids: value.recommended_scenario_ids || value.scenario_ids || [],
-    primary_scenario: value.primary_scenario || value.selected_scenario_id || value.scenario_id,
+    primary_scenario:
+      scenarioIdOf(value.primary_scenario) ||
+      scenarioIdOf(value.selected_scenario_id) ||
+      scenarioIdOf(value.scenario_id),
     generation_source: value.generation_source,
     generation_status: value.generation_status,
   }
