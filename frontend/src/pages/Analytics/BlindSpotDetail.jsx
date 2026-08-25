@@ -139,7 +139,7 @@ export default function BlindSpotDetail() {
   useEffect(() => {
     let isActive = true
     async function loadSessions() {
-      const options = await loadComponentSessionOptions(analyticsService)
+      const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
       if (!isActive) return
       setSessionOptions(options)
       if (!params.sessionId && !sessionId) {

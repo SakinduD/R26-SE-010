@@ -1,0 +1,183 @@
+{
+ "taken_at": "2026-08-25T18:56:01.521774",
+ "applied": true,
+ "sessions": [
+  {
+   "session_id": "ed243c61-bab4-4783-82f9-b39deea0f05c",
+   "friendly_id": null,
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "d7572230-eb2a-4ae2-9817-9c89b1c1f45a",
+   "friendly_id": "MCA-AI-20260510-L5GF",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "76c516cc-da1a-49b2-b536-7ae401de3b09",
+   "friendly_id": "MCA-AI-20260510-2HJS",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "46532890-c794-4717-98db-c8ecf78c583d",
+   "friendly_id": "MCA-AI-20260510-J4Y1",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "9eba092e-a68d-4a7b-8eeb-b9b0eed5828b",
+   "friendly_id": "MCA-AI-20260630-ZS0A",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "eb725886-bdfb-468b-9fd3-b309661981d6",
+   "friendly_id": "MCA-AI-20260630-T6J4",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  },
+  {
+   "session_id": "a3e76434-ccf0-448a-b60b-b7e1a25ccf73",
+   "friendly_id": "MCA-AI-20260630-62C0",
+   "reason": "session is active, not completed - an unfinished session has no result to record"
+  }
+ ],
+ "metrics": [
+  {
+   "id": 40,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "d7572230-eb2a-4ae2-9817-9c89b1c1f45a",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": null,
+   "created_at": "2026-05-10 16:23:46.168171"
+  },
+  {
+   "id": 41,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "76c516cc-da1a-49b2-b536-7ae401de3b09",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": null,
+   "created_at": "2026-05-10 16:33:39.505249"
+  },
+  {
+   "id": 18,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "ed243c61-bab4-4783-82f9-b39deea0f05c",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": null,
+   "created_at": "2026-05-08 20:17:44.378159"
+  },
+  {
+   "id": 46,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "46532890-c794-4717-98db-c8ecf78c583d",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": null,
+   "created_at": "2026-05-10 18:35:46.294754"
+  },
+  {
+   "id": 60,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "a3e76434-ccf0-448a-b60b-b7e1a25ccf73",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": 0.0,
+   "created_at": "2026-07-07 13:01:03.249130"
+  },
+  {
+   "id": 61,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "eb725886-bdfb-468b-9fd3-b309661981d6",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": 0.0,
+   "created_at": "2026-07-07 13:01:37.085063"
+  },
+  {
+   "id": 62,
+   "user_id": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+   "session_id": "9eba092e-a68d-4a7b-8eeb-b9b0eed5828b",
+   "scenario_id": null,
+   "skill_type": "communication",
+   "confidence_score": null,
+   "clarity_score": null,
+   "empathy_score": null,
+   "listening_score": null,
+   "adaptability_score": null,
+   "emotional_control_score": null,
+   "professionalism_score": null,
+   "eye_contact_score": null,
+   "speech_pace_score": null,
+   "speech_volume_score": null,
+   "response_quality_score": null,
+   "overall_score": 0.0,
+   "created_at": "2026-07-07 13:01:51.852612"
+  }
+ ]
+}

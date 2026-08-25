@@ -348,7 +348,7 @@ def test_session_integration_awards_gamification_automatically(client):
     payload = {
         "user_id": "gam-integration-user",
         "session_id": "gam-integration-s1",
-        "rpe_feedback": {"overall_score": 75},
+        "mca_overall_score": 75,
     }
 
     integration = client.post("/api/v1/analytics/integrations/session-complete", json=payload)

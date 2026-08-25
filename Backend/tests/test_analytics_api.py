@@ -375,46 +375,6 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
             "primary_scenario": "scenario-hr-conflict",
             "generation_source": "adaptive_pedagogy",
         },
-        "rpe_session": {
-            "session_id": "integration-session-1",
-            "scenario_id": "scenario-hr-conflict",
-            "user_id": "integration-user",
-            "outcome": "resolved",
-            "final_trust": 82,
-            "final_escalation": 1,
-            "total_turns": 3,
-            "trust_history": [68, 76, 82],
-            "emotion_history": ["neutral", "concerned", "satisfied"],
-        },
-        "rpe_feedback": {
-            "session_id": "integration-session-1",
-            "scenario_id": "scenario-hr-conflict",
-            "scenario_title": "Handle a teammate disagreement",
-            "user_id": "integration-user",
-            "outcome": "resolved",
-            "final_trust": 82,
-            "final_escalation": 1,
-            "total_turns": 3,
-            "turn_metrics": [
-                {
-                    "turn": 1,
-                    "assertiveness_score": 70,
-                    "empathy_score": 78,
-                    "clarity_score": 74,
-                    "response_quality": 76,
-                },
-                {
-                    "turn": 2,
-                    "assertiveness_score": 82,
-                    "empathy_score": 84,
-                    "clarity_score": 80,
-                    "response_quality": 82,
-                },
-            ],
-            "risk_flags": ["brief interruption"],
-            "blind_spots": ["confidence"],
-            "coaching_advice": ["Pause before responding and summarize the other person first."],
-        },
         "mca_nudges": [
             {
                 "emotion": "calm",
@@ -460,25 +420,29 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
     assert data["source_summary"] == {
         "has_survey_profile": True,
         "has_adaptive_plan": True,
-        "has_rpe_session": True,
-        "has_rpe_feedback": True,
         "mca_nudge_count": 2,
             "submitted_feedback_count": 1,
-            "generated_feedback_count": 5,
+            "generated_feedback_count": 4,
     }
 
     metric = data["metric"]
-    assert metric["confidence_score"] == 76
-    assert metric["empathy_score"] == 81
-    assert metric["clarity_score"] == 77
-    assert metric["response_quality_score"] == 79
+    # These four had no source but role-play turn scores. A multimodal session
+    # fills them from its own per-skill scores (see the test below); this
+    # payload carries only nudges, so they stay empty rather than defaulting.
+    assert metric["confidence_score"] is None
+    assert metric["empathy_score"] is None
+    assert metric["clarity_score"] is None
+    assert metric["response_quality_score"] is None
     assert metric["speech_pace_score"] == 96
     assert metric["speech_volume_score"] == 61
     assert metric["overall_score"] is not None
 
     assert data["aggregate"]["scores"]["metric_count"] == 1
-    assert data["aggregate"]["feedback"]["total_count"] == 6
-    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 3
+    # 4 generated + 1 self. Was 6 while a role-play outcome added a fifth
+    # generated entry.
+    assert data["aggregate"]["feedback"]["total_count"] == 5
+    # One of the three system entries came from the role-play outcome.
+    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 2
     assert data["aggregate"]["feedback"]["by_type"]["self"] == 1
     assert "peer" not in data["aggregate"]["feedback"]["by_type"]
 

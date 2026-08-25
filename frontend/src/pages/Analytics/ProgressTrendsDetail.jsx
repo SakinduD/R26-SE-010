@@ -79,7 +79,7 @@ export default function ProgressTrendsDetail() {
 
   const loadSessionOptions = async () => {
     try {
-      const options = await loadComponentSessionOptions(analyticsService)
+      const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
       setSessionOptions(options)
       setSessionId((current) => current || selectPreferredComponentSession(options)?.id || '')
     } catch {
