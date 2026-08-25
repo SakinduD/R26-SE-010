@@ -72,10 +72,79 @@ export function normalizeComponentSessionOptions(mcaSessions) {
   )
 }
 
-export async function loadComponentSessionOptions(analyticsService) {
-  const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
+// How many sessions a picker asks for at a time. Deliberately small: the
+// dropdown reveals a few at a time rather than unrolling a hundred entries at
+// once, and this is the size of one reveal.
+export const SESSION_PAGE_SIZE = 5
 
-  return normalizeComponentSessionOptions(mcaSessions.data)
+/**
+ * One page of the learner's completed sessions, ready for a picker.
+ *
+ * Returns the options plus what is behind them, so the dropdown can say "5 of
+ * 115" and know whether asking again is worth it.
+ */
+export async function loadLearnerSessionPage(analyticsService, userId, offset = 0, limit = SESSION_PAGE_SIZE) {
+  const page = await optionalRequest(() =>
+    analyticsService.getLearnerSessions(userId, { limit, offset })
+  )
+  const data = page.data || {}
+  return {
+    options: normalizeLearnerSessions(data.items),
+    total: Number(data.total) || 0,
+    hasMore: Boolean(data.has_more),
+    nextOffset: (Number(data.offset) || 0) + (data.items?.length || 0),
+  }
+}
+
+/**
+ * Every completed session the learner has, for a picker.
+ *
+ * Fetched in full rather than page by page: the payload is a few rows per
+ * session and the pickers need to be able to reach the oldest one. What must
+ * not happen all at once is the *rendering* - AnalyticsSessionSelect reveals a
+ * few at a time - which is a different problem from how the data arrives.
+ *
+ * The loop is bounded. A learner cannot page forever, and a server that kept
+ * answering has_more would otherwise spin here.
+ */
+export async function loadComponentSessionOptions(analyticsService, userId) {
+  if (!userId) return []
+
+  const collected = []
+  let offset = 0
+  for (let page = 0; page < 20; page += 1) {
+    const result = await loadLearnerSessionPage(analyticsService, userId, offset, 500)
+    collected.push(...result.options)
+    if (!result.hasMore || result.nextOffset <= offset) break
+    offset = result.nextOffset
+  }
+  return collected
+}
+
+/** The analytics session endpoint's shape, mapped onto a picker option. */
+export function normalizeLearnerSessions(items) {
+  if (!Array.isArray(items)) return []
+
+  return items
+    .map((item) => {
+      if (!item?.session_id) return null
+      const when = item.ended_at || item.started_at
+      const labelDate = when ? new Date(when).toLocaleString() : null
+      const title = item.friendly_id || `MCA${item.skill_type ? ` · ${humanizeKey(item.skill_type)}` : ''}`
+      const score = item.overall_score == null ? null : `${Math.round(item.overall_score)}/100`
+
+      return {
+        id: String(item.session_id),
+        friendlyId: item.friendly_id || null,
+        source: 'mca',
+        status: 'completed',
+        startedAt: when,
+        title,
+        sublabel: [score, labelDate].filter(Boolean).join(' · '),
+        label: `${title}${labelDate ? ` - ${labelDate}` : ''}`,
+      }
+    })
+    .filter(Boolean)
 }
 
 // This preferred a role-play session over a multimodal one, so every page that

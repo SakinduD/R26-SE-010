@@ -92,6 +92,17 @@ export const analyticsService = {
   getComponentAdaptivePlan: () =>
     api.get('/api/v1/apa/plan/me').then(unwrap),
 
+  // The learner's completed sessions, newest first, from this module's own
+  // endpoint rather than the multimodal engine's. That one pages over sessions
+  // in any state, so a page of twenty could arrive with nothing selectable in
+  // it; this one filters before the limit and reports the true total.
+  getLearnerSessions: (userId, { limit = 5, offset = 0 } = {}) =>
+    api
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/sessions`, {
+        params: { limit, offset },
+      })
+      .then(unwrap),
+
   getComponentMcaSessions: (limit = 20, offset = 0) =>
     api.get('/api/v1/mca/sessions/', { params: { limit, offset } }).then(unwrap),
 

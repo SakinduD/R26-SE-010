@@ -32,7 +32,7 @@ from app.schemas.analytics import (
     SessionBackfillResult,
     SessionBackfillItem,
 )
-from app.services import analytics_integration_service
+from app.services import analytics_integration_service, mca_session_quality_service
 
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,14 @@ def _payload_for_mca(user_id: str, session: SessionResult) -> AnalyticsComponent
     for it would add a session to the learner's count while contributing no
     evidence, which quietly drags every average toward nothing.
     """
+    # A finished session can still hold nothing. One that observed nothing on
+    # any channel scores 50 in every dimension - not a finding, but where the
+    # reliability correction leaves a dimension it could not move - and storing
+    # that puts four fabricated fifties on the skill cards and makes them the
+    # latest point every trend and forecast is drawn from.
+    if mca_session_quality_service.rejection_reason(session):
+        return None
+
     skill_scores = _mca_skill_scores(session)
     nudges = _mca_nudges(session)
     if skill_scores is None and session.overall_score is None and not nudges:

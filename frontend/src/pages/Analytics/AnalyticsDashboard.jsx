@@ -16,7 +16,7 @@ import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
-  hasPulledComponentData, normalizeComponentSessionOptions,
+  hasPulledComponentData, loadComponentSessionOptions,
   normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeSurveyProfile,
@@ -452,8 +452,7 @@ export default function AnalyticsDashboard() {
 
   const loadSess = async () => {
     try {
-      const ms = await optionalRequest(()=>analyticsService.getComponentMcaSessions())
-      const o = normalizeComponentSessionOptions(ms.data)||[]
+      const o = await loadComponentSessionOptions(analyticsService, cid)
       setSessOpts(o); return o
     } catch { return [] }
   }

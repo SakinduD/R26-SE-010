@@ -685,3 +685,34 @@ class RecurringBlindSpotResult(BaseModel):
     strongest_pattern: RecurringBlindSpotItem | None = None
     generated_at: datetime
     detection_version: str
+
+
+class LearnerSessionOption(BaseModel):
+    """One selectable session, as the analytics session pickers need it."""
+
+    session_id: str
+    friendly_id: str | None = None
+    scenario_id: str | None = None
+    skill_type: str | None = None
+    overall_score: Score = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+
+class LearnerSessionPage(BaseModel):
+    """A page of a learner's completed sessions, newest first.
+
+    ``total`` is the count of everything selectable, not of this page, so a
+    picker can say "5 of 115" rather than implying the list ends where the page
+    does. The multimodal engine's own endpoint pages over sessions in any state
+    and leaves the filtering to the caller, which meant a picker asking for
+    twenty could receive twenty unfinished ones and show nothing - here the
+    filter is applied before the limit.
+    """
+
+    user_id: str
+    items: list[LearnerSessionOption]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

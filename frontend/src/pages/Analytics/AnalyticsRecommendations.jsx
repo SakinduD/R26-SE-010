@@ -60,7 +60,7 @@ export default function AnalyticsRecommendationsNew() {
 
     const loadSessions = async () => {
       try {
-        const options = await loadComponentSessionOptions(analyticsService)
+        const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
         setSessionOptions(options)
         setSessionId((current) => current || selectPreferredComponentSession(options)?.id || '')
       } catch (err) {

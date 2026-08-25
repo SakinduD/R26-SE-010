@@ -20,7 +20,7 @@ import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData,
   normalizeAdaptivePlan,
-  normalizeComponentSessionOptions,
+  loadComponentSessionOptions,
   normalizeMcaNudges,
   normalizeMcaOverallScore,
   normalizeMcaSessionNudges,
@@ -392,8 +392,7 @@ export default function SkillTwinProfile() {
   }
 
   const loadSessionOptions = async () => {
-    const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
-    const options = normalizeComponentSessionOptions(mcaSessions.data)
+    const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
     setSessionOptions(options)
     const preferred = selectPreferredComponentSession(options)
     if (preferred) setSessionId(current => current || preferred.id)

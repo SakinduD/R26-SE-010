@@ -126,7 +126,7 @@ export default function PredictiveAnalytics() {
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated) { setSessionOptions([]); setSelectedSessionId(''); return undefined }
     let active = true
-    loadComponentSessionOptions(analyticsService)
+    loadComponentSessionOptions(analyticsService, connectedUserId)
       .then((options) => {
         if (!active) return
         setSessionOptions(options)
