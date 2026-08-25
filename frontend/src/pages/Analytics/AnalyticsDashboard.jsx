@@ -19,7 +19,7 @@ import {
   hasPulledComponentData, normalizeComponentSessionOptions,
   normalizeAdaptivePlan, normalizeMcaNudges, normalizeMcaOverallScore,
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
-  normalizeRpeFeedback, normalizeRpeSession, normalizeSurveyProfile,
+  normalizeSurveyProfile,
   optionalRequest, selectMcaSession,
 } from './analyticsIntegrationUtils'
 
@@ -425,11 +425,9 @@ export default function AnalyticsDashboard() {
 
   const pull = async (tu, ts) => {
     try {
-      const [sp,ap,rs,rf,ms] = await Promise.all([
+      const [sp,ap,ms] = await Promise.all([
         optionalRequest(()=>analyticsService.getComponentSurveyProfile()),
         optionalRequest(()=>analyticsService.getComponentAdaptivePlan()),
-        optionalRequest(()=>analyticsService.getComponentRpeSession(ts)),
-        optionalRequest(()=>analyticsService.getComponentRpeFeedback(ts)),
         optionalRequest(()=>analyticsService.getComponentMcaSessions()),
       ])
       const mcs = selectMcaSession(ms.data,ts), nudges = normalizeMcaSessionNudges(mcs)
@@ -437,14 +435,13 @@ export default function AnalyticsDashboard() {
       const isSelectedMca = mcs && String(mcs.id) === String(ts)
       const mcaSkillScores = isSelectedMca ? normalizeMcaSkillScores(mcs) : null
       const mcaOverallScore = isSelectedMca ? normalizeMcaOverallScore(mcs) : null
-      const src = { surveyProfile:sp, adaptivePlan:ap, rpeSession:rs, rpeFeedback:rf, mcaNudges:{ok:nudges.length>0||Boolean(mcaSkillScores),data:nudges} }
+      const src = { surveyProfile:sp, adaptivePlan:ap, mcaNudges:{ok:nudges.length>0||Boolean(mcaSkillScores),data:nudges} }
       if (!hasPulledComponentData(src)) return {integrated:false}
       await analyticsService.integrateCompletedSession({
         user_id:tu, session_id:ts,
-        scenario_id: rs.data?.scenario_id||rf.data?.scenario_id||ap.data?.primary_scenario,
-        skill_type: ap.data?.skill||rf.data?.skill_type||'communication',
+        scenario_id: ap.data?.primary_scenario,
+        skill_type: ap.data?.skill||'communication',
         survey_profile:normalizeSurveyProfile(sp.data), adaptive_plan:normalizeAdaptivePlan(ap.data),
-        rpe_session:normalizeRpeSession(rs.data), rpe_feedback:normalizeRpeFeedback(rf.data),
         mca_nudges:normalizeMcaNudges(nudges),
         mca_skill_scores: mcaSkillScores || undefined,
         mca_overall_score: mcaOverallScore ?? undefined,
@@ -455,8 +452,8 @@ export default function AnalyticsDashboard() {
 
   const loadSess = async () => {
     try {
-      const [rs,ms] = await Promise.all([optionalRequest(()=>analyticsService.getComponentRpeSessions()), optionalRequest(()=>analyticsService.getComponentMcaSessions())])
-      const o = normalizeComponentSessionOptions(rs.data,ms.data)||[]
+      const ms = await optionalRequest(()=>analyticsService.getComponentMcaSessions())
+      const o = normalizeComponentSessionOptions(ms.data)||[]
       setSessOpts(o); return o
     } catch { return [] }
   }
@@ -474,8 +471,8 @@ export default function AnalyticsDashboard() {
   // Feedback breakdown that adds up:  Feedback = Self + System.
   //  • Self   = self-assessments (distinct sessions; self is stored 4 rows/skill so
   //             counting sessions keeps it as "1 assessment", not 4)
-  //  • System = auto-generated feedback items (system + mentor rows: RPE outcome,
-  //             MCA nudges, adaptive plan, survey profile). Peer isn't collected.
+  //  • System = auto-generated feedback items (system + mentor rows: MCA nudges,
+  //             adaptive plan, survey profile). Peer isn't collected.
   const fb = data?.aggregate?.feedback || {}
   const fbByType = fb.by_type || {}
   const fbSelf = fb.self_session_count || 0

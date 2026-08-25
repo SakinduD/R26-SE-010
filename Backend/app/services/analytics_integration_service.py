@@ -11,8 +11,6 @@ from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     ComponentAdaptivePlan,
     ComponentMcaNudge,
-    ComponentRpeFeedback,
-    ComponentRpeSession,
     ComponentSurveyProfile,
     FeedbackEntryCreate,
 )
@@ -36,16 +34,12 @@ def integrate_component_session_data(
     each sync replays the learner's whole history, so doing it per session would
     make importing fifty sessions quadratic for no benefit.
     """
-    rpe_feedback = _coerce_model(payload.rpe_feedback, ComponentRpeFeedback)
-    rpe_session = _coerce_model(payload.rpe_session, ComponentRpeSession)
     adaptive_plan = _coerce_model(payload.adaptive_plan, ComponentAdaptivePlan)
     survey_profile = _coerce_model(payload.survey_profile, ComponentSurveyProfile)
     mca_nudges = [_coerce_model(item, ComponentMcaNudge) for item in payload.mca_nudges]
 
     metric_payload = _build_metric_payload(
         payload=payload,
-        rpe_feedback=rpe_feedback,
-        rpe_session=rpe_session,
         adaptive_plan=adaptive_plan,
         mca_nudges=mca_nudges,
     )
@@ -53,8 +47,6 @@ def integrate_component_session_data(
 
     generated_feedback = _build_generated_feedback(
         payload=payload,
-        rpe_feedback=rpe_feedback,
-        rpe_session=rpe_session,
         adaptive_plan=adaptive_plan,
         survey_profile=survey_profile,
         mca_nudges=mca_nudges,
@@ -85,8 +77,6 @@ def integrate_component_session_data(
         source_summary=AnalyticsIntegrationSourceSummary(
             has_survey_profile=survey_profile is not None,
             has_adaptive_plan=adaptive_plan is not None,
-            has_rpe_session=rpe_session is not None,
-            has_rpe_feedback=rpe_feedback is not None,
             mca_nudge_count=len(mca_nudges),
             submitted_feedback_count=len(submitted_feedback),
             generated_feedback_count=len(generated_feedback),
@@ -161,27 +151,26 @@ def _replace_generated_feedback(
 
 def _build_metric_payload(
     payload: AnalyticsComponentIntegrationRequest,
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
     adaptive_plan: ComponentAdaptivePlan | None,
     mca_nudges: list[ComponentMcaNudge],
 ) -> AnalyticsSessionMetricCreate:
-    turn_metrics = rpe_feedback.turn_metrics if rpe_feedback else []
     scenario_id = (
         payload.scenario_id
-        or _optional_attr(rpe_feedback, "scenario_id")
-        or _optional_attr(rpe_session, "scenario_id")
         or _optional_attr(adaptive_plan, "primary_scenario")
     )
 
+    # Several of these were filled from role-play turn scores and now have no
+    # non-multimodal source. They stay in the dict because the mapping below
+    # writes into them, and because a metric row missing columns the rest of the
+    # module reads is worse than one holding an explicit None.
     values = {
-        "confidence_score": _average(item.assertiveness_score for item in turn_metrics),
-        "clarity_score": _average(item.clarity_score for item in turn_metrics),
-        "empathy_score": _average(item.empathy_score for item in turn_metrics),
-        "response_quality_score": _average(item.response_quality for item in turn_metrics),
-        "adaptability_score": _trust_score(rpe_feedback, rpe_session),
-        "emotional_control_score": _emotional_control_score(rpe_feedback, rpe_session, mca_nudges),
-        "professionalism_score": _professionalism_score(rpe_feedback, rpe_session),
+        "confidence_score": None,
+        "clarity_score": None,
+        "empathy_score": None,
+        "response_quality_score": None,
+        "adaptability_score": None,
+        "emotional_control_score": _nudge_score(mca_nudges, {"fusion", "ser"}),
+        "professionalism_score": None,
         "speech_pace_score": _nudge_score(mca_nudges, {"pace"}),
         "speech_volume_score": _nudge_score(mca_nudges, {"volume", "pitch"}),
         "eye_contact_score": _nudge_score(mca_nudges, {"fusion", "ser"}),
@@ -229,35 +218,11 @@ def _build_metric_payload(
 
 def _build_generated_feedback(
     payload: AnalyticsComponentIntegrationRequest,
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
     adaptive_plan: ComponentAdaptivePlan | None,
     survey_profile: ComponentSurveyProfile | None,
     mca_nudges: list[ComponentMcaNudge],
 ) -> list[FeedbackEntryCreate]:
     entries: list[FeedbackEntryCreate] = []
-
-    if rpe_feedback:
-        comment_parts = [
-            _sentence("Role-play outcome", rpe_feedback.outcome or _optional_attr(rpe_session, "outcome")),
-            _sentence("Risk flags", ", ".join(rpe_feedback.risk_flags)),
-            _sentence("Blind spots", ", ".join(rpe_feedback.blind_spots)),
-            _sentence("Coaching advice", " ".join(rpe_feedback.coaching_advice)),
-        ]
-        entries.append(
-            _system_feedback(
-                payload,
-                skill_area=payload.skill_type,
-                rating=_average(
-                    [
-                        _optional_attr(rpe_feedback, "final_trust"),
-                        _average(item.response_quality for item in rpe_feedback.turn_metrics),
-                    ]
-                ),
-                comment=" ".join(part for part in comment_parts if part),
-                sentiment=_sentiment_from_outcome(rpe_feedback.outcome),
-            )
-        )
 
     if adaptive_plan:
         entries.append(
@@ -355,68 +320,6 @@ def _average(values: Iterable[float | None]) -> float | None:
     if not valid_values:
         return None
     return round(sum(valid_values) / len(valid_values), 2)
-
-
-def _trust_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-) -> float | None:
-    trust_history = _optional_attr(rpe_session, "trust_history") or []
-    return _average(
-        [
-            _optional_attr(rpe_feedback, "final_trust"),
-            _optional_attr(rpe_session, "final_trust"),
-            *trust_history,
-        ]
-    )
-
-
-def _emotional_control_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-    mca_nudges: list[ComponentMcaNudge],
-) -> float | None:
-    escalations = [
-        value
-        for value in [
-            _optional_attr(rpe_feedback, "final_escalation"),
-            _optional_attr(rpe_session, "final_escalation"),
-        ]
-        if value is not None
-    ]
-    escalation_score = None
-    if escalations:
-        escalation_score = _clamp_score(100 - (max(escalations) * 18))
-    return _average([escalation_score, _nudge_score(mca_nudges, {"fusion", "ser"})])
-
-
-def _professionalism_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-) -> float | None:
-    trust = _trust_score(rpe_feedback, rpe_session)
-    escalation = max(
-        [
-            value
-            for value in [
-                _optional_attr(rpe_feedback, "final_escalation"),
-                _optional_attr(rpe_session, "final_escalation"),
-            ]
-            if value is not None
-        ],
-        default=None,
-    )
-    outcome = (_optional_attr(rpe_feedback, "outcome") or _optional_attr(rpe_session, "outcome") or "").lower()
-    if trust is None and escalation is None and not outcome:
-        return None
-    score = trust if trust is not None else 70
-    if escalation is not None:
-        score -= escalation * 8
-    if "success" in outcome or "resolved" in outcome:
-        score += 8
-    if "fail" in outcome or "escalated" in outcome:
-        score -= 10
-    return _clamp_score(score)
 
 
 def _normalize_mca_skill_scores(scores: dict[str, float] | None) -> dict[str, float]:

@@ -25,8 +25,6 @@ import {
   normalizeMcaOverallScore,
   normalizeMcaSessionNudges,
   normalizeMcaSkillScores,
-  normalizeRpeFeedback,
-  normalizeRpeSession,
   normalizeSurveyProfile,
   optionalRequest,
   selectMcaSession,
@@ -348,11 +346,9 @@ export default function SkillTwinProfile() {
   }
 
   const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
-    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
+    const [surveyProfile, adaptivePlan, mcaSessions] = await Promise.all([
       optionalRequest(() => analyticsService.getComponentSurveyProfile()),
       optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
-      optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
-      optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
       optionalRequest(() => analyticsService.getComponentMcaSessions()),
     ])
 
@@ -366,24 +362,18 @@ export default function SkillTwinProfile() {
     const sources = {
       surveyProfile,
       adaptivePlan,
-      rpeSession,
-      rpeFeedback,
       mcaNudges: { ok: mcaNudges.length > 0 || Boolean(mcaSkillScores), data: mcaNudges },
     }
 
     if (!hasPulledComponentData(sources)) return { checked: true, integrated: false }
 
     const scenarioId =
-      rpeSession.data?.scenario_id ||
-      rpeFeedback.data?.scenario_id ||
       adaptivePlan.data?.primary_scenario ||
       adaptivePlan.data?.selected_scenario_id ||
       adaptivePlan.data?.scenario_id
 
     const skillType =
       adaptivePlan.data?.skill ||
-      rpeFeedback.data?.skill_type ||
-      rpeSession.data?.skill_type ||
       'communication'
 
     await analyticsService.integrateCompletedSession({
@@ -393,8 +383,6 @@ export default function SkillTwinProfile() {
       skill_type: skillType,
       survey_profile: normalizeSurveyProfile(surveyProfile.data),
       adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
-      rpe_session: normalizeRpeSession(rpeSession.data),
-      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
       mca_nudges: normalizeMcaNudges(mcaNudges),
       mca_skill_scores: mcaSkillScores || undefined,
       mca_overall_score: mcaOverallScore ?? undefined,
@@ -404,11 +392,8 @@ export default function SkillTwinProfile() {
   }
 
   const loadSessionOptions = async () => {
-    const [rpeSessions, mcaSessions] = await Promise.all([
-      optionalRequest(() => analyticsService.getComponentRpeSessions()),
-      optionalRequest(() => analyticsService.getComponentMcaSessions()),
-    ])
-    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+    const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
+    const options = normalizeComponentSessionOptions(mcaSessions.data)
     setSessionOptions(options)
     const preferred = selectPreferredComponentSession(options)
     if (preferred) setSessionId(current => current || preferred.id)

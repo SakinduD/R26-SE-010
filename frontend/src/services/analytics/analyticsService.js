@@ -82,7 +82,7 @@ export const analyticsService = {
   integrateSession: (sessionId) =>
     api.post(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/integrate`).then(unwrap),
 
-  // Lets the session-end hook resolve the learner without the RPE/MCA screens
+  // Lets the session-end hook resolve the learner without the MCA screens
   // having to wire in the auth context themselves.
   getCurrentUserId: () => api.get('/api/v1/auth/me').then((r) => r.data?.id || ''),
 
@@ -91,15 +91,6 @@ export const analyticsService = {
 
   getComponentAdaptivePlan: () =>
     api.get('/api/v1/apa/plan/me').then(unwrap),
-
-  getComponentRpeSession: (sessionId) =>
-    api.get(`/api/v1/rpe/session-summary/${encodeURIComponent(sessionId)}`).then(unwrap),
-
-  getComponentRpeFeedback: (sessionId) =>
-    api.get(`/api/v1/rpe/session-feedback/${encodeURIComponent(sessionId)}`).then(unwrap),
-
-  getComponentRpeSessions: () =>
-    api.get('/api/v1/rpe/my-sessions').then(unwrap),
 
   getComponentMcaSessions: (limit = 20, offset = 0) =>
     api.get('/api/v1/mca/sessions/', { params: { limit, offset } }).then(unwrap),

@@ -93,46 +93,6 @@ class ComponentMcaNudge(BaseModel):
     nudge_severity: str | None = None
 
 
-class ComponentTurnMetric(BaseModel):
-    turn: int | None = None
-    assertiveness_score: Score = Field(default=None, ge=0, le=100)
-    empathy_score: Score = Field(default=None, ge=0, le=100)
-    clarity_score: Score = Field(default=None, ge=0, le=100)
-    response_quality: Score = Field(default=None, ge=0, le=100)
-    flags: list[str] = []
-
-
-class ComponentRpeSession(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    trust_history: list[float] = []
-    emotion_history: list[str] = []
-
-
-class ComponentRpeFeedback(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    scenario_title: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    turn_metrics: list[ComponentTurnMetric] = []
-    risk_flags: list[str] = []
-    blind_spots: list[str] = []
-    coaching_advice: list[str] = []
-    viz_payload: dict[str, Any] = {}
-    end_reason: str | None = None
-    recommended_turns: int | None = Field(default=None, ge=0)
-    max_turns: int | None = Field(default=None, ge=0)
-
-
 class ComponentAdaptivePlan(BaseModel):
     skill: str | None = None
     strategy: str | None = None
@@ -164,8 +124,6 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
     skill_type: str | None = Field(default=None, max_length=80)
     survey_profile: ComponentSurveyProfile | dict[str, Any] | None = None
     adaptive_plan: ComponentAdaptivePlan | dict[str, Any] | None = None
-    rpe_session: ComponentRpeSession | dict[str, Any] | None = None
-    rpe_feedback: ComponentRpeFeedback | dict[str, Any] | None = None
     mca_nudges: list[ComponentMcaNudge | dict[str, Any]] = []
     # Accurate per-skill scores already computed by the MCA engine
     # (vocal_command, speech_fluency, presence_engagement, emotional_regulation).
@@ -178,7 +136,9 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
 
 class SessionBackfillItem(BaseModel):
     session_id: str
-    source: Literal["mca", "rpe"]
+    # Only multimodal sessions are integrated. Role-play is a separate module
+    # with its own feedback screens; nothing in this component reads it.
+    source: Literal["mca"]
     label: str
     integrated: bool
     overall_score: Score = None
@@ -200,8 +160,6 @@ class SessionBackfillResult(BaseModel):
 class AnalyticsIntegrationSourceSummary(BaseModel):
     has_survey_profile: bool
     has_adaptive_plan: bool
-    has_rpe_session: bool
-    has_rpe_feedback: bool
     mca_nudge_count: int
     submitted_feedback_count: int
     generated_feedback_count: int

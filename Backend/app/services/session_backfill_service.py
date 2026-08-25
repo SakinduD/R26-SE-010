@@ -75,27 +75,6 @@ def _mca_candidates(db: Session, user_id: str) -> list[SessionResult]:
     )
 
 
-def _rpe_candidates(db: Session, user_id: str) -> list[dict]:
-    """Role-play sessions, read straight from the engine's own table.
-
-    Raw SQL because the role-play engine owns this table and does not expose an
-    ORM model to the rest of the application.
-    """
-    try:
-        rows = db.execute(
-            text(
-                "SELECT session_id, scenario_id, outcome, final_trust, final_escalation, ended_at "
-                "FROM rpe_sessions WHERE auth_user_id = :uid OR user_id = :uid "
-                "ORDER BY started_at ASC"
-            ),
-            {"uid": user_id},
-        ).mappings().all()
-    except Exception:
-        logger.exception("Could not read role-play sessions for user %s", user_id)
-        return []
-    return [dict(row) for row in rows]
-
-
 def _mca_skill_scores(session: SessionResult) -> dict[str, float] | None:
     raw = session.skill_scores or {}
     if not isinstance(raw, dict):
@@ -171,36 +150,17 @@ def _payload_for_mca(user_id: str, session: SessionResult) -> AnalyticsComponent
     )
 
 
-def _payload_for_rpe(user_id: str, row: dict) -> AnalyticsComponentIntegrationRequest | None:
-    """None when the role-play row holds no outcome, trust or escalation.
-
-    The engine writes a row when a session starts, so an abandoned conversation
-    leaves one behind with every field empty.
-    """
-    if row.get("outcome") is None and row.get("final_trust") is None and row.get("final_escalation") is None:
-        return None
-
-    return AnalyticsComponentIntegrationRequest(
-        user_id=user_id,
-        session_id=str(row["session_id"]),
-        scenario_id=row.get("scenario_id"),
-        skill_type="communication",
-        rpe_session={
-            "session_id": str(row["session_id"]),
-            "scenario_id": row.get("scenario_id"),
-            "outcome": row.get("outcome"),
-            "final_trust": row.get("final_trust"),
-            "final_escalation": row.get("final_escalation"),
-        },
-    )
-
-
 def resolve_session_owner(db: Session, session_id: str) -> str | None:
-    """Which learner does this session belong to?
+    """Which learner does this multimodal session belong to?
 
     Lets a caller integrate a session knowing only its id. The session-end hook
     fires from screens that do not carry the analytics learner id, and asking the
     browser for it adds a request that can fail on its own.
+
+    Returns None for a role-play session id. That is deliberate: role-play is a
+    separate module now and this component stores nothing about it, so the
+    session-end hook on that side resolves to nothing and does no work rather
+    than writing a metric row nothing will read.
     """
     try:
         row = (
@@ -214,25 +174,12 @@ def resolve_session_owner(db: Session, session_id: str) -> str | None:
         db.rollback()
         logger.debug("Session %s is not a multimodal session id", session_id)
 
-    try:
-        row = db.execute(
-            text(
-                "SELECT COALESCE(auth_user_id, user_id) FROM rpe_sessions "
-                "WHERE session_id = :sid LIMIT 1"
-            ),
-            {"sid": session_id},
-        ).first()
-    except Exception:
-        db.rollback()
-        logger.exception("Could not resolve owner of role-play session %s", session_id)
-        return None
-    return str(row[0]) if row and row[0] else None
+    return None
 
 
 def backfill_user_sessions(
     db: Session,
     user_id: str,
-    include_rpe: bool = True,
     session_id: str | None = None,
 ) -> SessionBackfillResult:
     """Bring every completed session that has no analytics into the module.
@@ -266,19 +213,6 @@ def backfill_user_sessions(
             skipped += 1
             continue
         items.append(_integrate(db, payload, "mca", session.friendly_id or session_id))
-
-    if include_rpe:
-        for row in _rpe_candidates(db, user_id):
-            candidate_id = str(row["session_id"])
-            if session_id is not None and candidate_id != session_id:
-                continue
-            if candidate_id in already:
-                continue
-            payload = _payload_for_rpe(user_id, row)
-            if payload is None:
-                skipped += 1
-                continue
-            items.append(_integrate(db, payload, "rpe", candidate_id))
 
     integrated = [item for item in items if item.integrated]
 

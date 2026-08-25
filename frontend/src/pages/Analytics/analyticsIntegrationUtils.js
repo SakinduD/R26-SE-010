@@ -28,14 +28,6 @@ export function normalizeAdaptivePlan(value) {
   }
 }
 
-export function normalizeRpeSession(value) {
-  return value || null
-}
-
-export function normalizeRpeFeedback(value) {
-  return value || null
-}
-
 export function normalizeMcaNudges(value) {
   if (!value) return []
   return Array.isArray(value) ? value : [value]
@@ -51,9 +43,8 @@ export function selectMcaSession(sessions, sessionId) {
 }
 
 // A session only belongs in the analytics dropdowns once it has finished.
-// MCA tracks this with status ('active' | 'completed' | 'abandoned'); RPE has no
-// status column, so a session counts as finished once it has an end timestamp
-// or a recorded outcome.
+// MCA tracks this with status ('active' | 'completed' | 'abandoned'); the
+// timestamp fallbacks below cover sessions stored without one.
 export function isCompletedSession(session) {
   if (!session) return false
 
@@ -63,30 +54,35 @@ export function isCompletedSession(session) {
   return Boolean(session.ended_at || session.completed_at || session.outcome)
 }
 
-export function normalizeComponentSessionOptions(rpeSessions, mcaSessions) {
-  return [
-    ...normalizeSessionOptions(rpeSessions, 'rpe'),
-    ...normalizeSessionOptions(mcaSessions, 'mca'),
-  ].sort((a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0))
+// Multimodal sessions only.
+//
+// Role-play sessions used to appear here too, and every page that reads this
+// list answers a question about the four tracked skills - three of which are
+// microphone and camera measurements. A role-play session is typed text, so it
+// has none of them: selecting one produced "Vocal Command 0" and a post-session
+// report headed "Vocal Command needs the most attention from this session",
+// about a conversation in which nobody spoke.
+//
+// Removed rather than special-cased, because the honest per-page alternative is
+// six different "this does not apply" states. Role-play sessions still have
+// their own feedback screens inside the role-play module.
+export function normalizeComponentSessionOptions(mcaSessions) {
+  return normalizeSessionOptions(mcaSessions).sort(
+    (a, b) => new Date(b.startedAt || 0) - new Date(a.startedAt || 0)
+  )
 }
 
 export async function loadComponentSessionOptions(analyticsService) {
-  const [rpeSessions, mcaSessions] = await Promise.all([
-    optionalRequest(() => analyticsService.getComponentRpeSessions()),
-    optionalRequest(() => analyticsService.getComponentMcaSessions()),
-  ])
+  const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
 
-  return normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+  return normalizeComponentSessionOptions(mcaSessions.data)
 }
 
+// This preferred a role-play session over a multimodal one, so every page that
+// auto-selects landed on the one kind of session it could not describe.
 export function selectPreferredComponentSession(options) {
   if (!Array.isArray(options) || !options.length) return null
-  return (
-    options.find((item) => item.source === 'rpe' && item.status === 'completed') ||
-    options.find((item) => item.source === 'mca' && item.status === 'completed') ||
-    options.find((item) => item.source === 'rpe') ||
-    options[0]
-  )
+  return options.find((item) => item.status === 'completed') || options[0]
 }
 
 export function isGeneratedAnalyticsSessionId(value) {
@@ -168,8 +164,6 @@ export function hasPulledComponentData(sources) {
   return Boolean(
     sources?.surveyProfile?.ok ||
     sources?.adaptivePlan?.ok ||
-    sources?.rpeSession?.ok ||
-    sources?.rpeFeedback?.ok ||
     sources?.mcaNudges?.ok
   )
 }
@@ -233,13 +227,13 @@ function stringifyShort(value) {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-function normalizeSessionOptions(sessions, source) {
+function normalizeSessionOptions(sessions) {
   if (!Array.isArray(sessions)) return []
 
   return sessions
     .filter((session) => isCompletedSession(session))
     .map((session) => {
-      const id = source === 'rpe' ? session.session_id : session.id
+      const id = session.id
       if (!id) return null
 
       const status = session.status || session.outcome || session.completion_status
@@ -252,7 +246,7 @@ function normalizeSessionOptions(sessions, source) {
         session.created_at ||
         session.createdAt
       const labelDate = startedAt ? new Date(startedAt).toLocaleString() : null
-      const sourceLabel = source === 'rpe' ? 'Role Play' : 'MCA'
+      const sourceLabel = 'MCA'
       const statusLabel = status ? humanizeKey(status) : 'Session'
       const friendlyId = session.friendly_id || null
 
@@ -266,7 +260,9 @@ function normalizeSessionOptions(sessions, source) {
       return {
         id: String(id),
         friendlyId,
-        source,
+        // Kept on the option so callers that group or key by it keep working;
+        // there is only one source now.
+        source: 'mca',
         status,
         startedAt,
         title,
