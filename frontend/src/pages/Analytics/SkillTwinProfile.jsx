@@ -445,7 +445,7 @@ export default function SkillTwinProfile() {
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
           {error && status !== 'live' ? <span className="text-sm text-warning">{error}</span> : null}
-          {integrationMessage ? <span className="text-sm text-secondary">{integrationMessage}</span> : null}
+          {integrationMessage ? <span className="text-sm text-muted-foreground">{integrationMessage}</span> : null}
         </div>
 
         {!hasLiveData && (
@@ -459,7 +459,7 @@ export default function SkillTwinProfile() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <UserCircle className="h-4 w-4 text-secondary" />
+                <UserCircle className="h-4 w-4 text-muted-foreground" />
                 <span>{isAuthenticated ? userLabel : userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Everything about you, on one page</h2>
@@ -537,7 +537,7 @@ function StatusPill({ status }) {
 function Metric({ icon: Icon, label, value }) {
   return (
     <div className="rounded-md border border-border bg-background/40 p-3">
-      <Icon className="mb-2 h-4 w-4 text-secondary" />
+      <Icon className="mb-2 h-4 w-4 text-muted-foreground" />
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
@@ -548,7 +548,7 @@ function Panel({ title, icon: Icon, children }) {
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
+        <Icon className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-semibold">{title}</h2>
       </div>
       {children}
