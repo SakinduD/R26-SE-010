@@ -467,20 +467,19 @@ export default function AnalyticsDashboard() {
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
-  // Feedback breakdown that adds up:  Feedback = Self + System.
-  //  • Self   = self-assessments (distinct sessions; self is stored 4 rows/skill so
-  //             counting sessions keeps it as "1 assessment", not 4)
-  //  • System = auto-generated feedback items (system + mentor rows: MCA nudges,
-  //             adaptive plan, survey profile). Peer isn't collected.
+  // Only the learner's own self-assessments.
+  //
+  // This tile used to read "Feedback 316 · Self 41 · System 275". The 275 were
+  // internal rows - one per MCA nudge, per adaptive-plan note, per survey
+  // profile - and calling them "feedback" invited the obvious question: what
+  // feedback did the system give me, and where do I read it? There is no such
+  // screen; they are inputs to a score, not messages to a person.
+  //
+  // Counted by session rather than by row: a self-assessment is stored as four
+  // rows, one per skill, so 41 sessions rated would otherwise read as 164.
   const fb = data?.aggregate?.feedback || {}
-  const fbByType = fb.by_type || {}
   const fbSelf = fb.self_session_count || 0
-  const fbSystem = (fbByType.system || 0) + (fbByType.mentor || 0)
-  const fbTotal = fbSelf + fbSystem
-  const fbBreakdown = [
-    fbSelf && `Self ${fbSelf}`,
-    fbSystem && `System ${fbSystem}`,
-  ].filter(Boolean).join(' · ')
+  const fbTotal = fbSelf
   // Overall is the mean of the four skills — a summary, not a skill — so it always
   // equals the average of the four skill cards shown below.
   // One sentence telling a first-time reader what the headline number is. The
@@ -607,7 +606,11 @@ export default function AnalyticsDashboard() {
               // Sessions = user's lifetime total when no session is selected, or the
               // selected session's count when one is chosen (aggregate scope follows the selection).
               { l: 'Sessions', v: data?.aggregate?.scores?.metric_count || 0 },
-              { l: 'Feedback', v: fbTotal, sub: fbBreakdown },
+              {
+                l: 'Self-Assessments',
+                v: fbTotal,
+                sub: sessionCount ? `of ${sessionCount} sessions` : null,
+              },
               { l: 'Insights', v: preds.length },
             ].map(x =>
               <div
