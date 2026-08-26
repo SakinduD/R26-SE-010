@@ -1462,3 +1462,81 @@ def test_rating_blind_spots_and_sentiment_gaps_are_counted_separately(client):
     assert data["summary"]["sentiment_gap_count"] == len(data["sentiment_gaps"])
     assert all("comment_excerpt" in gap for gap in data["sentiment_gaps"])
     assert all("skill_area" not in gap for gap in data["sentiment_gaps"])
+
+
+# ------------------------------------- overall is the engine's, never a mean
+
+# Deliberately inconsistent: the four composites average to 80, the engine
+# recorded 61. Every screen that names this session's overall score has to say
+# 61. Real sessions disagree by this much - across the development account the
+# two differ on 37 of 99 sessions, by up to 13.5 points - because the engine
+# weights its dimensions its own way rather than taking a flat mean.
+_MIXED_SESSION = {
+    "user_id": "overall-source-user",
+    "session_id": "overall-source-session",
+    "speech_volume_score": 80,
+    "speech_pace_score": 80,
+    "clarity_score": 80,
+    "eye_contact_score": 80,
+    "confidence_score": 80,
+    "empathy_score": 80,
+    "emotional_control_score": 80,
+    "overall_score": 61,
+}
+_MEAN_OF_THE_FOUR = 80
+_ENGINE_OVERALL = 61
+
+
+def _store_mixed_session(client):
+    assert client.post("/api/v1/analytics/session-metrics", json=_MIXED_SESSION).status_code == 201
+
+
+def test_the_session_aggregate_reports_the_stored_overall(client):
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/aggregate")
+
+    assert response.status_code == 200
+    assert response.json()["scores"]["averages"]["overall_score"] == _ENGINE_OVERALL
+
+
+def test_the_post_session_report_reports_the_stored_overall(client):
+    """This was the mean, which made the report tidy and made it disagree with
+    the session. The four skill boxes beside it still read 80."""
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/report")
+
+    assert response.status_code == 200
+    scores = response.json()["skill_scores"]
+    assert scores["overall_score"] == _ENGINE_OVERALL
+    assert scores["overall_score"] != _MEAN_OF_THE_FOUR
+
+
+def test_the_skill_score_endpoint_reports_the_stored_overall(client):
+    """Its own weighting stands only where the session stored nothing."""
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/skill-scores")
+
+    assert response.status_code == 200
+    assert response.json()["overall_score"] == _ENGINE_OVERALL
+
+
+def test_the_learner_history_carries_the_stored_overall_separately(client):
+    """The dashboard's "All Sessions" headline reads this, not the four skills.
+
+    It is not a fifth entry in `skills`: overall must never get a trend line, a
+    prediction or a blind-spot comparison of its own. It is also not derivable
+    from the four, so it cannot simply be left out.
+    """
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/users/{_MIXED_SESSION['user_id']}/skill-history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall"]["latest_score"] == _ENGINE_OVERALL
+    assert body["overall"]["average_score"] == _ENGINE_OVERALL
+    assert body["overall"]["skill_area"] == "overall"
+    assert "overall" not in {item["skill_area"] for item in body["skills"]}

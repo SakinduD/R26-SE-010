@@ -60,15 +60,6 @@ const PATTERN_COPY = {
   },
 }
 
-// The four this component reports on, in the order they are shown. "Overall" is
-// not among them: it is their mean, not a fifth skill.
-const TRACKED_SKILL_KEYS = [
-  'vocal_command',
-  'speech_fluency',
-  'presence_engagement',
-  'emotional_intelligence',
-]
-
 const SKILL_LABELS = {
   vocal_command: { label: 'Vocal Command', sub: 'Speech Volume' },
   speech_fluency: { label: 'Speech Fluency', sub: 'Speech Pace & Clarity' },
@@ -281,7 +272,11 @@ export default function AnalyticsDashboard() {
   // fails — every use falls back to the averaged view rather than blanking.
   const history = useMemo(() => {
     const items = data?.history?.skills || []
-    return Object.fromEntries(items.map((item) => [item.skill_area, item]))
+    const byArea = Object.fromEntries(items.map((item) => [item.skill_area, item]))
+    // Overall arrives separately because it is not one of the tracked skills, but
+    // it is the same shape and the cards read it the same way.
+    if (data?.history?.overall) byArea.overall = data.history.overall
+    return byArea
   }, [data])
 
   // In history mode the headline figure is the latest session, not the mean of
@@ -489,39 +484,56 @@ export default function AnalyticsDashboard() {
   const fb = data?.aggregate?.feedback || {}
   const fbSelf = fb.self_session_count || 0
   const fbTotal = fbSelf
-  // Overall is the mean of the four skills — a summary, not a skill — so it always
-  // equals the average of the four skill cards shown below.
   // One sentence telling a first-time reader what the headline number is. The
   // number alone invites the wrong reading: people assume a single score out of
   // 100 is a grade, and act on it accordingly.
+  //
+  // It no longer says "averaged". The headline is the engine's own overall score
+  // for the session, so a caption promising the mean of the four cards below
+  // would describe an arithmetic the reader can then fail to reproduce - the two
+  // differ by up to 13.5 points on a single session.
   const overallCaption = isAllSessions
-    ? 'Your four skills from your most recent session, averaged'
-    : 'This session’s four skills, averaged'
+    ? 'The overall score from your most recent session'
+    : 'The overall score from this session'
+
+  // The multimodal engine's own overall score for the session, not the mean of
+  // the four cards beside it.
+  //
+  // It used to be that mean, which had the appeal of always adding up on screen
+  // and the flaw of being a number the session never produced. The engine weights
+  // its dimensions its own way; across this account the two disagree on 37 of 99
+  // sessions and by as much as 13.5 points on one. Where a teammate's screen and
+  // this one both say "overall score" about the same session, they have to be
+  // saying it about the same number.
+  //
+  // Selected session -> that session's stored score. All Sessions -> the stored
+  // score of the most recent one, matching the skill cards, which are also the
+  // latest rather than an average. The mean survives only as a fallback for a
+  // session that stored no overall of its own.
+  const overallHistory = data?.history?.overall || null
 
   const overall = useMemo(() => {
+    const stored = isAllSessions
+      ? overallHistory?.latest_score
+      : data?.aggregate?.scores?.averages?.overall_score
+    if (stored != null) return Math.round(Number(stored))
     const vals = scoresShown.map(s => s.value).filter(v => v != null)
     if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-    return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
-  }, [scoresShown, data])
+    return fmtScore(data?.aggregate?.feedback?.average_rating)
+  }, [scoresShown, data, isAllSessions, overallHistory])
 
-  // The same four skills averaged over every session instead of the most recent
-  // one. Built the same way as `overall` so the two are comparable: mean of the
-  // four composites, not the stored overall_score column, which is computed
-  // differently and would put two numbers side by side that cannot be subtracted.
+  // The same engine score averaged over every session instead of the most recent
+  // one. Same source as `overall`, so the two can be compared and subtracted.
   //
   // It exists because the headline figure is one session, and one session is a
-  // day rather than a level. This learner sits at 82 over 114 sessions and at 60
-  // in the latest; showing only the 60 reports a bad morning as a standing, and
+  // day rather than a level. This learner sits at 82 over 114 sessions and at 61
+  // in the latest; showing only the 61 reports a bad morning as a standing, and
   // showing only the 82 was the bug that let four consecutive declines read as
   // "Great job". Neither number is the answer on its own.
   const lifetimeOverall = useMemo(() => {
-    if (!isAllSessions) return null
-    const vals = TRACKED_SKILL_KEYS
-      .map((key) => history[key]?.average_score)
-      .filter((v) => v != null)
-    if (vals.length < TRACKED_SKILL_KEYS.length) return null
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-  }, [history, isAllSessions])
+    if (!isAllSessions || overallHistory?.average_score == null) return null
+    return Math.round(Number(overallHistory.average_score))
+  }, [overallHistory, isAllSessions])
 
   // Below this the two figures are the same number to a reader, and the
   // comparison is noise rather than news.
@@ -662,15 +674,14 @@ export default function AnalyticsDashboard() {
                 style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.18)' }}
               >
                 <span className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{lifetimeOverall}</span>
-                {/* Not "across all N sessions". Each skill averages only the
-                    sessions that measured it, and those counts differ - a
-                    microphone or camera channel that produced nothing leaves the
-                    session out of that skill rather than scoring it zero. On this
-                    account the four run 93, 76, 99 and 99 out of 114, so naming
-                    the session total here would claim a coverage the number does
-                    not have. Each card carries its own count. */}
+                {/* The count can be named here, and only here. Every session
+                    stores an overall score, so this average really does cover all
+                    of them. The four skill averages do not: a channel that
+                    recorded nothing leaves the session out of that skill rather
+                    than scoring it zero, and on this account they run 93, 76, 99
+                    and 99 out of 114. Each card carries its own count. */}
                 <span style={{ color: 'rgba(255,255,255,0.8)' }} className="text-xs">
-                  your average across your history
+                  your average across {overallHistory?.session_count ?? sessionCount} sessions
                 </span>
               </div>
             )}
@@ -773,15 +784,6 @@ export default function AnalyticsDashboard() {
                       <span>best {Math.round(h.best_score ?? 0)}</span>
                       <span>avg {Math.round(h.average_score ?? 0)}</span>
                       <span style={{ color: TREND_TONE[h.trend_label] }}>{TREND_MARK[h.trend_label]}</span>
-                    </div>
-                  ) : isOverall && lifetimeOverall != null ? (
-                    // "Overall" has no history entry of its own - it is the mean
-                    // of the four, not a fifth tracked skill - so it was the one
-                    // card of five with nothing under the bar. It has no best or
-                    // trend to show, but it does have an average, and the same
-                    // average the headline is now reporting.
-                    <div className="mt-2 flex items-center justify-center text-[10px] text-muted-foreground">
-                      <span>avg {lifetimeOverall}</span>
                     </div>
                   ) : null}
                 </div>

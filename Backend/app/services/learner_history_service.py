@@ -44,7 +44,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.analytics import FeedbackEntry
+from app.models.analytics import AnalyticsSessionMetric, FeedbackEntry
 from app.schemas.analytics import (
     LearnerHistorySummary,
     RecurringBlindSpotItem,
@@ -117,12 +117,61 @@ def summarise_skill_history(db: Session, user_id: str) -> LearnerHistorySummary:
         first_session_at=first_at,
         latest_session_at=latest_at,
         skills=skills,
+        overall=_overall_history(db, user_id),
         improving_count=sum(1 for item in skills if item.trend_label == "improving"),
         declining_count=sum(1 for item in skills if item.trend_label == "declining"),
         strongest_skill=max(ranked, key=lambda item: item.latest_score, default=None),
         weakest_skill=min(ranked, key=lambda item: item.latest_score, default=None),
         generated_at=datetime.utcnow(),
         history_version=HISTORY_VERSION,
+    )
+
+
+def _overall_history(db: Session, user_id: str) -> SkillHistoryItem | None:
+    """The engine's own overall score across every session, in skill shape.
+
+    Read from the stored `overall_score` column rather than averaged out of the
+    four composites. Those are two different numbers: the multimodal engine
+    weights its dimensions its own way, and across this account's history the two
+    disagree on 37 of 99 sessions, by as much as 13.5 points. Showing the mean
+    while calling it the session's overall score reports a figure the session
+    never produced.
+
+    Built here rather than through progress_trend_service on purpose. That module
+    excludes overall by design, because a trend line and a prediction belong to a
+    skill and overall is not one. This is the summary view, where it is wanted.
+    """
+    rows = (
+        db.query(AnalyticsSessionMetric.session_id, AnalyticsSessionMetric.overall_score)
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.overall_score.isnot(None))
+        .order_by(AnalyticsSessionMetric.created_at.asc(), AnalyticsSessionMetric.id.asc())
+        .all()
+    )
+    # One score per session; a session with more than one row keeps its first.
+    by_session: dict[str, float] = {}
+    for session_id, score in rows:
+        by_session.setdefault(session_id, float(score))
+    scores = list(by_session.values())
+    if not scores:
+        return None
+
+    first_score, latest_score = scores[0], scores[-1]
+    delta = round(latest_score - first_score, 2)
+    slope = progress_trend_service._linear_slope(scores)
+    return SkillHistoryItem(
+        skill_area="overall",
+        latest_score=latest_score,
+        first_score=first_score,
+        best_score=max(scores),
+        worst_score=min(scores),
+        average_score=round(statistics.fmean(scores), 2),
+        delta=delta,
+        trend_label=(
+            "stable" if len(scores) == 1 else progress_trend_service._classify_trend(delta, slope)
+        ),
+        session_count=len(scores),
+        consistency=round(statistics.pstdev(scores), 2) if len(scores) > 1 else None,
     )
 
 
