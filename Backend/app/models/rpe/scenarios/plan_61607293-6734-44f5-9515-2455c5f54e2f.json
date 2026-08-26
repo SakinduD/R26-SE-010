@@ -4,7 +4,7 @@
   "difficulty": "beginner",
   "conflict_type": "negotiation",
   "npc_role": "Delivery Manager",
-  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, motivated by protect their own priorities in the negotiation situation; be seen as reasonable by anyone who hears about this later",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, wants to protect their own priorities in the negotiation situation and be seen as reasonable by anyone who hears about this later",
   "context": "The intern software engineer has just sat down in the Delivery Manager's office, expecting a routine check-in. The room is tidy and well-lit, with a few project plans pinned to a whiteboard on one wall. The Delivery Manager is seated behind their desk, with a laptop open and a notepad at the ready. The atmosphere is professional, but the air is slightly charged with the unspoken understanding that this conversation may not be entirely straightforward.",
   "opening_npc_line": "I wanted to touch base with you about your salary, as we're finalizing the budget for the upcoming quarter. As you know, we've had to make some adjustments to ensure we're meeting our project deadlines, and I need to discuss how that impacts your compensation. Can you share your thoughts on where you see your salary fitting into our current budget?",
   "recommended_turns": 8,

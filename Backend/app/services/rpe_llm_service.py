@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -28,11 +29,58 @@ EmotionLabel = Literal[
     "neutral", "happy", "surprised", "frustrated",
     "sad", "skeptical", "angry", "thinking",
 ]
+# Gesture the avatar plays alongside this line. Verified against the
+# TalkingHead library's real capabilities (frontend/node_modules/@met4citizen/
+# talkinghead) — its actual gestureTemplates are handup | index | ok | thumbup
+# | thumbdown | side | shrug | namaste, plus emoji reactions; it has no
+# "nodding", "armsCrossed", "leaningForward", "checkingWatch" or "applause",
+# so an earlier version of this vocabulary (those five names) silently did
+# nothing when played. Every value below maps 1:1 to something TalkingHead
+# can actually render — see ANIMATION_TO_GESTURE in RolePlaySession.jsx.
 AnimationLabel = Literal[
-    "idle", "nodding", "armsCrossed", "leaningForward",
-    "checkingWatch", "dismissiveWave", "applause",
+    "idle",           # no special gesture — just keep talking
+    "thumbsUp",       # approval, agreement
+    "thumbsDown",     # disapproval, rejection
+    "shrug",          # uncertainty, "not my problem", dismissive
+    "openHandPause",  # "wait", emphasis, explaining a point
+    "pointing",       # assertive emphasis, calling something out
+    "handsClasped",   # patient, composed, placating
+    "wave",           # dismissive brush-off / goodbye
 ]
 ScenarioProgress = Literal["opening", "building", "peak", "resolution", "complete"]
+
+# Turn-level behavior coding for the USER's message — inspired by the
+# utterance-coding pattern in motivational-interviewing training systems
+# (MITI-style: classify every utterance into a fixed behavior taxonomy,
+# not just a quality score), adapted from therapy talk to workplace
+# conflict talk. Scored in the same LLM call that generates the NPC's
+# reply, since that call already reads the user's message — no extra
+# round trip, no added latency.
+UserBehaviorLabel = Literal[
+    "assertive_statement",  # clearly stated their own position or need
+    "proposal",              # offered a concrete next step or solution
+    "acknowledgment",        # recognised the other side's point or constraint
+    "de_escalation",         # actively lowered tension (reframe, olive branch)
+    "clarifying_question",   # asked to understand before responding
+    "concession",            # gave ground without stating their own need
+    "deflection",            # avoided the issue rather than answering it
+    "escalation",            # raised tension (blame, ultimatum, hostility)
+    "unclear",               # doesn't cleanly fit any of the above
+]
+
+# When the NPC's own line is asking the user to hand over something concrete
+# (a document, report, form, evidence), free-text/voice input is a poor fit —
+# STT mangles anything trying to describe a document out loud. Instead the
+# frontend shows 2-3 tappable response options in place of the mic for that
+# one turn. "quality" is bookkeeping only — never rendered to the user, since
+# the point is that they judge quality themselves, not get told the answer.
+ResponseOptionQuality = Literal["strong", "adequate", "weak"]
+
+
+class ResponseOption(BaseModel):
+    label: str
+    text: str
+    quality: ResponseOptionQuality
 
 
 class NPCResponse(BaseModel):
@@ -41,6 +89,9 @@ class NPCResponse(BaseModel):
     animation: AnimationLabel
     internalNote: str
     scenarioProgress: ScenarioProgress
+    userBehavior: UserBehaviorLabel
+    requestsDeliverable: bool
+    responseOptions: list[ResponseOption] | None
 
 
 _FALLBACK_RESPONSE = NPCResponse(
@@ -49,7 +100,21 @@ _FALLBACK_RESPONSE = NPCResponse(
     animation="idle",
     internalNote="",
     scenarioProgress="building",
+    userBehavior="unclear",
+    requestsDeliverable=False,
+    responseOptions=None,
 )
+
+_RESPONSE_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "label":   {"type": "string"},
+        "text":    {"type": "string"},
+        "quality": {"type": "string", "enum": list(ResponseOptionQuality.__args__)},
+    },
+    "required": ["label", "text", "quality"],
+    "additionalProperties": False,
+}
 
 _NPC_RESPONSE_SCHEMA = {
     "type": "object",
@@ -59,8 +124,18 @@ _NPC_RESPONSE_SCHEMA = {
         "animation": {"type": "string", "enum": list(AnimationLabel.__args__)},
         "internalNote": {"type": "string"},
         "scenarioProgress": {"type": "string", "enum": list(ScenarioProgress.__args__)},
+        "userBehavior": {"type": "string", "enum": list(UserBehaviorLabel.__args__)},
+        "requestsDeliverable": {"type": "boolean"},
+        "responseOptions": {
+            "type": ["array", "null"],
+            "items": _RESPONSE_OPTION_SCHEMA,
+        },
     },
-    "required": ["dialogue", "emotion", "animation", "internalNote", "scenarioProgress"],
+    "required": [
+        "dialogue", "emotion", "animation", "internalNote",
+        "scenarioProgress", "userBehavior",
+        "requestsDeliverable", "responseOptions",
+    ],
     "additionalProperties": False,
 }
 
@@ -135,6 +210,22 @@ def _call_openai_json(
         return None
 
 
+_DASH_RUN = re.compile(r"\s*(?:-{2,}|[–—])\s*")
+
+
+def _strip_llm_dashes(text: str) -> str:
+    """
+    Both OpenAI and Groq habitually punctuate with "--" or an em-dash for a
+    mid-sentence interruption/pause — reads fine in prose, looks like a
+    formatting glitch in a chat bubble. Swap it for ", " and tidy up the
+    punctuation/spacing that leaves behind.
+    """
+    cleaned = _DASH_RUN.sub(", ", text)
+    cleaned = re.sub(r",\s*,", ",", cleaned)
+    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
 def _parse_openai_response(response_data: dict[str, Any]) -> dict[str, Any]:
     if response_data.get("output_text"):
         return json.loads(response_data["output_text"])
@@ -168,10 +259,14 @@ def _get_npc_response_groq(messages: list[dict], system_prompt: str) -> NPCRespo
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=groq_messages,
-            max_tokens=300,
-            response_format={"type": "json_object"},
+            max_tokens=500,
+            reasoning_effort="low",
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "npc_response", "schema": _NPC_RESPONSE_SCHEMA, "strict": True},
+            },
         )
         raw: str = response.choices[0].message.content.strip()
         data: Any = json.loads(raw)
@@ -201,6 +296,11 @@ async def get_npc_response(
         response = _get_npc_response_openai(messages, system_prompt)
     else:
         response = _get_npc_response_groq(messages, system_prompt)
+
+    response.dialogue = _strip_llm_dashes(response.dialogue)
+    if response.responseOptions:
+        for option in response.responseOptions:
+            option.text = _strip_llm_dashes(option.text)
 
     if response.internalNote:
         logger.info(
@@ -239,11 +339,15 @@ def _classify_conversation_end_groq(prompt: str) -> bool:
         return False
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=20,
+            max_tokens=150,
             temperature=0,
-            response_format={"type": "json_object"},
+            reasoning_effort="low",
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "conversation_end_check", "schema": _END_CHECK_SCHEMA, "strict": True},
+            },
         )
         raw = response.choices[0].message.content.strip()
         data = json.loads(raw)
@@ -281,12 +385,21 @@ async def classify_conversation_end(context: str) -> bool:
 
 
 class CoachingResponse(BaseModel):
-    """Matches the shape rpe_coaching_service.py has always parsed — unchanged in this step."""
+    """Matches the shape rpe_coaching_service.py has always parsed."""
     overall_rating: Literal["excellent", "good", "needs_work"]
     summary: str
     advice: list[str]
     strengths: list[str]
     focus_areas: list[str]
+    # Debrief highlights — need the real turn-by-turn transcript to compute,
+    # so rpe_coaching_service now sends that alongside the aggregate stats it
+    # always has. Nullable: a very short/incomplete session may not have a
+    # clear best/worst moment to point at.
+    strongest_turn:        int | None = None
+    strongest_turn_note:   str | None = None
+    improvement_turn:       int | None = None
+    improvement_original:   str | None = None
+    improvement_suggested:  str | None = None
 
 
 _COACHING_SCHEMA = {
@@ -297,8 +410,17 @@ _COACHING_SCHEMA = {
         "advice": {"type": "array", "items": {"type": "string"}},
         "strengths": {"type": "array", "items": {"type": "string"}},
         "focus_areas": {"type": "array", "items": {"type": "string"}},
+        "strongest_turn":       {"type": ["integer", "null"]},
+        "strongest_turn_note":  {"type": ["string", "null"]},
+        "improvement_turn":      {"type": ["integer", "null"]},
+        "improvement_original":  {"type": ["string", "null"]},
+        "improvement_suggested": {"type": ["string", "null"]},
     },
-    "required": ["overall_rating", "summary", "advice", "strengths", "focus_areas"],
+    "required": [
+        "overall_rating", "summary", "advice", "strengths", "focus_areas",
+        "strongest_turn", "strongest_turn_note",
+        "improvement_turn", "improvement_original", "improvement_suggested",
+    ],
     "additionalProperties": False,
 }
 
@@ -344,13 +466,17 @@ def _get_coaching_response_groq(
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": prompt},
             ],
-            max_tokens=600,
-            response_format={"type": "json_object"},
+            max_tokens=900,
+            reasoning_effort="low",
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "coaching_response", "schema": _COACHING_SCHEMA, "strict": True},
+            },
         )
         raw: str = response.choices[0].message.content.strip()
         data: Any = json.loads(raw)
@@ -385,6 +511,17 @@ class ScenarioProseResponse(BaseModel):
     context: str
 
 
+_SCENARIO_PROSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "opening_npc_line": {"type": "string"},
+        "context": {"type": "string"},
+    },
+    "required": ["opening_npc_line", "context"],
+    "additionalProperties": False,
+}
+
+
 def _scenario_prose_fallback(trigger_event: str, situation_summary: str) -> ScenarioProseResponse:
     return ScenarioProseResponse(
         opening_npc_line="Alright, let's talk about this.",
@@ -411,11 +548,15 @@ def generate_scenario_prose(prompt: str, trigger_event: str, situation_summary: 
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
+            max_tokens=700,
             temperature=0.8,
-            response_format={"type": "json_object"},
+            reasoning_effort="low",
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "scenario_prose", "schema": _SCENARIO_PROSE_SCHEMA, "strict": True},
+            },
         )
         raw: str = response.choices[0].message.content.strip()
         data: Any = json.loads(raw)

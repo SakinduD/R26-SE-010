@@ -113,13 +113,13 @@ export default function Sidebar({ collapsed = false, onToggle }) {
 
       {/* Practice */}
       <div className="sb-section-label">Practice</div>
-      <SidebarLink to="/roleplay" icon={Swords} label="Role Play" collapsed={collapsed} />
+      <SidebarLink to="/roleplay" icon={Swords} label="Practice Lab" collapsed={collapsed} />
       <SidebarLink to="/multimodal-analysis" icon={Video} label="Multimodal" collapsed={collapsed} />
 
       {/* Progress (collapsible) */}
       <div
         className="sb-section-label"
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        style={collapsed ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
       >
         <span>Progress</span>
         {!collapsed && (

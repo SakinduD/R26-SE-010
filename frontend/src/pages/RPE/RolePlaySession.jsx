@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff, MessageCircle, X, Paperclip } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { analyticsService } from '@/services/analytics/analyticsService'
 import { integrateCompletedSession } from '@/pages/Analytics/analyticsIntegrationUtils'
+import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
 import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
+import SessionLoadingScreen from '@/components/RPE/SessionLoadingScreen'
+import ResponseChoiceCards from '@/components/RPE/ResponseChoiceCards'
 import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
 
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
@@ -21,10 +24,37 @@ const EMOTION_META = {
   thinking:   { color: '#5B7CE0', glow: 'rgba(91,124,224,0.10)',  Icon: Brain },
 }
 
+// RPE's 8 emotions -> TalkingHead's real mood vocabulary (verified against
+// node_modules/@met4citizen/talkinghead — its animMoods are only neutral |
+// happy | angry | sad | fear | disgust | love | sleep). Four map exactly;
+// the rest are the closest visual match TalkingHead actually has.
+const EMOTION_TO_MOOD = {
+  neutral:    'neutral',
+  happy:      'happy',
+  angry:      'angry',
+  sad:        'sad',
+  surprised:  'fear',      // wide-eyed, alert — closest available to surprise
+  frustrated: 'angry',     // milder anger; no dedicated "frustrated" mood exists
+  skeptical:  'disgust',   // closest visual to a doubtful/skeptical expression
+  thinking:   'neutral',   // no "thinking" mood — conveyed via gesture instead
+}
+
+// RPE's animation labels -> TalkingHead's real playGesture() names (verified
+// against gestureTemplates in the same library file). 'idle' plays nothing.
+const ANIMATION_TO_GESTURE = {
+  thumbsUp:      'thumbup',
+  thumbsDown:    'thumbdown',
+  shrug:         'shrug',
+  openHandPause: 'handup',
+  pointing:      'index',
+  handsClasped:  'namaste',
+  wave:          '👋',
+}
+
 const END_REASON_COPY = {
   natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
   user_exit_intent:   { icon: '👋', title: 'Session Ended',            sub: 'You chose to end the conversation.' },
-  npc_exit:           { icon: '💢', title: 'Session Ended',            sub: 'The conversation broke down under pressure.' },
+  npc_exit:           { icon: '💢', title: 'Session Ended',            sub: 'The session ended because of repeated inappropriate language.' },
   trust_sustained:    { icon: '🎉', title: 'Trust Built',              sub: 'You built enough trust to resolve the situation.' },
   max_turns_reached:  { icon: '⏱', title: 'Maximum Turns Reached',    sub: 'Session ended at the turn limit.' },
 }
@@ -38,9 +68,10 @@ const formatDuration = (totalSeconds) => {
 export default function RolePlaySession() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user, isAuthenticated } = useAuth()
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
-    totalTurns, npcRole,
+    totalTurns, npcRole, failureEscalationThreshold,
     recommendedTurns: recommendedTurnsFromState,
     maxTurns:         maxTurnsFromState,
   } = location.state || {}
@@ -66,12 +97,29 @@ export default function RolePlaySession() {
   const [endReason, setEndReason]             = useState(null)
   const [showScrollPill, setShowScrollPill]   = useState(false)
   const [elapsedSeconds, setElapsedSeconds]   = useState(0)
-  // Not driven visually yet (3D character is a later step) — kept in state so
-  // it's available and inspectable per turn.
-  const [lastAnimation, setLastAnimation]     = useState(null)
-
   const [autoMicEnabled, setAutoMicEnabled] = useState(canRecord)
   const [npcSpeaking, setNpcSpeaking]       = useState(false)
+  // Set when the NPC's last line asked the user to hand over something
+  // concrete — replaces the mic/manual-input with tappable reply cards for
+  // that one turn (see ResponseChoiceCards.jsx).
+  const [choiceOptions, setChoiceOptions]   = useState(null)
+  // Live conversation indicators — trust/escalation are already returned on
+  // every turn, clarity is a cheap local heuristic computed inline on the
+  // backend now too (see session_respond in router.py). Shown in the sidebar
+  // so the user can see the NPC visibly reacting turn by turn, not just at
+  // the end.
+  const [liveTrust, setLiveTrust]     = useState(50)
+  const [liveTension, setLiveTension] = useState(0)
+  const [liveClarity, setLiveClarity] = useState(null)
+
+  // Avatar loads in the background from mount; the loading screen just
+  // covers that wait with tips instead of a bare spinner in a corner panel.
+  const [avatarReady, setAvatarReady] = useState(false)
+  // Transcript is hidden by default (that's the whole point — the avatar is
+  // the conversation, not a scrolling log next to it) and opens as a
+  // floating panel, chat-widget style.
+  const [chatOpen, setChatOpen]   = useState(false)
+  const [hasUnread, setHasUnread] = useState(false)
 
   const [recommendedTurns, setRecommendedTurns] = useState(
     recommendedTurnsFromState || totalTurns || 6
@@ -101,6 +149,24 @@ export default function RolePlaySession() {
     if (isNearBottomRef.current) scrollToBottom()
   }, [messages, scrollToBottom])
 
+  // Flag the floating chat button when an NPC line arrives while the
+  // transcript panel is closed, so hiding it by default doesn't mean losing
+  // track of what was said.
+  const chatOpenRef = useRef(chatOpen)
+  useEffect(() => { chatOpenRef.current = chatOpen }, [chatOpen])
+  useEffect(() => {
+    const last = messages[messages.length - 1]
+    if (last?.role === 'npc' && !chatOpenRef.current) setHasUnread(true)
+  }, [messages])
+
+  const handleToggleChat = useCallback(() => {
+    setChatOpen((v) => {
+      const next = !v
+      if (next) setHasUnread(false)
+      return next
+    })
+  }, [])
+
   const handleTranscriptScroll = () => {
     const el = transcriptRef.current
     if (!el) return
@@ -109,12 +175,24 @@ export default function RolePlaySession() {
     setShowScrollPill(!nearBottom)
   }
 
-  const speak = useCallback((text) => {
+  const speak = useCallback((text, { emotion, animation } = {}) => {
     return new Promise((resolve) => {
       if (!text) { resolve(); return }
 
       const head = headRef.current
       if (head) {
+        // Mood + gesture react to what the NPC is feeling this turn, set
+        // just before the line plays so the avatar's face/pose has already
+        // shifted by the time speech starts. Both are safe no-ops when
+        // emotion/animation aren't provided (e.g. the static opening line).
+        if (emotion) {
+          head.setMood(EMOTION_TO_MOOD[emotion] ?? 'neutral')
+        }
+        if (animation && animation !== 'idle') {
+          const gesture = ANIMATION_TO_GESTURE[animation]
+          if (gesture) head.playGesture(gesture)
+        }
+
         // Real avatar voice (Google TTS via /api/gtts) + lip sync.
         // speakText() queues the utterance; speakMarker() queues a marker
         // right after it, whose callback fires once the queue reaches that
@@ -145,20 +223,22 @@ export default function RolePlaySession() {
     })
   }, [speak, openingNpcLine, autoMicEnabled])
 
-  const handleSendWithText = useCallback(async (rawInput) => {
+  const handleSendWithText = useCallback(async (rawInput, deliverableLabel) => {
     const input = (rawInput ?? '').trim()
     if (!input || isLoading || sessionComplete) return
 
     stopListeningRef.current()
 
-    setMessages(prev => [...prev, { role: 'user', message: input }])
+    setMessages(prev => [...prev, { role: 'user', message: input, deliverableLabel }])
     setUserInput('')
     setIsLoading(true)
 
     try {
       const response = await rpeService.sendTurn(sessionId, input)
       setCurrentTurn(response.turn)
-      setLastAnimation(response.animation)
+      setLiveTrust(response.trust_score)
+      setLiveTension(response.escalation_level)
+      if (response.clarity_score != null) setLiveClarity(response.clarity_score)
       if (import.meta.env.DEV) {
         console.log('[RPE] turn', response.turn, '| emotion:', response.emotion, '| animation:', response.animation)
       }
@@ -176,6 +256,13 @@ export default function RolePlaySession() {
         // having to open an analytics page first. Fire-and-forget by design: it
         // never throws and must not delay the completion overlay.
         integrateCompletedSession(analyticsService, sessionId)
+
+        // Tell APA a session finished so it can update the learner's profile.
+        // Same fire-and-forget contract as above — guests have no persistent
+        // profile for APA to adjust, so this only fires when signed in.
+        if (isAuthenticated && user?.id) {
+          rpeService.notifySessionComplete(user.id, sessionId).catch(() => {})
+        }
 
         completeNavStateRef.current = {
           sessionId,
@@ -195,7 +282,7 @@ export default function RolePlaySession() {
         // showing the "Session Complete" overlay — sessionComplete drives
         // data-voice-state="complete", which is what makes the overlay
         // visible, so setting it any earlier popped the notice up mid-speech.
-        await speak(response.npc_response)
+        await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
 
         setSessionComplete(true)
         setOutcome(response.outcome)
@@ -205,8 +292,12 @@ export default function RolePlaySession() {
           navigate('/roleplay/session/complete', { state: completeNavStateRef.current })
         }, 2000)
       } else {
-        await speak(response.npc_response)
-        if (autoMicEnabled) startListeningRef.current()
+        await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
+        if (response.requests_deliverable && response.response_options?.length >= 2) {
+          setChoiceOptions(response.response_options)
+        } else if (autoMicEnabled) {
+          startListeningRef.current()
+        }
       }
     } catch (err) {
       setMessages(prev => [
@@ -217,7 +308,12 @@ export default function RolePlaySession() {
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, sessionComplete, sessionId, autoMicEnabled, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate])
+  }, [isLoading, sessionComplete, sessionId, autoMicEnabled, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate, isAuthenticated, user])
+
+  const handleChooseOption = useCallback((option) => {
+    setChoiceOptions(null)
+    handleSendWithText(option.text, option.label)
+  }, [handleSendWithText])
 
   const handleViewFeedbackNow = () => {
     if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current)
@@ -273,11 +369,11 @@ export default function RolePlaySession() {
     } else {
       listenFailuresRef.current = 0
       setAutoMicEnabled(true)
-      if (!npcSpeaking && !isLoading && !sessionComplete) {
+      if (!npcSpeaking && !isLoading && !sessionComplete && !choiceOptions) {
         startListeningRef.current()
       }
     }
-  }, [autoMicEnabled, npcSpeaking, isLoading, sessionComplete])
+  }, [autoMicEnabled, npcSpeaking, isLoading, sessionComplete, choiceOptions])
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
@@ -317,16 +413,18 @@ export default function RolePlaySession() {
     ? 'complete'
     : npcSpeaking
       ? 'speaking'
-      : isLoading
-        ? 'processing'
-        : isListening
-          ? 'listening'
-          : autoMicEnabled ? 'listening' : 'manual'
+      : choiceOptions
+        ? 'choice'
+        : isLoading
+          ? 'processing'
+          : isListening
+            ? 'listening'
+            : autoMicEnabled ? 'listening' : 'manual'
 
   const voicePillLabel = autoMicEnabled ? 'Voice Active' : 'Text Mode'
 
   return (
-    <div className="rpe-vs" data-voice-state={voiceState} style={{ height: 'calc(100vh - 48px)' }}>
+    <div className="rpe-vs" data-voice-state={voiceState} style={{ height: '100%' }}>
 
       <div className="shell">
         {/* ── Identity rail ───────────────────────────────── */}
@@ -358,6 +456,32 @@ export default function RolePlaySession() {
           </div>
 
           <div className="rail-divider" />
+
+          <div className="live-meters">
+            <div className="rail-label">How it's going</div>
+            <div className="meter-row">
+              <span className="meter-label">Trust</span>
+              <div className="meter-track"><div className="meter-fill trust" style={{ width: `${liveTrust}%` }} /></div>
+              <span className="meter-val">{liveTrust}</span>
+            </div>
+            <div className="meter-row">
+              <span className="meter-label">Tension</span>
+              <div className="meter-track"><div className="meter-fill tension" style={{ width: `${(liveTension / 5) * 100}%` }} /></div>
+              <span className="meter-val">{liveTension}/5</span>
+            </div>
+            {failureEscalationThreshold != null && (
+              <p className="meter-hint">NPC exits at {failureEscalationThreshold}/5 tension</p>
+            )}
+            {liveClarity != null && (
+              <div className="meter-row">
+                <span className="meter-label">Clarity</span>
+                <div className="meter-track"><div className="meter-fill clarity" style={{ width: `${(liveClarity / 10) * 100}%` }} /></div>
+                <span className="meter-val">{liveClarity}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="rail-divider" />
           <div className="rail-spacer" />
 
           <button
@@ -372,121 +496,151 @@ export default function RolePlaySession() {
 
         {/* ── Main column ─────────────────────────────────── */}
         <main className="main">
-          <div className="main-split">
-            {/* Character panel — TalkingHead 3D avatar. Speaks every NPC
-                line (opening + turns) via speak(), which routes through
-                headRef once the avatar is ready. */}
-            <div className="character-panel">
-              <TalkingHeadAvatar
-                onReady={(head) => { headRef.current = head; speakOpeningLine() }}
-                onError={() => speakOpeningLine()}
-                className="character-avatar"
-              />
+          {/* Stage — the avatar fills the whole main area now. The topbar
+              and voice controls float over it; the transcript no longer
+              lives here at all, it's the floating panel below. */}
+          <div className="stage">
+            <TalkingHeadAvatar
+              onReady={(head) => { headRef.current = head; setAvatarReady(true); speakOpeningLine() }}
+              onError={() => { setAvatarReady(true); speakOpeningLine() }}
+              className="character-avatar"
+            />
+
+            <div className="stage-topbar">
+              <button type="button" className="back-btn" onClick={() => navigate('/roleplay')} aria-label="Back">
+                <ArrowLeft size={16} strokeWidth={1.8} />
+              </button>
+              <div className="topbar-title">{scenarioTitle}</div>
+              <button
+                type="button"
+                className={cn('voice-pill', !autoMicEnabled && 'muted')}
+                onClick={handleToggleMic}
+                disabled={!canRecord || sessionComplete}
+                title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
+              >
+                {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
+                {voicePillLabel}
+              </button>
             </div>
 
-            {/* Conversation panel — existing chat UI, unchanged. */}
-            <div className="conversation-panel">
-          <div className="topbar">
-            <button type="button" className="back-btn" onClick={() => navigate('/roleplay')} aria-label="Back">
-              <ArrowLeft size={16} strokeWidth={1.8} />
-            </button>
-            <div className="topbar-title">{scenarioTitle}</div>
-            <button
-              type="button"
-              className={cn('voice-pill', !autoMicEnabled && 'muted')}
-              onClick={handleToggleMic}
-              disabled={!canRecord || sessionComplete}
-              title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
-            >
-              {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
-              {voicePillLabel}
-            </button>
-          </div>
+            <div className="stage-bottom">
+              <div className="state-block state-speaking">
+                <div className="wave"><span /><span /><span /><span /><span /><span /><span /></div>
+                <div className="state-text"><div className="state-title">{npcRole || 'NPC'} is speaking…</div></div>
+              </div>
 
-          <div className="transcript-wrap">
-            <div className="transcript" ref={transcriptRef} onScroll={handleTranscriptScroll}>
-              {messages.map((msg, i) => {
-                const isLatest = i === messages.length - 1
-                const emo = msg.role === 'npc' ? (EMOTION_META[msg.emotion] ?? EMOTION_META.neutral) : null
-                return (
-                  <div
-                    key={i}
-                    className={cn('msg', msg.role, isLatest && 'latest')}
-                    style={emo ? { '--msg-emotion': emo.color, '--msg-emotion-glow': emo.glow } : undefined}
+              <div className="state-block state-listening">
+                <div className="listen-orb"><div className="ring" /><div className="ring r2" /><div className="dot" /></div>
+                <div className="state-text">
+                  <div className="state-title">Listening…</div>
+                  <div className="state-sub">Speak your response</div>
+                </div>
+              </div>
+
+              <div className="state-block state-processing">
+                <div className="spinner-arc" />
+                <div className="state-text"><div className="state-title muted">Processing…</div></div>
+              </div>
+
+              {voiceState === 'manual' && (
+                <div className="manual-bar">
+                  <textarea
+                    rows={1}
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendWithText(userInput)
+                      }
+                    }}
+                    disabled={isLoading || sessionComplete}
+                    placeholder="Voice unavailable, type your response…"
+                    className="manual-input"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSendWithText(userInput)}
+                    disabled={!userInput.trim() || isLoading || sessionComplete}
+                    className="manual-send"
+                    aria-label="Send"
                   >
-                    <div className="msg-label">
-                      <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'NPC') : 'You'}
-                      {emo && <emo.Icon size={11} strokeWidth={2} className="emo-icon" style={{ color: emo.color }} />}
-                    </div>
-                    <div className="msg-body">{msg.message}</div>
-                  </div>
-                )
-              })}
-
-              {isLoading && !npcSpeaking && (
-                <div className="typing">
-                  <div className="msg-label"><span className="bullet">●</span>{npcRole || 'NPC'}</div>
-                  <div className="typing-dots"><span /><span /><span /></div>
+                    {isLoading ? <Loader2 size={16} strokeWidth={1.8} className="spin" /> : <Send size={16} strokeWidth={1.8} />}
+                  </button>
                 </div>
               )}
 
-              <div ref={bottomRef} />
-            </div>
-
-            <div className={cn('scroll-pill', showScrollPill && 'show')} onClick={scrollToBottom}>
-              ↓ New message
+              {voiceState === 'choice' && (
+                <ResponseChoiceCards options={choiceOptions} onChoose={handleChooseOption} />
+              )}
             </div>
           </div>
 
-          <div className="visualizer">
-            <div className="state-block state-speaking">
-              <div className="wave"><span /><span /><span /><span /><span /><span /><span /></div>
-              <div className="state-text"><div className="state-title">{npcRole || 'NPC'} is speaking…</div></div>
-            </div>
+          {/* Floating chat toggle — the transcript is hidden by default so
+              it doesn't compete with the avatar; this is the only way back
+              to it, website-chat-widget style. */}
+          <button
+            type="button"
+            className="chat-fab"
+            onClick={handleToggleChat}
+            aria-label={chatOpen ? 'Hide transcript' : 'Show transcript'}
+            aria-expanded={chatOpen}
+          >
+            {chatOpen ? <X size={20} strokeWidth={2} /> : <MessageCircle size={20} strokeWidth={2} />}
+            {!chatOpen && hasUnread && <span className="fab-dot" />}
+          </button>
 
-            <div className="state-block state-listening">
-              <div className="listen-orb"><div className="ring" /><div className="ring r2" /><div className="dot" /></div>
-              <div className="state-text">
-                <div className="state-title">Listening…</div>
-                <div className="state-sub">Speak your response</div>
-              </div>
-            </div>
-
-            <div className="state-block state-processing">
-              <div className="spinner-arc" />
-              <div className="state-text"><div className="state-title muted">Processing…</div></div>
-            </div>
-
-            {voiceState === 'manual' && (
-              <div className="manual-bar">
-                <textarea
-                  rows={1}
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendWithText(userInput)
-                    }
-                  }}
-                  disabled={isLoading || sessionComplete}
-                  placeholder="Voice unavailable — type your response…"
-                  className="manual-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleSendWithText(userInput)}
-                  disabled={!userInput.trim() || isLoading || sessionComplete}
-                  className="manual-send"
-                  aria-label="Send"
-                >
-                  {isLoading ? <Loader2 size={16} strokeWidth={1.8} className="spin" /> : <Send size={16} strokeWidth={1.8} />}
+          {chatOpen && (
+            <div className="chat-panel">
+              <div className="chat-panel-header">
+                <span>Transcript</span>
+                <button type="button" onClick={handleToggleChat} aria-label="Close transcript" className="chat-panel-close">
+                  <X size={15} strokeWidth={1.8} />
                 </button>
               </div>
-            )}
-          </div>
+
+              <div className="transcript-wrap">
+                <div className="transcript" ref={transcriptRef} onScroll={handleTranscriptScroll}>
+                  {messages.map((msg, i) => {
+                    const isLatest = i === messages.length - 1
+                    const emo = msg.role === 'npc' ? (EMOTION_META[msg.emotion] ?? EMOTION_META.neutral) : null
+                    return (
+                      <div
+                        key={i}
+                        className={cn('msg', msg.role, isLatest && 'latest')}
+                        style={emo ? { '--msg-emotion': emo.color, '--msg-emotion-glow': emo.glow } : undefined}
+                      >
+                        <div className="msg-label">
+                          <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'NPC') : 'You'}
+                          {emo && <emo.Icon size={11} strokeWidth={2} className="emo-icon" style={{ color: emo.color }} />}
+                        </div>
+                        {msg.deliverableLabel && (
+                          <div className="msg-attachment">
+                            <Paperclip size={12} strokeWidth={2} />
+                            {msg.deliverableLabel}
+                          </div>
+                        )}
+                        <div className="msg-body">{msg.message}</div>
+                      </div>
+                    )
+                  })}
+
+                  {isLoading && !npcSpeaking && (
+                    <div className="typing">
+                      <div className="msg-label"><span className="bullet">●</span>{npcRole || 'NPC'}</div>
+                      <div className="typing-dots"><span /><span /><span /></div>
+                    </div>
+                  )}
+
+                  <div ref={bottomRef} />
+                </div>
+
+                <div className={cn('scroll-pill', showScrollPill && 'show')} onClick={scrollToBottom}>
+                  ↓ New message
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="overlay">
             <div className={cn('result-card', cardVariant)}>
@@ -494,12 +648,14 @@ export default function RolePlaySession() {
               <div className="result-title">{endReasonMeta?.title ?? 'Session Complete'}</div>
               <div className="result-sub">{endReasonMeta?.sub ?? ''}</div>
               <button type="button" className="view-feedback" onClick={handleViewFeedbackNow}>
-                View Feedback
+                View Outcome
               </button>
             </div>
           </div>
         </main>
       </div>
+
+      <SessionLoadingScreen scenarioTitle={scenarioTitle} npcRole={npcRole} visible={!avatarReady} />
 
       {/* Phase 1 dev-only: manual trigger to verify avatar speech + lip sync.
           Remove once Phase 1 is confirmed. */}
@@ -627,6 +783,17 @@ export default function RolePlaySession() {
         .rpe-vs .duration::before{ content:"●"; color:var(--success); font-size:8px; animation:rpevsDotBeat 2s ease-in-out infinite; }
         @keyframes rpevsDotBeat{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
 
+        .rpe-vs .live-meters{ display:flex; flex-direction:column; gap:10px; }
+        .rpe-vs .meter-row{ display:flex; align-items:center; gap:8px; }
+        .rpe-vs .meter-label{ font-size:11px; color:var(--text-med); width:46px; flex-shrink:0; }
+        .rpe-vs .meter-track{ flex:1; height:5px; border-radius:100px; background:var(--surface-hi); border:1px solid var(--border-soft); overflow:hidden; }
+        .rpe-vs .meter-fill{ height:100%; border-radius:100px; transition:width .5s var(--ease); }
+        .rpe-vs .meter-fill.trust{ background:linear-gradient(90deg, var(--primary), #6BB2FF); }
+        .rpe-vs .meter-fill.tension{ background:linear-gradient(90deg, var(--danger), #FF8A85); }
+        .rpe-vs .meter-fill.clarity{ background:linear-gradient(90deg, var(--success), #6BDE85); }
+        .rpe-vs .meter-val{ font-size:11px; font-weight:700; color:var(--text-hi); width:26px; text-align:right; flex-shrink:0; font-variant-numeric:tabular-nums; }
+        .rpe-vs .meter-hint{ font-size:10.5px; color:var(--text-low); margin:2px 0 0; }
+
         .rpe-vs .rail-spacer{ flex:1; }
 
         .rpe-vs .end-btn{
@@ -641,27 +808,80 @@ export default function RolePlaySession() {
 
         .rpe-vs .main{ display:flex; flex-direction:column; height:100%; min-width:0; position:relative; }
 
-        .rpe-vs .main-split{ display:flex; flex-direction:column; flex:1; min-height:0; }
-        @media (min-width:768px){ .rpe-vs .main-split{ flex-direction:row; } }
-
-        .rpe-vs .character-panel{
-          width:100%; height:200px; flex-shrink:0;
-          background:var(--surface); border-radius:14px; overflow:hidden;
-          margin:16px 16px 0;
-        }
-        @media (min-width:768px){
-          .rpe-vs .character-panel{ width:42%; height:auto; margin:0; border-radius:0; border-right:1px solid var(--border); }
-        }
+        /* Stage — the avatar fills the whole main column; the topbar and
+           voice controls float over it on scrims so the 3D character reads
+           as the primary surface instead of sharing space with a panel. */
+        .rpe-vs .stage{ position:relative; flex:1; min-height:0; background:var(--surface); overflow:hidden; }
         .rpe-vs .character-avatar{ width:100%; height:100%; }
 
-        .rpe-vs .conversation-panel{
-          width:100%; flex:1; min-height:0; min-width:0;
-          display:flex; flex-direction:column; overflow:hidden;
+        .rpe-vs .stage-topbar{
+          position:absolute; top:0; left:0; right:0; z-index:5;
+          height:56px; display:flex; align-items:center; gap:14px; padding:0 20px;
+          background:linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
         }
-        @media (min-width:768px){ .rpe-vs .conversation-panel{ width:58%; } }
+        .rpe-vs .back-btn{
+          background:rgba(22,27,34,0.7); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
+          width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+          transition:background .2s var(--ease), color .2s var(--ease); flex-shrink:0;
+        }
+        .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
+        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 4px rgba(0,0,0,0.6); }
+
+        .rpe-vs .voice-pill{
+          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
+          background:rgba(22,27,34,0.75); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
+          padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
+          cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+        }
+        .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
+        .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
+        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+
+        .rpe-vs .stage-bottom{
+          position:absolute; bottom:0; left:0; right:0; z-index:5;
+          min-height:96px; display:flex; align-items:center; justify-content:center; padding:20px;
+          background:linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+        }
+
+        /* Floating chat toggle — bottom-right FAB, website-chat-widget style. */
+        .rpe-vs .chat-fab{
+          position:absolute; right:20px; bottom:20px; z-index:15;
+          width:52px; height:52px; border-radius:50%; border:none; cursor:pointer;
+          background:linear-gradient(135deg, var(--primary), var(--accent)); color:#fff;
+          display:flex; align-items:center; justify-content:center;
+          box-shadow:0 10px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset;
+          transition:transform .2s var(--ease), filter .2s var(--ease);
+        }
+        .rpe-vs .chat-fab:hover{ transform:translateY(-2px); filter:brightness(1.08); }
+        .rpe-vs .fab-dot{
+          position:absolute; top:4px; right:4px; width:11px; height:11px; border-radius:50%;
+          background:var(--danger); border:2px solid var(--bg);
+          animation:rpevsDotBeat 1.6s ease-in-out infinite;
+        }
+
+        .rpe-vs .chat-panel{
+          position:absolute; right:20px; bottom:84px; z-index:14;
+          width:min(380px, calc(100% - 40px)); height:min(520px, calc(100% - 120px));
+          background:var(--surface); border:1px solid var(--border); border-radius:16px;
+          display:flex; flex-direction:column; overflow:hidden;
+          box-shadow:0 24px 60px rgba(0,0,0,0.5);
+          animation:rpevsChatIn .25s var(--ease);
+        }
+        @keyframes rpevsChatIn{ from{ opacity:0; transform:translateY(12px) scale(0.98); } to{ opacity:1; transform:none; } }
+        .rpe-vs .chat-panel-header{
+          flex-shrink:0; height:44px; display:flex; align-items:center; justify-content:space-between;
+          padding:0 14px 0 18px; border-bottom:1px solid var(--border);
+          font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-med);
+        }
+        .rpe-vs .chat-panel-close{
+          background:none; border:none; color:var(--text-med); cursor:pointer;
+          width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center;
+          transition:background .2s var(--ease), color .2s var(--ease);
+        }
+        .rpe-vs .chat-panel-close:hover{ background:var(--surface-hi); color:var(--text-hi); }
 
         .dev-test-speech-btn{
-          position:fixed; bottom:16px; right:16px; z-index:50;
+          position:fixed; bottom:16px; left:16px; z-index:150;
           background:#4493F8; color:#fff; border:none; border-radius:10px;
           padding:10px 16px; font-size:13px; font-weight:650; cursor:pointer;
           box-shadow:0 8px 24px rgba(0,0,0,0.4);
@@ -669,38 +889,16 @@ export default function RolePlaySession() {
         }
         .dev-test-speech-btn:hover{ filter:brightness(1.08); }
 
-        .rpe-vs .topbar{
-          height:48px; flex-shrink:0; display:flex; align-items:center; gap:14px;
-          padding:0 24px; border-bottom:1px solid var(--border); background:var(--bg);
-        }
-        .rpe-vs .back-btn{
-          background:none; border:none; color:var(--text-med); cursor:pointer;
-          width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center;
-          transition:background .2s var(--ease), color .2s var(--ease); flex-shrink:0;
-        }
-        .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
-        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-med); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-        .rpe-vs .voice-pill{
-          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
-          background:var(--success-glow); border:1px solid rgba(63,185,80,0.3);
-          padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
-          cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
-        }
-        .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
-        .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
-        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:var(--surface-hi); border-color:var(--border); }
-
         .rpe-vs .transcript-wrap{ position:relative; flex:1; min-height:0; }
         .rpe-vs .transcript{
-          height:100%; overflow-y:auto; padding:44px clamp(24px, 6vw, 96px) 28px;
+          height:100%; overflow-y:auto; padding:18px 16px 16px;
           overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
         }
-        .rpe-vs .transcript::-webkit-scrollbar{ width:8px; }
+        .rpe-vs .transcript::-webkit-scrollbar{ width:6px; }
         .rpe-vs .transcript::-webkit-scrollbar-thumb{ background:var(--surface-hi); border-radius:100px; }
         .rpe-vs .transcript::-webkit-scrollbar-track{ background:transparent; }
 
-        .rpe-vs .msg{ max-width:640px; margin:0 0 32px; opacity:0; animation: rpevsMsgInLeft .45s var(--ease) forwards; }
+        .rpe-vs .msg{ max-width:100%; margin:0 0 22px; opacity:0; animation: rpevsMsgInLeft .45s var(--ease) forwards; }
         .rpe-vs .msg:last-child{ margin-bottom:8px; }
         .rpe-vs .msg.user{ animation-name: rpevsMsgInRight; margin-left:auto; text-align:right; }
         @keyframes rpevsMsgInLeft{ from{ opacity:0; transform:translateX(-14px) translateY(6px); } to{ opacity:1; transform:none; } }
@@ -712,15 +910,22 @@ export default function RolePlaySession() {
         .rpe-vs .msg-label .bullet{ font-size:8px; }
         .rpe-vs .msg-label .emo-icon{ flex-shrink:0; }
 
-        .rpe-vs .msg-body{ font-size:18px; line-height:1.7; letter-spacing:-0.003em; padding:2px 0 2px 16px; border-left:2px solid transparent; }
+        .rpe-vs .msg-attachment{
+          display:inline-flex; align-items:center; gap:6px; margin:0 0 6px;
+          font-size:11px; font-weight:650; color:var(--primary);
+          background:var(--primary-glow); border:1px solid rgba(68,147,248,0.35);
+          border-radius:100px; padding:4px 10px;
+        }
+
+        .rpe-vs .msg-body{ font-size:14px; line-height:1.6; letter-spacing:-0.003em; padding:2px 0 2px 12px; border-left:2px solid transparent; }
         .rpe-vs .msg.npc .msg-body{ color:#C9D1D9; border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
-        .rpe-vs .msg.user .msg-body{ color:var(--text-hi); border-left:none; border-right:2px solid var(--primary-glow); padding-left:0; padding-right:16px; }
+        .rpe-vs .msg.user .msg-body{ color:var(--text-hi); border-left:none; border-right:2px solid var(--primary-glow); padding-left:0; padding-right:12px; }
 
         .rpe-vs .msg.latest .msg-body{ position:relative; border-radius:10px; padding:12px 16px; }
         .rpe-vs .msg.latest.npc .msg-body{ background:linear-gradient(90deg, var(--msg-emotion-glow, rgba(68,147,248,0.055)), transparent 70%); border-left-color:var(--msg-emotion, rgba(124,58,237,0.5)); }
         .rpe-vs .msg.latest.user .msg-body{ background:linear-gradient(270deg, rgba(68,147,248,0.06), transparent 70%); border-right-color:rgba(68,147,248,0.5); padding-left:16px; }
 
-        .rpe-vs .typing{ max-width:640px; margin-bottom:32px; animation: rpevsMsgInLeft .4s var(--ease) forwards; }
+        .rpe-vs .typing{ max-width:100%; margin-bottom:22px; animation: rpevsMsgInLeft .4s var(--ease) forwards; }
         .rpe-vs .typing-dots{ display:inline-flex; gap:5px; padding-left:16px; border-left:2px solid var(--accent-glow); height:24px; align-items:center; }
         .rpe-vs .typing-dots span{ width:6px; height:6px; border-radius:50%; background:var(--accent); animation: rpevsTypingBounce 1.1s ease-in-out infinite; }
         .rpe-vs .typing-dots span:nth-child(2){ animation-delay:.15s; }

@@ -31,8 +31,19 @@ CREATE TABLE IF NOT EXISTS rpe_turns (
     emotion           TEXT        NOT NULL DEFAULT 'calm',
     trust_score       INTEGER     NOT NULL DEFAULT 50,
     escalation_level  INTEGER     NOT NULL DEFAULT 0,
+    user_behavior     TEXT,                          -- MITI-style turn coding, see rpe_llm_service.UserBehaviorLabel
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Existing databases created before user_behavior existed: this is a no-op
+-- if the column is already there (fresh CREATE TABLE above), and adds it
+-- in place otherwise — safe to re-run.
+ALTER TABLE rpe_turns ADD COLUMN IF NOT EXISTS user_behavior TEXT;
+
+-- Soft-delete marker for the My Sessions recycle bin — NULL means active,
+-- a timestamp means trashed (still queryable/restorable); permanent
+-- deletion is a real DELETE, which cascades to rpe_turns via the FK above.
+ALTER TABLE rpe_sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 -- Index for fast per-session turn lookups
 CREATE INDEX IF NOT EXISTS idx_rpe_turns_session_id ON rpe_turns(session_id);
