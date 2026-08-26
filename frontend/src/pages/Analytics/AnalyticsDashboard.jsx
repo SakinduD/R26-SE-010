@@ -60,6 +60,15 @@ const PATTERN_COPY = {
   },
 }
 
+// The four this component reports on, in the order they are shown. "Overall" is
+// not among them: it is their mean, not a fifth skill.
+const TRACKED_SKILL_KEYS = [
+  'vocal_command',
+  'speech_fluency',
+  'presence_engagement',
+  'emotional_intelligence',
+]
+
 const SKILL_LABELS = {
   vocal_command: { label: 'Vocal Command', sub: 'Speech Volume' },
   speech_fluency: { label: 'Speech Fluency', sub: 'Speech Pace & Clarity' },
@@ -495,6 +504,50 @@ export default function AnalyticsDashboard() {
     return fmtScore(data?.aggregate?.scores?.averages?.overall_score || data?.aggregate?.feedback?.average_rating)
   }, [scoresShown, data])
 
+  // The same four skills averaged over every session instead of the most recent
+  // one. Built the same way as `overall` so the two are comparable: mean of the
+  // four composites, not the stored overall_score column, which is computed
+  // differently and would put two numbers side by side that cannot be subtracted.
+  //
+  // It exists because the headline figure is one session, and one session is a
+  // day rather than a level. This learner sits at 82 over 114 sessions and at 60
+  // in the latest; showing only the 60 reports a bad morning as a standing, and
+  // showing only the 82 was the bug that let four consecutive declines read as
+  // "Great job". Neither number is the answer on its own.
+  const lifetimeOverall = useMemo(() => {
+    if (!isAllSessions) return null
+    const vals = TRACKED_SKILL_KEYS
+      .map((key) => history[key]?.average_score)
+      .filter((v) => v != null)
+    if (vals.length < TRACKED_SKILL_KEYS.length) return null
+    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+  }, [history, isAllSessions])
+
+  // Below this the two figures are the same number to a reader, and the
+  // comparison is noise rather than news.
+  const overallGap = lifetimeOverall == null ? 0 : Number(overall) - lifetimeOverall
+  const gapIsWorthSaying = Math.abs(overallGap) >= 5
+
+  // The sentence under the score used to read the headline alone, which is one
+  // session. A learner sitting at 82 over a hundred sessions got "Every session
+  // makes you better!" for a single bad morning - encouraging, and wrong about
+  // them. Where the two figures disagree, the gap is the thing worth saying, and
+  // saying it is more use than either cheering or consoling.
+  const overallMessage = useMemo(() => {
+    const latest = Number(overall)
+    if (lifetimeOverall != null && gapIsWorthSaying) {
+      return overallGap < 0
+        ? `This session came in ${Math.abs(overallGap)} points below your usual ${lifetimeOverall}. One session is a day, not a level.`
+        : `This session ran ${overallGap} points above your usual ${lifetimeOverall}. Worth knowing what you did differently.`
+    }
+    if (lifetimeOverall != null) {
+      return `Right about where you usually land. Steady is its own result.`
+    }
+    if (latest >= 75) return 'Great job! Keep it up!'
+    if (latest >= 50) return 'Good progress. Keep practising!'
+    return 'Every session makes you better!'
+  }, [overall, lifetimeOverall, overallGap, gapIsWorthSaying])
+
   // Build self-rating scores from feedback averages + blind spot data for dual-layer radar.
   //
   // These are means of every self-rating the learner has given. For one session
@@ -597,8 +650,33 @@ export default function AnalyticsDashboard() {
                 score out of 100 with no source reads as a grade, and a first-time
                 reader has no way to tell whether it is one session or a year. */}
             <p style={{ color: 'rgba(255,255,255,0.75)' }} className="text-xs mt-1">{overallCaption}</p>
+
+            {/* The lifetime figure sits beside the headline rather than under the
+                skill cards, because the headline is the number people quote and
+                one session is not a standing. Shown whenever all four skills have
+                a history to average; the size of the gap decides what the
+                sentence below says, not whether this appears. */}
+            {lifetimeOverall != null && (
+              <div
+                className="flex items-center gap-2 mt-3 rounded-lg px-3 py-2"
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.18)' }}
+              >
+                <span className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{lifetimeOverall}</span>
+                {/* Not "across all N sessions". Each skill averages only the
+                    sessions that measured it, and those counts differ - a
+                    microphone or camera channel that produced nothing leaves the
+                    session out of that skill rather than scoring it zero. On this
+                    account the four run 93, 76, 99 and 99 out of 114, so naming
+                    the session total here would claim a coverage the number does
+                    not have. Each card carries its own count. */}
+                <span style={{ color: 'rgba(255,255,255,0.8)' }} className="text-xs">
+                  your average across your history
+                </span>
+              </div>
+            )}
+
             <p style={{ color: 'rgba(255,255,255,0.85)' }} className="text-sm mt-2">
-              {Number(overall)>=75 ? 'Great job! Keep it up!' : Number(overall)>=50 ? 'Good progress. Keep practising!' : 'Every session makes you better!'}
+              {overallMessage}
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3 text-center" style={{ color: 'white' }}>
@@ -662,34 +740,50 @@ export default function AnalyticsDashboard() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
               const h = isAllSessions ? history[s.key] : null
-              const v = s.value != null ? Math.round(s.value) : 0
+              // A measured zero and nothing measured are different facts, and
+              // this card used to state both as "--". Scoring is by penalty, so
+              // zero is a real and reachable result - a session that produced no
+              // usable audio at all lands there - and showing it as the
+              // no-data dash tells a learner their worst session was never
+              // recorded. Everything below keys off `measured`, not off `v > 0`.
+              const measured = s.value != null
+              const v = measured ? Math.round(s.value) : null
               const isOverall = s.key === 'overall'
-              const emoji = isOverall ? '🎯' : (v >= 75 ? '🌟' : v >= 50 ? '👍' : v > 0 ? '💪' : '❓')
-              const barColor = isOverall ? '#8b5cf6' : (v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : v > 0 ? '#f59e0b' : '#6b7280')
+              const emoji = isOverall ? '🎯' : !measured ? '❓' : v >= 75 ? '🌟' : v >= 50 ? '👍' : '💪'
+              const barColor = isOverall ? '#8b5cf6' : !measured ? '#6b7280' : v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : '#f59e0b'
               return (
                 <div key={s.key} className={`rounded-xl border border-border bg-card p-4 hover:border-primary/50 transition-colors ${isOverall ? 'ring-2 ring-primary/20' : ''}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-lg">{emoji}</span>
-                    <span className="text-xl font-bold" style={{color: barColor}}>{v > 0 ? v : '--'}</span>
+                    <span className="text-xl font-bold" style={{color: barColor}}>{measured ? v : '--'}</span>
                   </div>
                   <div className="mb-2">
                     <p className="text-sm font-semibold">{s.label}</p>
                     <p className="text-[10px] text-muted-foreground italic leading-none">{subFor(s.key)}</p>
                   </div>
                   <div className="h-1.5 rounded-full overflow-hidden bg-muted">
-                    <motion.div initial={{width:0}} animate={{width:v+'%'}} transition={{duration:0.8,delay:i*0.05}}
+                    <motion.div initial={{width:0}} animate={{width:(measured ? v : 0)+'%'}} transition={{duration:0.8,delay:i*0.05}}
                       className="h-full rounded-full" style={{backgroundColor: barColor}}/>
                   </div>
                   {/* The number above is one session. Without the average and the
                       best beside it, a good day reads as a level and a bad one
                       reads as a collapse. */}
-                  {h && (
+                  {h ? (
                     <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
                       <span>best {Math.round(h.best_score ?? 0)}</span>
                       <span>avg {Math.round(h.average_score ?? 0)}</span>
                       <span style={{ color: TREND_TONE[h.trend_label] }}>{TREND_MARK[h.trend_label]}</span>
                     </div>
-                  )}
+                  ) : isOverall && lifetimeOverall != null ? (
+                    // "Overall" has no history entry of its own - it is the mean
+                    // of the four, not a fifth tracked skill - so it was the one
+                    // card of five with nothing under the bar. It has no best or
+                    // trend to show, but it does have an average, and the same
+                    // average the headline is now reporting.
+                    <div className="mt-2 flex items-center justify-center text-[10px] text-muted-foreground">
+                      <span>avg {lifetimeOverall}</span>
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
@@ -732,25 +826,36 @@ export default function AnalyticsDashboard() {
             </p>
             {/* A gap needs two sides. With no self-assessment there is nothing to
                 compare, and saying "your self-view matches" would be claiming a
-                finding the data cannot support. */}
+                finding the data cannot support.
+
+                The three empty states below are reached in both modes. Recurring
+                patterns need three sessions, so a learner with fewer falls
+                through to them with "All Sessions" selected - and was then told
+                about "this session", which is not what they are looking at. */}
             {isAllSessions && recurring.length > 0 ? (
               <RecurringPatterns items={recurring} />
             ) : !hasObserved ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">📊</span>
-                <p className="font-semibold fg">This session has no measured scores yet</p>
+                <p className="font-semibold fg">
+                  {isAllSessions ? 'No measured scores yet' : 'This session has no measured scores yet'}
+                </p>
                 <p className="text-muted-foreground text-sm mt-1 max-w-xs">
-                  A gap is your rating measured against what the session recorded. Without
-                  the measurement there is nothing to compare your rating with.
+                  {isAllSessions
+                    ? 'A gap is your rating measured against what a session recorded. Without a measurement there is nothing to compare your ratings with.'
+                    : 'A gap is your rating measured against what the session recorded. Without the measurement there is nothing to compare your rating with.'}
                 </p>
               </div>
             ) : !hasSelfRating ? (
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">📝</span>
-                <p className="font-semibold fg">No self-assessment for this session yet</p>
+                <p className="font-semibold fg">
+                  {isAllSessions ? 'No self-assessments yet' : 'No self-assessment for this session yet'}
+                </p>
                 <p className="text-muted-foreground text-sm mt-1 max-w-xs">
-                  Rate yourself on this session and your ratings will be compared with what
-                  was measured, to show where the two disagree.
+                  {isAllSessions
+                    ? 'Rate yourself after a session and your ratings will be compared with what was measured, to show where the two disagree.'
+                    : 'Rate yourself on this session and your ratings will be compared with what was measured, to show where the two disagree.'}
                 </p>
                 <button
                   type="button"
@@ -768,13 +873,21 @@ export default function AnalyticsDashboard() {
               <div className="flex flex-col items-center py-8 text-center">
                 <span className="text-4xl mb-3">🎯</span>
                 <p className="font-semibold fg">Your self-view matches your performance!</p>
-                <p className="text-muted-foreground text-sm mt-1">No gaps detected for this session. Great self-awareness!</p>
+                <p className="text-muted-foreground text-sm mt-1">
+                  {isAllSessions
+                    ? 'No gaps found across your sessions so far. Great self-awareness!'
+                    : 'No gaps detected for this session. Great self-awareness!'}
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {gaps.map((b, i) => {
                   const isOver = b.blind_spot_type === 'overestimation'
-                  const selfVal = selfScores.find(s => getInfo(s.key).key === getInfo(b.skill_area).key)?.value || b.self_rating
+                  // `??`, not `||`: a self-rating of 0 is a rating, and with `||`
+                  // it fell through to the entry's own copy of the number - or to
+                  // nothing, printing "--" beside a gap that was calculated from
+                  // the very value being hidden.
+                  const selfVal = selfScores.find(s => getInfo(s.key).key === getInfo(b.skill_area).key)?.value ?? b.self_rating
                   return (
                     <div key={i} className="rounded-xl p-4 border" style={{
                       borderColor: isOver ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)',
@@ -835,16 +948,31 @@ export default function AnalyticsDashboard() {
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">
               {preds.slice(0, 4).map((p, i) => {
-                const up = p.trend_label === 'improving'
-                const borderColor = up ? 'rgba(16,185,129,0.3)' : p.risk_level === 'high' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'
-                const bgColor = up ? 'rgba(16,185,129,0.08)' : p.risk_level === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'
+                // Direction comes from the two numbers on the card, not from
+                // trend_label. Those disagree: the label describes the history,
+                // the forecast describes what comes next, and a rising history
+                // can still be forecast to fall. Read from the label, a card
+                // showing 100 → 85 came out green, headed "Looking good!", with
+                // an upward arrow over a fifteen-point drop.
+                const now = toNum(p.current_score)
+                const next = toNum(p.predicted_score)
+                const delta = now != null && next != null ? next - now : null
+                // Half a point is rounding, not a direction.
+                const dir = delta == null
+                  ? (p.trend_label === 'improving' ? 'up' : 'down')
+                  : delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'flat'
+                const up = dir === 'up'
+                const tone = up ? '16,185,129' : dir === 'flat' ? '99,102,241' : p.risk_level === 'high' ? '239,68,68' : '245,158,11'
+                const borderColor = `rgba(${tone},0.3)`
+                const bgColor = `rgba(${tone},0.08)`
+                const headline = up ? 'Looking good!' : dir === 'flat' ? 'Holding steady' : 'Needs attention'
                 return (
                   <div key={i} className="rounded-xl p-4 border" style={{borderColor, background: bgColor}}>
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-2xl">{up ? '📈' : '⚠️'}</span>
+                      <span className="text-2xl">{up ? '📈' : dir === 'flat' ? '➡️' : '⚠️'}</span>
                       <div>
                         <p className="font-bold text-sm">{labelFor(p.predicted_skill)}</p>
-                        <p className="text-xs text-muted-foreground">{up ? 'Looking good!' : 'Needs attention'}</p>
+                        <p className="text-xs text-muted-foreground">{headline}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mb-3">
@@ -855,7 +983,7 @@ export default function AnalyticsDashboard() {
                       <span className="text-muted-foreground font-bold">→</span>
                       <div className="flex-1 text-center rounded-lg py-2 border border-border bg-muted/50">
                         <p className="text-[10px] text-muted-foreground uppercase">Predicted</p>
-                        <p className="text-lg font-bold" style={{color: up ? '#10b981' : '#ef4444'}}>{fmtScore(p.predicted_score)}</p>
+                        <p className="text-lg font-bold" style={{color: up ? '#10b981' : dir === 'flat' ? '#6366f1' : '#ef4444'}}>{fmtScore(p.predicted_score)}</p>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">💡 {p.recommendation}</p>
