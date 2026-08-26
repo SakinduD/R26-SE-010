@@ -303,7 +303,7 @@ function SelectedSkillCard({ item, fallbackSkill, availableSkills = [] }) {
           <p className="t-cap" style={{ lineHeight: 1.55 }}>
             {availableLabels.length
               ? <><span className="fg" style={{ fontWeight: 500 }}>Real skills available:</span> {availableLabels.join(', ')}</>
-              : 'Select a completed session that has role-play or multimodal performance scores.'}
+              : 'Select a completed multimodal session that has performance scores.'}
           </p>
         </div>
       </div>

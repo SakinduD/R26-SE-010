@@ -1,4 +1,4 @@
-"""Score a pretrained transformer on the same workplace validation set.
+"""Score a transformer on the same workplace validation set.
 
 Why a transformer at all
 ------------------------
@@ -102,23 +102,27 @@ def main() -> None:
     scorable = [row for row in rows if row["label"] in predictable]
     unscorable = [row for row in rows if row["label"] not in predictable]
 
+    provenance = read_provenance(args.model)
+    label_mapping = {
+        "model_labels": sorted(model_labels),
+        "neutral_scored_as": NEUTRAL_MAPS_TO,
+    }
+    if "mixed" not in model_labels:
+        label_mapping["caveat"] = (
+            "This model has no `mixed` class. Its `neutral` is mapped to "
+            "`mixed` because both mean the text should not be treated as "
+            "leaning one way - not because the model detects two opposing "
+            "judgements."
+        )
+
     report = {
         "evaluated_at": datetime.now(UTC).isoformat(),
         "validation_set": str(args.input),
         "model_path": args.model,
-        "model_version": args.model,
-        "trained_on": "pretrained, not fine-tuned on this project's data",
+        "model_version": provenance["model_version"],
+        "trained_on": provenance["trained_on"],
         "confidence_gate": PRODUCTION_CONFIDENCE_GATE,
-        "label_mapping": {
-            "model_labels": sorted(model_labels),
-            "neutral_scored_as": NEUTRAL_MAPS_TO,
-            "caveat": (
-                "This model has no `mixed` class. Its `neutral` is mapped to "
-                "`mixed` because both mean the text should not be treated as "
-                "leaning one way - not because the model detects two opposing "
-                "judgements."
-            ),
-        },
+        "label_mapping": label_mapping,
         "ground_truth": {
             "labelled_by": dict(Counter(row["labelled_by"] for row in rows)),
             "human_reviewed_share": rounded(
@@ -154,6 +158,37 @@ def main() -> None:
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print_report(report)
     print(f"\nSaved: {args.output}")
+
+
+def read_provenance(model_name: str) -> dict[str, str]:
+    """Where this model came from, taken from the model rather than assumed.
+
+    This script was written to score a published model that nothing here trained,
+    so it stated that in the report as a constant. It was then pointed at the
+    fine-tuned DistilBERT, and the constant did not follow: the best workplace
+    result the project has (0.842) was filed under "pretrained, not fine-tuned on
+    this project's data", which is the opposite of what produced it.
+
+    A locally fine-tuned model writes training_metadata.json beside its weights.
+    If that file is there, it is the authority. If it is not, the model is one
+    that was downloaded, and the original wording is correct.
+    """
+    metadata_path = Path(model_name) / "training_metadata.json"
+    if not metadata_path.is_file():
+        return {
+            "model_version": model_name,
+            "trained_on": "pretrained, not fine-tuned on this project's data",
+        }
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    dataset = metadata.get("dataset_name", "an unrecorded dataset")
+    base = metadata.get("base_model", "an unrecorded base model")
+    rows = metadata.get("train_rows")
+    detail = f"{rows} rows" if rows else "an unrecorded number of rows"
+    return {
+        "model_version": metadata.get("model_version", model_name),
+        "trained_on": f"fine-tuned in this project from {base} on {dataset} ({detail})",
+    }
 
 
 def build_predictor(model_name: str):

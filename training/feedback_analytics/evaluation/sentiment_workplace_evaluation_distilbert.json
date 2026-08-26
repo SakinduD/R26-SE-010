@@ -1,9 +1,9 @@
 {
-  "evaluated_at": "2026-08-19T12:21:56.848519+00:00",
+  "evaluated_at": "2026-08-26T12:03:06.315200+00:00",
   "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
   "model_path": "training/feedback_analytics/models/sentiment_distilbert",
-  "model_version": "training/feedback_analytics/models/sentiment_distilbert",
-  "trained_on": "pretrained, not fine-tuned on this project's data",
+  "model_version": "distilbert-base-uncased-glassdoor-3class-v1",
+  "trained_on": "fine-tuned in this project from distilbert-base-uncased on Glassdoor Job Reviews (13500 rows)",
   "confidence_gate": 0.6,
   "label_mapping": {
     "model_labels": [
@@ -11,28 +11,27 @@
       "negative",
       "positive"
     ],
-    "neutral_scored_as": "mixed",
-    "caveat": "This model has no `mixed` class. Its `neutral` is mapped to `mixed` because both mean the text should not be treated as leaning one way - not because the model detects two opposing judgements."
+    "neutral_scored_as": "mixed"
   },
   "ground_truth": {
     "labelled_by": {
-      "human": 43
+      "human": 46
     },
     "human_reviewed_share": 1.0
   },
   "row_counts": {
-    "labelled_total": 43,
-    "scored": 38,
+    "labelled_total": 46,
+    "scored": 41,
     "unscorable_mixed_or_neutral": 5,
     "by_source": {
       "authored": 37,
-      "learner": 6
+      "learner": 9
     }
   },
   "overall": {
-    "count": 38,
-    "accuracy": 0.8421,
-    "correct": 32,
+    "count": 41,
+    "accuracy": 0.8537,
+    "correct": 35,
     "per_class": {
       "mixed": {
         "support": 12,
@@ -41,29 +40,29 @@
         "f1": 0.8148
       },
       "negative": {
-        "support": 11,
-        "precision": 0.8462,
+        "support": 12,
+        "precision": 0.8571,
         "recall": 1.0,
-        "f1": 0.9167
+        "f1": 0.9231
       },
       "positive": {
-        "support": 15,
+        "support": 17,
         "precision": 1.0,
-        "recall": 0.6667,
-        "f1": 0.8
+        "recall": 0.7059,
+        "f1": 0.8276
       }
     },
     "confidence": {
-      "mean": 0.913,
-      "median": 0.9879,
+      "mean": 0.9186,
+      "median": 0.9881,
       "min": 0.4427,
       "max": 0.9981
     },
     "production_gate": {
-      "reached_gate": 37,
+      "reached_gate": 40,
       "below_gate_discarded": 1,
-      "share_usable": 0.9737,
-      "accuracy_when_used": 0.8649
+      "share_usable": 0.9756,
+      "accuracy_when_used": 0.875
     }
   },
   "by_source": {
@@ -105,9 +104,9 @@
       }
     },
     "learner": {
-      "count": 6,
+      "count": 9,
       "accuracy": 1.0,
-      "correct": 6,
+      "correct": 9,
       "per_class": {
         "mixed": {
           "support": 3,
@@ -115,21 +114,27 @@
           "recall": 1.0,
           "f1": 1.0
         },
+        "negative": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
         "positive": {
-          "support": 3,
+          "support": 5,
           "precision": 1.0,
           "recall": 1.0,
           "f1": 1.0
         }
       },
       "confidence": {
-        "mean": 0.9872,
+        "mean": 0.9878,
         "median": 0.9949,
         "min": 0.9573,
         "max": 0.9981
       },
       "production_gate": {
-        "reached_gate": 6,
+        "reached_gate": 9,
         "below_gate_discarded": 0,
         "share_usable": 1.0,
         "accuracy_when_used": 1.0

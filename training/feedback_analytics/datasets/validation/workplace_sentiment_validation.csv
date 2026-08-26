@@ -42,3 +42,6 @@ id,source,text,label,labelled_by,notes
 41,learner,I think I perform well but I don't enough time to engage with this session,mixed,human,
 42,learner,I think I perform well.,positive,human,
 43,learner,I think session is good. But I don't have any time to stay this session with.,mixed,human,
+44,learner,I performed well in this session,positive,human,"rule 1: no hedge to remove. one judgement, favourable"
+45,learner,I performed well.,positive,human,"rule 1: one judgement, favourable"
+46,learner,I was confuse in the session,negative,human,"rule 3: evaluates, does not describe - a verdict on the session, unfavourable. first negative reflection written by a real learner"

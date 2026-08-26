@@ -18,6 +18,21 @@ What is here, and why it is in three groups
               sessions, two of which carry a plan uuid in skill_area, a column
               that holds a skill name.
 
+``predict``   SkillPrediction rows about skills this component does not track.
+              The APM analytics writer turns a training plan into predictions -
+              one row per target skill of the primary scenario, plan difficulty
+              as a proxy score (20 + (difficulty-1) * 60/9), and no session id
+              at all. The skills it names are role-play's: trust_building,
+              assertiveness, political_awareness. This component tracks four,
+              and none of them is on that list. They are stamped model_version
+              "rule-based-v1" - this component's own trend-projection version
+              string - so read back they cannot be told apart from something
+              this component predicted.
+
+              Selected by skill, not by wording: a recommendation string can be
+              reworded, but a prediction about a skill that does not exist here
+              is not this component's under any wording.
+
 ``self``      8 self-ratings. These are different in kind: the learner sat down
               and rated themselves after a role-play conversation. That is
               their own input, not something the system fabricated, so it is
@@ -51,14 +66,31 @@ from sqlalchemy import text  # noqa: E402
 
 from app.db.database import SessionLocal  # noqa: E402
 
-# A metric row belongs to role-play when the engine owns its session id and the
-# multimodal engine does not. Checked both ways rather than by scenario_id or
-# by which columns are null, so a multimodal session can never match.
+# A session belongs to role-play when its engine owns the id and the multimodal
+# engine does not. Checked both ways rather than by scenario_id or by which
+# columns are null, so a multimodal session can never match.
+#
+# Read from rpe_sessions rather than from analytics_session_metrics, which is
+# where it used to start. Keying the selection off this component's own metric
+# rows meant that once those were deleted the feedback and predictions attached
+# to the same sessions became unreachable: a first pass removed the metrics, a
+# second pass reported nothing left, and eight role-play self-ratings stayed in
+# the table looking clean. The set of role-play sessions is a fact about their
+# engine, not about what this component happens to still be holding.
 ROLE_PLAY_SESSION_IDS = """
-    SELECT m.session_id FROM analytics_session_metrics m
-    WHERE EXISTS (SELECT 1 FROM rpe_sessions r WHERE r.session_id = m.session_id)
-      AND NOT EXISTS (SELECT 1 FROM session_results s WHERE s.id::text = m.session_id)
+    SELECT r.session_id FROM rpe_sessions r
+    WHERE NOT EXISTS (SELECT 1 FROM session_results s WHERE s.id::text = r.session_id)
 """
+
+
+# The four this component reports on. Written out rather than imported so the
+# script states its own selection: what it deletes has to be readable here.
+TRACKED_SKILLS = (
+    "vocal_command",
+    "speech_fluency",
+    "presence_engagement",
+    "emotional_intelligence",
+)
 
 
 def rows(db, sql: str) -> list[dict]:
@@ -100,12 +132,22 @@ def main() -> int:
                 WHERE session_id IN ({ROLE_PLAY_SESSION_IDS})
                   AND feedback_type = 'self'
             """),
+            "predictions": [
+                dict(r)
+                for r in db.execute(
+                    text(
+                        "SELECT * FROM skill_predictions "
+                        "WHERE predicted_skill <> ALL(:tracked)"
+                    ),
+                    {"tracked": list(TRACKED_SKILLS)},
+                ).mappings()
+            ],
         }
         Path(args.backup).write_text(
             json.dumps(backup, indent=1, default=str), encoding="utf-8"
         )
         print(f"backup written to {args.backup}")
-        for name in ("metrics", "feedback_system", "feedback_self"):
+        for name in ("metrics", "feedback_system", "feedback_self", "predictions"):
             print(f"   {name}: {len(backup[name])} rows")
 
         # Guard: this must never reach a multimodal session.
@@ -155,6 +197,19 @@ def main() -> int:
             print("   deleted")
         else:
             print("   would be deleted")
+
+        print(f"\n4. delete {len(backup['predictions'])} predictions about untracked skills")
+        for row in backup["predictions"]:
+            print(f"   {row['predicted_skill']:<22} score {row['predicted_score']}  {row['model_version']}")
+        if args.apply:
+            ids = [r["id"] for r in backup["predictions"]]
+            if ids:
+                db.execute(
+                    text("DELETE FROM skill_predictions WHERE id = ANY(:ids)"),
+                    {"ids": ids},
+                )
+                db.commit()
+            print("   deleted")
 
         if not args.apply:
             print("\nRe-run with --apply to commit.")
