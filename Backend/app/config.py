@@ -38,7 +38,28 @@ class Settings(BaseSettings):
     # APM — Adaptive Pedagogical Module integration
     rpe_base_url: str = "http://localhost:8000"
     apm_service_token: str = ""           # used by RPE→APM session-feedback callback
-    apm_write_analytics: bool = True      # toggle for analytics_writer
+    # Off. This is the switch the APM analytics writer was built around, and it
+    # controls writes into the feedback-analytics tables from outside that
+    # component. Left on, one role-play session end wrote three kinds of row:
+    #
+    #   a metric row carrying clarity, confidence and empathy but none of the
+    #   three multimodal channels - which the skill composites read as a
+    #   speech-fluency, a presence and an emotional-intelligence observation, so
+    #   two such rows took over the latest point of three of the four skills on
+    #   a 114-session history, one of them carrying empathy 0;
+    #
+    #   feedback entries against those same sessions;
+    #
+    #   SkillPrediction rows with no session id at all, about trust_building,
+    #   assertiveness and political_awareness - skills this component does not
+    #   track - scored from plan difficulty and stamped model_version
+    #   "rule-based-v1", which is this component's own version string, so they
+    #   read back as something this component predicted.
+    #
+    # The feedback-analytics component reports on multimodal sessions. Turning
+    # this off is the mechanism the writer's own author provided for saying so;
+    # no APM code changed. Set APM_WRITE_ANALYTICS=true in .env to restore it.
+    apm_write_analytics: bool = False     # toggle for analytics_writer
     apm_llm_timeout_s: float = 8.0
     apm_rpe_timeout_s: float = 5.0
     apm_demo_mode: bool = False           # enables /apa/demo/* endpoints for live demos

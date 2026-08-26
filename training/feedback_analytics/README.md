@@ -29,9 +29,12 @@ rather than duplicated, so training and serving always prepare text the same way
 
 ## Workplace Sentiment Validation
 
-The sentiment model is trained on Sentiment140 (2009 tweets) but is asked about
-workplace self-reflections. Its 78.01% figure is accuracy on tweets and is not
-evidence about this domain, so a separate hand-labelled set measures it here.
+Every sentiment model here is trained on somebody else's corpus - 2009 tweets,
+or Glassdoor reviews - and then asked about workplace self-reflections. A test
+accuracy is evidence about the corpus it was measured on and about nothing else,
+so a separate hand-labelled set measures each of them on the actual domain. That
+set is the only reason it is known which model to serve; the corpus-test numbers
+rank them in the wrong order.
 
 Build or refresh the labelling sheet:
 
@@ -70,38 +73,73 @@ evidence that a change was an improvement.
 
 ### What the first measurement found
 
-`evaluation/sentiment_workplace_evaluation.json` records the run. Headline:
+`evaluation/sentiment_workplace_evaluation_s140.json` records the run. Headline:
 
 | | Sentiment140 test set | workplace validation set |
 |---|---|---|
-| accuracy | 78.01% | 71.43% |
+| accuracy | 78.01% | 73.08% |
 
-Accuracy is the least interesting number in it. Two others decided how the model
-is used:
+Accuracy is the least interesting number in it. Two others decided everything
+that came after:
 
-- **The model is reliable in one direction only.** At the 0.60 gate it reads
-  "positive" correctly 7 times out of 7, and "negative" correctly 9 times out of
-  21. Raising the gate does not help - the wrong negative readings are among the
-  most confident (`"My voice was steady and I did not rush a single answer"` is
-  read as negative at 0.86). Sentiment140 is emoticon-labelled tweets, where
-  negative sentiment travels with complaint vocabulary; workplace reflections use
-  "not", "difficult", "mistake" descriptively.
+- **The model is reliable in one direction only.** It reads "positive" at
+  precision 0.90 and "negative" at 0.63. Raising the confidence gate does not
+  help - the wrong negative readings are among the most confident
+  (`"My voice was steady and I did not rush a single answer"` is read as negative
+  at 0.86). Sentiment140 is emoticon-labelled tweets, where negative sentiment
+  travels with complaint vocabulary; workplace reflections use "not",
+  "difficult", "mistake" descriptively.
 
-- **Mixed reflections are dumped into negative.** Of 15 rows labelled mixed or
-  neutral, 13 were read as negative. The model has two classes and cannot
+- **Mixed reflections are dumped into negative.** Of 17 rows labelled mixed or
+  neutral, 15 were read as negative. The model has two classes and cannot
   abstain, and the real learner reflections collected so far are mostly mixed.
 
-Because of the first finding, `blind_spot_service.TRUSTED_DETECTED_SENTIMENTS`
-allows a sentiment blind spot to be raised only from a "positive" reading.
-`Backend/tests/test_sentiment_gap_direction.py` pins that. Widening it requires
-re-measuring a replacement model on this same validation set.
+### What was done about it
 
-Labels currently carry `labelled_by = unreviewed`: a first pass exists, but no
-person has confirmed it. The evaluation prints that share on every run and warns
-while it is below 1.0. The four rows marked `REVIEW` in the CSV are the arguable
-calls and are the ones worth checking first. Change a row's `labelled_by` to
-`human` once you have decided it yourself - the labelling worksheet does this
-automatically for anything you type into it.
+Both findings are about the training data, not the classifier, so the answer was
+a different corpus. Glassdoor reviews are workplace language and carry a usable
+third class (`pros` / `cons` / 3-star headlines with a contrast marker). Two
+models were built on it and scored by the same instrument as everything else:
+
+| model | trained on | workplace accuracy | mixed F1 | above the 0.60 gate |
+|---|---|---:|---:|---:|
+| **DistilBERT fine-tuned** | Glassdoor 3-class | **0.842** | **0.81** | **97%** |
+| TF-IDF + Logistic Regression | Sentiment140 | 0.731 | no class | 77% |
+| TF-IDF + Linear SVM | Glassdoor 3-class | 0.684 | 0.85 | 79% |
+| RoBERTa, not fine-tuned | published weights | 0.684 | 0.40 | 63% |
+
+The split in that table is the whole argument. The bag-of-words models get
+`mixed` from the data and still misread negation, because TF-IDF counts words
+independently and has no mechanism for one to change the meaning of the next.
+The pretrained transformer reads context and has no `mixed` class. Fine-tuning a
+transformer on the three-class data is the one move that produces both, and it
+does: 0.842, and the sentence that defeated every other model is read correctly.
+
+**`sentiment_analysis_service.MODEL_CANDIDATES` therefore serves
+`models/sentiment_distilbert` and falls back to `models/sentiment_model.joblib`.**
+The fallback is not a lesser configuration to apologise for - it is what keeps
+every other analytics endpoint working on a machine without torch. The served
+version travels with every result, so the module can never quietly serve the
+weaker model while reporting the stronger one.
+
+Because a model that reads `mixed` is now serving,
+`blind_spot_service.TRUSTED_DETECTED_SENTIMENTS` is
+`{"positive", "mixed"}` - not `{"positive"}`, which is what the Sentiment140
+measurement justified. `negative` stays closed: measured at the same gate it
+flags 16 and gets 11 right, and when it is wrong it tells a learner their own
+account betrays a difficulty they never described. The reasoning is written out
+in full beside the constant. `Backend/tests/test_sentiment_gap_direction.py`
+pins it. Widening it requires re-measuring a replacement model on this same
+validation set.
+
+Swapping the model changes what new entries say and leaves older ones frozen on
+the previous model's answer, so `sentiment_reread_service` re-reads stored
+comments with the current model. It touches only entries a model actually
+judged; rule-derived labels on system-generated feedback are their producer's,
+not a model's.
+
+All 43 validation rows now carry `labelled_by = human`. The evaluation prints
+that share on every run and warns while it is below 1.0.
 
 ## Predictive Behavioral Analytics Training
 

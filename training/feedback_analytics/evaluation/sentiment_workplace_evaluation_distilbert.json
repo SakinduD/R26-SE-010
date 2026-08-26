@@ -1,9 +1,9 @@
 {
-  "evaluated_at": "2026-08-19T12:21:56.848519+00:00",
+  "evaluated_at": "2026-08-26T10:17:13.808674+00:00",
   "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
   "model_path": "training/feedback_analytics/models/sentiment_distilbert",
-  "model_version": "training/feedback_analytics/models/sentiment_distilbert",
-  "trained_on": "pretrained, not fine-tuned on this project's data",
+  "model_version": "distilbert-base-uncased-glassdoor-3class-v1",
+  "trained_on": "fine-tuned in this project from distilbert-base-uncased on Glassdoor Job Reviews (13500 rows)",
   "confidence_gate": 0.6,
   "label_mapping": {
     "model_labels": [
@@ -11,8 +11,7 @@
       "negative",
       "positive"
     ],
-    "neutral_scored_as": "mixed",
-    "caveat": "This model has no `mixed` class. Its `neutral` is mapped to `mixed` because both mean the text should not be treated as leaning one way - not because the model detects two opposing judgements."
+    "neutral_scored_as": "mixed"
   },
   "ground_truth": {
     "labelled_by": {

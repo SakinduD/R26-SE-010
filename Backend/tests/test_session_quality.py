@@ -17,6 +17,7 @@ must NOT be rejected. Hiding a real session is worse than showing an odd one.
 """
 
 import pytest
+from sqlalchemy import text
 
 from app.services import mca_session_quality_service as quality
 from app.services import session_backfill_service
@@ -291,3 +292,113 @@ def test_the_extracted_scenario_id_is_accepted(client):
 
     assert response.status_code == 201
     assert response.json()["scenario_id"] == "scenario_004"
+
+
+# ------------------------------------------------------- role-play must not enter
+
+@pytest.fixture
+def rpe_sessions_table(db_session):
+    """The other component's table, for the duration of one test.
+
+    The test database has no rpe_sessions - this component does not own it and
+    does not model it. The guard has to be exercised against a real one, and the
+    absence of one is itself a case worth pinning, so it is created and dropped
+    here rather than in conftest.
+    """
+    db_session.execute(text("DROP TABLE IF EXISTS rpe_sessions"))
+    db_session.execute(
+        text("CREATE TABLE rpe_sessions (session_id TEXT PRIMARY KEY, user_id TEXT)")
+    )
+    db_session.commit()
+    yield db_session
+    db_session.execute(text("DROP TABLE IF EXISTS rpe_sessions"))
+    db_session.commit()
+
+
+def _integrate(client, session_id: str, **extra):
+    return client.post(
+        "/api/v1/analytics/integrations/session-complete",
+        json={
+            "user_id": "role-play-boundary-user",
+            "session_id": session_id,
+            "skill_type": "communication",
+            # The shape a role-play session actually posts: no speech_pace, no
+            # eye_contact, no speech_volume - only the secondary fields that the
+            # skill composites fall back to.
+            "mca_skill_scores": {"clarity": 100, "confidence": 93.75, "empathy": 0},
+            "mca_overall_score": 100,
+            **extra,
+        },
+    )
+
+
+def test_a_role_play_session_is_refused(client, rpe_sessions_table):
+    """What put empathy 0 on the latest point of a 114-session history.
+
+    Role-play ids reach this endpoint as ids it has never seen, and unknown ids
+    are accepted on purpose. The row that acceptance stored carried clarity,
+    confidence and empathy but none of the three multimodal channels, and the
+    composites read a secondary when the primary is absent - so it became the
+    latest observation of three of the four skills.
+    """
+    rpe_sessions_table.execute(
+        text("INSERT INTO rpe_sessions (session_id, user_id) VALUES ('rpe-1', 'u')")
+    )
+    rpe_sessions_table.commit()
+
+    response = _integrate(client, "rpe-1")
+
+    assert response.status_code == 409
+    assert "role-play" in response.json()["detail"]
+
+
+def test_an_unknown_session_is_still_accepted_when_the_table_exists(
+    client, rpe_sessions_table
+):
+    """Only role-play ids are turned away, not every id this endpoint cannot place.
+
+    The guard narrows one thing. If it started refusing unknown ids in general it
+    would break every caller that is not the multimodal engine, which is the
+    contract test_the_integration_endpoint_accepts_an_unknown_session pins.
+    """
+    assert _integrate(client, "not-a-role-play-session").status_code == 201
+
+
+def test_the_guard_fails_open_when_the_table_is_missing(client):
+    """This component does not own rpe_sessions and cannot rely on it existing.
+
+    Reading another component's schema at request time is a dependency on their
+    release, not ours. If they rename or drop that table, refusing every
+    integration would be a far worse failure than admitting the rows this guard
+    exists to stop - so a lookup that raises lets the payload through.
+    """
+    assert _integrate(client, "table-is-absent-session").status_code == 201
+
+
+# ------------------------------------------- the other way role-play data got in
+
+def test_the_apm_analytics_writer_is_off_by_default():
+    """The endpoint guard was not the whole boundary, and this is the rest of it.
+
+    `pedagogy/analytics_writer` writes AnalyticsSessionMetric, FeedbackEntry and
+    SkillPrediction rows with the ORM directly. Nothing it does passes through
+    this component's integration endpoint, so the 409 guard there never saw it.
+    It is what actually put the two role-play rows on a 114-session history, and
+    what put three predictions about trust_building, assertiveness and
+    political_awareness - none of them skills tracked here - into the
+    predictions table under this component's own model_version string.
+
+    It is feature-flagged, so the boundary is drawn by leaving the flag off
+    rather than by changing a line of APM code. This asserts the default, which
+    is the part a future edit could quietly reverse.
+    """
+    from app.config import Settings
+
+    assert Settings.model_fields["apm_write_analytics"].default is False
+
+
+def test_the_writer_does_nothing_while_that_default_stands(db_session):
+    """The flag is read through one predicate; this is the predicate."""
+    from app.services.pedagogy import analytics_writer
+
+    assert analytics_writer._analytics_enabled() is False

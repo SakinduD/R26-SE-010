@@ -90,12 +90,58 @@ def integrate_completed_session_analytics(
     happen, and the session-end hook already ignores failures, so nothing on a
     learner's screen breaks from being told.
     """
+    if _is_role_play_session(db, payload.session_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Not integrated: this is a role-play session, and this component "
+                "reports on multimodal sessions only"
+            ),
+        )
     reason = mca_session_quality_service.rejection_reason(
         _multimodal_session(db, payload.session_id)
     )
     if reason:
         raise HTTPException(status_code=409, detail=f"Not integrated: {reason}")
     return analytics_integration_service.integrate_component_session_data(db, payload)
+
+
+def _is_role_play_session(db: Session, session_id: str) -> bool:
+    """Role-play ids are turned away here, and only role-play ids.
+
+    Unknown ids are accepted on purpose - see the docstring above - and a
+    role-play id is exactly such an id, so it passed. What it stored was not
+    inert. A role-play row carries clarity, confidence and empathy but none of
+    the three multimodal channels, and the skill composites read a secondary
+    field when the primary is absent: clarity alone became a speech-fluency
+    observation, confidence alone became presence, empathy alone became
+    emotional intelligence. Two of these rows arrived and took over the latest
+    point of three of the four skills - one of them carrying empathy 0, which
+    is how a learner with 114 real sessions was shown "--" for Emotional
+    Intelligence and a high-risk forecast built on it.
+
+    Only vocal command was spared, and only because its fallback happened to be
+    absent too. That is luck, not a boundary, so the boundary is drawn here.
+
+    Deliberately fail-open: this reads another component's table, and if that
+    table is renamed or dropped, refusing every integration would be a far worse
+    failure than admitting the rows this guard exists to stop.
+    """
+    try:
+        return bool(
+            db.execute(
+                text("SELECT 1 FROM rpe_sessions WHERE session_id = :sid LIMIT 1"),
+                {"sid": session_id},
+            ).first()
+        )
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "Could not check whether %s is a role-play session; allowing it through",
+            session_id,
+            exc_info=True,
+        )
+        return False
 
 
 def _multimodal_session(db: Session, session_id: str) -> SessionResult | None:
