@@ -34,9 +34,9 @@ MIN_SENTIMENT_CONFIDENCE = 0.60
 # learner. Measured against the hand-labelled workplace validation set, at this
 # same confidence gate, counting rows the model has no class for as failures:
 #
-#     reads "positive"  precision 0.91   (11 flagged, 10 right)
+#     reads "positive"  precision 0.92   (13 flagged, 12 right)
 #     reads "mixed"     precision 0.73   (15 flagged, 11 right)
-#     reads "negative"  precision 0.69   (16 flagged, 11 right)
+#     reads "negative"  precision 0.71   (17 flagged, 12 right)
 #
 # The cutoff is not drawn on the numbers alone - it is drawn on how each one
 # fails. When "mixed" is wrong it is almost always calling a positive sentence
@@ -53,6 +53,17 @@ MIN_SENTIMENT_CONFIDENCE = 0.60
 # reflection of that kind - the form asks how the session went - so a neutral
 # class has not been worth adding a dataset for. If real reflections of that
 # shape start appearing, that is the point to reconsider.
+#
+# One piece of evidence has changed since this was decided and is worth stating
+# because it argues the other way. The validation set now holds the first
+# unfavourable reflection a real learner has written ("I was confuse in the
+# session"), and the model reads it correctly at 0.96. Every one of the nine real
+# learner reflections is now read correctly. This cutoff is therefore not being
+# held because "negative" fails on learner text - there is no evidence of that
+# yet. It is held because the only text it demonstrably fails on is text that
+# judges nothing, learners have not written any of that yet, and nine rows is too
+# few to conclude they never will. That is a reason to keep collecting, not a
+# reason to widen.
 #
 # Widen this only after re-measuring a model on that same validation set.
 TRUSTED_DETECTED_SENTIMENTS = frozenset({"positive", "mixed"})
