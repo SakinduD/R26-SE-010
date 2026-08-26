@@ -1,0 +1,5 @@
+row_id,session_id,turn,npc_line_before,user_input,your_emotion,your_behavior
+0,219a37d6-b5d4-479c-8943-600357afff09,3,"Sure — I framed it as a team-aligned suggestion to keep momentum, but if you want the record updated I can mention your lead in the follow-up email (with your permission).",I propose we correct the record together in the next team meeting.,,
+1,219a37d6-b5d4-479c-8943-600357afff09,2,"Oh, I totally get it — credit where credit's due, and I'm glad you brought it up quietly rather than turning the meeting into a duel. Let's sort who gets listed on the follow-up notes so this doesn't keep happening.",Can you walk me through why you presented it that way?,,
+2,219a37d6-b5d4-479c-8943-600357afff09,4,"Fine, we can correct the record together—I'll make a brief joint update and let you take the lead while I casually back you up so it looks collaborative.","I appreciate you working with me on this, thank you.",,
+3,219a37d6-b5d4-479c-8943-600357afff09,1,Great meeting right? The team really loved my proposal.,"I hear that you're under pressure, but I need to say clearly this idea was mine.",,

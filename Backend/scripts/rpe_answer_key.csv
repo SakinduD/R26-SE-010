@@ -1,0 +1,5 @@
+row_id,session_id,turn,llm_emotion,llm_behavior
+0,219a37d6-b5d4-479c-8943-600357afff09,3,neutral,proposal
+1,219a37d6-b5d4-479c-8943-600357afff09,2,thinking,proposal
+2,219a37d6-b5d4-479c-8943-600357afff09,4,neutral,de_escalation
+3,219a37d6-b5d4-479c-8943-600357afff09,1,thinking,assertive_statement

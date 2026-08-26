@@ -4,7 +4,7 @@
   "difficulty": "beginner",
   "conflict_type": "presentation",
   "npc_role": "stakeholder",
-  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, motivated by protect their own priorities in the presentation situation; be seen as reasonable by anyone who hears about this later",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, wants to protect their own priorities in the presentation situation and be seen as reasonable by anyone who hears about this later",
   "context": "The meeting has just begun in a conference room on the third floor of the company's headquarters. The stakeholder, a senior manager, sits across from the learner, with a notepad and a copy of the proposal in front of them. The atmosphere is professional, with a hint of tension due to the importance of the discussion. Outside, the sounds of the bustling office are muffled by the closed door, allowing the two to focus on the task at hand.",
   "opening_npc_line": "I've reviewed the proposal you've submitted, and I have to say, I'm concerned about the resource allocation you're suggesting. Can you walk me through your thought process on that, especially considering our current budget constraints? I want to make sure I understand your reasoning.",
   "recommended_turns": 8,

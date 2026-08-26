@@ -46,8 +46,9 @@ class RpeFeedbackService:
         recommended_turns = session.get("recommended_turns", 6)
         max_turns         = session.get("max_turns", 15)
 
-        turn_metrics = self._nlp.analyse_turns(turns)
-        risk_flags   = self._predictive.detect_risk_patterns(
+        turn_metrics   = self._nlp.analyse_turns(turns)
+        conflict_style = self._nlp.compute_conflict_style(turns)
+        risk_flags     = self._predictive.detect_risk_patterns(
             turns, trust_history, emotion_history
         )
         blind_spots  = self._blind_spot.detect(turns, scenario.success_criteria)
@@ -64,12 +65,15 @@ class RpeFeedbackService:
             "session_id":        session_id,
             "scenario_id":       session["scenario_id"],
             "scenario_title":    scenario.title,
+            "difficulty":        scenario.difficulty,
+            "category":          scenario.category,
             "user_id":           session["user_id"],
             "outcome":           session.get("outcome"),
             "final_trust":       session.get("final_trust"),
             "final_escalation":  session.get("final_escalation"),
             "total_turns":       len(turns),
             "turn_metrics":      turn_metrics,
+            "conflict_style":    conflict_style,
             "risk_flags":        risk_flags,
             "blind_spots":       blind_spots,
             "coaching_advice":   coaching,

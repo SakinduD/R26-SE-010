@@ -76,8 +76,9 @@ def _compress_personality(persona) -> str:
     """counterpart_persona -> RPE's adjective-string npc_personality style."""
     bits = [persona.disposition, persona.communication_style]
     if persona.motivations:
-        bits.append("motivated by " + "; ".join(persona.motivations[:2]).lower())
-    return ", ".join(b for b in bits if b)
+        goals = " and ".join(m.strip().rstrip(".") for m in persona.motivations[:2])
+        bits.append(f"wants to {goals}")
+    return ", ".join(b.strip().rstrip(".") for b in bits if b)
 
 
 def _relevant_big_five_traits(profile) -> list[str]:

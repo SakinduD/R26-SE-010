@@ -23,18 +23,38 @@ function NavSkeleton() {
   );
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'ez-sidebar-collapsed';
+
 export default function AppLayout() {
   const { isLoading } = useProtectedRoute();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   if (isLoading) return <NavSkeleton />;
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // ignore — worst case the preference just doesn't persist
+      }
+      return next;
+    });
+  };
 
   return (
     <AchievementsProvider>
       <div className="app-shell">
         <Sidebar
           collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((c) => !c)}
+          onToggle={toggleSidebar}
         />
         <div className="app-main">
           <Topbar />

@@ -1,21 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, RefreshCw, Home, PlayCircle, BarChart2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { RefreshCw, Home, BarChart2 } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { submitSessionFeedback } from '@/lib/api/pedagogy'
 import { cn } from '@/lib/utils'
-
-// NPC's own emotional reaction (8-value) — see rpe_llm_service.NPCResponse.emotion
-const EMOTION_TONE = {
-  neutral:    'neutral',
-  happy:      'success',
-  surprised:  'warning',
-  frustrated: 'orange',
-  sad:        'sad',
-  skeptical:  'accent',
-  angry:      'danger',
-  thinking:   'indigo',
-}
 
 // Map RPE emotion labels → APM turn metric scores (0-1)
 const EMOTION_SCORES = {
@@ -32,10 +20,10 @@ async function _sendApmFeedback(data, sessionId, scenarioTitle) {
     const finalTrust = data.final_trust ?? 50
     const rating = finalTrust >= 70 ? 'good' : finalTrust >= 40 ? 'fair' : 'poor'
     const summary = finalTrust >= 70
-      ? 'You kept trust strong all the way through this session.'
+      ? 'Strong trust maintained throughout the session.'
       : finalTrust >= 40
-      ? 'Trust was so-so — try communicating more clearly and assertively.'
-      : 'Trust stayed low — work on staying calm and steady under pressure.'
+      ? 'Moderate trust. Focus on clearer assertive communication.'
+      : 'Low trust recorded. Review de-escalation and emotional regulation strategies.'
 
     await submitSessionFeedback({
       session_id: sessionId,
@@ -60,24 +48,18 @@ async function _sendApmFeedback(data, sessionId, scenarioTitle) {
 
 const getTrustTone = (s) => (s >= 70 ? 'success' : s >= 40 ? 'warning' : 'danger')
 
-const dominantEmotion = (history) => {
-  const counts = {}
-  for (const e of history) counts[e] = (counts[e] || 0) + 1
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'calm'
-}
-
 const OUTCOME_META = {
   trust_sustained: {
     variant: 'success',
     icon: '🎉',
-    title: 'Session Complete — Success!',
+    title: 'Session Complete: Success!',
     sub: 'You built enough trust to resolve the situation.',
   },
   npc_exit: {
     variant: 'danger',
     icon: '💢',
     title: 'The Conversation Broke Down',
-    sub: 'They ended things because tension got too high. Check your feedback below to see what happened.',
+    sub: 'The session ended because of repeated inappropriate language. Review your outcome below.',
   },
 }
 
@@ -89,30 +71,17 @@ function outcomeMeta(endReason, outcome, scenarioTitle) {
   } else if (endReason === 'max_turns_reached') {
     meta = { variant: outcome === 'success' ? 'success' : 'warning' }
     icon = outcome === 'success' ? '✅' : '⏱'
-    title = outcome === 'success' ? 'Session Complete' : 'You Reached the Turn Limit'
+    title = outcome === 'success' ? 'Session Complete' : 'Maximum Turns Reached'
     sub = outcome === 'success'
-      ? "You reached the turn limit — you're scored on how things stood at the end."
-      : 'Check your feedback for improvement tips.'
+      ? 'You reached the turn limit, scored on final results.'
+      : 'Check your outcome for improvement tips.'
   } else {
     meta = { variant: outcome === 'success' ? 'success' : 'natural' }
     icon = outcome === 'success' ? '✅' : '👋'
-    title = outcome === 'success' ? 'Session Complete — Success!' : 'Session Complete — Keep Practicing'
+    title = outcome === 'success' ? 'Session Complete: Success!' : 'Session Complete: Keep Practicing'
     sub = scenarioTitle
   }
   return { ...meta, title, sub, icon }
-}
-
-function Pill({ tone, children }) {
-  return <span className={cn('pill', tone)}>{children}</span>
-}
-
-function Panel({ title, children }) {
-  return (
-    <div className="panel">
-      {title && <div className="panel-label">{title}</div>}
-      {children}
-    </div>
-  )
 }
 
 export default function SessionComplete() {
@@ -120,13 +89,11 @@ export default function SessionComplete() {
   const navigate = useNavigate()
   const {
     sessionId, trustScore, escalationLevel, outcome,
-    totalTurns, scenarioTitle, currentTurn, npcRole,
-    endReason, recommendedTurns, maxTurns,
+    scenarioTitle, currentTurn, npcRole,
+    endReason, recommendedTurns,
   } = location.state || {}
 
-  const [sessionData, setSessionData]   = useState(null)
-  const [isLoading, setIsLoading]       = useState(true)
-  const [showAllTurns, setShowAllTurns] = useState(false)
+  const [sessionData, setSessionData] = useState(null)
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
@@ -138,37 +105,12 @@ export default function SessionComplete() {
         }
       })
       .catch(console.error)
-      .finally(() => setIsLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const emotionHistory = sessionData?.emotion_history ?? []
-  const trustHistory   = sessionData?.trust_history   ?? []
-  const turns          = sessionData?.turns            ?? []
-  const finalTrust     = sessionData?.final_trust      ?? trustScore ?? 0
-  const finalEsc       = sessionData?.final_escalation ?? escalationLevel ?? 0
-  const visibleTurns   = showAllTurns ? turns : turns.slice(0, 4)
-
-  const trustDeltas = trustHistory.slice(1).map((v, i) => v - trustHistory[i])
-  const dom         = dominantEmotion(emotionHistory.slice(1))
+  const turns       = sessionData?.turns ?? []
   const meta        = outcomeMeta(endReason, outcome, scenarioTitle)
   const closingLine = turns[turns.length - 1]?.npc_response
-
-  const trustInsight =
-    finalTrust > 60 ? { icon: '✅', text: 'You kept trust high the whole way through.', tone: 'success' }
-    : finalTrust > 40 ? { icon: '⚠', text: 'Trust was so-so — try being a bit more assertive.', tone: 'warning' }
-    : { icon: '❌', text: 'Trust dropped low. Try to stay calm and professional next time.', tone: 'danger' }
-
-  const escInsight =
-    finalEsc <= 1 ? { icon: '✅', text: 'You kept things calm and steady.', tone: 'success' }
-    : finalEsc <= 3 ? { icon: '⚠', text: 'Things got a little tense. Try calming it down sooner next time.', tone: 'warning' }
-    : { icon: '❌', text: 'Things got heated fast. Try not to react emotionally next time.', tone: 'danger' }
-
-  const emotionInsight =
-    dom === 'assertive' || dom === 'calm'
-      ? { icon: '✅', text: 'You came across calm and professional.', tone: 'success' }
-      : dom === 'anxious' || dom === 'confused'
-      ? { icon: '⚠', text: 'You seemed a bit unsure — try practicing more confident phrasing.', tone: 'warning' }
-      : { icon: '❌', text: 'Your frustration showed. Try focusing on solutions instead.', tone: 'danger' }
 
   return (
     <div className="rpe-cinema">
@@ -187,7 +129,7 @@ export default function SessionComplete() {
 
           {closingLine && (
             <div className="hero-quote">
-              <span className="hero-quote-label">{npcRole || 'Character'} · last thing they said</span>
+              <span className="hero-quote-label">{npcRole || 'NPC'} · final line</span>
               <p className="hero-quote-text">"{closingLine}"</p>
             </div>
           )}
@@ -200,7 +142,7 @@ export default function SessionComplete() {
               <span className={cn('hero-stat-val', trustScore != null ? getTrustTone(trustScore) : '')}>{trustScore ?? '—'}</span>
             </div>
             <div className="hero-stat">
-              <span className="hero-stat-label">Tension</span>
+              <span className="hero-stat-label">Escalation</span>
               <span className="hero-stat-val">{escalationLevel ?? '—'}<span className="unit">/5</span></span>
             </div>
             <div className="hero-stat">
@@ -210,101 +152,14 @@ export default function SessionComplete() {
           </div>
         </div>
 
-        {!isLoading && (
-          <div className="grid-2">
-            {trustHistory.length > 0 && (() => {
-              const minVal = Math.min(...trustHistory)
-              const maxVal = Math.max(...trustHistory)
-              const range  = maxVal - minVal || 1
-              return (
-                <Panel title="How trust changed over time">
-                  <div className="chart">
-                    {trustHistory.map((val, i) => {
-                      const heightPct = 20 + ((val - minVal) / range) * 80
-                      return (
-                        <div key={i} className="chart-col">
-                          <span className={cn('chart-val', getTrustTone(val))}>{val}</span>
-                          <div className="chart-bar-track">
-                            <div className={cn('chart-bar', getTrustTone(val))} style={{ height: `${heightPct}%` }} />
-                          </div>
-                          <span className="chart-tick">{i === 0 ? 'S' : `T${i}`}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </Panel>
-              )
-            })()}
-
-            <Panel title="How did you do?">
-              <ul className="insight-list">
-                {[trustInsight, escInsight, emotionInsight].map((item, i) => (
-                  <li key={i} className={cn('insight-row', item.tone)}>
-                    <span aria-hidden>{item.icon}</span>
-                    <span>{item.text}</span>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          </div>
-        )}
-
-        {isLoading && (
-          <Panel>
-            <div className="skel" style={{ height: 16, width: '40%', marginBottom: 12 }} />
-            <div className="skel" style={{ height: 12, width: '70%', marginBottom: 8 }} />
-            <div className="skel" style={{ height: 12, width: '60%' }} />
-          </Panel>
-        )}
-
-        {!isLoading && turns.length > 0 && (
-          <Panel title="Turn by turn">
-            <div className="turn-list">
-              {visibleTurns.map((t, i) => {
-                const delta = trustDeltas[t.turn - 1]
-                return (
-                  <div key={t.turn} className="turn-row">
-                    <span className="turn-num">T{t.turn}</span>
-                    <Pill tone={EMOTION_TONE[t.emotion] ?? 'neutral'}>{t.emotion}</Pill>
-                    <span className={cn('turn-trust', getTrustTone(t.trust_score))}>
-                      {t.trust_score}
-                      {delta != null && delta !== 0 && (
-                        <span className="turn-delta">
-                          {delta > 0 ? <TrendingUp size={10} strokeWidth={2} /> : <TrendingDown size={10} strokeWidth={2} />}
-                        </span>
-                      )}
-                      {delta === 0 && <Minus size={10} strokeWidth={2} className="turn-delta neutral" />}
-                    </span>
-                    <p className="turn-text">{t.user_input}</p>
-                  </div>
-                )
-              })}
-            </div>
-            {turns.length > 4 && (
-              <button type="button" onClick={() => setShowAllTurns((v) => !v)} className="show-toggle">
-                {showAllTurns
-                  ? <><ChevronUp size={12} strokeWidth={2} /> Hide</>
-                  : <><ChevronDown size={12} strokeWidth={2} /> Show all {turns.length} turns</>}
-              </button>
-            )}
-          </Panel>
-        )}
-
         <div className="actions">
-          <button type="button" onClick={() => navigate('/training-plan')} className="btn-c secondary">
-            View updated plan
-          </button>
           <button type="button" onClick={() => navigate(`/roleplay/feedback/${sessionId}`)} className="btn-c primary">
             <BarChart2 size={14} strokeWidth={1.8} />
-            View full feedback
+            View Session Outcome
           </button>
           <button type="button" onClick={() => navigate('/roleplay')} className="btn-c secondary">
             <RefreshCw size={14} strokeWidth={1.8} />
             Try again
-          </button>
-          <button type="button" onClick={() => navigate('/roleplay')} className="btn-c ghost">
-            <PlayCircle size={14} strokeWidth={1.8} />
-            Try another
           </button>
           <button type="button" onClick={() => navigate('/')} className="btn-c ghost">
             <Home size={14} strokeWidth={1.8} />
@@ -320,8 +175,6 @@ export default function SessionComplete() {
           --surface:       #161B22;
           --surface-hi:    #21262D;
           --border:        #30363D;
-          --primary:       #4493F8;
-          --primary-glow:  rgba(68,147,248,0.15);
           --accent:        #7C3AED;
           --accent-glow:   rgba(124,58,237,0.15);
           --success:       #3FB950;
@@ -338,7 +191,6 @@ export default function SessionComplete() {
           min-height:calc(100vh - 48px);
           background:
             radial-gradient(60% 50% at 50% 0%, rgba(124,58,237,0.10) 0%, transparent 60%),
-            radial-gradient(50% 40% at 50% 0%, rgba(68,147,248,0.08) 0%, transparent 60%),
             var(--bg);
           color:var(--text-hi);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
@@ -363,7 +215,7 @@ export default function SessionComplete() {
         .rpe-cinema .hero-card.success{ border-color:rgba(63,185,80,0.35); box-shadow:0 20px 50px rgba(63,185,80,0.1); }
         .rpe-cinema .hero-card.warning{ border-color:rgba(210,153,34,0.35); box-shadow:0 20px 50px rgba(210,153,34,0.1); }
         .rpe-cinema .hero-card.danger{  border-color:rgba(248,81,73,0.35); box-shadow:0 20px 50px rgba(248,81,73,0.1); }
-        .rpe-cinema .hero-card.natural{ border-color:rgba(68,147,248,0.35); box-shadow:0 20px 50px rgba(68,147,248,0.1); }
+        .rpe-cinema .hero-card.natural{ border-color:rgba(124,58,237,0.35); box-shadow:0 20px 50px rgba(124,58,237,0.1); }
 
         .rpe-cinema .hero-top{ display:flex; align-items:center; gap:18px; }
         .rpe-cinema .hero-badge{ position:relative; width:56px; height:56px; border-radius:50%; flex-shrink:0; }
@@ -371,7 +223,7 @@ export default function SessionComplete() {
         .rpe-cinema .hero-badge.success::before{ background:conic-gradient(from 0deg, var(--success), #6BDE85, var(--success)); }
         .rpe-cinema .hero-badge.warning::before{ background:conic-gradient(from 0deg, var(--warning), #F0C05A, var(--warning)); }
         .rpe-cinema .hero-badge.danger::before{  background:conic-gradient(from 0deg, var(--danger), #FF8A85, var(--danger)); }
-        .rpe-cinema .hero-badge.natural::before{ background:conic-gradient(from 0deg, var(--primary), #7C3AED, var(--primary)); }
+        .rpe-cinema .hero-badge.natural::before{ background:conic-gradient(from 0deg, var(--accent), #9B6BFF, var(--accent)); }
         @keyframes cinemaRingPulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
         .rpe-cinema .hero-badge-inner{
           position:absolute; inset:3px; border-radius:50%;
@@ -403,74 +255,13 @@ export default function SessionComplete() {
         .rpe-cinema .hero-stat-val.danger{  color:var(--danger); }
         .rpe-cinema .hero-stat-val .unit{ font-size:12px; font-weight:600; color:var(--text-med); margin-left:1px; }
 
-        .rpe-cinema .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:stretch; }
-        @media (max-width:760px){ .rpe-cinema .grid-2{ grid-template-columns:1fr; } }
-
-        .rpe-cinema .panel{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px; }
-        .rpe-cinema .panel-label{ font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); margin-bottom:12px; }
-
-        .rpe-cinema .chart{ position:relative; display:flex; align-items:flex-end; gap:6px; height:104px; }
-        .rpe-cinema .chart-col{ display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; }
-        .rpe-cinema .chart-val{ font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
-        .rpe-cinema .chart-val.success{ color:var(--success); }
-        .rpe-cinema .chart-val.warning{ color:var(--warning); }
-        .rpe-cinema .chart-val.danger{  color:var(--danger); }
-        .rpe-cinema .chart-bar-track{ width:100%; height:72px; display:flex; flex-direction:column; justify-content:flex-end; }
-        .rpe-cinema .chart-bar{ width:100%; border-radius:3px 3px 0 0; transition:height .5s var(--ease); box-shadow:0 0 10px currentColor; opacity:.9; }
-        .rpe-cinema .chart-bar.success{ background:var(--success); color:var(--success-glow); }
-        .rpe-cinema .chart-bar.warning{ background:var(--warning); color:var(--warning-glow); }
-        .rpe-cinema .chart-bar.danger{  background:var(--danger);  color:var(--danger-glow); }
-        .rpe-cinema .chart-tick{ font-size:9px; color:var(--text-low); font-variant-numeric:tabular-nums; }
-
-        .rpe-cinema .pill{
-          display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650;
-          padding:4px 10px; border-radius:100px; border:1px solid transparent; text-transform:capitalize;
-        }
-        .rpe-cinema .pill.success{ color:var(--success); background:var(--success-glow); border-color:rgba(63,185,80,0.3); }
-        .rpe-cinema .pill.warning{ color:var(--warning); background:var(--warning-glow); border-color:rgba(210,153,34,0.3); }
-        .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow);  border-color:rgba(248,81,73,0.3); }
-        .rpe-cinema .pill.accent{  color:var(--accent);  background:var(--accent-glow);  border-color:rgba(124,58,237,0.3); }
-        .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); border-color:var(--border); }
-        .rpe-cinema .pill.orange{ color:#DB7B2B; background:rgba(219,123,43,0.12); border-color:rgba(219,123,43,0.3); }
-        .rpe-cinema .pill.sad{    color:#6E9BC7; background:rgba(110,155,199,0.12); border-color:rgba(110,155,199,0.3); }
-        .rpe-cinema .pill.indigo{ color:#5B7CE0; background:rgba(91,124,224,0.12); border-color:rgba(91,124,224,0.3); }
-
-        .rpe-cinema .turn-list{ display:flex; flex-direction:column; gap:6px; }
-        .rpe-cinema .turn-row{
-          display:flex; align-items:center; gap:12px;
-          background:var(--surface-hi); border:1px solid var(--border); border-radius:10px; padding:8px 12px;
-        }
-        .rpe-cinema .turn-num{ font-size:11px; font-weight:700; color:var(--text-low); width:22px; flex-shrink:0; font-variant-numeric:tabular-nums; }
-        .rpe-cinema .turn-trust{ font-size:11px; font-weight:700; flex-shrink:0; font-variant-numeric:tabular-nums; display:inline-flex; align-items:center; gap:2px; width:38px; }
-        .rpe-cinema .turn-trust.success{ color:var(--success); }
-        .rpe-cinema .turn-trust.warning{ color:var(--warning); }
-        .rpe-cinema .turn-trust.danger{  color:var(--danger); }
-        .rpe-cinema .turn-delta{ display:inline-flex; }
-        .rpe-cinema .turn-delta.neutral{ color:var(--text-low); }
-        .rpe-cinema .turn-text{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:0; font-size:12.5px; color:var(--text-med); }
-
-        .rpe-cinema .show-toggle{
-          margin-top:10px; background:transparent; border:0; color:var(--primary); cursor:pointer;
-          font-weight:600; font-size:12px; display:inline-flex; align-items:center; gap:4px;
-        }
-        .rpe-cinema .show-toggle:hover{ filter:brightness(1.2); }
-
-        .rpe-cinema .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:6px; animation:cinemaShimmer 1.4s ease-in-out infinite; }
-        @keyframes cinemaShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
-
-        .rpe-cinema .insight-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
-        .rpe-cinema .insight-row{ display:flex; align-items:flex-start; gap:8px; font-size:13px; font-weight:500; }
-        .rpe-cinema .insight-row.success{ color:var(--success); }
-        .rpe-cinema .insight-row.warning{ color:var(--warning); }
-        .rpe-cinema .insight-row.danger{  color:var(--danger); }
-
         .rpe-cinema .actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; padding-top:4px; }
         .rpe-cinema .btn-c{
           display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650;
           padding:10px 16px; border-radius:10px; cursor:pointer; border:1px solid transparent;
           transition:filter .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease), transform .2s var(--ease);
         }
-        .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--primary), #6BB2FF); color:#fff; box-shadow:0 8px 22px var(--primary-glow); }
+        .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
         .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
         .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
         .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }

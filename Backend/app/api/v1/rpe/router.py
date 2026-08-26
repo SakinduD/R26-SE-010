@@ -10,10 +10,12 @@ from app.schemas.rpe import (
     RespondResponse,
     ScenarioDetail,
     ScenarioSummary,
+    SessionIdsRequest,
     StartSessionRequest,
     StartSessionResponse,
 )
 from app.services.rpe_apa_service        import ApaLearnerProfile, RpeApaService
+from app.services.rpe_apm_notify_service import RpeApmNotifyService
 from app.services.rpe_blind_spot_service import RpeBlindSpotService
 from app.services.rpe_coaching_service   import RpeCoachingService
 from app.services.rpe_emotion_service    import RpeEmotionService
@@ -45,6 +47,10 @@ rpe_feedback_service   = RpeFeedbackService(
     blind_spot_service = rpe_blind_spot_service,
     coaching_service   = rpe_coaching_service,
     viz_service        = rpe_viz_service,
+)
+rpe_apm_notify_service = RpeApmNotifyService(
+    session_service  = rpe_session_service,
+    feedback_service = rpe_feedback_service,
 )
 
 rpe_router = APIRouter()
@@ -89,6 +95,7 @@ def start_session(
         recommended_turns = scenario.recommended_turns,
         max_turns         = scenario.max_turns,
         is_authenticated  = is_authenticated,
+        failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
     )
 
 
@@ -138,6 +145,7 @@ async def start_session_from_plan(
         recommended_turns = scenario.recommended_turns,
         max_turns         = scenario.max_turns,
         is_authenticated  = True,
+        failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
     )
 
 
@@ -179,8 +187,11 @@ def session_respond(
             escalation_level = current_esc,
             npc_behaviour    = scenario.npc_behaviour,
         )
-        npc_response = result["npc_response"]
-        animation    = result.get("animation")
+        npc_response  = result["npc_response"]
+        animation     = result.get("animation")
+        user_behavior = result.get("user_behavior")
+        requests_deliverable = result.get("requests_deliverable", False)
+        response_options     = result.get("response_options")
 
         # 3. Profanity override wins over LLM classification
         emotion: str = "frustrated" if is_profane else result["detected_emotion"]
@@ -197,8 +208,16 @@ def session_respond(
             "emotion":          emotion,
             "trust_score":      new_trust,
             "escalation_level": new_esc,
+            "user_behavior":    user_behavior,
         }
         rpe_session_service.log_turn(payload.session_id, turn_data)
+
+        # Live per-turn clarity/quality for the session sidebar meters — the
+        # same pure local heuristic (word count + keyword matching, no LLM
+        # call) rpe_nlp_service already runs post-session for the feedback
+        # screen, just run once here so it's available while the user is
+        # still talking instead of only after the session ends.
+        live_metrics = rpe_nlp_service._score_turn(turn_data)
 
         # Re-read session after logging to get updated trust_history
         session_data  = rpe_session_service.get_session(payload.session_id)
@@ -237,7 +256,6 @@ def session_respond(
                 recommended_turns = scenario.recommended_turns,
                 end_conditions    = scenario.end_conditions,
                 trust_history     = trust_history,
-                escalation_level  = new_esc,
                 current_turn      = turn_number,
                 profanity_count   = profanity_count,
             )
@@ -267,12 +285,19 @@ def session_respond(
             npc_response=npc_response,
             emotion=emotion,
             animation=animation,
+            user_behavior=user_behavior,
             trust_score=new_trust,
             escalation_level=new_esc,
             turn=turn_number,
             session_complete=should_end,
             outcome=outcome,
             end_reason=end_reason if should_end else None,
+            # Never offer choice cards on the turn that ends the session —
+            # there's no next turn for a submitted document to land on.
+            requests_deliverable=requests_deliverable and not should_end,
+            response_options=response_options if not should_end else None,
+            clarity_score=live_metrics["clarity_score"],
+            response_quality=live_metrics["response_quality"],
         )
     except HTTPException:
         raise
@@ -340,6 +365,7 @@ def scenario_detail(scenario_id: str) -> dict:
         "apa_metadata":      scenario.apa_metadata,
         "target_skills":     scenario.apa_metadata.get("target_skills", []),
         "difficulty_weight": scenario.apa_metadata.get("difficulty_weight", 1.0),
+        "category":          scenario.category,
     }
 
 
@@ -377,11 +403,15 @@ def apa_recommend(payload: ApaRecommendRequest) -> list[dict]:
 @rpe_router.post("/apa/session-complete")
 def apa_session_complete(payload: ApaSessionCompleteRequest) -> dict:
     try:
-        summary = rpe_session_service.get_session(payload.session_id)
+        rpe_session_service.get_session(payload.session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    rpe_apa_service.notify_session_complete(payload.user_id, summary)
-    return {"status": "notified"}
+    # Real APM notification (see rpe_apm_notify_service.py) — payload.user_id
+    # is ignored here; the outbound call uses the session's own stored
+    # auth_user_id, since a client-supplied id shouldn't be trusted for a
+    # privileged cross-service call.
+    sent = rpe_apm_notify_service.notify_session_complete(payload.session_id)
+    return {"status": "notified" if sent else "skipped"}
 
 
 @rpe_router.get("/session-feedback/{session_id}", response_model=FeedbackResponse)
@@ -408,7 +438,39 @@ def session_feedback(
 
 @rpe_router.get("/my-sessions")
 def my_sessions(
+    trashed:      bool = False,
     current_user: User = Depends(get_current_user),
 ) -> list[dict]:
-    """Returns all RPE sessions for the authenticated user."""
-    return rpe_session_service.get_user_sessions(str(current_user.id))
+    """Returns RPE sessions for the authenticated user — active by default,
+    or the recycle bin when trashed=true."""
+    return rpe_session_service.get_user_sessions(str(current_user.id), trashed=trashed)
+
+
+@rpe_router.post("/sessions/trash")
+def trash_sessions(
+    payload:      SessionIdsRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Move sessions into the recycle bin (soft delete)."""
+    rpe_session_service.set_sessions_deleted(str(current_user.id), payload.session_ids, deleted=True)
+    return {"status": "trashed", "count": len(payload.session_ids)}
+
+
+@rpe_router.post("/sessions/restore")
+def restore_sessions(
+    payload:      SessionIdsRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Move sessions out of the recycle bin, back to active."""
+    rpe_session_service.set_sessions_deleted(str(current_user.id), payload.session_ids, deleted=False)
+    return {"status": "restored", "count": len(payload.session_ids)}
+
+
+@rpe_router.post("/sessions/purge")
+def purge_sessions(
+    payload:      SessionIdsRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Permanently delete sessions — irreversible, cascades to their turns."""
+    rpe_session_service.purge_sessions(str(current_user.id), payload.session_ids)
+    return {"status": "purged", "count": len(payload.session_ids)}

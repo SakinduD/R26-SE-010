@@ -23,6 +23,32 @@ _DEFAULT_END_CONDITIONS: dict = {
     "failure_escalation_threshold": 5,
 }
 
+# The 6 "what do you want to practice?" categories shown on the Practice Lab
+# screen. Hand-authored scenarios carry an explicit "category" in their JSON;
+# this is only the fallback for scenarios that don't (chiefly ones generated
+# live from a Training Plan brief, via rpe_plan_import_service).
+CATEGORIES = [
+    "Difficult Conversations", "Negotiation", "Conflict",
+    "Assertiveness", "Client Management", "Leadership",
+]
+
+
+def infer_category(conflict_type: str, target_skills: list[str], title: str) -> str:
+    text   = f"{conflict_type} {title}".lower()
+    skills = set(target_skills)
+
+    if "negotiat" in text:
+        return "Negotiation"
+    if "client" in text or "client_management" in skills:
+        return "Client Management"
+    if "political_awareness" in skills or "trust_building" in skills or "sabotage" in text or "lead" in text:
+        return "Leadership"
+    if "peer" in text or "conflict" in text:
+        return "Conflict"
+    if skills & {"assertiveness", "professional_assertiveness", "self_advocacy"}:
+        return "Assertiveness"
+    return "Difficult Conversations"
+
 
 @dataclass
 class Scenario:
@@ -40,6 +66,7 @@ class Scenario:
     success_criteria:  dict
     npc_behaviour:     dict
     apa_metadata:      dict
+    category:          str
 
 
 class RpeScenarioService:
@@ -53,6 +80,12 @@ class RpeScenarioService:
             recommended_turns = data.get("recommended_turns", data.get("turns", 6))
             max_turns         = data.get("max_turns", 15)
             end_conditions    = data.get("end_conditions", _DEFAULT_END_CONDITIONS)
+            apa_metadata      = data.get("apa_metadata", _DEFAULT_APA)
+            category = data.get("category") or infer_category(
+                data.get("conflict_type", "general"),
+                apa_metadata.get("target_skills", []),
+                data["title"],
+            )
             self._scenarios[data["scenario_id"]] = Scenario(
                 scenario_id=data["scenario_id"],
                 title=data["title"],
@@ -67,7 +100,8 @@ class RpeScenarioService:
                 end_conditions=end_conditions,
                 success_criteria=data["success_criteria"],
                 npc_behaviour=data.get("npc_behaviour", _DEFAULT_BEHAVIOUR),
-                apa_metadata=data.get("apa_metadata", _DEFAULT_APA),
+                apa_metadata=apa_metadata,
+                category=category,
             )
 
     def get_scenario(self, scenario_id: str) -> Scenario | None:
@@ -85,6 +119,9 @@ class RpeScenarioService:
                 "max_turns":         s.max_turns,
                 "target_skills":     s.apa_metadata.get("target_skills", []),
                 "difficulty_weight": s.apa_metadata.get("difficulty_weight", 1.0),
+                "is_generated":      bool(s.apa_metadata.get("plan_generated")),
+                "context":           s.context,
+                "category":          s.category,
             }
             for s in self._scenarios.values()
         ]

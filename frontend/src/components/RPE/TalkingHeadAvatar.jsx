@@ -48,54 +48,80 @@ export default function TalkingHeadAvatar({ onReady, onError, className }) {
       disposeTimerRef.current = null
     }
 
-    if (!headRef.current) {
-      const head = new TalkingHead(containerRef.current, {
-        // Relative "/api/gtts" resolves against the Vite dev server, not the
-        // backend — this app has no dev proxy and always talks to the API
-        // via an absolute VITE_API_BASE_URL (see src/lib/config.js), so the
-        // TTS proxy is addressed the same way everything else in RPE is.
-        ttsEndpoint: `${API_URL}/api/gtts`,
-        cameraView: 'upper',
-        cameraRotateEnable: false,
-        cameraZoomEnable: false,
-        avatarMood: 'neutral',
-        lipsyncModules: ['en'],
-      })
-      headRef.current = head
+    let cancelled = false
+    let rafId = null
+    let showAvatarTimerId = null
 
-      head.showAvatar(
-        {
-          url: import.meta.env.VITE_AVATAR_URL ?? '/avatar.glb',
-          body: 'F',
-          baseline: 'M',
-          ttsLang: 'en-GB',
-          ttsVoice: 'en-GB-Neural2-C',
-          lipsyncLang: 'en',
-        },
-        (event) => {
-          if (import.meta.env.DEV) {
-            console.log('[TalkingHeadAvatar] load event:', event)
-          }
-        }
-      )
-        .then(() => {
-          // headRef.current will have been cleared (real unmount) or
-          // replaced (shouldn't happen — we never create a second head
-          // while one exists) if this load is no longer the live one.
-          if (headRef.current !== head) return
-          setIsLoading(false)
-          onReady?.(head)
+    if (!headRef.current) {
+      // TalkingHead's constructor does real synchronous WebGL work (a
+      // renderer + PMREM environment-map generation), and showAvatar()
+      // follows up with GLTF parsing and morph-target setup. Run back to
+      // back on mount, that's one long uninterrupted block of the main
+      // thread — long enough that the browser can show its own "Page
+      // Unresponsive" prompt before the loading screen has even painted.
+      // Deferring construction past the next paint (rAF), then yielding
+      // once more before showAvatar (setTimeout 0), splits that into two
+      // shorter chunks with a real paint/input opportunity between them.
+      rafId = requestAnimationFrame(() => {
+        if (cancelled) return
+
+        const head = new TalkingHead(containerRef.current, {
+          // Relative "/api/gtts" resolves against the Vite dev server, not
+          // the backend — this app has no dev proxy and always talks to the
+          // API via an absolute VITE_API_BASE_URL (see src/lib/config.js),
+          // so the TTS proxy is addressed the same way everything else in
+          // RPE is.
+          ttsEndpoint: `${API_URL}/api/gtts`,
+          ttsRate: 1.15,
+          cameraView: 'upper',
+          cameraRotateEnable: false,
+          cameraZoomEnable: false,
+          avatarMood: 'neutral',
+          lipsyncModules: ['en'],
         })
-        .catch((err) => {
-          console.error('[TalkingHeadAvatar] failed to load avatar:', err)
-          if (headRef.current !== head) return
-          setHasError(true)
-          setIsLoading(false)
-          onError?.(err)
-        })
+        headRef.current = head
+
+        showAvatarTimerId = setTimeout(() => {
+          if (cancelled || headRef.current !== head) return
+
+          head.showAvatar(
+            {
+              url: import.meta.env.VITE_AVATAR_URL ?? '/avatar.glb',
+              body: 'F',
+              baseline: 'M',
+              ttsLang: 'en-GB',
+              ttsVoice: 'en-GB-Neural2-C',
+              lipsyncLang: 'en',
+            },
+            (event) => {
+              if (import.meta.env.DEV) {
+                console.log('[TalkingHeadAvatar] load event:', event)
+              }
+            }
+          )
+            .then(() => {
+              // headRef.current will have been cleared (real unmount) or
+              // replaced (shouldn't happen — we never create a second head
+              // while one exists) if this load is no longer the live one.
+              if (headRef.current !== head) return
+              setIsLoading(false)
+              onReady?.(head)
+            })
+            .catch((err) => {
+              console.error('[TalkingHeadAvatar] failed to load avatar:', err)
+              if (headRef.current !== head) return
+              setHasError(true)
+              setIsLoading(false)
+              onError?.(err)
+            })
+        }, 0)
+      })
     }
 
     return () => {
+      cancelled = true
+      if (rafId != null) cancelAnimationFrame(rafId)
+      if (showAvatarTimerId != null) clearTimeout(showAvatarTimerId)
       disposeTimerRef.current = setTimeout(() => {
         headRef.current?.dispose()
         headRef.current = null

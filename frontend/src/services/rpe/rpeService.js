@@ -122,13 +122,43 @@ export const rpeService = {
     }
   },
 
-  getMyRpeSessions: async () => {
+  getMyRpeSessions: async (trashed = false) => {
     try {
       return await authClient
-        .get('/api/v1/rpe/my-sessions')
+        .get('/api/v1/rpe/my-sessions', { params: { trashed } })
         .then(unwrap)
     } catch (err) {
       throw new Error(err.response?.data?.detail || err.message || 'Failed to fetch your sessions')
+    }
+  },
+
+  trashSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/trash', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to move sessions to the recycle bin')
+    }
+  },
+
+  restoreSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/restore', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to restore sessions')
+    }
+  },
+
+  purgeSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/purge', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to permanently delete sessions')
     }
   },
 }

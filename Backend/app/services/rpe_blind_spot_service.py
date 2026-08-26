@@ -18,11 +18,12 @@ class RpeBlindSpotService:
         low_turns = [t["turn"] for t in turns if t["trust_score"] < min_trust]
         if not low_turns:
             return []
+        span = "most of the conversation" if len(low_turns) > len(turns) / 2 else "part of the conversation"
         return [{
             "blind_spot_type": "low_trust_turns",
-            "description":     f"Trust was below the minimum threshold ({min_trust}) on turns: {low_turns}.",
+            "description":     f"Trust never reached a comfortable level for {span}.",
             "affected_turns":  low_turns,
-            "recommendation":  "Use empathetic and assertive language in early turns to build trust faster.",
+            "recommendation":  "Warmer, more confident language early on tends to build trust faster.",
         }]
 
     def _high_escalation_turns(
@@ -32,11 +33,12 @@ class RpeBlindSpotService:
         high_turns = [t["turn"] for t in turns if t["escalation_level"] > max_esc]
         if not high_turns:
             return []
+        span = "most of the conversation" if len(high_turns) > len(turns) / 2 else "part of the conversation"
         return [{
             "blind_spot_type": "high_escalation_turns",
-            "description":     f"Escalation exceeded the safe threshold ({max_esc}) on turns: {high_turns}.",
+            "description":     f"Tension stayed high for {span}.",
             "affected_turns":  high_turns,
-            "recommendation":  "Avoid reactive language. Acknowledge the NPC's frustration before stating your position.",
+            "recommendation":  "Acknowledge how the other person is feeling before making your own point.",
         }]
 
     def _repeated_emotion_pattern(self, turns: list[dict]) -> list[dict]:
@@ -51,9 +53,9 @@ class RpeBlindSpotService:
             if emotion in negative and count / len(turns) >= 0.5:
                 return [{
                     "blind_spot_type": "dominant_negative_emotion",
-                    "description":     f"'{emotion}' was your dominant emotion in {count}/{len(turns)} turns.",
+                    "description":     f"You came across as {emotion} for most of the conversation.",
                     "affected_turns":  [t["turn"] for t in turns if t["emotion"] == emotion],
-                    "recommendation":  f"Practice reframing '{emotion}' responses into calm or assertive ones before replying.",
+                    "recommendation":  f"Try catching a {emotion} reply before you send it and reframing it as calm or assertive instead.",
                 }]
         return []
 
@@ -69,7 +71,7 @@ class RpeBlindSpotService:
             return []
         return [{
             "blind_spot_type": "missed_recovery",
-            "description":     f"Escalation stayed high or rose further after turns: {missed}. These were recovery opportunities.",
+            "description":     "A few times when tension was already high, the reply that followed didn't bring it back down.",
             "affected_turns":  missed,
-            "recommendation":  "When escalation is high, immediately shift to calm and empathetic language to recover.",
+            "recommendation":  "When tension is high, shift to calmer, more understanding language to bring it back down before pressing your point.",
         }]

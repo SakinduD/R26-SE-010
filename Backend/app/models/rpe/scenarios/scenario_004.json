@@ -31,9 +31,18 @@
     }
   },
   "apa_metadata": {
-    "target_skills": ["political_awareness", "assertiveness", "trust_building"],
-    "big_five_relevance": ["openness", "conscientiousness", "agreeableness"],
+    "target_skills": [
+      "political_awareness",
+      "assertiveness",
+      "trust_building"
+    ],
+    "big_five_relevance": [
+      "openness",
+      "conscientiousness",
+      "agreeableness"
+    ],
     "recommended_for_profile": null,
     "difficulty_weight": 2.0
-  }
+  },
+  "category": "Conflict"
 }
