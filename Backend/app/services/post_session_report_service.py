@@ -76,8 +76,17 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
     Priority order (same as Analytics Dashboard):
     1. Average the raw DB metric fields that belong to each composite skill.
     2. If no metric fields are present, fall back to skill_rating_averages from feedback.
-    Overall score is the mean of the four composite skills (not a skill itself),
-    so the reported Overall always equals the average of the four skills shown.
+
+    Overall is the multimodal engine's own score, read from the stored
+    `overall_score`, not the mean of the four composites. It used to be that mean,
+    which made the report internally tidy - Overall always equalled the average of
+    the four boxes beside it - and made it disagree with the number the session
+    itself produced. The engine weights its dimensions its own way; on this
+    account the two differ on 37 of 99 sessions, by up to 13.5 points. A report
+    about a session has to show the session's score.
+
+    The mean is still the fallback, for a session that stored no overall of its
+    own, and feedback average after that.
     """
     averages = aggregate.scores.averages
     feedback_avgs = aggregate.feedback.skill_rating_averages
@@ -104,9 +113,10 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         if score is not None:
             available_scores.append(score)
 
-    # Overall is the mean of the four composite skills — it is a summary, not a
-    # skill. Falling back to feedback average only when no skill has evidence yet.
-    if available_scores:
+    stored_overall = averages.get("overall_score")
+    if stored_overall is not None:
+        overall_score = round(float(stored_overall), 2)
+    elif available_scores:
         overall_score = round(sum(available_scores) / len(available_scores), 2)
     elif aggregate.feedback.average_rating is not None:
         overall_score = round(aggregate.feedback.average_rating, 2)

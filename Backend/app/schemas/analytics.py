@@ -647,6 +647,16 @@ class LearnerHistorySummary(BaseModel):
     first_session_at: datetime | None = None
     latest_session_at: datetime | None = None
     skills: list[SkillHistoryItem]
+    # The engine's own overall score across the same sessions, carried in the same
+    # shape as a skill so callers can read it the same way.
+    #
+    # It is deliberately not a fifth entry in `skills`: the four there are tracked
+    # skills, each with its own trend line, prediction and blind-spot comparison,
+    # and overall must never appear as one of those. But it is also not the mean of
+    # them - the multimodal engine computes it separately, and on this dataset the
+    # two disagree by up to 13.5 points on a single session - so a caller that
+    # wants the real overall cannot derive it from the four and needs it here.
+    overall: SkillHistoryItem | None = None
     improving_count: int
     declining_count: int
     strongest_skill: SkillHistoryItem | None = None

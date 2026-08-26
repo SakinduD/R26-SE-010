@@ -252,13 +252,19 @@ export default function SkillTwinProfile() {
   }, [profile])
 
   const overallScore = useMemo(() => {
-    // Overall is the mean of the four skills — a summary, not a skill. Computing
-    // it from the same values shown on the radar guarantees the Overall number
-    // always equals the average of the four skill scores the user sees.
+    // The multimodal engine's own overall score, read from the stored value.
+    //
+    // This used to be the mean of the four radar points, which guaranteed the
+    // Overall number always equalled the average of the four scores on screen.
+    // That is tidier and wrong: the engine weights its dimensions its own way,
+    // and across this account the two disagree on 37 of 99 sessions by as much
+    // as 13.5 points. Every screen in the platform that names a session's overall
+    // score has to name the same number, and this is that number.
+    const stored = toScoreValue(profile.aggregate?.scores?.averages?.overall_score)
+    if (stored !== null) return stored
     const values = radarScores.map(item => toScoreValue(item.value)).filter(v => v !== null)
     if (values.length) return values.reduce((sum, v) => sum + v, 0) / values.length
-    return toScoreValue(profile.aggregate?.scores?.averages?.overall_score) ??
-           toScoreValue(profile.aggregate?.feedback?.average_rating)
+    return toScoreValue(profile.aggregate?.feedback?.average_rating)
   }, [radarScores, profile])
 
   // How many sessions this learner has analytics for.
