@@ -122,6 +122,26 @@ def _emotion_valence_score(emotion_distribution: Dict[str, float]) -> float:
     return (normalised + 1.0) * 50.0
 
 
+def clamp(v: float) -> int:
+    """Clamp a raw score to an integer 0-100."""
+    return int(min(100.0, max(0.0, round(v))))
+
+
+def combine_breakdown_to_overall(breakdown: Dict[str, float]) -> int:
+    """
+    Combine per-dimension scores into the overall session score using the
+    Mehrabian & Ferris (1967) channel weights (see _DIMENSION_WEIGHTS).
+
+    Single source of truth for this weighting — used both by the rule-based
+    pipeline below and by the LLM-based live-session scorer, so an LLM is
+    never trusted to do the weighted arithmetic itself.
+    """
+    overall = sum(
+        breakdown[dim] * weight for dim, weight in _DIMENSION_WEIGHTS.items()
+    )
+    return clamp(overall)
+
+
 def _log_duration_correction(raw_score: float, max_opportunities: float) -> float:
     """
     Shrink scores toward the neutral midpoint (50) when few observation slots exist.
@@ -185,9 +205,6 @@ def calculate_session_metrics(
 
     # Step 2: Opportunity-Based Proportion (OBP) per dimension
     # OBP = weighted_count / max_opportunities  ∈ [0, 1]
-    # Using OBP rather than raw rate (BRM) is necessary because the 10-second
-    # cooldown in NudgeEngine caps how many nudges can fire in any session.
-    # OBP is the standard metric when observation windows are constrained
     # (Johnston & Pennypacker, 2009 — restricted-operant measurement).
     obp: Dict[str, float] = {
         dim: min(1.0, count / max_opportunities)
@@ -212,9 +229,6 @@ def calculate_session_metrics(
     presence = _log_duration_correction(raw_presence, max_opportunities)
     emotion  = _log_duration_correction(raw_emotion,  max_opportunities)
 
-    def clamp(v: float) -> int:
-        return int(min(100.0, max(0.0, round(v))))
-
     breakdown = {
         "vocal_command":        clamp(vocal),
         "speech_fluency":       clamp(fluency),
@@ -223,12 +237,7 @@ def calculate_session_metrics(
     }
 
     # Step 6: Mehrabian-weighted overall score
-    overall = (
-        breakdown["vocal_command"]        * _DIMENSION_WEIGHTS["vocal_command"] +
-        breakdown["speech_fluency"]       * _DIMENSION_WEIGHTS["speech_fluency"] +
-        breakdown["presence_engagement"]  * _DIMENSION_WEIGHTS["presence_engagement"] +
-        breakdown["emotional_regulation"] * _DIMENSION_WEIGHTS["emotional_regulation"]
-    )
+    overall = combine_breakdown_to_overall(breakdown)
 
     # Raw valence for diagnostics (before rescaling)
     total_emotion = sum(emotion_distribution.values()) or 1.0

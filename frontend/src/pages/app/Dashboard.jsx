@@ -14,6 +14,8 @@ import EmptyState from '@/components/ui/EmptyState';
 import ScoreBarRow from '@/components/ui/ScoreBarRow';
 import KeyValuePair from '@/components/ui/KeyValuePair';
 import Button from '@/components/ui/Button';
+import { useAchievements } from '@/lib/achievements/AchievementsContext';
+import { showAchievementToasts } from '@/components/achievements/AchievementToast';
 
 /** Compact OCEAN summary shown once the user has a profile. */
 function OceanSummaryCard({ profile }) {
@@ -109,6 +111,12 @@ function BaselineStatusRow({ baseline }) {
   );
 }
 
+// Module scope, resets on a full page reload: ensures the achievement toast
+// fires at most once per tab even if Dashboard unmounts and remounts (e.g.
+// the learner navigates away and back) while the same unseen-badge batch
+// (computed once, shared via AchievementsContext) is still current.
+let hasShownAchievementToastThisSession = false;
+
 export default function Dashboard() {
   const { user } = useAuth();
   const displayName = user?.display_name || user?.email?.split('@')[0] || 'there';
@@ -123,6 +131,17 @@ export default function Dashboard() {
       .then(setBaseline)
       .catch(() => setBaseline(null));
   }, []);
+
+  // Achievement toast — the unseen-badge diff itself is computed once for
+  // the whole app shell (AchievementsProvider, shared with the Topbar
+  // notification bell); this effect just decides *when* to show it: the
+  // first time Dashboard is on screen after that diff becomes available.
+  const { unseenBadges } = useAchievements();
+  useEffect(() => {
+    if (hasShownAchievementToastThisSession || unseenBadges.length === 0) return;
+    hasShownAchievementToastThisSession = true;
+    showAchievementToasts(unseenBadges);
+  }, [unseenBadges]);
 
   const today = new Date().toLocaleDateString(undefined, {
     weekday: 'long',

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
+import { AchievementsProvider } from '@/lib/achievements/AchievementsContext';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import BottomTabs from '@/components/layout/BottomTabs';
@@ -49,18 +50,20 @@ export default function AppLayout() {
   };
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-      />
-      <div className="app-main">
-        <Topbar />
-        <main className="app-content">
-          <Outlet />
-        </main>
+    <AchievementsProvider>
+      <div className="app-shell">
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+        />
+        <div className="app-main">
+          <Topbar />
+          <main className="app-content">
+            <Outlet />
+          </main>
+        </div>
+        <BottomTabs />
       </div>
-      <BottomTabs />
-    </div>
+    </AchievementsProvider>
   );
 }

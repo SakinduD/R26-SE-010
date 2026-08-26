@@ -1,5 +1,5 @@
 {
-  "evaluated_at": "2026-08-19T12:22:09.265876+00:00",
+  "evaluated_at": "2026-08-26T12:03:32.704256+00:00",
   "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
   "model_path": "cardiffnlp/twitter-roberta-base-sentiment-latest",
   "model_version": "cardiffnlp/twitter-roberta-base-sentiment-latest",
@@ -16,23 +16,23 @@
   },
   "ground_truth": {
     "labelled_by": {
-      "human": 43
+      "human": 46
     },
     "human_reviewed_share": 1.0
   },
   "row_counts": {
-    "labelled_total": 43,
-    "scored": 38,
+    "labelled_total": 46,
+    "scored": 41,
     "unscorable_mixed_or_neutral": 5,
     "by_source": {
       "authored": 37,
-      "learner": 6
+      "learner": 9
     }
   },
   "overall": {
-    "count": 38,
-    "accuracy": 0.6842,
-    "correct": 26,
+    "count": 41,
+    "accuracy": 0.7073,
+    "correct": 29,
     "per_class": {
       "mixed": {
         "support": 12,
@@ -41,29 +41,29 @@
         "f1": 0.4
       },
       "negative": {
-        "support": 11,
-        "precision": 0.6111,
+        "support": 12,
+        "precision": 0.6316,
         "recall": 1.0,
-        "f1": 0.7586
+        "f1": 0.7742
       },
       "positive": {
-        "support": 15,
-        "precision": 0.9167,
-        "recall": 0.7333,
-        "f1": 0.8148
+        "support": 17,
+        "precision": 0.9286,
+        "recall": 0.7647,
+        "f1": 0.8387
       }
     },
     "confidence": {
-      "mean": 0.7345,
-      "median": 0.7662,
+      "mean": 0.7396,
+      "median": 0.7669,
       "min": 0.3882,
       "max": 0.9881
     },
     "production_gate": {
-      "reached_gate": 24,
-      "below_gate_discarded": 14,
-      "share_usable": 0.6316,
-      "accuracy_when_used": 0.75
+      "reached_gate": 26,
+      "below_gate_discarded": 15,
+      "share_usable": 0.6341,
+      "accuracy_when_used": 0.7692
     }
   },
   "by_source": {
@@ -105,9 +105,9 @@
       }
     },
     "learner": {
-      "count": 6,
-      "accuracy": 0.8333,
-      "correct": 5,
+      "count": 9,
+      "accuracy": 0.8889,
+      "correct": 8,
       "per_class": {
         "mixed": {
           "support": 3,
@@ -116,29 +116,29 @@
           "f1": 0.8
         },
         "negative": {
-          "support": 0,
-          "precision": 0.0,
-          "recall": null,
-          "f1": 0.0
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
         },
         "positive": {
-          "support": 3,
+          "support": 5,
           "precision": 1.0,
           "recall": 1.0,
           "f1": 1.0
         }
       },
       "confidence": {
-        "mean": 0.743,
-        "median": 0.8523,
+        "mean": 0.7632,
+        "median": 0.9377,
         "min": 0.3882,
         "max": 0.9774
       },
       "production_gate": {
-        "reached_gate": 4,
-        "below_gate_discarded": 2,
+        "reached_gate": 6,
+        "below_gate_discarded": 3,
         "share_usable": 0.6667,
-        "accuracy_when_used": 0.75
+        "accuracy_when_used": 0.8333
       }
     }
   },

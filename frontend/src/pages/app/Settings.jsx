@@ -4,11 +4,11 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth/context';
 import PageHead from '@/components/ui/PageHead';
 import Card from '@/components/ui/Card';
-import Banner from '@/components/ui/Banner';
 import TabNav from '@/components/ui/TabNav';
 import TextInput from '@/components/ui/TextInput';
 import Button from '@/components/ui/Button';
 import KeyValuePair from '@/components/ui/KeyValuePair';
+import { useTheme } from '@/lib/theme/useTheme';
 
 const TABS = [
   { label: 'Account',     value: 'account' },
@@ -20,6 +20,7 @@ const TABS = [
 export default function Settings() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState('account');
   const [displayName, setDisplayName] = useState(user?.display_name || '');
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -86,9 +87,12 @@ export default function Settings() {
 
           {tab === 'preferences' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <Banner variant="info">
-                The application is dark-mode only by design. Light theme is not supported in this release.
-              </Banner>
+              <ToggleRow
+                label="Light theme"
+                helper="Switch the interface to a light color scheme. Saved to this browser."
+                checked={theme === 'light'}
+                onChange={(checked) => setTheme(checked ? 'light' : 'dark')}
+              />
               <ToggleRow
                 label="Reduce motion"
                 helper="Disables stagger animations and transitions."

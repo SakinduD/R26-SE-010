@@ -80,7 +80,19 @@ def calculate_session_skill_scores(db: Session, session_id: str) -> SkillScoreRe
 
     user_id = _resolve_user_id(metrics, feedback)
     inputs = _build_inputs_from_session_data(metrics, feedback)
-    return _calculate_result(inputs=inputs, user_id=user_id, session_id=session_id)
+    result = _calculate_result(inputs=inputs, user_id=user_id, session_id=session_id)
+
+    # The weighted combination below is how this module scores a payload it is
+    # handed. For a session that already has one, the engine's own overall score
+    # is the answer, and every screen naming a session's overall has to name the
+    # same number. The computed value stands only where nothing was stored.
+    stored = next(
+        (metric.overall_score for metric in metrics if metric.overall_score is not None),
+        None,
+    )
+    if stored is not None:
+        return result.model_copy(update={"overall_score": round(float(stored), 2)})
+    return result
 
 
 def _calculate_result(

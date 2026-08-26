@@ -15,7 +15,6 @@ import {
   Sparkles,
   Eye,
   Lightbulb,
-  MessageSquare,
   FileText,
   Settings as SettingsIcon,
   ChevronRight,
@@ -26,6 +25,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth/context';
+import logoMark from '@/assets/brand/logo-mark.png';
 
 function SidebarLink({ to, icon: Icon, label, collapsed = false }) {
   const { pathname } = useLocation();
@@ -73,7 +73,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       {/* Brand + collapse toggle */}
       <div className="sb-brand">
         <Link to="/dashboard" className="sb-mark" aria-label="EmpowerZ home">
-          EZ
+          <img src={logoMark} alt="" />
         </Link>
         {!collapsed && <span className="sb-brand-text">EmpowerZ</span>}
         <div style={{ flex: 1 }} />
@@ -152,7 +152,6 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           <SidebarLink to="/analytics-predictions" icon={Sparkles} label="Predictions" />
           <SidebarLink to="/analytics-blind-spots" icon={Eye} label="Blind Spots" />
           <SidebarLink to="/analytics-recommendations" icon={Lightbulb} label="Recommendations" />
-          <SidebarLink to="/analytics-feedback" icon={MessageSquare} label="Self-Reflection" />
           <SidebarLink to="/analytics-session-report" icon={FileText} label="Session Report" />
         </div>
       )}

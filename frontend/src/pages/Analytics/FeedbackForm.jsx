@@ -186,12 +186,9 @@ export default function FeedbackForm() {
     let cancelled = false
     const loadCompletedSessions = async () => {
       setSessionStatus('loading')
-      const [rpeSessions, mcaSessions] = await Promise.all([
-        optionalRequest(() => analyticsService.getComponentRpeSessions()),
-        optionalRequest(() => analyticsService.getComponentMcaSessions()),
-      ])
+      const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
       if (cancelled) return
-      const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+      const options = normalizeComponentSessionOptions(mcaSessions.data)
       const preferred = selectPreferredComponentSession(options)
       setSessionOptions(options)
       setSessionStatus(options.length ? 'ready' : 'empty')

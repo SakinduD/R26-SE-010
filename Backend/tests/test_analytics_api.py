@@ -375,46 +375,6 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
             "primary_scenario": "scenario-hr-conflict",
             "generation_source": "adaptive_pedagogy",
         },
-        "rpe_session": {
-            "session_id": "integration-session-1",
-            "scenario_id": "scenario-hr-conflict",
-            "user_id": "integration-user",
-            "outcome": "resolved",
-            "final_trust": 82,
-            "final_escalation": 1,
-            "total_turns": 3,
-            "trust_history": [68, 76, 82],
-            "emotion_history": ["neutral", "concerned", "satisfied"],
-        },
-        "rpe_feedback": {
-            "session_id": "integration-session-1",
-            "scenario_id": "scenario-hr-conflict",
-            "scenario_title": "Handle a teammate disagreement",
-            "user_id": "integration-user",
-            "outcome": "resolved",
-            "final_trust": 82,
-            "final_escalation": 1,
-            "total_turns": 3,
-            "turn_metrics": [
-                {
-                    "turn": 1,
-                    "assertiveness_score": 70,
-                    "empathy_score": 78,
-                    "clarity_score": 74,
-                    "response_quality": 76,
-                },
-                {
-                    "turn": 2,
-                    "assertiveness_score": 82,
-                    "empathy_score": 84,
-                    "clarity_score": 80,
-                    "response_quality": 82,
-                },
-            ],
-            "risk_flags": ["brief interruption"],
-            "blind_spots": ["confidence"],
-            "coaching_advice": ["Pause before responding and summarize the other person first."],
-        },
         "mca_nudges": [
             {
                 "emotion": "calm",
@@ -460,25 +420,29 @@ def test_component_integration_maps_real_session_data_into_analytics(client):
     assert data["source_summary"] == {
         "has_survey_profile": True,
         "has_adaptive_plan": True,
-        "has_rpe_session": True,
-        "has_rpe_feedback": True,
         "mca_nudge_count": 2,
             "submitted_feedback_count": 1,
-            "generated_feedback_count": 5,
+            "generated_feedback_count": 4,
     }
 
     metric = data["metric"]
-    assert metric["confidence_score"] == 76
-    assert metric["empathy_score"] == 81
-    assert metric["clarity_score"] == 77
-    assert metric["response_quality_score"] == 79
+    # These four had no source but role-play turn scores. A multimodal session
+    # fills them from its own per-skill scores (see the test below); this
+    # payload carries only nudges, so they stay empty rather than defaulting.
+    assert metric["confidence_score"] is None
+    assert metric["empathy_score"] is None
+    assert metric["clarity_score"] is None
+    assert metric["response_quality_score"] is None
     assert metric["speech_pace_score"] == 96
     assert metric["speech_volume_score"] == 61
     assert metric["overall_score"] is not None
 
     assert data["aggregate"]["scores"]["metric_count"] == 1
-    assert data["aggregate"]["feedback"]["total_count"] == 6
-    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 3
+    # 4 generated + 1 self. Was 6 while a role-play outcome added a fifth
+    # generated entry.
+    assert data["aggregate"]["feedback"]["total_count"] == 5
+    # One of the three system entries came from the role-play outcome.
+    assert data["aggregate"]["feedback"]["by_type"]["system"] >= 2
     assert data["aggregate"]["feedback"]["by_type"]["self"] == 1
     assert "peer" not in data["aggregate"]["feedback"]["by_type"]
 
@@ -1498,3 +1462,81 @@ def test_rating_blind_spots_and_sentiment_gaps_are_counted_separately(client):
     assert data["summary"]["sentiment_gap_count"] == len(data["sentiment_gaps"])
     assert all("comment_excerpt" in gap for gap in data["sentiment_gaps"])
     assert all("skill_area" not in gap for gap in data["sentiment_gaps"])
+
+
+# ------------------------------------- overall is the engine's, never a mean
+
+# Deliberately inconsistent: the four composites average to 80, the engine
+# recorded 61. Every screen that names this session's overall score has to say
+# 61. Real sessions disagree by this much - across the development account the
+# two differ on 37 of 99 sessions, by up to 13.5 points - because the engine
+# weights its dimensions its own way rather than taking a flat mean.
+_MIXED_SESSION = {
+    "user_id": "overall-source-user",
+    "session_id": "overall-source-session",
+    "speech_volume_score": 80,
+    "speech_pace_score": 80,
+    "clarity_score": 80,
+    "eye_contact_score": 80,
+    "confidence_score": 80,
+    "empathy_score": 80,
+    "emotional_control_score": 80,
+    "overall_score": 61,
+}
+_MEAN_OF_THE_FOUR = 80
+_ENGINE_OVERALL = 61
+
+
+def _store_mixed_session(client):
+    assert client.post("/api/v1/analytics/session-metrics", json=_MIXED_SESSION).status_code == 201
+
+
+def test_the_session_aggregate_reports_the_stored_overall(client):
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/aggregate")
+
+    assert response.status_code == 200
+    assert response.json()["scores"]["averages"]["overall_score"] == _ENGINE_OVERALL
+
+
+def test_the_post_session_report_reports_the_stored_overall(client):
+    """This was the mean, which made the report tidy and made it disagree with
+    the session. The four skill boxes beside it still read 80."""
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/report")
+
+    assert response.status_code == 200
+    scores = response.json()["skill_scores"]
+    assert scores["overall_score"] == _ENGINE_OVERALL
+    assert scores["overall_score"] != _MEAN_OF_THE_FOUR
+
+
+def test_the_skill_score_endpoint_reports_the_stored_overall(client):
+    """Its own weighting stands only where the session stored nothing."""
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/sessions/{_MIXED_SESSION['session_id']}/skill-scores")
+
+    assert response.status_code == 200
+    assert response.json()["overall_score"] == _ENGINE_OVERALL
+
+
+def test_the_learner_history_carries_the_stored_overall_separately(client):
+    """The dashboard's "All Sessions" headline reads this, not the four skills.
+
+    It is not a fifth entry in `skills`: overall must never get a trend line, a
+    prediction or a blind-spot comparison of its own. It is also not derivable
+    from the four, so it cannot simply be left out.
+    """
+    _store_mixed_session(client)
+
+    response = client.get(f"/api/v1/analytics/users/{_MIXED_SESSION['user_id']}/skill-history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall"]["latest_score"] == _ENGINE_OVERALL
+    assert body["overall"]["average_score"] == _ENGINE_OVERALL
+    assert body["overall"]["skill_area"] == "overall"
+    assert "overall" not in {item["skill_area"] for item in body["skills"]}

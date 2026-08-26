@@ -1,21 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getQuestions, submitSurvey } from '@/lib/api/survey';
-import LikertOption from '@/components/ui/likert-option';
+import { LIKERT_LABELS, STATEMENT_STEM } from '@/lib/survey/statements';
 import ProgressBar from './ProgressBar';
+import SurveyStatement from './SurveyStatement';
 
 const LS_KEY = 'adaptiq:bfi44:v1';
 
-const LIKERT_LABELS = {
-  1: 'Disagree strongly',
-  2: 'Disagree a little',
-  3: 'Neither agree nor disagree',
-  4: 'Agree a little',
-  5: 'Agree strongly',
-};
+/** Statements shown at once. 44 items → 9 pages, the last one short. */
+const PAGE_SIZE = 5;
+
+/** How long a finished page stays on screen before sliding to the next one. */
+const AUTO_ADVANCE_MS = 550;
 
 function loadSaved() {
   try {
@@ -34,20 +33,46 @@ function saveDraft(answers) {
   }
 }
 
+function chunk(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function scrollToTop(node, smooth) {
+  const behavior = smooth ? 'smooth' : 'auto';
+  node?.closest?.('.app-content')?.scrollTo?.({ top: 0, behavior });
+  window.scrollTo({ top: 0, behavior });
+}
+
+function paceNote(page, pageCount) {
+  if (pageCount <= 1) return "No right answers here — just what sounds like you.";
+  if (page === 0) return "Go with your first reaction. It's usually the honest one.";
+  if (page === pageCount - 1) return 'Last one. Then your profile is ready.';
+  const through = (page + 1) / pageCount;
+  if (through <= 0.35) return "No right answers here — just what sounds like you.";
+  if (through <= 0.65) return "About halfway. You're making good time.";
+  return 'Home stretch.';
+}
+
 export default function SurveyForm({ initialAnswers }) {
   const navigate = useNavigate();
   const prefersReduced = useReducedMotion();
-  const questionRef = useRef(null);
+  const headingRef = useRef(null);
+  const rootRef = useRef(null);
 
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [index, setIndex] = useState(0);
+  const [page, setPage] = useState(0);
   const [direction, setDirection] = useState(1); // 1 = forward, -1 = backward
   const [answers, setAnswers] = useState(() => ({ ...loadSaved(), ...initialAnswers }));
   const [submitting, setSubmitting] = useState(false);
-  const [autoAdvanceTimer, setAutoAdvanceTimer] = useState(null);
 
-  // Load questions on mount
+  // Set to the page the learner just answered on. Only that page is allowed to
+  // auto-advance, so paging into an already-finished page sits still instead of
+  // bouncing straight back out of it.
+  const [advanceFrom, setAdvanceFrom] = useState(null);
+
   useEffect(() => {
     getQuestions()
       .then((qs) => {
@@ -55,90 +80,169 @@ export default function SurveyForm({ initialAnswers }) {
         setLoading(false);
       })
       .catch(() => {
-        toast.error('Failed to load questions. Please refresh.');
+        toast.error("Couldn't load the statements. Try refreshing the page.");
         setLoading(false);
       });
   }, []);
 
-  const currentQ = questions[index];
-  const isLast = index === questions.length - 1;
-  const isFirst = index === 0;
-  const currentAnswer = currentQ ? answers[currentQ.id] : undefined;
-  const answeredCount = Object.keys(answers).filter(
-    (k) => questions.some((q) => q.id === Number(k)),
-  ).length;
+  const pages = useMemo(() => chunk(questions, PAGE_SIZE), [questions]);
+  const pageCount = pages.length;
+  const currentPage = pages[page] ?? [];
+
+  const answeredCount = useMemo(
+    () => questions.reduce((n, q) => (answers[q.id] === undefined ? n : n + 1), 0),
+    [questions, answers],
+  );
+  const pageComplete = useMemo(
+    () => pages.map((qs) => qs.every((q) => answers[q.id] !== undefined)),
+    [pages, answers],
+  );
+
+  const isPageComplete = pageComplete[page] ?? false;
+  const isFirstPage = page === 0;
+  const isLastPage = pageCount > 0 && page === pageCount - 1;
+  const allAnswered = questions.length > 0 && answeredCount === questions.length;
+
+  // The statement the number keys will answer: the first one still blank on
+  // this page. No extra state needed — it just moves down as you go.
+  const activeId = useMemo(() => {
+    const next = currentPage.find((q) => answers[q.id] === undefined);
+    return next ? next.id : null;
+  }, [currentPage, answers]);
 
   // Persist draft on every answer change
   useEffect(() => {
     if (Object.keys(answers).length > 0) saveDraft(answers);
   }, [answers]);
 
-  // Focus new question card when index changes
+  // Resume where the draft left off, once, after the questions arrive.
+  const didRestore = useRef(false);
   useEffect(() => {
-    if (questionRef.current) questionRef.current.focus();
-  }, [index]);
+    if (didRestore.current || pages.length === 0) return;
+    didRestore.current = true;
+    const firstGap = pages.findIndex((qs) => qs.some((q) => answers[q.id] === undefined));
+    setPage(firstGap === -1 ? pages.length - 1 : firstGap);
+  }, [pages, answers]);
 
-  const goNext = useCallback(() => {
-    if (index < questions.length - 1) {
-      setDirection(1);
-      setIndex((i) => i + 1);
+  // Move to the top of the new page and hand focus to its heading, so the flow
+  // reads correctly with a screen reader and doesn't strand a scrolled-down
+  // reader mid-page.
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) {
+      didMount.current = true;
+      return undefined;
     }
-  }, [index, questions.length]);
+    scrollToTop(rootRef.current, !prefersReduced);
+    // AnimatePresence runs the outgoing page out before mounting the new one,
+    // so the incoming heading does not exist yet — wait out the exit before
+    // reaching for it.
+    const tid = setTimeout(() => headingRef.current?.focus({ preventScroll: true }), 320);
+    return () => clearTimeout(tid);
+  }, [page, prefersReduced]);
 
-  const goPrev = useCallback(() => {
-    if (index > 0) {
-      setDirection(-1);
-      setIndex((i) => i - 1);
-    }
-  }, [index]);
-
-  const selectAnswer = useCallback(
-    (value) => {
-      if (!currentQ) return;
-      setAnswers((prev) => ({ ...prev, [currentQ.id]: value }));
-
-      // Clear any pending auto-advance
-      if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
-
-      // Auto-advance after 250 ms (not on last question)
-      if (!isLast) {
-        const tid = setTimeout(() => {
-          setDirection(1);
-          setIndex((i) => i + 1);
-        }, 250);
-        setAutoAdvanceTimer(tid);
-      }
+  const goTo = useCallback(
+    (target) => {
+      const next = Math.max(0, Math.min(target, pageCount - 1));
+      setAdvanceFrom(null);
+      setDirection(next >= page ? 1 : -1);
+      setPage(next);
     },
-    [currentQ, isLast, autoAdvanceTimer],
+    [page, pageCount],
   );
 
-  // Cleanup timer on unmount
-  useEffect(() => () => { if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer); }, [autoAdvanceTimer]);
+  const goNext = useCallback(() => {
+    setAdvanceFrom(null);
+    setDirection(1);
+    setPage((p) => Math.min(p + 1, pageCount - 1));
+  }, [pageCount]);
 
-  // Keyboard navigation
+  const goPrev = useCallback(() => {
+    setAdvanceFrom(null);
+    setDirection(-1);
+    setPage((p) => Math.max(p - 1, 0));
+  }, []);
+
+  const handleSelect = useCallback(
+    (questionId, value) => {
+      // Functional update so a fast run of keystrokes can't overwrite an answer
+      // recorded a moment earlier from a stale copy of `answers`.
+      setAnswers((prev) => (prev[questionId] === value ? prev : { ...prev, [questionId]: value }));
+      setAdvanceFrom(page);
+    },
+    [page],
+  );
+
+  // Slide on once the page the learner is working through is fully answered.
+  useEffect(() => {
+    if (advanceFrom === null) return undefined;
+    if (advanceFrom !== page) {
+      setAdvanceFrom(null);
+      return undefined;
+    }
+    if (!isPageComplete || isLastPage) return undefined;
+
+    const tid = setTimeout(() => {
+      setDirection(1);
+      setPage((p) => Math.min(p + 1, pageCount - 1));
+      setAdvanceFrom(null);
+    }, AUTO_ADVANCE_MS);
+    return () => clearTimeout(tid);
+  }, [advanceFrom, page, isPageComplete, isLastPage, pageCount]);
+
+  // Keyboard: 1–5 answers the highlighted statement, arrows change page.
   useEffect(() => {
     const handler = (e) => {
-      if (e.target.tagName === 'BUTTON' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      switch (e.key) {
-        case '1': case '2': case '3': case '4': case '5':
-          selectAnswer(Number(e.key));
-          break;
-        case 'ArrowRight':
-        case 'Enter':
-          if (currentAnswer) goNext();
-          break;
-        case 'ArrowLeft':
-          goPrev();
-          break;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target;
+      if (el?.isContentEditable) return;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      // The scale the learner has tabbed into, if any. Focus wins over the
+      // highlighted row — pressing 4 should answer the row you are looking at.
+      const scale = el?.closest?.('.survey-scale');
+
+      if (/^[1-5]$/.test(e.key)) {
+        const focused = Number(scale?.dataset?.questionId);
+        const target = Number.isFinite(focused) ? focused : activeId;
+        if (target === null) return;
+        e.preventDefault();
+        handleSelect(target, Number(e.key));
+        return;
       }
+
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+
+      // Inside a scale, arrows do what arrows do in a radio group: move across
+      // the five options. Only outside one do they turn the page.
+      if (scale) {
+        const opts = Array.from(scale.querySelectorAll('.survey-opt'));
+        const at = opts.indexOf(el);
+        if (at !== -1) {
+          e.preventDefault();
+          const to = e.key === 'ArrowRight' ? Math.min(at + 1, opts.length - 1) : Math.max(at - 1, 0);
+          opts[to]?.focus();
+          return;
+        }
+      }
+
+      e.preventDefault();
+      if (e.key === 'ArrowRight') goNext();
+      else goPrev();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectAnswer, goNext, goPrev, currentAnswer]);
+  }, [activeId, handleSelect, goNext, goPrev]);
 
-  const handleSubmit = async () => {
-    if (answeredCount < questions.length) {
-      toast.error(`Please answer all questions (${answeredCount} / ${questions.length} done)`);
+  const handleSubmit = useCallback(async () => {
+    if (!allAnswered) {
+      const gap = pages.findIndex((qs) => qs.some((q) => answers[q.id] === undefined));
+      const left = questions.length - answeredCount;
+      toast.error(
+        `${left} statement${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} an answer.`,
+      );
+      if (gap !== -1) goTo(gap);
       return;
     }
     setSubmitting(true);
@@ -147,33 +251,28 @@ export default function SurveyForm({ initialAnswers }) {
       localStorage.removeItem(LS_KEY);
       navigate('/survey/results');
     } catch (err) {
-      toast.error(
-        err.response?.data?.detail ?? 'Submission failed. Please try again.',
-        { action: { label: 'Retry', onClick: handleSubmit } },
-      );
+      toast.error(err.response?.data?.detail ?? "Couldn't save your answers. Give it another go.", {
+        action: { label: 'Retry', onClick: () => handleSubmit() },
+      });
       setSubmitting(false);
     }
-  };
+  }, [allAnswered, answers, answeredCount, goTo, navigate, pages, questions.length]);
 
   // Motion variants — respect prefers-reduced-motion
   const variants = prefersReduced
-    ? {
-        enter:  { opacity: 0 },
-        center: { opacity: 1 },
-        exit:   { opacity: 0 },
-      }
+    ? { enter: { opacity: 0 }, center: { opacity: 1 }, exit: { opacity: 0 } }
     : {
-        enter:  (d) => ({ opacity: 0, x: d > 0 ? 48 : -48 }),
+        enter: (d) => ({ opacity: 0, x: d > 0 ? 40 : -40 }),
         center: { opacity: 1, x: 0 },
-        exit:   (d) => ({ opacity: 0, x: d > 0 ? -48 : 48 }),
+        exit: (d) => ({ opacity: 0, x: d > 0 ? -40 : 40 }),
       };
 
-  const optionVariants = {
-    hidden:  { opacity: 0, y: prefersReduced ? 0 : 10 },
+  const rowVariants = {
+    hidden: { opacity: 0, y: prefersReduced ? 0 : 8 },
     visible: (i) => ({
       opacity: 1,
       y: 0,
-      transition: { duration: 0.25, ease: 'easeOut', delay: i * 0.05 },
+      transition: { duration: 0.22, ease: 'easeOut', delay: i * 0.045 },
     }),
   };
 
@@ -185,15 +284,25 @@ export default function SurveyForm({ initialAnswers }) {
     );
   }
 
-  if (!currentQ) return null;
+  if (currentPage.length === 0) return null;
+
+  const firstNumber = page * PAGE_SIZE + 1;
+  const lastNumber = page * PAGE_SIZE + currentPage.length;
+  const remaining = questions.length - answeredCount;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: 80 }}>
-      <ProgressBar current={index + 1} total={questions.length} />
+    <div ref={rootRef} style={{ display: 'flex', flexDirection: 'column', paddingBottom: 96 }}>
+      <ProgressBar
+        answered={answeredCount}
+        total={questions.length}
+        page={page}
+        pageCount={pageCount}
+        pageComplete={pageComplete}
+        onJump={goTo}
+      />
 
       <div className="page page-read">
-        {/* Keyboard hint — first question only */}
-        {isFirst && (
+        {isFirstPage && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -201,89 +310,73 @@ export default function SurveyForm({ initialAnswers }) {
             style={{ marginBottom: 20 }}
             role="status"
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              Press&nbsp;<kbd>1</kbd>–<kbd>5</kbd>&nbsp;to select,&nbsp;<kbd>→</kbd>&nbsp;or&nbsp;<kbd>Enter</kbd>&nbsp;to advance,&nbsp;<kbd>←</kbd>&nbsp;to go back.
+            <span className="survey-hint">
+              Press <kbd>1</kbd>–<kbd>5</kbd> to answer the highlighted statement,
+              and <kbd>←</kbd> <kbd>→</kbd> to move between pages.
             </span>
           </motion.div>
         )}
 
-        {/* Question card */}
         <div style={{ overflow: 'hidden' }}>
           <AnimatePresence mode="wait" custom={direction} initial={false}>
-            <motion.div
-              key={currentQ.id}
+            <motion.section
+              key={page}
               custom={direction}
               variants={variants}
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ duration: 0.28, ease: 'easeOut' }}
-              style={{ display: 'flex', flexDirection: 'column' }}
-              tabIndex={-1}
-              ref={questionRef}
+              transition={{ duration: 0.26, ease: 'easeOut' }}
             >
-              {/* Question text */}
-              <div
-                id={`question-label-${currentQ.id}`}
-                className="card"
-                style={{ marginBottom: 20, padding: 24 }}
+              <header
+                ref={headingRef}
+                tabIndex={-1}
+                style={{ outline: 'none', marginBottom: 18 }}
               >
-                <div className="t-over" style={{ marginBottom: 8 }}>
-                  Question {index + 1} / {questions.length}
+                <div className="t-over" style={{ marginBottom: 6 }}>
+                  Statements {firstNumber}–{lastNumber} of {questions.length}
                 </div>
-                <p style={{ fontSize: 18, lineHeight: 1.45, color: 'var(--text-primary)', margin: 0, fontWeight: 400 }}>
-                  {currentQ.text}
+                <h2 className="t-h3" style={{ margin: 0 }}>
+                  {STATEMENT_STEM.trim()}…
+                </h2>
+                <p className="t-cap" style={{ margin: '6px 0 0' }}>
+                  {paceNote(page, pageCount)}
                 </p>
+              </header>
+
+              <div className="survey-legend" aria-hidden>
+                <span className="t-cap" style={{ fontSize: 11 }}>
+                  1 = disagree · 5 = agree
+                </span>
+                <div className="survey-legend-scale">
+                  <span className="survey-legend-end is-start">{LIKERT_LABELS[1]}</span>
+                  <span className="survey-legend-end is-end">{LIKERT_LABELS[5]}</span>
+                </div>
               </div>
 
-              {/* Likert options */}
-              <div
-                role="radiogroup"
-                aria-labelledby={`question-label-${currentQ.id}`}
-                className="likert-row"
-              >
-                {[1, 2, 3, 4, 5].map((val, i) => (
+              <div className="survey-list">
+                {currentPage.map((q, i) => (
                   <motion.div
-                    key={val}
+                    key={q.id}
                     custom={i}
-                    variants={optionVariants}
+                    variants={rowVariants}
                     initial="hidden"
                     animate="visible"
                   >
-                    <LikertOption
-                      value={val}
-                      label={val}
-                      selected={currentAnswer === val}
-                      onSelect={selectAnswer}
+                    <SurveyStatement
+                      question={q}
+                      number={page * PAGE_SIZE + i + 1}
+                      value={answers[q.id]}
+                      isActive={q.id === activeId}
+                      onSelect={handleSelect}
                     />
                   </motion.div>
                 ))}
               </div>
-
-              {/* Likert verbal labels under each cell */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(5, 1fr)',
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
-                {[1, 2, 3, 4, 5].map((val) => (
-                  <div
-                    key={`label-${val}`}
-                    className="t-cap"
-                    style={{ textAlign: 'center', fontSize: 10.5, lineHeight: 1.3 }}
-                  >
-                    {LIKERT_LABELS[val]}
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+            </motion.section>
           </AnimatePresence>
         </div>
 
-        {/* Navigation */}
         <div
           style={{
             marginTop: 24,
@@ -294,36 +387,33 @@ export default function SurveyForm({ initialAnswers }) {
             paddingTop: 8,
           }}
         >
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={isFirst}
-            className="btn btn-ghost"
-          >
+          <button type="button" onClick={goPrev} disabled={isFirstPage} className="btn btn-ghost">
             <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <ChevronLeft size={14} strokeWidth={1.8} />
               Back
             </span>
           </button>
 
-          {isLast ? (
+          {isLastPage ? (
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || answeredCount < questions.length}
+              disabled={submitting}
               className="btn btn-primary btn-lg"
             >
               <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 {submitting && <Loader2 size={14} strokeWidth={1.6} className="animate-spin" />}
-                {submitting ? 'Submitting…' : 'Submit assessment'}
+                {submitting ? 'Building your profile…' : 'See my results'}
               </span>
             </button>
           ) : (
+            // Never disabled — someone who wants to sit on a statement and come
+            // back to it should not be walled in. The button promoting itself to
+            // primary is the nudge instead.
             <button
               type="button"
               onClick={goNext}
-              disabled={!currentAnswer}
-              className="btn btn-secondary"
+              className={isPageComplete ? 'btn btn-primary' : 'btn btn-secondary'}
             >
               <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 Next
@@ -333,12 +423,10 @@ export default function SurveyForm({ initialAnswers }) {
           )}
         </div>
 
-        {/* Unanswered count hint */}
-        {isLast && answeredCount < questions.length && (
+        {isLastPage && remaining > 0 && (
           <p className="t-cap" style={{ marginTop: 12, textAlign: 'center' }}>
-            {questions.length - answeredCount} question
-            {questions.length - answeredCount !== 1 ? 's' : ''} still unanswered
-            — use Back to review.
+            {remaining} statement{remaining === 1 ? '' : 's'} still blank — we'll take you
+            straight there.
           </p>
         )}
       </div>

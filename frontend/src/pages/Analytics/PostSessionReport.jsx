@@ -14,6 +14,7 @@ import { analyticsService } from '../../services/analytics/analyticsService'
 import AnalyticsLoadButton from './AnalyticsLoadButton'
 // REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
+import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 import { fadeInUp, staggerContainer } from '@/lib/animations'
 import PageHead from '@/components/ui/PageHead'
@@ -112,6 +113,9 @@ function labelFor(value) {
 
 export default function PostSessionReport() {
   const params = useParams()
+  // The session list is per learner, so this page needs to know who it is
+  // looking at - it previously only ever knew a session id.
+  const { userId: connectedUserId } = useAnalyticsIdentity(params.userId)
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
   const [report, setReport] = useState(EMPTY_REPORT)
@@ -151,7 +155,7 @@ export default function PostSessionReport() {
   useEffect(() => {
     let isActive = true
     async function loadSessions() {
-      const options = await loadComponentSessionOptions(analyticsService)
+      const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
       if (!isActive) return
       setSessionOptions(options)
       if (!params.sessionId && !sessionId) {
