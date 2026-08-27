@@ -465,6 +465,17 @@ button { font-family: inherit; }
 .sb-sub .sb-link { padding: 5px 10px; font-size: 12.5px; }
 .sb-spacer { flex: 1; }
 
+.sb-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  margin: 0 -12px;
+  padding: 0 12px;
+}
+.sb-foot { flex-shrink: 0; }
+
 .topbar {
   height: 48px; border-bottom: 1px solid var(--border-subtle);
   display: flex; align-items: center; padding: 0 28px;
@@ -782,12 +793,11 @@ kbd {
 .survey-hint { line-height: 2.05; }
 .survey-hint kbd { vertical-align: middle; }
 
-/* Deliberately NOT sticky. The shell puts overflow-y:auto on .app-content, so
-   whether the window or that <main> is the real scrollport is ambiguous — and a
-   sticky offset that clears the 48px topbar is only right in one of those two
-   cases. In the other it pins too low and the page scrolls up underneath it,
-   swallowing whatever sits below. Five statements to a page fits on screen, so
-   a following progress bar bought nothing and cost that bug. */
+/* Deliberately NOT sticky. It used to be, and it swallowed the hint banner
+   below it: a sticky header pins to the viewport while the page slides up
+   underneath, and this bar is only 88% opaque, so content showed through it.
+   Five statements to a page fits on screen without scrolling, so a bar that
+   followed you down bought nothing and cost that overlap. */
 .survey-bar {
   background: var(--bg-canvas);
   border-bottom: 1px solid var(--border-subtle);
