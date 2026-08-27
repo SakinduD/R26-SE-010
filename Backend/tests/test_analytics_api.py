@@ -1878,3 +1878,149 @@ def test_a_reading_that_was_not_acted_on_still_reports_what_it_read(client, monk
     assert reading["confidence"] == 0.996
     # It is reported, and still not a finding.
     assert body["sentiment_gaps"] == []
+
+
+def test_a_skill_is_never_both_a_strength_and_something_to_practise(client):
+    """Two thresholds for one idea put a skill in both columns.
+
+    _top_strengths kept everything from STRENGTH_SCORE (70) up; _lowest_scores
+    cut at a bare 72. A skill scoring 70 or 71 was listed under "held up well"
+    and, two panels later, under "practise this". Presence & Engagement at 70
+    did exactly that.
+    """
+    session_id = "strength-overlap-session"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "strength-overlap-user", "session_id": session_id,
+            "eye_contact_score": 70, "confidence_score": 70,   # presence lands on 70
+            "speech_volume_score": 85,
+            "speech_pace_score": 85, "clarity_score": 85,
+            "empathy_score": 40, "emotional_control_score": 40,
+            "overall_score": 68,
+        },
+    )
+
+    report = client.get(f"/api/v1/analytics/sessions/{session_id}/report").json()
+
+    strengths = set(report["summary"]["strengths"])
+    practise = {
+        item["title"].removeprefix("Practice ")
+        for item in report["action_items"]
+        if item["title"].startswith("Practice ")
+    }
+    assert "Presence & Engagement" in strengths
+    assert not (strengths & practise), f"listed as both: {strengths & practise}"
+
+
+def test_the_report_counts_only_what_the_learner_rated(client):
+    """"Skills you rated" read total_count — every row on the session, including
+    the cues this codebase writes itself. Four ratings were reported as nine."""
+    session_id = "report-count-session"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "report-count-user", "session_id": session_id,
+            "speech_volume_score": 70, "overall_score": 70,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "report-count-user", "session_id": session_id,
+            "feedback_type": "system", "skill_area": "speech_volume", "rating": 70,
+            "comment": "Multimodal cue: Multimodal Avg Ear average was 0.44.",
+        },
+    )
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "report-count-user", "session_id": session_id,
+            "feedback_type": "self", "skill_area": "vocal_command", "rating": 75,
+        },
+    )
+
+    feedback = client.get(f"/api/v1/analytics/sessions/{session_id}/report").json()["aggregate"]["feedback"]
+
+    assert feedback["total_count"] == 2          # what was stored
+    assert feedback["by_type"]["self"] == 1      # what the screen must show
+
+
+def test_the_report_places_the_session_against_the_others(client):
+    """A score out of 100 cannot be read on its own.
+
+    Two earlier sessions at 80, this one at 60. The report used to say "60" and
+    stop; it now has the 80 to say it against.
+    """
+    user_id = "context-report-user"
+    for index, overall in enumerate((80, 80)):
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": user_id, "session_id": f"context-earlier-{index}",
+                "speech_volume_score": overall, "speech_pace_score": overall,
+                "clarity_score": overall, "eye_contact_score": overall,
+                "confidence_score": overall, "empathy_score": overall,
+                "emotional_control_score": overall, "overall_score": overall,
+            },
+        )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": user_id, "session_id": "context-this-one",
+            "speech_volume_score": 60, "speech_pace_score": 60, "clarity_score": 60,
+            "eye_contact_score": 60, "confidence_score": 60, "empathy_score": 60,
+            "emotional_control_score": 60, "overall_score": 60,
+        },
+    )
+
+    context = client.get("/api/v1/analytics/sessions/context-this-one/report").json()["context"]
+
+    # Two others, and this session is not counted among them: an average that
+    # contains the score being compared shrinks the very gap being shown.
+    assert context["sessions_compared"] == 2
+    assert context["previous_overall_average"] == 80
+    assert context["overall_delta"] == -20
+    assert all(skill["delta"] == -20 for skill in context["skills"])
+    assert not any(skill["is_personal_best"] for skill in context["skills"])
+
+
+def test_a_first_session_has_nothing_to_be_compared_against(client):
+    """An empty comparison is worse than no comparison."""
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "context-first-user", "session_id": "context-only-session",
+            "speech_volume_score": 70, "overall_score": 70,
+        },
+    )
+
+    body = client.get("/api/v1/analytics/sessions/context-only-session/report").json()
+
+    assert body["context"] is None
+
+
+def test_a_personal_best_is_recognised(client):
+    """The one piece of good news the report had no way to notice."""
+    user_id = "context-best-user"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": user_id, "session_id": "context-best-earlier",
+            "speech_volume_score": 60, "overall_score": 60,
+        },
+    )
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": user_id, "session_id": "context-best-now",
+            "speech_volume_score": 90, "overall_score": 90,
+        },
+    )
+
+    context = client.get("/api/v1/analytics/sessions/context-best-now/report").json()["context"]
+
+    vocal = next(s for s in context["skills"] if s["skill_area"] == "vocal_command")
+    assert vocal["is_personal_best"] is True
+    assert vocal["previous_best"] == 60
+    assert context["overall_delta"] == 30

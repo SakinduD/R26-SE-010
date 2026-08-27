@@ -8,15 +8,19 @@ from app.schemas.analytics import (
     PostSessionActionItem,
     PostSessionReportResult,
     PostSessionReportSummary,
+    SessionContext,
+    SkillContextItem,
     SkillPredictionRead,
     SkillScoreBreakdown,
     SkillScoreResult,
 )
+from app.models.analytics import AnalyticsSessionMetric
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
     predictive_modeling_service,
+    progress_trend_service,
 )
 
 
@@ -65,8 +69,73 @@ def generate_session_report(db: Session, session_id: str) -> PostSessionReportRe
         blind_spots=blind_spots,
         action_items=_build_action_items(skill_scores, blind_spots, aggregate.predictions.latest_predictions),
         computed_predictions=computed_predictions,
+        context=_session_in_context(db, user_id, session_id, skill_scores) if user_id else None,
         generated_at=datetime.utcnow(),
         report_version=REPORT_VERSION,
+    )
+
+
+def _session_in_context(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    skill_scores: SkillScoreResult,
+) -> SessionContext | None:
+    """This session measured against every other session the learner has.
+
+    A score out of 100 cannot be read on its own. 67 is a good session for
+    someone who usually scores 60 and a poor one for someone who usually scores
+    82, and the report had no way to say which - it opened with "Vocal Command
+    held up" over this learner's worst result in weeks.
+
+    Every average here excludes the session being reported on. Comparing a score
+    against an average that contains it shrinks the difference being shown, and
+    on a short history it erases it: with three sessions, a score sits a third of
+    the way into its own comparison.
+    """
+    others = [
+        float(score)
+        for stored_session, score in db.query(
+            AnalyticsSessionMetric.session_id, AnalyticsSessionMetric.overall_score
+        )
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.overall_score.isnot(None))
+        .all()
+        if stored_session != session_id
+    ]
+    if not others:
+        return None
+
+    trends = progress_trend_service.analyze_user_progress_trends(db, user_id)
+    skills: list[SkillContextItem] = []
+    for trend in trends.trends:
+        session_score = skill_scores.skill_scores.get(trend.skill_area)
+        if session_score is None:
+            continue
+        previous = [point.score for point in trend.points if point.session_id != session_id]
+        if not previous:
+            continue
+        average = round(sum(previous) / len(previous), 2)
+        best = max(previous)
+        skills.append(
+            SkillContextItem(
+                skill_area=trend.skill_area,
+                session_score=round(float(session_score), 2),
+                previous_average=average,
+                delta=round(float(session_score) - average, 2),
+                previous_best=best,
+                is_personal_best=float(session_score) > best,
+            )
+        )
+
+    overall = skill_scores.overall_score
+    previous_overall = round(sum(others) / len(others), 2)
+    return SessionContext(
+        sessions_compared=len(others),
+        overall_score=overall,
+        previous_overall_average=previous_overall,
+        overall_delta=round(overall - previous_overall, 2) if overall is not None else None,
+        skills=skills,
     )
 
 
@@ -284,9 +353,12 @@ def _build_action_items(
                 priority="medium" if score < 60 else "low",
                 skill_area=skill_area,
                 title=f"Practice {_label(skill_area)}",
+                # "before the next role-play session" - role-play is a separate
+                # module and nothing in this component reports on it. The
+                # sessions this report is about are multimodal ones.
                 detail=(
                     f"Current score is {round(score)}. Add one focused exercise for "
-                    f"{_label(skill_area).lower()} before the next role-play session."
+                    f"{_label(skill_area).lower()} before your next session."
                 ),
             )
         )
@@ -317,11 +389,19 @@ def _build_action_items(
 
 
 def _lowest_scores(skill_scores: SkillScoreResult) -> list[tuple[str, float]]:
+    """The skills weak enough to earn a practice item.
+
+    Bounded by STRENGTH_SCORE, not by a number of its own. It used to cut at 72
+    while _top_strengths kept everything from 70 up, so a skill scoring 70 or 71
+    was a strength and a weakness at once - this session listed Presence &
+    Engagement at 70 under "held up well" and then told the learner to practise
+    it, two panels apart on the same screen.
+    """
     return sorted(
         [
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 72
+            if score is not None and score < STRENGTH_SCORE
         ],
         key=lambda item: item[1],
     )[:3]

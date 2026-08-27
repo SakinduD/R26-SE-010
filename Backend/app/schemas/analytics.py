@@ -507,6 +507,37 @@ class PostSessionReportSummary(BaseModel):
     completion_status: Literal["complete", "partial", "empty"]
 
 
+class SkillContextItem(BaseModel):
+    """One skill in this session, against the same skill in every other session."""
+
+    skill_area: str
+    session_score: float
+    previous_average: float | None = None
+    delta: float | None = None
+    previous_best: float | None = None
+    is_personal_best: bool = False
+
+
+class SessionContext(BaseModel):
+    """Where this session sits among the learner's others.
+
+    The report answered "how did that go" with a score out of 100 and no way to
+    read it. 67 is a fine session for someone who usually scores 60 and a bad one
+    for someone who usually scores 82, and this learner is the second - so the
+    page opened on "Vocal Command held up" over their worst result in weeks.
+
+    Averages here exclude this session. Comparing a score against an average it
+    is itself part of shrinks the very difference the learner is being shown, and
+    on an account with three sessions it would hide it almost entirely.
+    """
+
+    sessions_compared: int
+    overall_score: float | None = None
+    previous_overall_average: float | None = None
+    overall_delta: float | None = None
+    skills: list[SkillContextItem] = []
+
+
 class PostSessionReportResult(BaseModel):
     session_id: str
     user_id: str | None = None
@@ -517,6 +548,9 @@ class PostSessionReportResult(BaseModel):
     blind_spots: BlindSpotDetectionResult
     action_items: list[PostSessionActionItem]
     computed_predictions: list[PredictiveModelingItem] = []
+    # Absent on a learner's first session: there is nothing to compare against
+    # yet, and an empty comparison is worse than none.
+    context: SessionContext | None = None
     generated_at: datetime
     report_version: str
 

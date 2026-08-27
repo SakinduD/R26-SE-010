@@ -26,9 +26,6 @@ import Badge from '@/components/ui/Badge'
 const PRIORITY_WORDS = { high: 'do this first', medium: 'worth doing', low: 'when you have time' }
 const priorityWords = (value) => PRIORITY_WORDS[value] || value || ''
 
-const SOURCE_WORDS = { self: 'your rating', system: 'measured', mentor: 'system note', peer: 'peer' }
-const sourceWords = (value) => SOURCE_WORDS[value] || value || ''
-
 const SKILL_LABELS = {
   vocal_command: 'Vocal Command',
   speech_fluency: 'Speech Fluency',
@@ -139,6 +136,13 @@ export default function PostSessionReport() {
 
   const overallScore = report.skill_scores?.overall_score ?? null
 
+  // What the learner themselves wrote and rated. See FeedbackList for why the
+  // rest of the rows on a session do not belong under "What You Said".
+  const ownEntries = useMemo(
+    () => (report.aggregate?.feedback?.latest_entries || []).filter((e) => e.feedback_type === 'self'),
+    [report.aggregate],
+  )
+
   const loadReport = async (nextSessionId = sessionId) => {
     const targetSessionId = String(nextSessionId || '').trim()
     if (!targetSessionId) { setError('Select a session before loading the report.'); return }
@@ -207,10 +211,15 @@ export default function PostSessionReport() {
                 </span>
               </div>
               <div className="t-h3" style={{ maxWidth: 520 }}>{report.summary?.headline}</div>
+              <SessionInContext context={report.context} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, minWidth: 240 }}>
               <MetricBox label="Overall" value={formatScore(overallScore)} />
-              <MetricBox label="Skills you rated" value={report.aggregate?.feedback?.total_count || 0} />
+              {/* Self rows only. total_count is every row on the session -
+                  four cues this codebase wrote from the multimodal engine, a
+                  survey note, and the learner's four ratings - so a learner who
+                  rated four skills was told they had rated nine. */}
+              <MetricBox label="Skills you rated" value={report.aggregate?.feedback?.by_type?.self || 0} />
               <MetricBox label="Things to try" value={report.action_items?.length || 0} />
             </div>
           </div>
@@ -240,7 +249,7 @@ export default function PostSessionReport() {
 
       <motion.div variants={fadeInUp} className="grid-2">
         <Panel title="What You Said" icon={FileText}>
-          <FeedbackList entries={report.aggregate?.feedback?.latest_entries || []} />
+          <FeedbackList entries={ownEntries} />
         </Panel>
         <Panel title="If Nothing Changes" icon={AlertTriangle}>
           <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
@@ -302,22 +311,91 @@ function BlindSpotList({ blindSpots }) {
   )
 }
 
+/**
+ * The learner's own ratings for this session — and only those.
+ *
+ * The panel is headed "What You Said" and used to render every feedback row on
+ * the session: four cues this codebase writes from the multimodal engine, a
+ * survey note stored as mentor feedback, then the four ratings the learner
+ * actually gave. Five of the nine were not said by them, and they arrived
+ * carrying raw column names as titles — "emotional_control", "speech_volume",
+ * and twice just "system" — with bodies like "Multimodal Avg Mar average was
+ * 0.06", where MAR is a mouth aspect ratio.
+ *
+ * Those rows are inputs to a score, not messages to a person, and there is no
+ * screen where a learner reads them as feedback. Filtering to `self` is what
+ * makes the heading true.
+ */
+// Above this the two figures are the same score to a reader.
+const CONTEXT_MEANINGFUL_DELTA = 5
+
+/**
+ * One sentence placing this session among the learner's others.
+ *
+ * The report gave a score out of 100 and no way to read it. 67 is a good session
+ * for somebody who usually scores 60 and a poor one for somebody who usually
+ * scores 82 — this learner is the second, and the page opened on "Vocal Command
+ * held up" over their worst result in weeks.
+ *
+ * A sentence rather than another table: every number here is already on the page
+ * below, and repeating them in a grid would add a panel without adding anything
+ * to read. What was missing was the comparison, not the data.
+ */
+function SessionInContext({ context }) {
+  if (!context || context.overall_delta == null) return null
+
+  const delta = context.overall_delta
+  const usual = Math.round(context.previous_overall_average)
+  const best = context.skills.filter((s) => s.is_personal_best)
+  const furthest = [...context.skills].sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))[0]
+
+  let lead
+  if (Math.abs(delta) < CONTEXT_MEANINGFUL_DELTA) {
+    lead = `About where you usually land — your average across ${context.sessions_compared} other sessions is ${usual}.`
+  } else if (delta < 0) {
+    lead = `${Math.round(Math.abs(delta))} points below your usual ${usual}, measured across ${context.sessions_compared} other sessions.`
+  } else {
+    lead = `${Math.round(delta)} points above your usual ${usual}, measured across ${context.sessions_compared} other sessions.`
+  }
+
+  // Only ever one follow-up. A personal best is the better thing to say when
+  // there is one; otherwise, if the session dipped, name where it dipped most.
+  let tail = null
+  if (best.length) {
+    tail = `${best.map((s) => labelFor(s.skill_area)).join(' and ')} ${best.length === 1 ? 'was a' : 'were'} personal best.`
+  } else if (delta <= -CONTEXT_MEANINGFUL_DELTA && furthest && furthest.delta <= -CONTEXT_MEANINGFUL_DELTA) {
+    tail = `${labelFor(furthest.skill_area)} fell furthest (${Math.round(furthest.delta)}).`
+  }
+
+  const tone = Math.abs(delta) < CONTEXT_MEANINGFUL_DELTA
+    ? 'var(--text-secondary)'
+    : delta < 0 ? 'var(--warning)' : 'var(--success)'
+
+  return (
+    <p className="t-cap" style={{ maxWidth: 520, marginTop: 8, lineHeight: 1.6 }}>
+      <strong style={{ color: tone }}>{lead}</strong>
+      {tail && <> {tail}</>}
+    </p>
+  )
+}
+
 function FeedbackList({ entries }) {
-  if (!entries.length) return <EmptyMsg text="No feedback entries yet" />
+  if (!entries.length) {
+    return <EmptyMsg text="You have not rated this session yet. Rate yourself and your answers will appear here beside what was measured." />
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {entries.map((item) => (
         <div key={item.id} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area || item.feedback_type)}</span>
-            {/* "self" is how the row is stored. The learner knows they wrote it;
-                what the badge should say is that this is their own rating. */}
-            <Badge variant="neutral">{sourceWords(item.feedback_type)}</Badge>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
+            {/* Every row here is theirs, so a "Your rating" badge on each one
+                said nothing. The number they gave is the useful thing. */}
+            <span className="fg" style={{ fontSize: 15, fontWeight: 600 }}>{formatScore(item.rating)}</span>
           </div>
-                      <p className="t-cap" style={{ marginBottom: 4, lineHeight: 1.55 }}>
-              {item.comment || 'You rated this one without writing anything.'}
-            </p>
-          <p className="t-cap">Rating {formatScore(item.rating)}</p>
+          <p className="t-cap" style={{ lineHeight: 1.55, fontStyle: item.comment ? 'italic' : 'normal' }}>
+            {item.comment ? `“${item.comment}”` : 'Rated without a written note.'}
+          </p>
         </div>
       ))}
     </div>

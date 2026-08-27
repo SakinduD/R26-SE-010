@@ -708,7 +708,11 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
                 title="Maintain current progress",
                 reason="No urgent blind spot, prediction risk, or declining trend was detected.",
                 detail="Continue the current training strategy and review feedback after each session.",
-                next_action="Complete one more role-play session and compare the new scores with this baseline.",
+                # Not "one more role-play session". Role-play is a separate
+                # module; nothing in this component reports on it, and it is
+                # refused at the integration boundary. The sessions these
+                # recommendations are drawn from are multimodal ones.
+                next_action="Complete one more session and compare the new scores with this baseline.",
                 evidence_sources=["analytics_summary"],
             )
         )
