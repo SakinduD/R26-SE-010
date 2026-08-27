@@ -19,14 +19,14 @@ import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   hasPulledComponentData,
+  integrateOnce,
   normalizeAdaptivePlan,
-  normalizeComponentSessionOptions,
+  scenarioIdOf,
+  loadComponentSessionOptions,
   normalizeMcaNudges,
   normalizeMcaOverallScore,
   normalizeMcaSessionNudges,
   normalizeMcaSkillScores,
-  normalizeRpeFeedback,
-  normalizeRpeSession,
   normalizeSurveyProfile,
   optionalRequest,
   selectMcaSession,
@@ -252,27 +252,53 @@ export default function SkillTwinProfile() {
   }, [profile])
 
   const overallScore = useMemo(() => {
-    // Overall is the mean of the four skills — a summary, not a skill. Computing
-    // it from the same values shown on the radar guarantees the Overall number
-    // always equals the average of the four skill scores the user sees.
+    // The multimodal engine's own overall score, read from the stored value.
+    //
+    // This used to be the mean of the four radar points, which guaranteed the
+    // Overall number always equalled the average of the four scores on screen.
+    // That is tidier and wrong: the engine weights its dimensions its own way,
+    // and across this account the two disagree on 37 of 99 sessions by as much
+    // as 13.5 points. Every screen in the platform that names a session's overall
+    // score has to name the same number, and this is that number.
+    const stored = toScoreValue(profile.aggregate?.scores?.averages?.overall_score)
+    if (stored !== null) return stored
     const values = radarScores.map(item => toScoreValue(item.value)).filter(v => v !== null)
     if (values.length) return values.reduce((sum, v) => sum + v, 0) / values.length
-    return toScoreValue(profile.aggregate?.scores?.averages?.overall_score) ??
-           toScoreValue(profile.aggregate?.feedback?.average_rating)
+    return toScoreValue(profile.aggregate?.feedback?.average_rating)
   }, [radarScores, profile])
 
-  // Use the highest session_count across all trend lines as the real session count,
-  // falling back to metric_count (which counts DB rows, not unique sessions).
-  const sessionCount = useMemo(() => {
-    const trendCounts = (profile.trends?.trends || []).map(t => t.session_count || 0)
-    const maxTrend = trendCounts.length ? Math.max(...trendCounts) : 0
-    return maxTrend || profile.aggregate?.scores?.metric_count || 0
-  }, [profile])
+  // How many sessions this learner has analytics for.
+  //
+  // This used to take the highest session_count across the four trend lines,
+  // on the belief that metric_count counted rows rather than sessions. It does
+  // not - the mapping keeps exactly one row per session - so the fallback was
+  // the accurate number and the trend maximum was something else entirely: the
+  // count of sessions in which the best-covered skill happened to be
+  // measurable. On the development account those are 114 and 99, and the
+  // dashboard and this page disagreed by fifteen sessions under the same word.
+  const sessionCount = useMemo(
+    () => profile.userAggregate?.scores?.metric_count
+      ?? profile.aggregate?.scores?.metric_count
+      ?? 0,
+    [profile]
+  )
 
   const measuredScores = useMemo(() => radarScores.filter(item => item.value !== null), [radarScores])
   const missingScores  = useMemo(() => radarScores.filter(item => item.value === null), [radarScores])
-  const strengths      = useMemo(() => measuredScores.filter(item => item.value >= 80).sort((a, b) => b.value - a.value), [measuredScores])
-  const growthAreas    = useMemo(() => measuredScores.filter(item => item.value < 72).sort((a, b) => a.value - b.value), [measuredScores])
+  // Two thresholds with a gap between them left skills scoring 72 to 79 in
+  // neither list: a learner saw four skills on the radar above and only three
+  // of them accounted for below it, with no way to tell whether the missing one
+  // was good or bad. The bands meet now, so every measured skill lands in
+  // exactly one of them.
+  const STRONG_AT = 72
+  const strengths   = useMemo(
+    () => measuredScores.filter(item => item.value >= STRONG_AT).sort((a, b) => b.value - a.value),
+    [measuredScores]
+  )
+  const growthAreas = useMemo(
+    () => measuredScores.filter(item => item.value < STRONG_AT).sort((a, b) => a.value - b.value),
+    [measuredScores]
+  )
 
   const hasLiveData = useMemo(() => {
     if (status !== 'live') return true
@@ -301,12 +327,17 @@ export default function SkillTwinProfile() {
       if (targetSessionId) {
         // Integrating is an enhancement, not a precondition for reading. A failure
         // here used to drop the whole page into its sample profile.
-        const integrationResult = await pullAndSaveComponentData(targetUserId, targetSessionId)
-          .catch(() => ({ checked: true, integrated: false }))
-        if (integrationResult.integrated)
-          setIntegrationMessage('Real component data pulled and saved into analytics for this session.')
-        else if (integrationResult.checked)
-          setIntegrationMessage('No component session data was found yet for this session ID.')
+        // Pulling component data is an enhancement: a session that has already
+        // been integrated is complete without it. This used to report the
+        // attempt either way, and both outcomes - "nothing new to pull" and
+        // "a request failed" - printed the same sentence, so a page showing
+        // entirely correct scores sat under "No component session data was
+        // found yet for this session ID."
+        //
+        // Nothing is said unless the reader is actually looking at a gap.
+        await integrateOnce(targetSessionId, () =>
+          pullAndSaveComponentData(targetUserId, targetSessionId)
+        ).catch(() => ({ checked: true, integrated: false }))
       }
 
       // When a session is selected use its aggregate (has all sub-skill columns);
@@ -331,8 +362,23 @@ export default function SkillTwinProfile() {
           : analyticsService.getBlindSpotsByUser(targetUserId),
       ])
 
+      // The one case worth a word: a session was asked for and nothing was ever
+      // measured for it, so every panel below is empty. Said plainly, because
+      // empty panels with no explanation read as a broken page.
+      if (targetSessionId && !sessionAggregate?.scores?.metric_count) {
+        setIntegrationMessage(
+          'Nothing was measured for this session yet, so the panels below are empty.'
+        )
+      }
+
       setProfile({
+        // Session-scoped when a session is picked: the radar, the bars and the
+        // overall are about that session.
         aggregate: sessionAggregate || userAggregate,
+        // Kept separately because one figure on this page is not about the
+        // selected session - how many sessions the learner has done is a
+        // lifetime count, and the session aggregate's metric_count is 1.
+        userAggregate,
         trends,
         predictions,
         blindSpots,
@@ -343,16 +389,14 @@ export default function SkillTwinProfile() {
     } catch (err) {
       setProfile(EMPTY_PROFILE)
       setStatus('error')
-      setError('Your skill twin could not be loaded. Nothing is shown rather than a guess — check the backend and try again.')
+      setError('Your skill twin could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
   const pullAndSaveComponentData = async (targetUserId, targetSessionId) => {
-    const [surveyProfile, adaptivePlan, rpeSession, rpeFeedback, mcaSessions] = await Promise.all([
+    const [surveyProfile, adaptivePlan, mcaSessions] = await Promise.all([
       optionalRequest(() => analyticsService.getComponentSurveyProfile()),
       optionalRequest(() => analyticsService.getComponentAdaptivePlan()),
-      optionalRequest(() => analyticsService.getComponentRpeSession(targetSessionId)),
-      optionalRequest(() => analyticsService.getComponentRpeFeedback(targetSessionId)),
       optionalRequest(() => analyticsService.getComponentMcaSessions()),
     ])
 
@@ -366,24 +410,18 @@ export default function SkillTwinProfile() {
     const sources = {
       surveyProfile,
       adaptivePlan,
-      rpeSession,
-      rpeFeedback,
       mcaNudges: { ok: mcaNudges.length > 0 || Boolean(mcaSkillScores), data: mcaNudges },
     }
 
     if (!hasPulledComponentData(sources)) return { checked: true, integrated: false }
 
     const scenarioId =
-      rpeSession.data?.scenario_id ||
-      rpeFeedback.data?.scenario_id ||
-      adaptivePlan.data?.primary_scenario ||
-      adaptivePlan.data?.selected_scenario_id ||
-      adaptivePlan.data?.scenario_id
+      scenarioIdOf(adaptivePlan.data?.primary_scenario) ||
+      scenarioIdOf(adaptivePlan.data?.selected_scenario_id) ||
+      scenarioIdOf(adaptivePlan.data?.scenario_id)
 
     const skillType =
       adaptivePlan.data?.skill ||
-      rpeFeedback.data?.skill_type ||
-      rpeSession.data?.skill_type ||
       'communication'
 
     await analyticsService.integrateCompletedSession({
@@ -393,8 +431,6 @@ export default function SkillTwinProfile() {
       skill_type: skillType,
       survey_profile: normalizeSurveyProfile(surveyProfile.data),
       adaptive_plan: normalizeAdaptivePlan(adaptivePlan.data),
-      rpe_session: normalizeRpeSession(rpeSession.data),
-      rpe_feedback: normalizeRpeFeedback(rpeFeedback.data),
       mca_nudges: normalizeMcaNudges(mcaNudges),
       mca_skill_scores: mcaSkillScores || undefined,
       mca_overall_score: mcaOverallScore ?? undefined,
@@ -404,11 +440,7 @@ export default function SkillTwinProfile() {
   }
 
   const loadSessionOptions = async () => {
-    const [rpeSessions, mcaSessions] = await Promise.all([
-      optionalRequest(() => analyticsService.getComponentRpeSessions()),
-      optionalRequest(() => analyticsService.getComponentMcaSessions()),
-    ])
-    const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+    const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
     setSessionOptions(options)
     const preferred = selectPreferredComponentSession(options)
     if (preferred) setSessionId(current => current || preferred.id)
@@ -461,12 +493,12 @@ export default function SkillTwinProfile() {
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={status} />
           {error && status !== 'live' ? <span className="text-sm text-warning">{error}</span> : null}
-          {integrationMessage ? <span className="text-sm text-secondary">{integrationMessage}</span> : null}
+          {integrationMessage ? <span className="text-sm text-muted-foreground">{integrationMessage}</span> : null}
         </div>
 
         {!hasLiveData && (
           <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Live API is connected, but no skill twin records were found for this user.
+            You're connected, but there's nothing here yet for this user.
           </div>
         )}
 
@@ -475,7 +507,7 @@ export default function SkillTwinProfile() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <UserCircle className="h-4 w-4 text-secondary" />
+                <UserCircle className="h-4 w-4 text-muted-foreground" />
                 <span>{isAuthenticated ? userLabel : userId}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold">Everything about you, on one page</h2>
@@ -510,7 +542,19 @@ export default function SkillTwinProfile() {
           </Panel>
 
           <Panel title="Where You Stand" icon={BrainCircuit}>
-            <SkillGroup title="What you are good at" items={strengths} emptyText="Finish a few sessions and your strengths will show up" />
+            {/* The old text read "Finish a few sessions and your strengths will show
+                up" - shown to a learner with 114 sessions behind them. Nothing was
+                missing; nothing had reached the bar yet, which is a different
+                thing to say. */}
+            <SkillGroup
+              title="What you are good at"
+              items={strengths}
+              emptyText={
+                sessionCount
+                  ? `Nothing has reached ${STRONG_AT} yet — the closest is listed below.`
+                  : 'Finish a session and your strengths will show up here'
+              }
+            />
             <div className="mt-4">
               <SkillGroup title="What to work on"      items={growthAreas} emptyText="Nothing is standing out as a weak spot" />
             </div>
@@ -553,7 +597,7 @@ function StatusPill({ status }) {
 function Metric({ icon: Icon, label, value }) {
   return (
     <div className="rounded-md border border-border bg-background/40 p-3">
-      <Icon className="mb-2 h-4 w-4 text-secondary" />
+      <Icon className="mb-2 h-4 w-4 text-muted-foreground" />
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
@@ -564,7 +608,7 @@ function Panel({ title, icon: Icon, children }) {
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
+        <Icon className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-base font-semibold">{title}</h2>
       </div>
       {children}

@@ -6,11 +6,12 @@ import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
 
 const STATUS_FILTERS = ['all', 'success', 'failure', 'incomplete']
+const STATUS_FILTER_LABELS = { all: 'All', success: 'Success', failure: 'Needs Work', incomplete: 'Incomplete' }
 
 function sessionStatus(session) {
   if (!session.ended_at) return { key: 'incomplete', tone: 'neutral', label: 'Incomplete' }
   if (session.end_reason === 'trust_sustained') return { key: 'success', tone: 'success', label: 'Trust Built' }
-  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  label: 'NPC Exited' }
+  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  label: 'They Walked Away' }
   if (session.outcome === 'success')            return { key: 'success', tone: 'success', label: 'Success' }
   if (session.outcome === 'failure')            return { key: 'failure', tone: 'danger',  label: 'Needs Work' }
   return { key: 'incomplete', tone: 'neutral', label: 'Incomplete' }
@@ -91,7 +92,7 @@ function SessionCard({ session, scenarioInfo, onOpenFeedback, selectMode, select
               <BarChart2 size={13} strokeWidth={1.8} /> View Outcome
             </button>
           ) : (
-            <span className="incomplete-note">Session was not completed</span>
+            <span className="incomplete-note">You didn't finish this session</span>
           )}
         </div>
       )}
@@ -126,7 +127,7 @@ export default function MySessions() {
       setSessions(sessionData)
       setScenarios(scenarioData)
     } catch (err) {
-      setError(err.message || 'Failed to load your sessions')
+      setError(err.message || "We couldn't load your sessions right now.")
     } finally {
       setIsLoading(false)
     }
@@ -222,8 +223,8 @@ export default function MySessions() {
         {!authLoading && !isAuthenticated && (
           <div className="signin-prompt">
             <LogIn size={22} strokeWidth={1.8} />
-            <p className="signin-title">Sign in to view your session history</p>
-            <p className="signin-sub">Session records are tied to your account.</p>
+            <p className="signin-title">Sign in to see your session history</p>
+            <p className="signin-sub">Your sessions are saved to your account.</p>
             <a href="/signin" className="btn-c primary" style={{ textDecoration: 'none' }}>Sign in</a>
           </div>
         )}
@@ -256,7 +257,7 @@ export default function MySessions() {
                     className={cn('seg-btn', activeStatus === f && 'active')}
                     onClick={() => setActiveStatus(f)}
                   >
-                    {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({statusCounts[f]})
+                    {STATUS_FILTER_LABELS[f]} ({statusCounts[f]})
                   </button>
                 ))}
               </div>
@@ -289,7 +290,7 @@ export default function MySessions() {
                 <div className="empty-state">
                   <Swords size={28} strokeWidth={1.6} />
                   <p className="empty-title">No sessions yet</p>
-                  <p className="empty-desc">Complete a role-play scenario to see your history here.</p>
+                  <p className="empty-desc">Finish a role-play scenario and it'll show up here.</p>
                   <button type="button" onClick={() => navigate('/roleplay')} className="btn-c primary">
                     Browse scenarios
                   </button>

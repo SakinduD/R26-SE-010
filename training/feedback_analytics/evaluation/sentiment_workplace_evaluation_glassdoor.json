@@ -1,5 +1,5 @@
 {
-  "evaluated_at": "2026-08-19T11:57:22.950491+00:00",
+  "evaluated_at": "2026-08-26T12:03:19.956448+00:00",
   "validation_set": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\validation\\workplace_sentiment_validation.csv",
   "model_path": "training\\feedback_analytics\\models\\sentiment_model_glassdoor.joblib",
   "model_version": "tfidf-sentiment-model-comparison-v1",
@@ -7,23 +7,23 @@
   "confidence_gate": 0.6,
   "ground_truth": {
     "labelled_by": {
-      "human": 43
+      "human": 46
     },
     "human_reviewed_share": 1.0
   },
   "row_counts": {
-    "labelled_total": 43,
-    "scored": 38,
+    "labelled_total": 46,
+    "scored": 41,
     "unscorable_mixed_or_neutral": 5,
     "by_source": {
       "authored": 37,
-      "learner": 6
+      "learner": 9
     }
   },
   "overall": {
-    "count": 38,
-    "accuracy": 0.6842,
-    "correct": 26,
+    "count": 41,
+    "accuracy": 0.7073,
+    "correct": 29,
     "per_class": {
       "mixed": {
         "support": 12,
@@ -32,29 +32,29 @@
         "f1": 0.8462
       },
       "negative": {
-        "support": 11,
-        "precision": 0.5294,
-        "recall": 0.8182,
-        "f1": 0.6429
+        "support": 12,
+        "precision": 0.5556,
+        "recall": 0.8333,
+        "f1": 0.6667
       },
       "positive": {
-        "support": 15,
-        "precision": 0.8571,
-        "recall": 0.4,
-        "f1": 0.5455
+        "support": 17,
+        "precision": 0.8889,
+        "recall": 0.4706,
+        "f1": 0.6154
       }
     },
     "confidence": {
-      "mean": 0.7533,
-      "median": 0.7765,
+      "mean": 0.7393,
+      "median": 0.7677,
       "min": 0.4498,
       "max": 0.9858
     },
     "production_gate": {
-      "reached_gate": 30,
-      "below_gate_discarded": 8,
-      "share_usable": 0.7895,
-      "accuracy_when_used": 0.7667
+      "reached_gate": 31,
+      "below_gate_discarded": 10,
+      "share_usable": 0.7561,
+      "accuracy_when_used": 0.7742
     }
   },
   "by_source": {
@@ -96,9 +96,9 @@
       }
     },
     "learner": {
-      "count": 6,
+      "count": 9,
       "accuracy": 1.0,
-      "correct": 6,
+      "correct": 9,
       "per_class": {
         "mixed": {
           "support": 3,
@@ -106,23 +106,29 @@
           "recall": 1.0,
           "f1": 1.0
         },
+        "negative": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
         "positive": {
-          "support": 3,
+          "support": 5,
           "precision": 1.0,
           "recall": 1.0,
           "f1": 1.0
         }
       },
       "confidence": {
-        "mean": 0.8093,
-        "median": 0.8374,
-        "min": 0.5359,
+        "mean": 0.7271,
+        "median": 0.7739,
+        "min": 0.5008,
         "max": 0.9579
       },
       "production_gate": {
-        "reached_gate": 5,
-        "below_gate_discarded": 1,
-        "share_usable": 0.8333,
+        "reached_gate": 6,
+        "below_gate_discarded": 3,
+        "share_usable": 0.6667,
         "accuracy_when_used": 1.0
       }
     }

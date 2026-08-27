@@ -57,7 +57,7 @@ export default function ScenarioSelect() {
       setAllScenarios(data)
       setRecommendedOrder(recs.map((s) => s.scenario_id))
     } catch (err) {
-      setError(err.message || 'Failed to load scenarios')
+      setError(err.message || "We couldn't load the scenarios right now.")
     } finally {
       setIsLoading(false)
     }
@@ -74,7 +74,7 @@ export default function ScenarioSelect() {
     if (!planId || authLoading) return
     if (!isAuthenticated) {
       setPlanImporting(false)
-      setPlanError('Sign in to start a role-play from your training plan.')
+      setPlanError('Sign in first to start a role-play from your training plan.')
       return
     }
 
@@ -100,7 +100,7 @@ export default function ScenarioSelect() {
         })
       } catch (err) {
         if (!cancelled) {
-          setPlanError(err.message || 'Failed to generate a scenario from this plan')
+          setPlanError(err.message || "We couldn't create a scenario from this plan.")
           setPlanImporting(false)
         }
       }
@@ -203,7 +203,7 @@ export default function ScenarioSelect() {
         },
       })
     } catch (err) {
-      setError(err.message || 'Failed to start session')
+      setError(err.message || "We couldn't start that session — please try again.")
       setStartingId(null)
     }
   }
@@ -214,7 +214,7 @@ export default function ScenarioSelect() {
         <div className="plan-import-screen">
           <div className="plan-import-spinner" />
           <p className="plan-import-title">Building your scenario…</p>
-          <p className="plan-import-sub">Generating a role-play from your training plan.</p>
+          <p className="plan-import-sub">Turning your training plan into a live scenario.</p>
         </div>
         <style>{`
           .rpe-cinema{ min-height:calc(100vh - 48px); background:#0D1117; color:#F0F6FC;
@@ -265,7 +265,7 @@ export default function ScenarioSelect() {
 
         {!authLoading && !isAuthenticated && (
           <div className="banner warning">
-            You are browsing as a guest.{' '}
+            You're browsing as a guest —{' '}
             <a href="/signin" className="banner-link">Sign in</a>{' '}
             to save your session history.
           </div>
@@ -507,7 +507,7 @@ export default function ScenarioSelect() {
                   <div className="empty-state">
                     <Brain size={28} strokeWidth={1.6} />
                     <p className="empty-title">No scenarios match this filter</p>
-                    <p className="empty-desc">Try removing one or more filters to see all available scenarios.</p>
+                    <p className="empty-desc">Remove a filter or two to see more scenarios.</p>
                     <button type="button" onClick={clearAllFilters} className="btn-c secondary">Clear filters</button>
                   </div>
                 )}

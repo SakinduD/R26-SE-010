@@ -20,6 +20,7 @@ from app.core.auth import get_current_user
 from app.models.session_result import SessionResult
 from app.models.user import User
 from app.api.v1.mca.scoring import calculate_session_metrics
+from app.services.mca_live_scorer import mca_live_scorer
 
 router = APIRouter()
 
@@ -41,6 +42,12 @@ class NudgeEntry(BaseModel):
     category: str
     severity: str
     timestamp: Optional[str] = None
+    elapsed_seconds: Optional[float] = None  # seconds since session start (live mode)
+
+
+class TranscriptSegment(BaseModel):
+    text: str
+    elapsed_seconds: float = 0.0
 
 
 class SessionEndRequest(BaseModel):
@@ -49,6 +56,9 @@ class SessionEndRequest(BaseModel):
     chat_turns: Optional[int] = None  # AI-mode only
     emotion_distribution: Optional[dict[str, float]] = None
     mechanical_averages: Optional[dict[str, float]] = None
+    # Live-mode only: transcribed speech used for LLM-based scoring.
+    user_transcript: list[TranscriptSegment] = []
+    meeting_transcript: list[TranscriptSegment] = []
 
 
 class SessionResponse(BaseModel):
@@ -169,12 +179,32 @@ def end_session(
     session.emotion_distribution = body.emotion_distribution or {}
     session.mechanical_averages = body.mechanical_averages or {}
     
-    # Calculate multi-skill scores
+    # Calculate multi-skill scores. This rule-based pass always runs — it's
+    # the AI-baseline scoring method, and doubles as the live-mode fallback
+    # plus the source of `diagnostics` even when the LLM path below succeeds.
     metrics = calculate_session_metrics(
-        session.nudge_log, 
+        session.nudge_log,
         session.emotion_distribution,
         duration_seconds=session.duration_seconds
     )
+
+    if session.session_type == "live":
+        llm_result = mca_live_scorer.score(
+            nudge_log=session.nudge_log,
+            user_transcript=[t.model_dump() for t in body.user_transcript],
+            meeting_transcript=[t.model_dump() for t in body.meeting_transcript],
+            duration_seconds=session.duration_seconds,
+        )
+        if llm_result is not None:
+            metrics["overall"] = llm_result["overall"]
+            metrics["breakdown"] = llm_result["breakdown"]
+            metrics["diagnostics"]["scoring_method"] = "llm"
+            metrics["diagnostics"]["llm_rationale"] = llm_result["rationale"]
+        else:
+            metrics["diagnostics"]["scoring_method"] = "rule_based_fallback"
+    else:
+        metrics["diagnostics"]["scoring_method"] = "rule_based"
+
     session.overall_score = metrics["overall"]
     session.skill_scores = metrics["breakdown"]
     session.score_diagnostics = metrics["diagnostics"]

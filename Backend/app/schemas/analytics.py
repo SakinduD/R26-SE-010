@@ -93,50 +93,13 @@ class ComponentMcaNudge(BaseModel):
     nudge_severity: str | None = None
 
 
-class ComponentTurnMetric(BaseModel):
-    turn: int | None = None
-    assertiveness_score: Score = Field(default=None, ge=0, le=100)
-    empathy_score: Score = Field(default=None, ge=0, le=100)
-    clarity_score: Score = Field(default=None, ge=0, le=100)
-    response_quality: Score = Field(default=None, ge=0, le=100)
-    flags: list[str] = []
-
-
-class ComponentRpeSession(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    trust_history: list[float] = []
-    emotion_history: list[str] = []
-
-
-class ComponentRpeFeedback(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    scenario_title: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    turn_metrics: list[ComponentTurnMetric] = []
-    risk_flags: list[str] = []
-    blind_spots: list[str] = []
-    coaching_advice: list[str] = []
-    viz_payload: dict[str, Any] = {}
-    end_reason: str | None = None
-    recommended_turns: int | None = Field(default=None, ge=0)
-    max_turns: int | None = Field(default=None, ge=0)
-
-
 class ComponentAdaptivePlan(BaseModel):
     skill: str | None = None
     strategy: str | None = None
-    difficulty: str | None = None
+    # The adaptive plan stores difficulty as an integer 1-10; earlier callers
+    # sent a word. Declared as a string only, an int failed validation and took
+    # the whole integration down with it - see _coerce_model.
+    difficulty: str | int | None = None
     recommended_scenario_ids: list[str] = []
     primary_scenario: str | None = None
     generation_source: str | None = None
@@ -164,8 +127,6 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
     skill_type: str | None = Field(default=None, max_length=80)
     survey_profile: ComponentSurveyProfile | dict[str, Any] | None = None
     adaptive_plan: ComponentAdaptivePlan | dict[str, Any] | None = None
-    rpe_session: ComponentRpeSession | dict[str, Any] | None = None
-    rpe_feedback: ComponentRpeFeedback | dict[str, Any] | None = None
     mca_nudges: list[ComponentMcaNudge | dict[str, Any]] = []
     # Accurate per-skill scores already computed by the MCA engine
     # (vocal_command, speech_fluency, presence_engagement, emotional_regulation).
@@ -178,7 +139,9 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
 
 class SessionBackfillItem(BaseModel):
     session_id: str
-    source: Literal["mca", "rpe"]
+    # Only multimodal sessions are integrated. Role-play is a separate module
+    # with its own feedback screens; nothing in this component reads it.
+    source: Literal["mca"]
     label: str
     integrated: bool
     overall_score: Score = None
@@ -200,8 +163,6 @@ class SessionBackfillResult(BaseModel):
 class AnalyticsIntegrationSourceSummary(BaseModel):
     has_survey_profile: bool
     has_adaptive_plan: bool
-    has_rpe_session: bool
-    has_rpe_feedback: bool
     mca_nudge_count: int
     submitted_feedback_count: int
     generated_feedback_count: int
@@ -686,6 +647,16 @@ class LearnerHistorySummary(BaseModel):
     first_session_at: datetime | None = None
     latest_session_at: datetime | None = None
     skills: list[SkillHistoryItem]
+    # The engine's own overall score across the same sessions, carried in the same
+    # shape as a skill so callers can read it the same way.
+    #
+    # It is deliberately not a fifth entry in `skills`: the four there are tracked
+    # skills, each with its own trend line, prediction and blind-spot comparison,
+    # and overall must never appear as one of those. But it is also not the mean of
+    # them - the multimodal engine computes it separately, and on this dataset the
+    # two disagree by up to 13.5 points on a single session - so a caller that
+    # wants the real overall cannot derive it from the four and needs it here.
+    overall: SkillHistoryItem | None = None
     improving_count: int
     declining_count: int
     strongest_skill: SkillHistoryItem | None = None
@@ -727,3 +698,34 @@ class RecurringBlindSpotResult(BaseModel):
     strongest_pattern: RecurringBlindSpotItem | None = None
     generated_at: datetime
     detection_version: str
+
+
+class LearnerSessionOption(BaseModel):
+    """One selectable session, as the analytics session pickers need it."""
+
+    session_id: str
+    friendly_id: str | None = None
+    scenario_id: str | None = None
+    skill_type: str | None = None
+    overall_score: Score = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+
+class LearnerSessionPage(BaseModel):
+    """A page of a learner's completed sessions, newest first.
+
+    ``total`` is the count of everything selectable, not of this page, so a
+    picker can say "5 of 115" rather than implying the list ends where the page
+    does. The multimodal engine's own endpoint pages over sessions in any state
+    and leaves the filtering to the caller, which meant a picker asking for
+    twenty could receive twenty unfinished ones and show nothing - here the
+    filter is applied before the limit.
+    """
+
+    user_id: str
+    items: list[LearnerSessionOption]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

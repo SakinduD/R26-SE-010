@@ -64,8 +64,13 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
               hasEvidence={true}
               isOverall={true}
             />
+            {/* Said plainly because the reader can check it and find it does not
+                add up. This is the engine's own overall score, not the mean of
+                the bars above, and the two differ by up to 13.5 points on a
+                single session. Without this line that gap reads as a broken
+                page. */}
             <p className="text-[10px] text-muted-foreground mt-1.5 italic">
-              This score represents your combined performance across all analyzed skills.
+              Scored on the session as a whole, so it will not always match the average of the skills above.
             </p>
           </div>
         </div>

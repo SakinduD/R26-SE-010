@@ -20,10 +20,10 @@ async function _sendApmFeedback(data, sessionId, scenarioTitle) {
     const finalTrust = data.final_trust ?? 50
     const rating = finalTrust >= 70 ? 'good' : finalTrust >= 40 ? 'fair' : 'poor'
     const summary = finalTrust >= 70
-      ? 'Strong trust maintained throughout the session.'
+      ? 'You kept trust strong all the way through this session.'
       : finalTrust >= 40
-      ? 'Moderate trust. Focus on clearer assertive communication.'
-      : 'Low trust recorded. Review de-escalation and emotional regulation strategies.'
+      ? 'Trust was so-so — try communicating more clearly and assertively.'
+      : 'Trust stayed low — work on staying calm and steady under pressure.'
 
     await submitSessionFeedback({
       session_id: sessionId,
@@ -59,7 +59,7 @@ const OUTCOME_META = {
     variant: 'danger',
     icon: '💢',
     title: 'The Conversation Broke Down',
-    sub: 'The session ended because of repeated inappropriate language. Review your outcome below.',
+    sub: 'They ended things because tension got too high. Check your feedback below to see what happened.',
   },
 }
 
@@ -71,10 +71,10 @@ function outcomeMeta(endReason, outcome, scenarioTitle) {
   } else if (endReason === 'max_turns_reached') {
     meta = { variant: outcome === 'success' ? 'success' : 'warning' }
     icon = outcome === 'success' ? '✅' : '⏱'
-    title = outcome === 'success' ? 'Session Complete' : 'Maximum Turns Reached'
+    title = outcome === 'success' ? 'Session Complete' : 'You Reached the Turn Limit'
     sub = outcome === 'success'
-      ? 'You reached the turn limit, scored on final results.'
-      : 'Check your outcome for improvement tips.'
+      ? "You reached the turn limit — you're scored on how things stood at the end."
+      : 'Check your feedback for improvement tips.'
   } else {
     meta = { variant: outcome === 'success' ? 'success' : 'natural' }
     icon = outcome === 'success' ? '✅' : '👋'
@@ -112,6 +112,23 @@ export default function SessionComplete() {
   const meta        = outcomeMeta(endReason, outcome, scenarioTitle)
   const closingLine = turns[turns.length - 1]?.npc_response
 
+  const trustInsight =
+    finalTrust > 60 ? { icon: '✅', text: 'You kept trust high the whole way through.', tone: 'success' }
+    : finalTrust > 40 ? { icon: '⚠', text: 'Trust was so-so — try being a bit more assertive.', tone: 'warning' }
+    : { icon: '❌', text: 'Trust dropped low. Try to stay calm and professional next time.', tone: 'danger' }
+
+  const escInsight =
+    finalEsc <= 1 ? { icon: '✅', text: 'You kept things calm and steady.', tone: 'success' }
+    : finalEsc <= 3 ? { icon: '⚠', text: 'Things got a little tense. Try calming it down sooner next time.', tone: 'warning' }
+    : { icon: '❌', text: 'Things got heated fast. Try not to react emotionally next time.', tone: 'danger' }
+
+  const emotionInsight =
+    dom === 'assertive' || dom === 'calm'
+      ? { icon: '✅', text: 'You came across calm and professional.', tone: 'success' }
+      : dom === 'anxious' || dom === 'confused'
+      ? { icon: '⚠', text: 'You seemed a bit unsure — try practicing more confident phrasing.', tone: 'warning' }
+      : { icon: '❌', text: 'Your frustration showed. Try focusing on solutions instead.', tone: 'danger' }
+
   return (
     <div className="rpe-cinema">
       <div className="page">
@@ -129,7 +146,7 @@ export default function SessionComplete() {
 
           {closingLine && (
             <div className="hero-quote">
-              <span className="hero-quote-label">{npcRole || 'NPC'} · final line</span>
+              <span className="hero-quote-label">{npcRole || 'Character'} · last thing they said</span>
               <p className="hero-quote-text">"{closingLine}"</p>
             </div>
           )}
@@ -142,7 +159,7 @@ export default function SessionComplete() {
               <span className={cn('hero-stat-val', trustScore != null ? getTrustTone(trustScore) : '')}>{trustScore ?? '—'}</span>
             </div>
             <div className="hero-stat">
-              <span className="hero-stat-label">Escalation</span>
+              <span className="hero-stat-label">Tension</span>
               <span className="hero-stat-val">{escalationLevel ?? '—'}<span className="unit">/5</span></span>
             </div>
             <div className="hero-stat">
@@ -151,6 +168,86 @@ export default function SessionComplete() {
             </div>
           </div>
         </div>
+
+        {!isLoading && (
+          <div className="grid-2">
+            {trustHistory.length > 0 && (() => {
+              const minVal = Math.min(...trustHistory)
+              const maxVal = Math.max(...trustHistory)
+              const range  = maxVal - minVal || 1
+              return (
+                <Panel title="How trust changed over time">
+                  <div className="chart">
+                    {trustHistory.map((val, i) => {
+                      const heightPct = 20 + ((val - minVal) / range) * 80
+                      return (
+                        <div key={i} className="chart-col">
+                          <span className={cn('chart-val', getTrustTone(val))}>{val}</span>
+                          <div className="chart-bar-track">
+                            <div className={cn('chart-bar', getTrustTone(val))} style={{ height: `${heightPct}%` }} />
+                          </div>
+                          <span className="chart-tick">{i === 0 ? 'S' : `T${i}`}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Panel>
+              )
+            })()}
+
+            <Panel title="How did you do?">
+              <ul className="insight-list">
+                {[trustInsight, escInsight, emotionInsight].map((item, i) => (
+                  <li key={i} className={cn('insight-row', item.tone)}>
+                    <span aria-hidden>{item.icon}</span>
+                    <span>{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          </div>
+        )}
+
+        {isLoading && (
+          <Panel>
+            <div className="skel" style={{ height: 16, width: '40%', marginBottom: 12 }} />
+            <div className="skel" style={{ height: 12, width: '70%', marginBottom: 8 }} />
+            <div className="skel" style={{ height: 12, width: '60%' }} />
+          </Panel>
+        )}
+
+        {!isLoading && turns.length > 0 && (
+          <Panel title="Turn by turn">
+            <div className="turn-list">
+              {visibleTurns.map((t, i) => {
+                const delta = trustDeltas[t.turn - 1]
+                return (
+                  <div key={t.turn} className="turn-row">
+                    <span className="turn-num">T{t.turn}</span>
+                    <Pill tone={EMOTION_TONE[t.emotion] ?? 'neutral'}>{t.emotion}</Pill>
+                    <span className={cn('turn-trust', getTrustTone(t.trust_score))}>
+                      {t.trust_score}
+                      {delta != null && delta !== 0 && (
+                        <span className="turn-delta">
+                          {delta > 0 ? <TrendingUp size={10} strokeWidth={2} /> : <TrendingDown size={10} strokeWidth={2} />}
+                        </span>
+                      )}
+                      {delta === 0 && <Minus size={10} strokeWidth={2} className="turn-delta neutral" />}
+                    </span>
+                    <p className="turn-text">{t.user_input}</p>
+                  </div>
+                )
+              })}
+            </div>
+            {turns.length > 4 && (
+              <button type="button" onClick={() => setShowAllTurns((v) => !v)} className="show-toggle">
+                {showAllTurns
+                  ? <><ChevronUp size={12} strokeWidth={2} /> Hide</>
+                  : <><ChevronDown size={12} strokeWidth={2} /> Show all {turns.length} turns</>}
+              </button>
+            )}
+          </Panel>
+        )}
 
         <div className="actions">
           <button type="button" onClick={() => navigate(`/roleplay/feedback/${sessionId}`)} className="btn-c primary">

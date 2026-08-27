@@ -1,7 +1,8 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { Bell, Info, Search } from 'lucide-react';
+import { Info, Search } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
+import NotificationBell from '@/components/achievements/NotificationBell';
 
 const CRUMB_MAP = {
   '/dashboard': ['Overview', 'Dashboard'],
@@ -79,9 +80,7 @@ export default function Topbar() {
         </button>
 
         <div className="topbar-icons">
-          <button className="icon-btn" aria-label="Notifications" type="button">
-            <Bell size={14} strokeWidth={1.6} />
-          </button>
+          <NotificationBell />
           <button className="icon-btn" aria-label="Help" type="button">
             <Info size={14} strokeWidth={1.6} />
           </button>
