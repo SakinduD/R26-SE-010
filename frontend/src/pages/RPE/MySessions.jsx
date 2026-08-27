@@ -91,7 +91,7 @@ function SessionCard({ session, scenarioInfo, onOpenFeedback, selectMode, select
               <BarChart2 size={13} strokeWidth={1.8} /> View Outcome
             </button>
           ) : (
-            <span className="incomplete-note">Session was not completed</span>
+            <span className="incomplete-note">You didn't finish this session</span>
           )}
         </div>
       )}
@@ -126,7 +126,7 @@ export default function MySessions() {
       setSessions(sessionData)
       setScenarios(scenarioData)
     } catch (err) {
-      setError(err.message || 'Failed to load your sessions')
+      setError(err.message || "We couldn't load your sessions right now.")
     } finally {
       setIsLoading(false)
     }
@@ -289,7 +289,7 @@ export default function MySessions() {
                 <div className="empty-state">
                   <Swords size={28} strokeWidth={1.6} />
                   <p className="empty-title">No sessions yet</p>
-                  <p className="empty-desc">Complete a role-play scenario to see your history here.</p>
+                  <p className="empty-desc">Finish a role-play scenario and it'll show up here.</p>
                   <button type="button" onClick={() => navigate('/roleplay')} className="btn-c primary">
                     Browse scenarios
                   </button>

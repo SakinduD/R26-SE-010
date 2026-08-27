@@ -57,7 +57,7 @@ export default function ScenarioSelect() {
       setAllScenarios(data)
       setRecommendedOrder(recs.map((s) => s.scenario_id))
     } catch (err) {
-      setError(err.message || 'Failed to load scenarios')
+      setError(err.message || "We couldn't load the scenarios right now.")
     } finally {
       setIsLoading(false)
     }
@@ -507,7 +507,7 @@ export default function ScenarioSelect() {
                   <div className="empty-state">
                     <Brain size={28} strokeWidth={1.6} />
                     <p className="empty-title">No scenarios match this filter</p>
-                    <p className="empty-desc">Try removing one or more filters to see all available scenarios.</p>
+                    <p className="empty-desc">Remove a filter or two to see more scenarios.</p>
                     <button type="button" onClick={clearAllFilters} className="btn-c secondary">Clear filters</button>
                   </div>
                 )}
