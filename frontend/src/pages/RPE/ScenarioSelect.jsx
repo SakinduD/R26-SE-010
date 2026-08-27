@@ -74,7 +74,7 @@ export default function ScenarioSelect() {
     if (!planId || authLoading) return
     if (!isAuthenticated) {
       setPlanImporting(false)
-      setPlanError('Sign in first to start a role-play from your training plan.')
+      setPlanError('Sign in to start a role-play from your training plan.')
       return
     }
 
@@ -100,7 +100,7 @@ export default function ScenarioSelect() {
         })
       } catch (err) {
         if (!cancelled) {
-          setPlanError(err.message || "We couldn't create a scenario from this plan.")
+          setPlanError(err.message || 'Failed to generate a scenario from this plan')
           setPlanImporting(false)
         }
       }
@@ -203,7 +203,7 @@ export default function ScenarioSelect() {
         },
       })
     } catch (err) {
-      setError(err.message || "We couldn't start that session — please try again.")
+      setError(err.message || 'Failed to start session')
       setStartingId(null)
     }
   }
@@ -214,7 +214,7 @@ export default function ScenarioSelect() {
         <div className="plan-import-screen">
           <div className="plan-import-spinner" />
           <p className="plan-import-title">Building your scenario…</p>
-          <p className="plan-import-sub">Turning your training plan into a live scenario.</p>
+          <p className="plan-import-sub">Generating a role-play from your training plan.</p>
         </div>
         <style>{`
           .rpe-cinema{ min-height:calc(100vh - 48px); background:#0D1117; color:#F0F6FC;
@@ -265,7 +265,7 @@ export default function ScenarioSelect() {
 
         {!authLoading && !isAuthenticated && (
           <div className="banner warning">
-            You're browsing as a guest —{' '}
+            You are browsing as a guest.{' '}
             <a href="/signin" className="banner-link">Sign in</a>{' '}
             to save your session history.
           </div>

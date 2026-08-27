@@ -6,12 +6,11 @@ import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
 
 const STATUS_FILTERS = ['all', 'success', 'failure', 'incomplete']
-const STATUS_FILTER_LABELS = { all: 'All', success: 'Success', failure: 'Needs Work', incomplete: 'Incomplete' }
 
 function sessionStatus(session) {
   if (!session.ended_at) return { key: 'incomplete', tone: 'neutral', label: 'Incomplete' }
   if (session.end_reason === 'trust_sustained') return { key: 'success', tone: 'success', label: 'Trust Built' }
-  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  label: 'They Walked Away' }
+  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  label: 'NPC Exited' }
   if (session.outcome === 'success')            return { key: 'success', tone: 'success', label: 'Success' }
   if (session.outcome === 'failure')            return { key: 'failure', tone: 'danger',  label: 'Needs Work' }
   return { key: 'incomplete', tone: 'neutral', label: 'Incomplete' }
@@ -223,8 +222,8 @@ export default function MySessions() {
         {!authLoading && !isAuthenticated && (
           <div className="signin-prompt">
             <LogIn size={22} strokeWidth={1.8} />
-            <p className="signin-title">Sign in to see your session history</p>
-            <p className="signin-sub">Your sessions are saved to your account.</p>
+            <p className="signin-title">Sign in to view your session history</p>
+            <p className="signin-sub">Session records are tied to your account.</p>
             <a href="/signin" className="btn-c primary" style={{ textDecoration: 'none' }}>Sign in</a>
           </div>
         )}
@@ -257,7 +256,7 @@ export default function MySessions() {
                     className={cn('seg-btn', activeStatus === f && 'active')}
                     onClick={() => setActiveStatus(f)}
                   >
-                    {STATUS_FILTER_LABELS[f]} ({statusCounts[f]})
+                    {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({statusCounts[f]})
                   </button>
                 ))}
               </div>

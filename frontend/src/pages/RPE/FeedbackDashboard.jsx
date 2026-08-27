@@ -14,16 +14,9 @@ const RATING_TONE = {
   needs_work: { tone: 'warning', label: 'Needs Work'  },
 }
 
-const SECTIONS = [
-  { value: 'overview', label: 'Overview'           },
-  { value: 'coaching', label: 'Coaching'           },
-  { value: 'risks',    label: 'Heads-Up & Blind Spots' },
-  { value: 'charts',   label: 'Charts'             },
-]
-
 function endReasonBadge(endReason, outcome) {
   if (endReason === 'trust_sustained')        return { tone: 'success', label: 'Trust Built'  }
-  if (endReason === 'npc_exit')               return { tone: 'danger',  label: 'They Walked Away' }
+  if (endReason === 'npc_exit')               return { tone: 'danger',  label: 'NPC Exited'   }
   if (endReason === 'max_turns_reached' && outcome === 'success') return { tone: 'accent',  label: 'Completed' }
   if (endReason === 'max_turns_reached' && outcome === 'failure') return { tone: 'warning', label: 'Time Limit' }
   if (outcome === 'success')                  return { tone: 'success', label: 'Success'      }
@@ -287,7 +280,7 @@ export default function FeedbackDashboard() {
       const data = await rpeService.getFeedback(sessionId)
       setFeedbackData(data)
     } catch (err) {
-      setError(err.message || 'Something went wrong loading it.')
+      setError(err.message || 'Failed to load the session outcome.')
     } finally {
       setIsLoading(false)
     }
@@ -314,7 +307,7 @@ export default function FeedbackDashboard() {
         <div className="fb-error-wrap">
           <div className="fb-error-card">
             <p className="fb-error-emoji">⚠️</p>
-            <h2 className="fb-error-title">We couldn't load feedback for this session.</h2>
+            <h2 className="fb-error-title">Could not load the outcome for this session.</h2>
             <p className="fb-error-msg">{error}</p>
             <div className="fb-error-actions">
               <button type="button" onClick={load} className="btn-c primary">
@@ -393,136 +386,36 @@ export default function FeedbackDashboard() {
           </div>
         </div>
 
-        <div className="fb-page">
-
-          <div className="stat-grid">
-            <StatTile label="Final Trust" value={fd.final_trust ?? '—'} unit="/100" />
-            <StatTile label="Tension" value={fd.final_escalation ?? '—'} unit="/5" />
-            <StatTile label="Turns" value={fd.total_turns ?? '—'} unit=" turns" />
-            <StatTile label="Avg Quality" value={summary.avg_quality ?? '—'} unit="/10" />
-          </div>
-
-          {activeSection === 'overview' && (
-            <div className="fb-section-stack">
-              <EndReasonCard
-                endReason={endReason}
-                totalTurns={fd.total_turns}
-                recommendedTurns={recommendedTurns}
-                maxTurns={maxTurns}
-                label={summary.end_reason_label}
-              />
-              <div className="grid-2">
-                <RadarSummaryCard summaryScores={summary} emotionDistribution={emotionDist} />
-                <CoachingPanel coachingAdvice={fd.coaching_advice} truncated onExpand={() => setActiveSection('coaching')} />
-              </div>
-              <div className="grid-2">
-                <div>
-                  <RiskFlagsPanel riskFlags={fd.risk_flags} limit={2} />
-                  {fd.risk_flags?.length > 2 && (
-                    <button type="button" onClick={() => setActiveSection('risks')} className="see-all">
-                      See all {fd.risk_flags.length} flags →
-                    </button>
-                  )}
-                </div>
-                <div>
-                  <BlindSpotsPanel blindSpots={fd.blind_spots} limit={1} />
-                  {fd.blind_spots?.length > 1 && (
-                    <button type="button" onClick={() => setActiveSection('risks')} className="see-all">
-                      See all {fd.blind_spots.length} blind spots →
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'coaching' && (
-            <div className="fb-section-stack">
-              <CoachingPanel coachingAdvice={fd.coaching_advice} />
-
-              {npcToneJourney.length > 0 && (
-                <div className="panel">
-                  <div className="panel-label">How they saw you during the session</div>
-                  <div className="pill-row">
-                    {npcToneJourney.map((item, i) => (
-                      <span key={i} className={cn('pill', NPC_TONE_TONE[item.tone] ?? 'neutral')}>
-                        {item.turn}: <span className="cap">{item.tone}</span>
-                      </span>
-                    ))}
-                  </div>
-                  {endReason === 'npc_exit' && (
-                    <p className="callout danger">⚠ They walked out at turn {fd.total_turns} — tension had climbed to level {fd.final_escalation}/5</p>
-                  )}
-                  {endReason === 'trust_sustained' && (
-                    <p className="callout success">✅ Trust stayed high enough, and they came around.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeSection === 'risks' && (
-            <div className="grid-2">
-              <RiskFlagsPanel riskFlags={fd.risk_flags} />
-              <BlindSpotsPanel blindSpots={fd.blind_spots} />
-            </div>
-          )}
-
-          {activeSection === 'charts' && (
-            <div className="fb-section-stack">
-              <QualityCurveChart
-                qualityCurve={viz.quality_curve}
-                trustCurve={viz.trust_curve}
-                escalationCurve={viz.escalation_curve}
-              />
-
-              {trustDeltas.length > 0 && (
-                <div className="panel">
-                  <div className="panel-label">Trust change per turn</div>
-                  <div className="pill-row">
-                    {trustDeltas.map((item, i) => (
-                      <span key={i} className={cn('pill', item.direction === 'up' ? 'success' : item.direction === 'down' ? 'danger' : 'neutral')}>
-                        {item.turn}: {item.direction === 'up' ? `+${item.delta}` : item.delta === 0 ? '±0' : item.delta}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {emotionEntries.length > 0 && (
-                <div className="panel">
-                  <div className="panel-label">Emotion breakdown</div>
-                  <div className="emotion-list">
-                    {emotionEntries.map(([emotion, count]) => {
-                      const pct = totalEmotions > 0 ? Math.round((count / totalEmotions) * 100) : 0
-                      return (
-                        <div key={emotion} className="emotion-row">
-                          <span className={cn('pill', EMOTION_TONE[emotion] ?? 'neutral')} style={{ width: 90, flexShrink: 0, justifyContent: 'center' }}>
-                            <span className="cap">{emotion}</span>
-                          </span>
-                          <div className="emotion-track">
-                            <div className={cn('emotion-fill', EMOTION_TONE[emotion] ?? 'neutral')} style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className="emotion-count">{count} ({pct}%)</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-        </div>
-
-        <div className="fb-footer">
-          <div className="fb-footer-inner">
-            <button type="button" onClick={() => navigate('/roleplay')} className="btn-c primary">
-              <RefreshCw size={14} strokeWidth={1.8} /> Try again
-            </button>
-            <button type="button" onClick={() => navigate('/roleplay')} className="btn-c secondary">
-              Next scenario
-            </button>
+        <div className="fb-stage">
+          <div style={{ width: '100%', overflow: 'hidden' }}>
+            <AnimatePresence mode="wait" custom={direction} initial={false}>
+              <motion.div
+                key={stepKey}
+                custom={direction}
+                variants={screenVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                className="fb-screen-wrap"
+              >
+                {stepKey === 'journey' && (
+                  <JourneyScreen trustCurve={viz.trust_curve ?? []} trustDeltas={viz.trust_deltas ?? []} icon={icon} tone={badge.tone} />
+                )}
+                {stepKey === 'result' && (
+                  <ResultScreen fd={fd} summary={summary} badge={badge} icon={icon} active />
+                )}
+                {stepKey === 'coaching' && (
+                  <CoachingScreen coachingAdvice={fd.coaching_advice} />
+                )}
+                {stepKey === 'watch' && (
+                  <WatchForScreen riskFlags={fd.risk_flags} blindSpots={fd.blind_spots} />
+                )}
+                {stepKey === 'done' && (
+                  <DoneScreen onTryAgain={goRoleplay} onHarder={goHarder} onOtherSkill={goRoleplay} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
 

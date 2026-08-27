@@ -52,11 +52,11 @@ const ANIMATION_TO_GESTURE = {
 }
 
 const END_REASON_COPY = {
-  natural_resolution: { icon: '✅', title: 'You Worked It Out',        sub: 'You brought the conversation to a good place.' },
+  natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
   user_exit_intent:   { icon: '👋', title: 'Session Ended',            sub: 'You chose to end the conversation.' },
   npc_exit:           { icon: '💢', title: 'Session Ended',            sub: 'The session ended because of repeated inappropriate language.' },
   trust_sustained:    { icon: '🎉', title: 'Trust Built',              sub: 'You built enough trust to resolve the situation.' },
-  max_turns_reached:  { icon: '⏱', title: 'You Reached the Turn Limit', sub: "You've used up all your turns for this session." },
+  max_turns_reached:  { icon: '⏱', title: 'Maximum Turns Reached',    sub: 'Session ended at the turn limit.' },
 }
 
 const formatDuration = (totalSeconds) => {
@@ -421,7 +421,7 @@ export default function RolePlaySession() {
             ? 'listening'
             : autoMicEnabled ? 'listening' : 'manual'
 
-  const voicePillLabel = autoMicEnabled ? 'Voice On' : 'Typing'
+  const voicePillLabel = autoMicEnabled ? 'Voice Active' : 'Text Mode'
 
   return (
     <div className="rpe-vs" data-voice-state={voiceState} style={{ height: '100%' }}>
@@ -435,7 +435,7 @@ export default function RolePlaySession() {
               <div className="avatar-inner">🧑‍💼</div>
             </div>
             <div>
-              <div className="npc-name">{npcRole || 'Character'}</div>
+              <div className="npc-name">{npcRole || 'NPC'}</div>
               {difficulty && <div className="npc-role">{difficulty} scenario</div>}
             </div>
             <div className="scenario-pill">{scenarioTitle}</div>
