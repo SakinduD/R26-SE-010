@@ -15,6 +15,7 @@ Backend label contract (must match nudge_engine.py SerAnalyzer.EMOTION_MAP):
 Usage:
     python train_cnn.py --data mel_features.npz --output cnn_model.pkl
     python train_cnn.py --data mel_features.npz --output cnn_model.pkl --epochs 100 --batch-size 64
+
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 
@@ -61,7 +62,8 @@ class MelDataset(Dataset):
 
     @staticmethod
     def _spec_augment(x: torch.Tensor) -> torch.Tensor:
-        """SpecAugment: random time and frequency masking (Park et al., 2019)."""
+        """SpecAugment: random time/frequency masking (Park et al., 2019)
+        plus a circular time-shift, regenerated fresh on every sample draw."""
         _, n_mels, n_frames = x.shape
 
         # Frequency masking: 2 independent masks up to 27 mel bands each
@@ -75,6 +77,13 @@ class MelDataset(Dataset):
             t_mask = np.random.randint(0, 27)
             t_start = np.random.randint(0, max(1, n_frames - t_mask))
             x[:, :, t_start: t_start + t_mask] = 0.0
+
+        # Circular time-shift: up to ~15% of the clip, wrapped around rather
+        # than zero-padded so no information is discarded, just repositioned.
+        max_shift = max(1, n_frames // 7)
+        shift = np.random.randint(-max_shift, max_shift + 1)
+        if shift != 0:
+            x = torch.roll(x, shifts=shift, dims=2)
 
         return x
 
@@ -102,13 +111,12 @@ class EmotionCNN(nn.Module):
     2-D CNN for speech emotion recognition from log-mel spectrograms.
 
     Input : (B, 1, 128, 128)
-    Blocks :
-        ConvBlock(1  → 32)   MaxPool  →  (B, 32,  64, 64)
-        ConvBlock(32 → 64)   MaxPool  →  (B, 64,  32, 32)
-        ConvBlock(64 → 128)  MaxPool  →  (B, 128, 16, 16)
-        ConvBlock(128→ 256)  MaxPool  →  (B, 256,  8,  8)
-    GAP → (B, 256)
-    FC(256→128) → ReLU → Dropout → FC(128→7)
+    Blocks : ConvBlock(1→32→64→128→256), each MaxPool-halved
+    GAP → (B, 256) → FC(256→128) → ReLU → Dropout → FC(128→7)
+
+    Kept at 32/64/128/256 width (~1.2M params) after shrink experiments
+    (300K, 679K) both scored worse on the test holdout despite a smaller
+    train/val gap -- shrinking traded real signal for a smaller gap number.
     """
 
     def __init__(self, n_classes: int = N_CLASSES, dropout: float = 0.3):
@@ -136,15 +144,10 @@ class EmotionCNN(nn.Module):
 
 # Sklearn-compatible wrapper (drop-in for the SVM pkl)
 class CNNEmotionWrapper:
-    """
-    Wraps EmotionCNN to expose sklearn-style predict / predict_proba.
+    """Wraps EmotionCNN to expose sklearn-style predict / predict_proba.
 
-    Accepts input shapes:
-        (N, 16384)       flat mel spectrogram (128 * 128)
-        (N, 1, 128, 128) standard spectrogram tensor
-
-    The model_type attribute lets NudgeEngine select the correct
-    feature to feed at inference time (mel_spectrogram vs feature_vector).
+    Accepts (N, 16384) flat or (N, 1, 128, 128) spectrogram input.
+    model_type lets NudgeEngine pick the right feature at inference time.
     """
 
     model_type = "cnn"
@@ -179,10 +182,12 @@ def load_dataset(data_path: Path):
     if not data_path.exists():
         raise FileNotFoundError(f"{data_path} not found. Run preprocess_cnn.py first.")
 
-    data  = np.load(data_path, allow_pickle=True)
-    X     = data["X"].astype(np.float32)          # (N, 1, 128, 128)
-    y     = data["y"].astype(np.int64)
-    actor = data["actor"] if "actor" in data.files else None
+    data        = np.load(data_path, allow_pickle=True)
+    X           = data["X"].astype(np.float32)          # (N, 1, 128, 128)
+    y           = data["y"].astype(np.int64)
+    actor       = data["actor"] if "actor" in data.files else None
+    is_original = data["is_original"] if "is_original" in data.files else None
+    source      = data["source"] if "source" in data.files else None  # e.g. combine/'s RAVDESS/SUBESCO tag
 
     if X.ndim != 4 or X.shape[1:] != (1, 128, 128):
         raise ValueError(f"Expected (N, 1, 128, 128) data, got {X.shape}")
@@ -191,25 +196,87 @@ def load_dataset(data_path: Path):
     if len(np.unique(y)) != N_CLASSES:
         raise ValueError(f"Expected {N_CLASSES} classes, got {len(np.unique(y))}.")
 
-    return X, y, actor
+    return X, y, actor, is_original, source
 
 
-def make_split(X, y, actor, test_size: float):
-    """Speaker-independent split when actor labels are available."""
+def _split_indices_single_group(idx, y, actor, val_size: float, test_size: float):
+    """Actor-grouped (or sample-stratified if actor is None) 3-way split over
+    one pool of indices. Returns absolute indices into the full-size arrays;
+    idx is the pool this call may choose from (e.g. one source's rows)."""
+    y_sub = y[idx]
     if actor is not None:
+        actor_sub = actor[idx]
         n_splits = max(2, round(1 / test_size))
         splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
                                         random_state=RANDOM_SEED)
-        train_idx, test_idx = next(splitter.split(X, y, actor))
-        return (X[train_idx], X[test_idx],
-                y[train_idx], y[test_idx],
-                actor[train_idx])
+        trainval_rel, test_rel = next(splitter.split(idx, y_sub, actor_sub))
 
-    from sklearn.model_selection import train_test_split
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        X, y, test_size=test_size, stratify=y, random_state=RANDOM_SEED
-    )
-    return X_tr, X_te, y_tr, y_te, None
+        val_frac_of_remaining = val_size / (1 - test_size)
+        n_splits_val = max(2, round(1 / val_frac_of_remaining))
+        splitter_val = StratifiedGroupKFold(n_splits=n_splits_val, shuffle=True,
+                                            random_state=RANDOM_SEED)
+        tr_rel2, val_rel2 = next(splitter_val.split(
+            idx[trainval_rel], y_sub[trainval_rel], actor_sub[trainval_rel]
+        ))
+        train_rel = trainval_rel[tr_rel2]
+        val_rel   = trainval_rel[val_rel2]
+    else:
+        from sklearn.model_selection import train_test_split
+        pool = np.arange(len(idx))
+        trainval_rel, test_rel = train_test_split(
+            pool, test_size=test_size, stratify=y_sub[pool], random_state=RANDOM_SEED
+        )
+        val_frac_of_remaining = val_size / (1 - test_size)
+        train_rel, val_rel = train_test_split(
+            trainval_rel, test_size=val_frac_of_remaining,
+            stratify=y_sub[trainval_rel], random_state=RANDOM_SEED,
+        )
+
+    return idx[train_rel], idx[val_rel], idx[test_rel]
+
+
+def make_splits(X, y, actor, is_original, val_size: float, test_size: float, source=None):
+    """Speaker-independent 3-way split: train / val / test.
+
+    Val drives early stopping/checkpoint selection; test is touched exactly
+    once, at the end, so the reported number isn't the same score the
+    checkpoint was chosen to maximise. When actor labels are available both
+    cuts are actor-grouped so no actor appears in more than one split.
+
+    When is_original is available, val/test are restricted to clean,
+    unaugmented recordings so they aren't scored on near-duplicate augmented
+    copies of held-out utterances. Training keeps all variants.
+
+    When source is available (combine/'s RAVDESS-vs-SUBESCO tag), each
+    source is split independently and concatenated, guaranteeing near-exact
+    source proportions per split -- jointly stratifying on (label, source)
+    in one StratifiedGroupKFold produced a worse skew given how few/uneven
+    the actor groups are.
+    """
+    if source is None:
+        train_idx, val_idx, test_idx = _split_indices_single_group(
+            np.arange(len(y)), y, actor, val_size, test_size
+        )
+    else:
+        train_parts, val_parts, test_parts = [], [], []
+        for src in sorted(set(source.tolist())):
+            idx = np.where(source == src)[0]
+            tr, va, te = _split_indices_single_group(idx, y, actor, val_size, test_size)
+            train_parts.append(tr)
+            val_parts.append(va)
+            test_parts.append(te)
+        train_idx = np.concatenate(train_parts)
+        val_idx   = np.concatenate(val_parts)
+        test_idx  = np.concatenate(test_parts)
+
+    if is_original is not None:
+        val_idx  = val_idx[is_original[val_idx]]
+        test_idx = test_idx[is_original[test_idx]]
+
+    return (X[train_idx], X[val_idx], X[test_idx],
+            y[train_idx], y[val_idx], y[test_idx],
+            actor[train_idx] if actor is not None else None,
+            train_idx, val_idx, test_idx)
 
 
 def make_sampler(y_train: np.ndarray) -> WeightedRandomSampler:
@@ -261,16 +328,25 @@ def train_epoch(model, loader, criterion, optimiser, device, scaler, mixup_alpha
 
 @torch.no_grad()
 def eval_epoch(model, loader, criterion, device):
+    """Returns (loss, accuracy, macro_f1). macro_f1 drives checkpoint
+    selection (see main()) since it weights all 7 classes equally, unlike
+    accuracy which rewards the majority "neutral" class."""
     model.eval()
-    total_loss, correct, n = 0.0, 0, 0
+    total_loss, n = 0.0, 0
+    all_preds, all_targets = [], []
     for X_batch, y_batch in loader:
         X_batch, y_batch = X_batch.to(device), y_batch.to(device)
         logits     = model(X_batch)
         loss       = criterion(logits, y_batch)
         total_loss += loss.item() * len(y_batch)
-        correct    += (logits.argmax(1) == y_batch).sum().item()
         n          += len(y_batch)
-    return total_loss / n, correct / n
+        all_preds.append(logits.argmax(1).cpu())
+        all_targets.append(y_batch.cpu())
+    all_preds   = torch.cat(all_preds).numpy()
+    all_targets = torch.cat(all_targets).numpy()
+    accuracy = float((all_preds == all_targets).mean())
+    macro_f1 = f1_score(all_targets, all_preds, average="macro", zero_division=0)
+    return total_loss / n, accuracy, macro_f1
 
 
 
@@ -284,9 +360,10 @@ def main() -> None:
     parser.add_argument("--epochs",     type=int,   default=80,   help="Max training epochs")
     parser.add_argument("--batch-size", type=int,   default=32,   help="Mini-batch size")
     parser.add_argument("--lr",         type=float, default=1e-3, help="Initial learning rate")
-    parser.add_argument("--dropout",    type=float, default=0.3,  help="Dropout probability")
-    parser.add_argument("--test-size",  type=float, default=0.2,  help="Holdout fraction")
-    parser.add_argument("--patience",      type=int,   default=20,    help="Early stopping patience")
+    parser.add_argument("--dropout",    type=float, default=0.4,  help="Dropout probability")
+    parser.add_argument("--test-size",  type=float, default=0.2,  help="Final holdout fraction (touched once, at the end)")
+    parser.add_argument("--val-size",   type=float, default=0.15, help="Validation fraction, used for early stopping / checkpoint selection")
+    parser.add_argument("--patience",      type=int,   default=25,    help="Early stopping patience")
     parser.add_argument("--weight-decay",  type=float, default=5e-4,  help="AdamW weight decay (L2 regularisation)")
     parser.add_argument("--mixup-alpha",   type=float, default=0.4,   help="MixUp alpha (0 = disabled)")
     parser.add_argument("--no-group-split", action="store_true",
@@ -302,26 +379,41 @@ def main() -> None:
     print(f"Epochs  : {args.epochs}  |  Batch: {args.batch_size}  |  LR: {args.lr}")
 
     # Data
-    X, y, actor = load_dataset(Path(args.data))
+    X, y, actor, is_original, source = load_dataset(Path(args.data))
     if args.no_group_split:
         actor = None
+    if is_original is None:
+        print("WARNING: no 'is_original' flag in this .npz -- val/test will "
+              "include augmented near-duplicates, inflating reported metrics.")
     print(f"Loaded  : {X.shape[0]} samples, shape {X.shape[1:]}")
     print(f"Backend label contract: {dict(enumerate(LABEL_NAMES))}")
+    if source is not None:
+        print("Source mix (whole dataset):", dict(Counter(source.tolist())))
 
-    X_train, X_test, y_train, y_test, train_actor = make_split(
-        X, y, actor, args.test_size
+    X_train, X_val, X_test, y_train, y_val, y_test, train_actor, train_idx, val_idx, test_idx = make_splits(
+        X, y, actor, is_original, args.val_size, args.test_size, source=source
     )
-    print(f"Train   : {len(y_train)}  |  Test : {len(y_test)}")
+    print(f"Train   : {len(y_train)}  |  Val : {len(y_val)}  |  Test : {len(y_test)}")
     print("Train class counts:", Counter(y_train.tolist()))
+    if source is not None:
+        # Sanity check: confirms RAVDESS/SUBESCO stayed proportionally
+        # represented in every split (a skew here can masquerade as a
+        # modeling problem).
+        for split_name, idx in [("Train", train_idx), ("Val", val_idx), ("Test", test_idx)]:
+            counts = Counter(source[idx].tolist())
+            total = sum(counts.values())
+            pct = {k: f"{v} ({v / total * 100:.1f}%)" for k, v in counts.items()}
+            print(f"  {split_name} source mix: {pct}")
 
     train_ds  = MelDataset(X_train, y_train, augment=True)
-    test_ds   = MelDataset(X_test,  y_test,  augment=False)
+    val_ds    = MelDataset(X_val,   y_val,   augment=False)
     sampler   = make_sampler(y_train)
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size,
                               sampler=sampler, num_workers=0, pin_memory=(device == "cuda"))
-    test_loader  = DataLoader(test_ds,  batch_size=args.batch_size * 2,
+    val_loader   = DataLoader(val_ds,   batch_size=args.batch_size * 2,
                               shuffle=False, num_workers=0)
+    # X_test/y_test stay untouched until the final wrapper.predict() below.
 
     # Model
     model     = EmotionCNN(n_classes=N_CLASSES, dropout=args.dropout).to(device)
@@ -336,36 +428,49 @@ def main() -> None:
     )
     criterion  = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
     optimiser  = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler  = CosineAnnealingWarmRestarts(optimiser, T_0=20, T_mult=2, eta_min=1e-6)
+    # Single smooth decay (not warm restarts) so early stopping can't fire
+    # right before a scheduled restart.
+    scheduler  = CosineAnnealingLR(optimiser, T_max=args.epochs, eta_min=1e-6)
     scaler     = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
 
-    # Training loop
+    # Checkpoint selection uses macro F1, not accuracy (see eval_epoch);
+    # val_acc is still logged for reference.
+    best_val_f1   = 0.0
     best_val_acc  = 0.0
     best_state    = None
     patience_left = args.patience
     history       = []
 
-    print(f"\n{'Epoch':>5} | {'TrainLoss':>9} | {'ValLoss':>8} | {'ValAcc':>7} | LR")
-    print("-" * 55)
+    print(f"\n{'Epoch':>5} | {'TrainLoss':>9} | {'ValLoss':>8} | {'ValAcc':>7} | {'ValF1':>6} | LR")
+    print("-" * 65)
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
-        tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimiser, device, scaler,
-                                      mixup_alpha=args.mixup_alpha)
-        va_loss, va_acc = eval_epoch(model, test_loader, criterion, device)
-        scheduler.step(epoch)
+        try:
+            tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimiser, device, scaler,
+                                          mixup_alpha=args.mixup_alpha)
+            va_loss, va_acc, va_f1 = eval_epoch(model, val_loader, criterion, device)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            raise RuntimeError(
+                f"CUDA out of memory at epoch {epoch}. Try a smaller --batch-size "
+                f"(currently {args.batch_size}), or restart the Colab runtime to "
+                f"clear any memory held by a previous run."
+            ) from None
+        scheduler.step()
         lr_now = optimiser.param_groups[0]["lr"]
         elapsed = time.time() - t0
 
         print(f"{epoch:>5} | {tr_loss:>9.4f} | "
-              f"{va_loss:>8.4f} | {va_acc * 100:>6.2f}% | {lr_now:.6f}  [{elapsed:.1f}s]")
+              f"{va_loss:>8.4f} | {va_acc * 100:>6.2f}% | {va_f1:>6.4f} | {lr_now:.6f}  [{elapsed:.1f}s]")
 
         history.append({
             "epoch": epoch, "train_loss": tr_loss, "train_acc": tr_acc,
-            "val_loss": va_loss, "val_acc": va_acc, "lr": lr_now,
+            "val_loss": va_loss, "val_acc": va_acc, "val_f1": va_f1, "lr": lr_now,
         })
 
-        if va_acc > best_val_acc:
+        if va_f1 > best_val_f1:
+            best_val_f1   = va_f1
             best_val_acc  = va_acc
             best_state    = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             patience_left = args.patience
@@ -408,6 +513,7 @@ def main() -> None:
     print(f"Train accuracy : {train_acc * 100:.2f}%")
     print(f"Overfit gap    : {overfit_gap * 100:.2f}%")
     print(f"Best val acc   : {best_val_acc * 100:.2f}%")
+    print(f"Best val F1    : {best_val_f1:.4f}  (checkpoint selection metric)")
 
     # Save
     output_path = Path(args.output)
@@ -427,6 +533,7 @@ def main() -> None:
         "n_params": n_params,
         "epochs_trained": len(history),
         "best_val_acc": float(best_val_acc),
+        "best_val_f1": float(best_val_f1),
         "test_accuracy": float(test_acc),
         "test_macro_f1": float(test_f1),
         "train_accuracy": float(train_acc),
@@ -439,6 +546,15 @@ def main() -> None:
         "training_history": history,
         "hyperparams": vars(args),
         "split": "actor_grouped" if actor is not None else "sample_stratified",
+        "split_sizes": {"train": len(y_train), "val": len(y_val), "test": len(y_test)},
+        "split_source_mix": (
+            {
+                split_name: dict(Counter(source[idx].tolist()))
+                for split_name, idx in [("train", train_idx), ("val", val_idx), ("test", test_idx)]
+            }
+            if source is not None else None
+        ),
+        "test_set_is_clean_only": bool(is_original is not None),
         "device": device,
     }
     report_path = output_path.with_suffix(".report.json")

@@ -1,0 +1,48 @@
+{
+  "dataset": "SUBESCO",
+  "output": "features.npz",
+  "augmented": true,
+  "sample_rate": 22050,
+  "feature_order": [
+    "mfcc_mean_40",
+    "mfcc_std_40",
+    "chroma_mean_12",
+    "chroma_std_12",
+    "mel_mean_128",
+    "mel_std_128",
+    "pitch_mean_1",
+    "pitch_std_1"
+  ],
+  "feature_dimensions": 362,
+  "label_to_id": {
+    "neutral": 0,
+    "happy": 1,
+    "sad": 2,
+    "angry": 3,
+    "fearful": 4,
+    "disgust": 5,
+    "surprised": 6
+  },
+  "subesco_emotion_map": {
+    "ANGRY": "angry",
+    "DISGUST": "disgust",
+    "FEAR": "fearful",
+    "HAPPY": "happy",
+    "NEUTRAL": "neutral",
+    "SAD": "sad",
+    "SURPRISE": "surprised"
+  },
+  "samples": 27994,
+  "actors": 20,
+  "skipped_files": 0,
+  "removed_duplicates": 6,
+  "class_counts": {
+    "neutral": 4000,
+    "happy": 4000,
+    "sad": 3997,
+    "angry": 3997,
+    "fearful": 4000,
+    "disgust": 4000,
+    "surprised": 4000
+  }
+}
