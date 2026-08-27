@@ -348,6 +348,35 @@ class BlindSpotSummary(BaseModel):
     sentiment_gap_count: int = 0
 
 
+class ReflectionReading(BaseModel):
+    """One written reflection, and what happened when the model read it.
+
+    Separate from SentimentBlindSpotItem, which is the subset that became a
+    finding. This is every reflection that was read, including the ones that
+    produced nothing, because the panel showing them had only findings to show
+    and stood empty the rest of the time - on a session where the learner had
+    written something, been read, and agreed with.
+
+    `outcome` is what separates them. `raised` became a finding; `agrees` means
+    the model read the text the way the learner marked it; `not_acted_on` means
+    it disagreed in a direction blind_spot_service has measured itself unreliable
+    about, so no finding was made.
+
+    The reading is returned in all three cases, with its confidence. Hiding it on
+    `not_acted_on` was tried and was worse: the learner's own sentence still sat
+    beside the sentiment they chose, so the disagreement was visible while the
+    page reported nothing found. Publishing the reading with its reliability is
+    the honest form of not acting on it.
+    """
+
+    session_id: str
+    comment_excerpt: str
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    outcome: Literal["agrees", "raised", "not_acted_on"]
+
+
 class BlindSpotDetectionResult(BaseModel):
     scope: Literal["session", "user"]
     user_id: str | None = None
@@ -355,6 +384,13 @@ class BlindSpotDetectionResult(BaseModel):
     summary: BlindSpotSummary
     blind_spots: list[BlindSpotItem]
     sentiment_gaps: list[SentimentBlindSpotItem] = []
+    # Every written reflection the model read in this scope, findings or not.
+    # An empty `sentiment_gaps` means one of two different things and the screen
+    # cannot tell them apart without this: nothing was written, or something was
+    # written and produced no finding. It said "write a reflection to have this
+    # checked" to a learner who had just written one.
+    reflection_readings: list[ReflectionReading] = []
+    reflections_examined: int = 0
     generated_at: datetime
     detection_version: str
 

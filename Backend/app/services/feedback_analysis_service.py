@@ -108,27 +108,66 @@ def _build_result(
         for skill_area in skill_areas
     ]
 
-    self_ratings = [
-        entry.rating
+    self_entries = [
+        entry
         for entry in feedback
         if entry.feedback_type == "self" and entry.rating is not None
     ]
+    self_ratings = [entry.rating for entry in self_entries]
+
+    # A self-assessment is stored as one row per skill, so the row count answers
+    # a different question in each scope - and the two screens reading this ask
+    # different questions of it.
+    #
+    # Across a history: how many times did they sit down and rate themselves.
+    # 42 assessments are 230 rows, and "Times you rated yourself" read 230.
+    #
+    # Within one session: how many skills did they rate. Not the row count
+    # either, because a resubmitted form leaves several rows for the same skill -
+    # one session here holds eighteen rows covering three skills.
+    self_feedback_count = (
+        len({_normalize_skill_area(entry.skill_area) for entry in self_entries})
+        if scope == "session"
+        else len({entry.session_id for entry in self_entries if entry.session_id})
+    )
+
     aligned_count = sum(1 for item in items if item.alignment == "aligned")
     blind_spot_count = sum(
         1 for item in items if item.alignment in {"self_overestimation", "self_underestimation"}
     )
-    observed_scores_list = [item.observed_score for item in items if item.observed_score is not None]
+
+    # Only the skills where a comparison actually happened. A skill the session
+    # measured but the learner never rated has nothing to be close to, and
+    # counting it produced two visible contradictions on one screen: "Skills
+    # checked 4" beside "Spot on 0" and "Gaps 3", and a measured average taken
+    # over four skills sitting next to a self average taken over three.
+    #
+    # Both averages now cover the same skills, which is the only way the two
+    # numbers beside each other can be subtracted. The session's own overall
+    # score, over everything it measured, is on the dashboard.
+    compared = [item for item in items if item.alignment != "insufficient_data"]
+    observed_scores_list = [
+        item.observed_score for item in compared if item.observed_score is not None
+    ]
 
     return FeedbackAnalysisResult(
         scope=scope,
         user_id=user_id,
         session_id=session_id,
         summary=FeedbackAnalysisSummary(
-            self_feedback_count=len(self_ratings),
-            analyzed_skill_count=len(items),
+            self_feedback_count=self_feedback_count,
+            analyzed_skill_count=len(compared),
             aligned_count=aligned_count,
             blind_spot_count=blind_spot_count,
-            average_self_rating=_average(self_ratings),
+            # Averaged per skill, not per row, so that it is the same operation
+            # as the observed average printed beside it. Those two numbers exist
+            # to be compared, and a mean over rows is weighted by how often each
+            # skill happened to be rated - this learner rated presence 65 times
+            # and vocal command 38 - while the observed side gives each skill one
+            # vote. Comparing them was comparing two different weightings.
+            average_self_rating=_average(
+                [item.self_rating for item in compared if item.self_rating is not None]
+            ),
             average_observed_score=_average(observed_scores_list),
         ),
         items=items,
@@ -204,11 +243,32 @@ def _recommendation(skill_area: str, alignment: str) -> str:
 
 
 def _group_feedback_by_skill(feedback: list[FeedbackEntry]) -> dict[str, dict[str, list[float]]]:
+    """One rating per skill per session, most recent kept.
+
+    The form can be submitted more than once for the same session, and the rows
+    accumulate rather than replace: this account holds 29 (session, skill) pairs
+    with two or more rows, one of them six deep. Averaging all of them does two
+    wrong things at once. A rating the learner changed stays in the average -
+    presence on one session reads 75, 70, 70, 70, 70, and the 75 they corrected
+    still counts - and a session that happened to be submitted six times carries
+    six times the weight of one submitted once. Correcting both moves this
+    account's presence figure by 2.45 points.
+
+    Callers pass entries newest first, so the first one seen for a pair is the
+    one that stands. An entry with no session id cannot be paired with anything
+    and is kept as its own.
+    """
     grouped = defaultdict(lambda: defaultdict(list))
+    seen: set[tuple] = set()
     for entry in feedback:
         if entry.rating is None or entry.feedback_type != "self":
             continue
-        grouped[_normalize_skill_area(entry.skill_area)][entry.feedback_type].append(entry.rating)
+        skill_area = _normalize_skill_area(entry.skill_area)
+        key = (entry.session_id, skill_area) if entry.session_id else ("", entry.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        grouped[skill_area][entry.feedback_type].append(entry.rating)
     return grouped
 
 

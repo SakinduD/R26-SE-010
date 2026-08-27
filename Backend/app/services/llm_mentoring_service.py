@@ -415,7 +415,15 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     summary_data = {
         "session_id": session_id,
         "user_id": user_id,
-        "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+        # Self rows only. The screen labels this "Skills you rated", and
+        # total_count is every feedback row on the session - four notes this
+        # codebase generated, plus a mentor comment, plus the learner's four
+        # ratings - so a learner who rated four skills was shown nine.
+        # `feedback_entry_count` below is where the full total belongs.
+        "feedback_count": (
+            aggregate.feedback.by_type.get("self", 0) if aggregate else 0
+        ),
+        "feedback_entry_count": aggregate.feedback.total_count if aggregate else 0,
         "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
         "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
         "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,

@@ -83,7 +83,15 @@ export default function BlindSpotDetail() {
   const currentId = scope === 'session' ? sessionId : userId
   const blindSpots = data.blindSpots?.blind_spots || []
   const sentimentGaps = data.blindSpots?.sentiment_gaps || []
+  // Every reflection the model read, findings and non-findings alike — see
+  // SentimentGapList.
+  const reflectionReadings = data.blindSpots?.reflection_readings || []
   const analysisItems = data.feedbackAnalysis?.items || []
+  // Recurrence per skill, for the "How often" box on each gap card.
+  const recurrenceBySkill = useMemo(() => {
+    const items = data.recurring?.items || []
+    return Object.fromEntries(items.map((item) => [item.skill_area, item]))
+  }, [data.recurring])
   const strongest = data.blindSpots?.summary?.strongest_blind_spot || blindSpots[0]
 
   const hasLiveData = useMemo(() => {
@@ -96,16 +104,21 @@ export default function BlindSpotDetail() {
     if (!targetId) { setError(`Enter a ${nextScope} id`); return }
     setStatus('loading'); setError('')
     try {
-      // Recurring patterns only make sense across a history, so they are not
-      // fetched for a single session. The overview shows a bar and a count; the
-      // sentence explaining what to do about each one belongs here, where there
-      // is room for all four.
+      // Recurring patterns are a history, and a history is exactly the context a
+      // single session's gap needs: a 20-point gap that shows up in 37 of 41
+      // rated sessions is a habit, the same gap seen once is a bad morning. So
+      // they are fetched in both scopes now. The panel listing them stays
+      // history-only - it summarises the whole set - but each gap card borrows
+      // its own skill's count.
+      const recurringUserId = nextScope === 'session' ? connectedUserId : targetId
       const [blindSpotResult, analysisResult, recurringResult] =
         nextScope === 'session'
           ? await Promise.all([
               analyticsService.getBlindSpotsBySession(targetId),
               analyticsService.getFeedbackAnalysisBySession(targetId),
-              Promise.resolve(null),
+              recurringUserId
+                ? analyticsService.getRecurringBlindSpots(recurringUserId).catch(() => null)
+                : Promise.resolve(null),
             ])
           : await Promise.all([
               analyticsService.getBlindSpotsByUser(targetId),
@@ -207,10 +220,32 @@ export default function BlindSpotDetail() {
                 from the outside than from where you are standing.
               </p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, minWidth: 260 }}>
+            {/* One box per severity, named exactly as the cards below badge them.
+                There are three severities and this row used to offer two boxes for
+                them: "Big ones" read high and "Smaller" read medium, so every
+                low-severity gap was counted in the total and shown nowhere -
+                "Gaps found 2 · Big ones 0 · Smaller 1". Summing medium and low
+                into "Smaller" fixed the arithmetic and broke the words instead: a
+                learner reading "Smaller 2" went looking for two SMALL badges and
+                found one SMALL and one NOTICEABLE. Every number here now has a
+                badge to match it. */}
+            {/* Five columns, always. auto-fit read the space it was given and
+                settled on four, dropping "Spot on" onto a line of its own - the
+                row is one set of counts and reads as one only while it is one
+                line. `flex` lets it claim the width it needs from the text
+                beside it; on a narrow screen the whole block wraps under that
+                text and takes the full width there instead. */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+              gap: 10,
+              flex: '1 1 440px',
+              maxWidth: 560,
+            }}>
               <MetricBox icon={ShieldAlert} label="Gaps found" value={data.blindSpots?.summary?.total_count || 0} />
-              <MetricBox icon={AlertTriangle} label="Big ones" value={data.blindSpots?.summary?.high_count || 0} />
-              <MetricBox icon={Target} label="Smaller" value={data.blindSpots?.summary?.medium_count || 0} />
+              <MetricBox icon={AlertTriangle} label="Big gap" value={data.blindSpots?.summary?.high_count || 0} />
+              <MetricBox icon={Target} label="Noticeable" value={data.blindSpots?.summary?.medium_count || 0} />
+              <MetricBox icon={Target} label="Small" value={data.blindSpots?.summary?.low_count || 0} />
               <MetricBox icon={CheckCircle2} label="Spot on" value={data.feedbackAnalysis?.summary?.aligned_count || 0} />
             </div>
           </div>
@@ -219,7 +254,9 @@ export default function BlindSpotDetail() {
 
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
         <Panel title="The Biggest Gap" icon={ShieldAlert}>
-          {strongest ? <BlindSpotCard item={strongest} featured /> : <EmptyMsg text="Your rating matched what was measured" />}
+          {strongest
+            ? <BlindSpotCard item={strongest} featured recurrence={recurrenceBySkill[strongest.skill_area]} />
+            : <EmptyMsg text="Your rating matched what was measured" />}
         </Panel>
         <Panel title="How Close You Were" icon={BarChart3}>
           <AlignmentSummary summary={data.feedbackAnalysis?.summary} />
@@ -237,18 +274,32 @@ export default function BlindSpotDetail() {
         </motion.div>
       )}
 
-      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-        <Panel title="Every Gap We Found" icon={AlertTriangle}>
-          <BlindSpotList items={blindSpots} />
-        </Panel>
-      </motion.div>
+      {/* With one gap this panel repeats "The Biggest Gap" above it - the same
+          card, the same numbers, twice on one screen, which reads as a rendering
+          fault rather than as a list of one. It earns its place from two. */}
+      {blindSpots.length > 1 && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <Panel title="Every Gap We Found" icon={AlertTriangle}>
+            <BlindSpotList items={blindSpots} recurrenceBySkill={recurrenceBySkill} />
+          </Panel>
+        </motion.div>
+      )}
 
       <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
         <Panel
-          title={`What Your Own Words Said — ${sentimentGaps.length} gap${sentimentGaps.length === 1 ? '' : 's'}`}
+          // Counting gaps alone put "0 gaps" over a card describing a
+          // disagreement the reader could see for themselves. The heading now
+          // counts what the panel is actually showing.
+          title={
+            sentimentGaps.length
+              ? `What Your Own Words Said — ${sentimentGaps.length} gap${sentimentGaps.length === 1 ? '' : 's'}`
+              : reflectionReadings.length
+                ? `What Your Own Words Said — ${reflectionReadings.length} reflection${reflectionReadings.length === 1 ? '' : 's'} read`
+                : 'What Your Own Words Said'
+          }
           icon={MessageSquare}
         >
-          <SentimentGapList items={sentimentGaps} />
+          <SentimentGapList items={sentimentGaps} readings={reflectionReadings} />
         </Panel>
       </motion.div>
 
@@ -336,18 +387,30 @@ const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('
 const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable', low: 'small', none: 'none' }
 const severityWords = (value) => SEVERITY_WORDS[value] || value || ''
 
-function BlindSpotList({ items }) {
+function BlindSpotList({ items, recurrenceBySkill = {} }) {
   if (!items.length) return <EmptyMsg text="No gaps this time — your ratings matched" />
   return (
     <div className="grid-2">
       {items.map((item) => (
-        <BlindSpotCard key={`${item.skill_area}-${item.blind_spot_type}`} item={item} />
+        <BlindSpotCard
+          key={`${item.skill_area}-${item.blind_spot_type}`}
+          item={item}
+          recurrence={recurrenceBySkill[item.skill_area]}
+        />
       ))}
     </div>
   )
 }
 
-function BlindSpotCard({ item, featured = false }) {
+// Counted over the sessions the learner *rated*, not over every session they
+// have. Those differ a lot - 41 rated against 114 completed here - so the
+// denominator is named rather than left to be assumed.
+function recurrenceWords(recurrence) {
+  if (!recurrence) return 'Not enough rated sessions yet'
+  return `${recurrence.sessions_with_gap} of ${recurrence.sessions_rated} rated sessions`
+}
+
+function BlindSpotCard({ item, featured = false, recurrence = null }) {
   return (
     <div style={{
       padding: 16,
@@ -371,7 +434,16 @@ function BlindSpotCard({ item, featured = false }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
         <InfoBox label="Difference" value={formatScore(item.gap)} />
-        <InfoBox label="How sure" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} />
+        {/* This box used to read "How sure", and the number in it was
+            0.45 + gap/100 + 0.10 - the difference to its left, rescaled. Two
+            findings with the same gap always scored the same, whatever the
+            history behind them, so the box restated its neighbour and dressed
+            the restatement as certainty.
+            
+            How often the gap recurs is the thing that number was pretending to
+            be: it separates a habit from an off day, which is the decision the
+            learner is actually making here. */}
+        <InfoBox label="How often" value={recurrenceWords(recurrence)} />
       </div>
       <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
@@ -396,7 +468,10 @@ const ALIGNMENT_WORDS = {
   aligned: 'Spot on',
   self_overestimation: 'You rated it higher',
   self_underestimation: 'You rated it lower',
-  insufficient_data: 'Not enough sessions',
+  // Not "Not enough sessions". The session measured this skill; the learner just
+  // did not rate it, so there are not two sides to compare. Saying "sessions"
+  // pointed at the wrong thing entirely and left them nothing to act on.
+  insufficient_data: 'You did not rate this',
 }
 const alignmentWords = (value) =>
   ALIGNMENT_WORDS[value] || String(value || '').replaceAll('_', ' ')
@@ -501,10 +576,84 @@ const GAP_TONE = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--
  * model reads in their own reflection — the same self-perception gap, expressed
  * in language. Their words are quoted back so the finding is checkable.
  */
-function SentimentGapList({ items }) {
+// Floor, not round. 0.9962 rounds to "100% confidence", which is a certainty the
+// model never expressed and cannot have — a probability below 1 must not be
+// printed as 1. Flooring can only ever understate.
+function confidencePct(value) {
+  return Math.floor(Number(value || 0) * 100)
+}
+
+const READING_NOTE = {
+  agrees: 'Your words match how you marked it. Nothing to look at here.',
+  // Says the number rather than "unreliable". A learner can weigh "right about
+  // 7 times in 10" for themselves; "not reliable" only tells them to ignore it,
+  // which is the wrong instruction when the reading is often correct.
+  not_acted_on: 'The automatic reading disagreed with you. It is not raised as a blind spot: measured against hand-labelled workplace writing, readings in this direction are right about 7 times in 10, which is not enough to tell you something about yourself. Your own words are above — judge it yourself.',
+}
+
+/**
+ * The reflections that produced no finding, shown rather than summarised away.
+ *
+ * This panel had only gaps to render, so on a session where the learner had
+ * written something, been read, and agreed with, it showed one line of text in
+ * an otherwise empty box — and earlier, a line telling them to write a
+ * reflection they had already written. Their own words are the evidence behind
+ * everything else here; there is no reason to withhold them.
+ */
+function ReflectionReadingList({ readings }) {
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {readings.map((reading, index) => (
+        <div
+          key={`${reading.session_id}-${index}`}
+          style={{
+            padding: 14,
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+          }}
+        >
+          <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '2px solid var(--border-subtle)' }}>
+            <span className="fg" style={{ fontSize: 13, fontStyle: 'italic' }}>“{reading.comment_excerpt}”</span>
+          </blockquote>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10 }}>
+            <span className="t-cap">You marked it</span>
+            <strong className="fg" style={{ textTransform: 'capitalize', fontSize: 12 }}>
+              {reading.declared_sentiment}
+            </strong>
+            {reading.outcome === 'agrees' ? (
+              <span className="t-cap">
+                · read the same way
+                {reading.confidence != null && ` (${confidencePct(reading.confidence)}% confidence)`}
+              </span>
+            ) : (
+              <>
+                <span className="t-cap">· your words read as</span>
+                <strong style={{ textTransform: 'capitalize', fontSize: 12, color: 'var(--warning)' }}>
+                  {reading.detected_sentiment}
+                </strong>
+                {reading.confidence != null && (
+                  <span className="t-cap">({confidencePct(reading.confidence)}% confidence)</span>
+                )}
+              </>
+            )}
+          </div>
+          <p className="t-cap" style={{ marginTop: 8, lineHeight: 1.55 }}>{READING_NOTE[reading.outcome]}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SentimentGapList({ items, readings = [] }) {
   if (!items.length) {
+    // Three states, not one. "Write a reflection to have this checked" was shown
+    // to a learner who had just written one, beside "no gaps" for a reflection
+    // the model had read and disagreed with.
+    const unraised = readings.filter((reading) => reading.outcome !== 'raised')
+    if (unraised.length) return <ReflectionReadingList readings={unraised} />
     return (
-      <EmptyMsg text="No gaps between your ratings and your written reflections. Write a reflection after a session to have this checked." />
+      <EmptyMsg text="Nothing to check yet. Write a reflection after a session and your words will be compared with the ratings you gave." />
     )
   }
 
@@ -530,7 +679,7 @@ function SentimentGapList({ items }) {
             <strong style={{ textTransform: 'capitalize', color: GAP_TONE[gap.severity] }}>
               {gap.detected_sentiment}
             </strong>
-            <span className="t-cap">({Math.round(gap.confidence * 100)}% confidence)</span>
+            <span className="t-cap">({confidencePct(gap.confidence)}% confidence)</span>
           </div>
 
           <blockquote

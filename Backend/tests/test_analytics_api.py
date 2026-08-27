@@ -1540,3 +1540,341 @@ def test_the_learner_history_carries_the_stored_overall_separately(client):
     assert body["overall"]["average_score"] == _ENGINE_OVERALL
     assert body["overall"]["skill_area"] == "overall"
     assert "overall" not in {item["skill_area"] for item in body["skills"]}
+
+
+# ------------------------------------- counting assessments, not rows
+
+# One learner, two sessions, four skills rated in each: eight rows, two
+# assessments. The row count and the assessment count are different numbers and
+# the screens ask for different ones.
+#
+# Each test seeds its own user and session ids. The suite shares one SQLite file,
+# so a fixed id accumulates rows across tests and the second test to run sees
+# eight rows where it wrote four.
+_RATED_SKILLS = ("vocal_command", "speech_fluency", "presence_engagement", "emotional_intelligence")
+
+
+def _rate_every_skill(client, tag):
+    """Two sessions, every skill rated 60 and measured 90, plus one generated row."""
+    user_id = f"rating-count-{tag}"
+    sessions = (f"count-{tag}-a", f"count-{tag}-b")
+    for session_id in sessions:
+        client.post(
+            "/api/v1/analytics/session-metrics",
+            json={
+                "user_id": user_id,
+                "session_id": session_id,
+                "speech_volume_score": 90,
+                "speech_pace_score": 90,
+                "clarity_score": 90,
+                "eye_contact_score": 90,
+                "confidence_score": 90,
+                "empathy_score": 90,
+                "emotional_control_score": 90,
+                "overall_score": 90,
+            },
+        )
+        # A note the codebase writes itself. Not something the learner rated.
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": user_id, "session_id": session_id,
+                "feedback_type": "system", "skill_area": "vocal_command", "rating": 50,
+            },
+        )
+        for skill in _RATED_SKILLS:
+            client.post(
+                "/api/v1/analytics/feedback",
+                json={
+                    "user_id": user_id, "session_id": session_id,
+                    "feedback_type": "self", "skill_area": skill, "rating": 60,
+                },
+            )
+    return user_id, sessions
+
+
+def test_times_you_rated_yourself_counts_assessments_not_rows(client):
+    """Across a history the row count answers the wrong question.
+
+    A self-assessment is stored one row per skill. Eight rows here are two
+    assessments, and the screen reading this says "Times you rated yourself" -
+    on the development account it read 230 for 42 assessments.
+    """
+    user_id, sessions = _rate_every_skill(client, "history")
+
+    response = client.get(f"/api/v1/analytics/users/{user_id}/feedback-analysis")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["self_feedback_count"] == len(sessions)
+
+
+def test_within_one_session_the_same_field_counts_skills(client):
+    """Same field, different scope, different question - and the screen labels it
+    "Skills you rated" here. Inside one session the rows are the skills, so the
+    row count is the right answer and must not be collapsed to sessions."""
+    _, sessions = _rate_every_skill(client, "session")
+
+    response = client.get(f"/api/v1/analytics/sessions/{sessions[0]}/feedback-analysis")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["self_feedback_count"] == len(_RATED_SKILLS)
+
+
+def test_the_generated_note_is_not_counted_as_something_the_learner_rated(client):
+    """Each session also carries a generated row. It is not a self-rating."""
+    _, sessions = _rate_every_skill(client, "generated")
+
+    summary = client.get(
+        f"/api/v1/analytics/sessions/{sessions[0]}/feedback-analysis"
+    ).json()["summary"]
+
+    assert summary["self_feedback_count"] == 4  # the four skills, not the five rows
+
+
+def test_the_two_averages_are_weighted_the_same_way(client):
+    """They sit side by side to be subtracted, so they have to be one operation.
+
+    The self average was a mean over rows, weighted by how often each skill
+    happened to be rated; the observed average gives each skill one vote. Here
+    every skill is rated 60 and measured 90, so any weighting gives 60 and 90 -
+    what this pins is that the self side reads the per-skill values, which is
+    what makes the two comparable once the counts are uneven.
+    """
+    user_id, _ = _rate_every_skill(client, "weighting")
+
+    summary = client.get(f"/api/v1/analytics/users/{user_id}/feedback-analysis").json()["summary"]
+
+    assert summary["average_self_rating"] == 60
+    assert summary["average_observed_score"] == 90
+
+
+def test_a_reflection_that_was_read_is_reported_as_read(client, monkeypatch):
+    """An empty sentiment_gaps list means two different things.
+
+    A learner wrote "I think I don't perform well because I was nervous", chose
+    "positive" in the dropdown, and the model read the text as negative at 0.996 -
+    correctly. That reading is not promoted into a finding, because the negative
+    direction is measured unreliable and stays closed. The panel then said "no
+    gaps ... write a reflection after a session to have this checked", to someone
+    who had just written one, about a reflection the model had disagreed with.
+
+    The count of reflections read is what lets the screen tell the two apart.
+    """
+    from app.services import sentiment_analysis_service
+    from app.schemas.analytics import FeedbackSentimentResult
+
+    def _read_as_negative(text, model_path=None):
+        return FeedbackSentimentResult(
+            text=text, cleaned_text=text, sentiment="negative", confidence=0.996,
+            sentiment_score=-0.996, class_probabilities={"negative": 0.996},
+            model_version="test-model", model_type="test", source="ml_model",
+        )
+
+    monkeypatch.setattr(sentiment_analysis_service, "analyze_feedback_text", _read_as_negative)
+
+    session_id = "reflection-read-session"
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "reflection-read-user", "session_id": session_id,
+            "feedback_type": "self", "skill_area": "vocal_command", "rating": 75,
+            "declared_sentiment": "positive",
+            "comment": "I think I don't perform well because I was nervous.",
+        },
+    )
+
+    body = client.get(f"/api/v1/analytics/sessions/{session_id}/blind-spots").json()
+
+    assert body["sentiment_gaps"] == []       # negative is not promoted
+    assert body["reflections_examined"] == 1  # but it was read, and the screen must say so
+
+
+def test_nothing_written_reports_nothing_examined(client):
+    """The other half of the same distinction."""
+    session_id = "no-reflection-session"
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "no-reflection-user", "session_id": session_id,
+            "feedback_type": "self", "skill_area": "vocal_command", "rating": 75,
+        },
+    )
+
+    body = client.get(f"/api/v1/analytics/sessions/{session_id}/blind-spots").json()
+
+    assert body["reflections_examined"] == 0
+
+
+def test_a_resubmitted_rating_does_not_count_twice(client):
+    """The form can be submitted again and the rows accumulate rather than replace.
+
+    Averaging every row keeps a rating the learner corrected alive, and gives a
+    session that was submitted twice double the weight. Only the latest stands.
+    """
+    session_id = "resubmit-session"
+    for rating in (30, 90):  # they changed their mind; 90 is the answer
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": "resubmit-user", "session_id": session_id,
+                "feedback_type": "self", "skill_area": "vocal_command", "rating": rating,
+            },
+        )
+
+    summary = client.get(
+        f"/api/v1/analytics/sessions/{session_id}/feedback-analysis"
+    ).json()["summary"]
+
+    assert summary["average_self_rating"] == 90  # not 60, the mean of both rows
+    assert summary["self_feedback_count"] == 1   # one skill rated, not two rows
+
+
+def test_a_skill_the_learner_never_rated_is_not_counted_as_checked(client):
+    """The screen puts "Skills checked" beside "Spot on" and "Gaps", and those
+    three have to reconcile.
+
+    A session can measure a skill the learner did not rate. There is nothing to
+    be close to, so it is not checked - it was counted anyway, and the panel read
+    "Skills checked 4 · Spot on 0 · Gaps 3".
+    """
+    session_id = "unrated-skill-session"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "unrated-skill-user", "session_id": session_id,
+            "speech_volume_score": 60,      # vocal_command, measured but never rated
+            "empathy_score": 35, "emotional_control_score": 35,
+            "eye_contact_score": 40, "confidence_score": 40,
+            "overall_score": 45,
+        },
+    )
+    for skill, rating in (("emotional_intelligence", 90), ("presence_engagement", 65)):
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": "unrated-skill-user", "session_id": session_id,
+                "feedback_type": "self", "skill_area": skill, "rating": rating,
+            },
+        )
+
+    summary = client.get(
+        f"/api/v1/analytics/sessions/{session_id}/feedback-analysis"
+    ).json()["summary"]
+
+    assert summary["analyzed_skill_count"] == 2  # not 3
+    assert summary["aligned_count"] + summary["blind_spot_count"] == summary["analyzed_skill_count"]
+
+
+def test_both_averages_cover_the_same_skills(client):
+    """They sit beside each other to be subtracted.
+
+    The measured average used to include the unrated skill and the self average
+    could not, so the two described different sets: 82 against 48, where the 48
+    carried a skill the 82 knew nothing about. Over the two compared skills the
+    measured mean is (35 + 40) / 2 = 37.5; the unrated 60 must not lift it.
+    """
+    session_id = "same-skills-session"
+    client.post(
+        "/api/v1/analytics/session-metrics",
+        json={
+            "user_id": "same-skills-user", "session_id": session_id,
+            "speech_volume_score": 60,
+            "empathy_score": 35, "emotional_control_score": 35,
+            "eye_contact_score": 40, "confidence_score": 40,
+            "overall_score": 45,
+        },
+    )
+    for skill, rating in (("emotional_intelligence", 90), ("presence_engagement", 70)):
+        client.post(
+            "/api/v1/analytics/feedback",
+            json={
+                "user_id": "same-skills-user", "session_id": session_id,
+                "feedback_type": "self", "skill_area": skill, "rating": rating,
+            },
+        )
+
+    summary = client.get(
+        f"/api/v1/analytics/sessions/{session_id}/feedback-analysis"
+    ).json()["summary"]
+
+    assert summary["average_self_rating"] == 80      # (90 + 70) / 2
+    assert summary["average_observed_score"] == 37.5  # (35 + 40) / 2, without the unrated 60
+
+
+def test_a_reading_that_agrees_is_returned_with_its_label(client, monkeypatch):
+    """The panel had only findings to show, so it stood empty on a session where
+    the learner wrote something and the model agreed with them. Their own words
+    are the evidence behind everything else on that page."""
+    from app.services import sentiment_analysis_service
+    from app.schemas.analytics import FeedbackSentimentResult
+
+    monkeypatch.setattr(
+        sentiment_analysis_service, "analyze_feedback_text",
+        lambda text, model_path=None: FeedbackSentimentResult(
+            text=text, cleaned_text=text, sentiment="positive", confidence=0.97,
+            sentiment_score=0.97, class_probabilities={"positive": 0.97},
+            model_version="test-model", model_type="test", source="ml_model",
+        ),
+    )
+    session_id = "reading-agrees-session"
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "reading-agrees-user", "session_id": session_id,
+            "feedback_type": "self", "skill_area": "vocal_command", "rating": 80,
+            "declared_sentiment": "positive", "comment": "I kept my voice steady the whole way through.",
+        },
+    )
+
+    body = client.get(f"/api/v1/analytics/sessions/{session_id}/blind-spots").json()
+
+    assert body["sentiment_gaps"] == []
+    reading = body["reflection_readings"][0]
+    assert reading["outcome"] == "agrees"
+    assert reading["detected_sentiment"] == "positive"
+    assert reading["confidence"] == 0.97
+    assert reading["comment_excerpt"].startswith("I kept my voice steady")
+
+
+def test_a_reading_that_was_not_acted_on_still_reports_what_it_read(client, monkeypatch):
+    """Not acting on a reading is not the same as hiding it.
+
+    The label was withheld here at first. That produced a worse screen than
+    either alternative: the learner's own sentence sat beside the sentiment they
+    chose, so the disagreement was plain to read, under a heading that announced
+    "0 gaps" and a note that would not say what had happened. The reading is
+    published with its confidence and the panel explains why it is not raised.
+    """
+    from app.services import sentiment_analysis_service
+    from app.schemas.analytics import FeedbackSentimentResult
+
+    monkeypatch.setattr(
+        sentiment_analysis_service, "analyze_feedback_text",
+        lambda text, model_path=None: FeedbackSentimentResult(
+            text=text, cleaned_text=text, sentiment="negative", confidence=0.996,
+            sentiment_score=-0.996, class_probabilities={"negative": 0.996},
+            model_version="test-model", model_type="test", source="ml_model",
+        ),
+    )
+    session_id = "reading-untrusted-session"
+    client.post(
+        "/api/v1/analytics/feedback",
+        json={
+            "user_id": "reading-untrusted-user", "session_id": session_id,
+            "feedback_type": "self", "skill_area": "vocal_command", "rating": 75,
+            "declared_sentiment": "positive",
+            "comment": "I think I don't perform well because I was nervous.",
+        },
+    )
+
+    body = client.get(f"/api/v1/analytics/sessions/{session_id}/blind-spots").json()
+
+    assert body["sentiment_gaps"] == []
+    reading = body["reflection_readings"][0]
+    assert reading["outcome"] == "not_acted_on"
+    assert reading["declared_sentiment"] == "positive"    # their own choice
+    assert reading["comment_excerpt"].startswith("I think I don't perform well")
+    assert reading["detected_sentiment"] == "negative"    # what it read, shown
+    assert reading["confidence"] == 0.996
+    # It is reported, and still not a finding.
+    assert body["sentiment_gaps"] == []
