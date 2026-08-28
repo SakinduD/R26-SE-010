@@ -53,7 +53,11 @@ export default function FeedbackForm() {
       presence_engagement: 75,
       emotional_intelligence: 75,
     },
-    sentiment: 'neutral',
+    // No pre-selection. This was 'neutral' - the one option now gone, and before
+    // that a recorded opinion from anyone who never touched the control. The
+    // whole point of this field is to compare what the learner says with what
+    // their words say, which is worth nothing if the default answered for them.
+    sentiment: '',
     comment: '',
   })
 
@@ -112,6 +116,7 @@ export default function FeedbackForm() {
     () =>
       Boolean(form.user_id.trim())
       && Boolean(form.session_id.trim())
+      && Boolean(form.sentiment)
       && form.comment.trim().length >= MIN_REFLECTION_LENGTH,
     [form]
   )
@@ -134,7 +139,9 @@ export default function FeedbackForm() {
       setMessage(
         !form.session_id.trim()
           ? 'Select a session first.'
-          : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
+          : !form.sentiment
+            ? 'Choose how the session felt overall.'
+            : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
       )
       return
     }
@@ -346,15 +353,19 @@ export default function FeedbackForm() {
             <SegmentedControl
               value={form.sentiment}
               onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
-              /* "Mixed" is offered because it is what learners actually write:
-                 every reflection collected so far says something went well and
-                 something did not. Without it they must round their own view to
-                 one pole, and the model then records a disagreement that is an
-                 artefact of these buttons rather than a fact about them. */
+              /* These are the three the model can return, and no more.
+                 "Neutral" used to be offered here, and the model has no such
+                 class - it is trained on negative/mixed/positive - so anyone who
+                 chose it was recorded as disagreeing with their own words no
+                 matter what they wrote. Six of the seventeen reflections read so
+                 far were marked neutral, and all six read back as a mismatch the
+                 learner could do nothing about.
+                 "Mixed" is what most of them mean anyway: every reflection
+                 collected so far says something went well and something did
+                 not. */
               options={[
                 { label: 'Positive', value: 'positive' },
                 { label: 'Mixed', value: 'mixed' },
-                { label: 'Neutral', value: 'neutral' },
                 { label: 'Negative', value: 'negative' },
               ]}
             />
@@ -470,7 +481,7 @@ export default function FeedbackForm() {
             <KeyValuePair k={<><Activity size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Type</>} v="Self reflection" />
             <KeyValuePair k={<><Star size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Skills</>} v="4 skills" />
             <KeyValuePair k={<><CheckCircle2 size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Avg rating</>} v={avgRating} mono />
-            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment}</span>} />
+            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment || 'Not chosen'}</span>} />
 
             <div
               style={{
