@@ -2,12 +2,10 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import * as faceMesh from '@mediapipe/face_mesh';
-import * as cam from '@mediapipe/camera_utils';
-import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity, Mic, X, Play, Square, PictureInPicture2 } from 'lucide-react';
-import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
+import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
+import { useNudgeSensing } from '../../hooks/useNudgeSensing';
 import { mcaService } from '../../services/mca/mcaService';
+import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
 import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
 import clsx from 'clsx';
@@ -44,37 +42,35 @@ const MultimodalEngine = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const showMesh = searchParams.get('mesh') !== 'false';
-  const [isLiveCameraActive, setIsLiveCameraActive] = useState(false);
-  const [liveMicActive, setLiveMicActive] = useState(false);
-
-  const isCameraActive = isLiveCameraActive;
-  const setIsCameraActive = setIsLiveCameraActive;
 
   const [liveSessionId, setLiveSessionId] = useState(null);
   const [isLiveStarting, setIsLiveStarting] = useState(false);
 
-  const [nudges, setNudges] = useState([]);
-  const [metrics, setMetrics] = useState({
-    ear: 0,
-    mar: 0,
-    pose: { yaw: 0, pitch: 0, roll: 0 },
-    emotion: 'Sensing...',
-    confidence: 0,
-    isSyncing: false
-  });
-  const webcamRef = useRef(null);
-  const canvasRef = useRef(null);
-  const cameraRef = useRef(null);
-  const showMeshRef = useRef(showMesh);
+  // Extra per-frame canvas drawing (the PiP timer/nudge overlay below) — a
+  // ref so useNudgeSensing's onResults callback stays stable across renders.
+  const frameOverlayRef = useRef(null);
+  const {
+    webcamRef, canvasRef, metrics,
+    isCameraActive, isMicActive: liveMicActive,
+    toggleCamera, toggleMic: rawToggleMic, dismissNudge,
+    nudges: sensedNudges,
+  } = useNudgeSensing({ frameOverlayRef, showMesh });
 
-  // Keep a mutable ref of latest metrics for the WebSocket closure
-  const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
+  // Sensing (camera/mic) can start before the live session record exists —
+  // the toggles are available immediately. Nudges only surface once a
+  // session is actually running, matching the original gated behaviour.
+  const nudges = liveSessionId ? sensedNudges : [];
 
-  // Audio Streaming Refs
-  const mediaRecorderRef = useRef(null);
-  const socketRef = useRef(null);
-  const audioStreamRef = useRef(null);
-  const recordRestartTimeoutRef = useRef(null);
+  // Meeting audio (other participant, shared tab/system audio) — optional,
+  // used only to feed the live-mode LLM scorer alongside the user's own voice.
+  const [liveMeetingAudioActive, setLiveMeetingAudioActive] = useState(false);
+  const meetingAudioStreamRef = useRef(null);
+
+  // Continuous transcription (both streams -> /api/stt) for live-mode LLM scoring.
+  const userTranscribeRecorderRef = useRef(null);
+  const meetingTranscribeRecorderRef = useRef(null);
+  const liveUserTranscriptRef = useRef([]);
+  const liveMeetingTranscriptRef = useRef([]);
 
   const liveSessionIdRef = useRef(null);
   const [sessionDuration, setSessionDuration] = useState(0);
@@ -99,36 +95,89 @@ const MultimodalEngine = () => {
   const nudgesRef = useRef([]);
   const sessionDurationRef = useRef(0);
 
-  const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
-    if (!liveSessionIdRef.current) return;
+  // Continuously transcribes a media/shared windows media stream in short
+  // self-contained, back-to-back segments
+  const startTranscriptionLoop = useCallback((stream, targetRef, recorderRef, segmentMs = 8000) => {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
 
-    const id = Date.now();
-    const newNudge = {
-      id,
-      text,
-      category,
-      severity,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const recordSegment = () => {
+      if (!stream.active) return;
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorderRef.current = recorder;
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      const segmentElapsedSeconds = sessionDurationRef.current;
+
+      recorder.onstop = async () => {
+        // Torn down (externally stopped/superseded) or stream ended mid-segment.
+        if (recorderRef.current !== recorder || !stream.active) return;
+
+        // Restart immediately (not after another segmentMs) so recording is
+        // back-to-back with no silent gap between segments.
+        recordSegment();
+
+        if (chunks.length === 0) return;
+        const blob = new Blob(chunks, { type: mimeType });
+        try {
+          const res = await fetch(`${API_URL}/api/stt`, {
+            method: 'POST',
+            headers: { 'Content-Type': mimeType },
+            body: blob,
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const transcript = (data.transcript || '').trim();
+          if (transcript) {
+            targetRef.current = [...targetRef.current, { text: transcript, elapsed_seconds: segmentElapsedSeconds }];
+          }
+        } catch (err) {
+          console.error('[Live transcription] STT request failed:', err);
+        }
+      };
+
+      recorder.start();
+      setTimeout(() => {
+        if (recorder.state !== 'inactive') recorder.stop();
+      }, segmentMs);
     };
-    setNudges(prev => [newNudge, ...prev].slice(0, 5));
 
-    liveNudgeLogRef.current = [
-      ...liveNudgeLogRef.current,
-      { message: text, category, severity, timestamp: newNudge.timestamp }
-    ];
-
-    setTimeout(() => {
-      setNudges(prev => prev.filter(n => n.id !== id));
-    }, 10000);
+    recordSegment();
   }, []);
 
-  useEffect(() => {
-    showMeshRef.current = showMesh;
-  }, [showMesh]);
-
+  // Mirror new nudges into the session log (was handleNudge's job before nudge
+  // firing moved into useNudgeSensing) and keep nudgesRef fresh for the PiP
+  // overlay. lastLoggedNudgeIdRef guards against re-logging the same nudge on
+  // every re-render of this effect.
+  const lastLoggedNudgeIdRef = useRef(null);
   useEffect(() => {
     nudgesRef.current = nudges;
+    const latest = nudges[0];
+    if (latest && lastLoggedNudgeIdRef.current !== latest.id) {
+      lastLoggedNudgeIdRef.current = latest.id;
+      liveNudgeLogRef.current = [
+        ...liveNudgeLogRef.current,
+        {
+          message: latest.text,
+          category: latest.category,
+          severity: latest.severity,
+          timestamp: latest.timestamp,
+          elapsed_seconds: sessionDurationRef.current,
+        },
+      ];
+    }
   }, [nudges]);
+
+  // liveEmotionCountsRef used to be updated inline in the WS onmessage handler
+  // (now inside useNudgeSensing); approximate the same distribution stat by
+  // watching the hook's own emotion readout instead.
+  useEffect(() => {
+    if (!metrics.emotion || metrics.emotion === 'Sensing...') return;
+    const emo = metrics.emotion.toLowerCase();
+    liveEmotionCountsRef.current[emo] = (liveEmotionCountsRef.current[emo] || 0) + 1;
+  }, [metrics.emotion]);
 
   useEffect(() => {
     sessionDurationRef.current = sessionDuration;
@@ -256,52 +305,64 @@ const MultimodalEngine = () => {
     };
   }, [liveSessionId]);
 
-  const onResults = useCallback((results) => {
-    if (!webcamRef.current || !webcamRef.current.video || !canvasRef.current) return;
+  // MCA's mic toggle used to do two things at once: open the nudge-sensing
+  // WS/stream (now owned by useNudgeSensing) AND record a separate continuous
+  // stream for the live-mode LLM transcript scorer. The hook owns its
+  // getUserMedia call internally, so transcription needs its own independent
+  // getUserMedia call — the same "two mic consumers, no conflict" pattern the
+  // hook is designed to support.
+  const userTranscribeStreamRef = useRef(null);
 
-    const videoWidth = webcamRef.current.video.videoWidth;
-    const videoHeight = webcamRef.current.video.videoHeight;
-
-    if (canvasRef.current.width !== videoWidth) canvasRef.current.width = videoWidth;
-    if (canvasRef.current.height !== videoHeight) canvasRef.current.height = videoHeight;
-
-    const canvasElement = canvasRef.current;
-    const canvasCtx = canvasElement.getContext("2d");
-
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-    // Mirror horizontally so the feed behaves like a normal selfie/mirror view
-    canvasCtx.translate(canvasElement.width, 0);
-    canvasCtx.scale(-1, 1);
-
-    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-      const landmarks = results.multiFaceLandmarks[0];
-
-      const ear = calculateEAR(landmarks);
-      const mar = calculateMAR(landmarks);
-      const pose = estimateHeadPose(landmarks);
-
-      const newMetrics = { ear, mar, pose };
-      setMetrics(prev => ({ ...prev, ...newMetrics }));
-      metricsRef.current = { ...metricsRef.current, ...newMetrics };
-
-      if (showMeshRef.current) {
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
-          color: "#06B6D4",
-          lineWidth: 0.5,
-        });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: "#7C3AED" });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: "#7C3AED" });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: "#EC4899" });
-      }
+  const startUserTranscription = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      userTranscribeStreamRef.current = stream;
+      startTranscriptionLoop(stream, liveUserTranscriptRef, userTranscribeRecorderRef);
+    } catch (err) {
+      console.error('User transcription capture error:', err);
     }
-    canvasCtx.restore();
+  }, [startTranscriptionLoop]);
 
-    // Burn the session timer + latest nudge into the canvas itself (drawn in normal,
-    // non-mirrored space, after restore()) — only while actually popped out.
+  const stopUserTranscription = useCallback(() => {
+    if (userTranscribeRecorderRef.current) {
+      const recorder = userTranscribeRecorderRef.current;
+      userTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    if (userTranscribeStreamRef.current) {
+      userTranscribeStreamRef.current.getTracks().forEach(track => track.stop());
+      userTranscribeStreamRef.current = null;
+    }
+  }, []);
+
+  const toggleLiveMic = useCallback(() => {
+    if (liveMicActive) {
+      stopUserTranscription();
+    } else {
+      startUserTranscription();
+    }
+    rawToggleMic();
+  }, [liveMicActive, rawToggleMic, startUserTranscription, stopUserTranscription]);
+
+  // Ref mirrors so the unmount-cleanup effect below (fixed [] deps — its
+  // closure is only ever this component's very first render) can still act
+  // on current state and call the current toggle behaviour instead of a
+  // stale one. toggleCamera/toggleLiveMic are relative toggles, not absolute
+  // stops, so calling a stale version could flip something back on.
+  const liveMicActiveRef = useRef(false);
+  const isCameraActiveRef = useRef(false);
+  const toggleLiveMicRef = useRef(() => {});
+  const toggleCameraRef = useRef(() => {});
+  liveMicActiveRef.current = liveMicActive;
+  isCameraActiveRef.current = isCameraActive;
+  toggleLiveMicRef.current = toggleLiveMic;
+  toggleCameraRef.current = toggleCamera;
+
+  // Session timer + latest-nudge overlay, burned directly onto the same
+  // mirrored/mesh canvas useNudgeSensing draws every frame — only while
+  // actually popped out into Picture-in-Picture. Injected via frameOverlayRef
+  // so useNudgeSensing's own onResults callback stays stable across renders.
+  const drawPipOverlay = useCallback((canvasCtx, canvasElement) => {
     if (isPipActiveRef.current) {
       const w = canvasElement.width;
       const h = canvasElement.height;
@@ -444,114 +505,72 @@ const MultimodalEngine = () => {
     }
   }, []);
 
-  const startAudioCapture = async () => {
+  useEffect(() => {
+    frameOverlayRef.current = drawPipOverlay;
+  }, [drawPipOverlay]);
+
+  // Optional: capture the "meeting" voice (other participant) via a shared
+  // tab/system audio track, so the live-mode LLM scorer can weigh both
+  // sides of the conversation.
+  const stopMeetingAudioCapture = () => {
+    setLiveMeetingAudioActive(false);
+    if (meetingTranscribeRecorderRef.current) {
+      const recorder = meetingTranscribeRecorderRef.current;
+      meetingTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    if (meetingAudioStreamRef.current) {
+      meetingAudioStreamRef.current.getTracks().forEach(track => track.stop());
+      meetingAudioStreamRef.current = null;
+    }
+  };
+
+  const startMeetingAudioCapture = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      if (stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach(track => track.stop());
+        toast.warning("No shared audio detected.", {
+          description: "Re-share and tick 'Share audio' to include meeting voice in scoring."
+        });
+        return;
+      }
 
-      setLiveMicActive(true);
+      // Video is only required by the browser to grant the share; drop it.
+      stream.getVideoTracks().forEach(track => track.stop());
 
-      const socket = new WebSocket(mcaService.getAudioStreamUrl());
-      socketRef.current = socket;
+      meetingAudioStreamRef.current = stream;
+      setLiveMeetingAudioActive(true);
+      startTranscriptionLoop(stream, liveMeetingTranscriptRef, meetingTranscribeRecorderRef);
 
-      socket.onopen = () => {
-        const startRecordingChunk = () => {
-          if (socket.readyState !== WebSocket.OPEN) return;
-
-          const mediaRecorder = new MediaRecorder(stream);
-          mediaRecorderRef.current = mediaRecorder;
-
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'visual_metrics',
-                metrics: metricsRef.current,
-                session_id: liveSessionIdRef.current
-              }));
-              socket.send(event.data);
-            }
-          };
-
-          mediaRecorder.start();
-
-          if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current);
-          recordRestartTimeoutRef.current = setTimeout(() => {
-            if (mediaRecorder.state === 'recording') {
-              mediaRecorder.stop();
-              startRecordingChunk();
-            }
-          }, 3000);
-        };
-
-        startRecordingChunk();
-        setLiveMicActive(true);
-      };
-
-      socket.onerror = (err) => console.error('[Live WS] error:', err);
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.metrics) {
-            setMetrics(prev => ({
-              ...prev,
-              emotion: data.metrics.emotion
-                ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
-                : 'Neutral',
-              confidence: data.metrics.confidence || 0,
-              isSyncing: true
-            }));
-
-            if (data.metrics.emotion) {
-              const emo = data.metrics.emotion.toLowerCase();
-              liveEmotionCountsRef.current[emo] = (liveEmotionCountsRef.current[emo] || 0) + 1;
-            }
-
-            if (data.metrics.nudge) {
-              handleNudge(
-                data.metrics.nudge,
-                data.metrics.nudge_category,
-                data.metrics.nudge_severity
-              );
-            }
-          }
-        } catch (err) {
-          console.error('Error parsing socket message:', err);
-        }
-      };
+      // Sharing can be stopped from the browser's own "Stop sharing" bar.
+      stream.getAudioTracks()[0].addEventListener('ended', stopMeetingAudioCapture);
     } catch (err) {
-      console.error('Audio capture error:', err);
+      // User cancelled the share prompt — not an error, just stay opted-out.
+      if (err?.name !== 'NotAllowedError') {
+        console.error('Meeting audio capture error:', err);
+      }
     }
   };
 
-  const stopAudioCapture = async () => {
-    setLiveMicActive(false);
-    if (recordRestartTimeoutRef.current) {
-      clearTimeout(recordRestartTimeoutRef.current);
-      recordRestartTimeoutRef.current = null;
-    }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop());
-      audioStreamRef.current = null;
-    }
-    setMetrics(prev => ({ ...prev, isSyncing: false, emotion: 'Sensing...' }));
-  };
-
-  const toggleLiveMic = () => {
-    if (liveMicActive) {
-      stopAudioCapture();
+  const toggleMeetingAudio = () => {
+    if (liveMeetingAudioActive) {
+      stopMeetingAudioCapture();
       return;
     }
-    startAudioCapture();
+    startMeetingAudioCapture();
   };
+
+  // Unconditional, idempotent-safe teardown for both mic paths + camera.
+  // toggleCamera/toggleLiveMic are relative toggles, not absolute stops, so
+  // this only flips them when the ref-mirrored "current" value says they're
+  // still on. Stable identity (empty deps) + ref reads keep this correct even
+  // when invoked from the unmount-cleanup effect's fixed first-render closure.
+  const stopAllSensing = useCallback(() => {
+    if (liveMicActiveRef.current) toggleLiveMicRef.current();
+    stopMeetingAudioCapture();
+    if (isCameraActiveRef.current) toggleCameraRef.current();
+  }, []);
 
   const startLiveSession = async () => {
     if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
@@ -566,6 +585,8 @@ const MultimodalEngine = () => {
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
     liveEmotionCountsRef.current = {};
+    liveUserTranscriptRef.current = [];
+    liveMeetingTranscriptRef.current = [];
     setSessionDuration(0);
     try {
       const session = await mcaService.startSession('live');
@@ -582,7 +603,7 @@ const MultimodalEngine = () => {
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred.";
-      toast.error("Session Startup Failed", {
+      toast.error("Couldn't start the session", {
         description: errorMsg
       });
     } finally {
@@ -598,10 +619,8 @@ const MultimodalEngine = () => {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
+    stopAllSensing();
     if (sid) {
-      stopAudioCapture();
-      setIsCameraActive(false);
-
       setLiveSessionId(null);
       liveSessionIdRef.current = null;
       try {
@@ -626,7 +645,9 @@ const MultimodalEngine = () => {
             avg_ear: metrics.ear,
             avg_mar: metrics.mar,
             avg_pitch: metrics.pose.pitch
-          }
+          },
+          liveUserTranscriptRef.current,
+          liveMeetingTranscriptRef.current
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
@@ -643,7 +664,7 @@ const MultimodalEngine = () => {
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Connection interrupted.";
-        toast.error("Session Sync Failed", {
+        toast.error("Connection interrupted", {
           description: errorMsg
         });
       } finally {
@@ -656,66 +677,23 @@ const MultimodalEngine = () => {
 
   useEffect(() => {
     return () => {
-      stopAudioCapture();
       realEndLiveSession();
     };
   }, []);
 
+  // The <canvas> unmounts/remounts with the camera (new DOM node each time,
+  // owned by useNudgeSensing's own camera lifecycle) — clear the stale
+  // captureStream so drawPipOverlay recreates it against the new node.
   useEffect(() => {
-    let faceMeshModel = null;
-
-    if (isCameraActive) {
-      faceMeshModel = new faceMesh.FaceMesh({
-        locateFile: (file) => {
-          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
-          return `${baseUrl}/${file}`;
-        },
-      });
-
-      faceMeshModel.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      faceMeshModel.onResults(onResults);
-
-      if (webcamRef.current && webcamRef.current.video) {
-        cameraRef.current = new cam.Camera(webcamRef.current.video, {
-          onFrame: async () => {
-            if (faceMeshModel) {
-              await faceMeshModel.send({ image: webcamRef.current.video });
-            }
-          },
-          width: 1280,
-          height: 720,
-        });
-        cameraRef.current.start();
-      }
-    }
-
-    return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-        cameraRef.current = null;
-      }
-      if (faceMeshModel) {
-        faceMeshModel.close();
-      }
-      // The <canvas> unmounts/remounts with the camera (new DOM node each time)
+    if (!isCameraActive) {
       pipCaptureStreamRef.current = null;
-    };
-  }, [isCameraActive, onResults]);
+    }
+  }, [isCameraActive]);
 
   const toggleMesh = () => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('mesh', (!showMesh).toString());
     setSearchParams(newParams);
-  };
-
-  const toggleCamera = () => {
-    setIsCameraActive(prev => !prev);
   };
 
   return (
@@ -743,7 +721,7 @@ const MultimodalEngine = () => {
               <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
             </div>
             <button
-              onClick={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+              onClick={() => dismissNudge(nudge.id)}
               className="ml-2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center opacity-0 group-hover/nudge:opacity-100 transition-opacity"
             >
               <X size={14} />
@@ -757,13 +735,13 @@ const MultimodalEngine = () => {
             EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>MCA</span>
           </h1>
           <p className="t-over" style={{ marginTop: 4 }}>
-            Behavioral Intelligence · Real-time Fusion
+            Live coaching, powered by your voice and camera
           </p>
           {liveSessionId && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
-              <div className="px-3 py-1 bg-secondary/10 border border-secondary/20 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-                <span className="text-[10px] font-medium text-secondary tracking-widest uppercase">
+              <div className="px-3 py-1 bg-success/10 border border-success/20 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span className="text-[10px] font-medium text-success tracking-widest uppercase">
                   Session Active: {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
                 </span>
               </div>
@@ -858,8 +836,8 @@ const MultimodalEngine = () => {
 
                     <div className="relative flex flex-col items-center gap-4">
                       <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-secondary/20 text-secondary group-hover/window:border-secondary/40">
-                        [ SENSING_MODULE READY ]<br />
-                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
+                        Camera's off<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">Turn on your camera to begin</span>
                       </div>
                     </div>
                   </>
@@ -886,16 +864,16 @@ const MultimodalEngine = () => {
                         className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Video size={14} />
-                        Enable Video Sensing
+                        Turn on camera
                       </button>
                     )}
                     {!liveMicActive && (
                       <button
                         onClick={toggleLiveMic}
-                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                        className="bg-secondary text-secondary-foreground px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
-                        Enable Audio Sensing
+                        Turn on microphone
                       </button>
                     )}
                   </div>
@@ -918,6 +896,15 @@ const MultimodalEngine = () => {
                         <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
                         <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMicActive ? "text-info" : "text-muted-foreground/40")}>
                           {liveMicActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Meeting Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMeetingAudioActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMeetingAudioActive ? "text-info" : "text-muted-foreground/40")}>
+                          {liveMeetingAudioActive ? "Active" : "Optional"}
                         </span>
                       </div>
                     </div>
@@ -966,6 +953,17 @@ const MultimodalEngine = () => {
                       <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
                       {liveMicActive ? "Stop Mic" : "Mic"}
                     </button>
+                    <button
+                      onClick={toggleMeetingAudio}
+                      title="Optional: share your meeting tab/window with audio so both voices feed the session score"
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        liveMeetingAudioActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <MonitorUp size={14} className={clsx(liveMeetingAudioActive && "animate-pulse")} />
+                      {liveMeetingAudioActive ? "Stop Meeting Audio" : "Meeting Audio"}
+                    </button>
                     {isCameraActive && (
                       <button
                         onClick={toggleMesh}
@@ -998,10 +996,10 @@ const MultimodalEngine = () => {
               <div className="mt-6 flex flex-wrap justify-center gap-4">
                 <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
                   <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
-                  Privacy: Edge_Only
+                  Processed on your device
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
-                  Module: Multimodal_Sensing
+                  Multimodal Coaching
                 </div>
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
@@ -1011,7 +1009,7 @@ const MultimodalEngine = () => {
                 {metrics.isSyncing && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
                     <Activity size={12} />
-                    Fusion: Active
+                    Analyzing your voice and face
                   </div>
                 )}
               </div>
@@ -1022,7 +1020,7 @@ const MultimodalEngine = () => {
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
                       <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
+                        {metrics.ear < 0.2 ? "Looking away" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -1055,7 +1053,7 @@ const MultimodalEngine = () => {
                         "text-[9px] font-bold",
                         (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
                       )}>
-                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "Off-center" : "Centered"}
                       </span>
                     </div>
                     <div className="flex gap-1 h-1.5 w-full relative">
@@ -1071,7 +1069,7 @@ const MultimodalEngine = () => {
 
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Vocal Affect</span>
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Voice tone</span>
                       <span className="text-[9px] font-bold text-primary uppercase">
                         {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
                       </span>

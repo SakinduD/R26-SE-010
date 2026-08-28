@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock, Zap } from 'lucide-react'
+import { useEffect } from 'react'
+import { X, Loader2, ChevronRight, CheckCircle, AlertTriangle, Clock, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const DIFFICULTY_TONE = {
@@ -8,16 +8,7 @@ const DIFFICULTY_TONE = {
   advanced:     'danger',
 }
 
-const getDifficultyLabel = (weight) => {
-  if (weight <= 1.0) return 'Easy start'
-  if (weight <= 1.5) return 'Moderate'
-  if (weight <= 2.0) return 'Challenging'
-  return 'Expert'
-}
-
 export default function ScenarioDetailModal({ scenario, onClose, onStart, isStarting }) {
-  const [showThresholds, setShowThresholds] = useState(false)
-
   useEffect(() => {
     if (!scenario) return
     const handleKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -27,13 +18,10 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
   if (!scenario) return null
 
-  const skills    = scenario.target_skills ?? scenario.apa_metadata?.target_skills ?? []
-  const traits    = scenario.apa_metadata?.big_five_relevance ?? []
-  const weight    = scenario.difficulty_weight ?? scenario.apa_metadata?.difficulty_weight ?? 1.0
-  const criteria  = scenario.success_criteria ?? {}
-  const behaviour = scenario.npc_behaviour ?? {}
-  const trustThr  = behaviour.trust_thresholds ?? {}
-  const escThr    = behaviour.escalation_thresholds ?? {}
+  const skills           = scenario.target_skills ?? scenario.apa_metadata?.target_skills ?? []
+  const recommendedTurns = scenario.recommended_turns ?? scenario.turns
+  const maxTurns         = scenario.max_turns ?? recommendedTurns
+  const diffTone         = DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral'
 
   return (
     <div className="rpe-modal-backdrop" onClick={onClose}>
@@ -43,8 +31,12 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           <div className="header-text">
             <h2 className="modal-title">{scenario.title}</h2>
             <div className="header-pills">
-              <span className={cn('pill', DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral')}>{scenario.difficulty}</span>
-              <span className="pill neutral">{scenario.conflict_type}</span>
+              <span className={cn('diff-badge', diffTone)}>
+                <span className="dot" />{scenario.difficulty}
+              </span>
+              {scenario.is_generated && (
+                <span className="pill accent"><Sparkles size={10} strokeWidth={2} /> Personalized</span>
+              )}
             </div>
           </div>
           <button type="button" onClick={onClose} className="close-btn" aria-label="Close">
@@ -53,139 +45,77 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         </div>
 
         <div className="modal-body">
+          <div className="modal-grid">
 
-          {scenario.context && (
-            <section>
-              <p className="section-label">What's the situation?</p>
-              <p className="body-text">{scenario.context}</p>
-            </section>
-          )}
-
-          <section className="npc-panel">
-            <p className="section-label">You'll be talking to</p>
-            <p className="npc-role">{scenario.npc_role}</p>
-            {scenario.npc_personality && <p className="npc-personality">{scenario.npc_personality}</p>}
-            {scenario.opening_npc_line && (
-              <div className="opening-line">
-                <p className="section-label" style={{ marginBottom: 4 }}>Opening line</p>
-                <p className="opening-text">"{scenario.opening_npc_line}"</p>
-              </div>
-            )}
-          </section>
-
-          {(skills.length > 0 || traits.length > 0) && (
-            <section>
-              <p className="section-label">Skills you'll practice</p>
-              {skills.length > 0 && (
-                <div className="pill-row" style={{ marginBottom: 8 }}>
-                  {skills.map((s) => (
-                    <span key={s} className="pill accent">{s.replace(/_/g, ' ')}</span>
-                  ))}
-                </div>
-              )}
-              {traits.length > 0 && (
-                <div>
-                  <p className="micro-label">Big Five relevance</p>
-                  <div className="pill-row">
-                    {traits.map((t) => (
-                      <span key={t} className="pill violet cap">{t}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
-
-          <section>
-            <p className="section-label">Session Info</p>
-            <div className="info-grid">
-              <div className="info-tile">
-                <p className="micro-label">Recommended</p>
-                <p className="info-value">{scenario.recommended_turns ?? scenario.turns} turns</p>
-              </div>
-              <div className="info-tile">
-                <p className="micro-label">Maximum</p>
-                <p className="info-value">{scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns</p>
-              </div>
-              {criteria.min_trust_score != null && (
-                <div className="info-tile">
-                  <p className="micro-label">Min Trust</p>
-                  <p className="info-value success">{criteria.min_trust_score}</p>
-                </div>
-              )}
-              {criteria.max_escalation_level != null && (
-                <div className="info-tile">
-                  <p className="micro-label">Max Escalation</p>
-                  <p className="info-value warning">{criteria.max_escalation_level}/5</p>
-                </div>
-              )}
-            </div>
-            <div className="weight-row">
-              <Zap size={11} strokeWidth={1.8} />
-              <span>{getDifficultyLabel(weight)}</span>
-            </div>
-          </section>
-
-          {(() => {
-            const ec = scenario.end_conditions ?? {}
-            const successThreshold  = ec.success_trust_threshold     ?? 70
-            const consecutiveTurns  = ec.success_consecutive_turns    ?? 2
-            const failureEscalation = ec.failure_escalation_threshold ?? 5
-            const maxT = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
-            return (
-              <section>
-                <p className="section-label">How does this session end?</p>
-                <div className="end-list">
-                  <div className="end-row success">
-                    <CheckCircle size={16} strokeWidth={1.8} />
-                    <p>Build trust above <b>{successThreshold}</b> for <b>{consecutiveTurns}</b> consecutive turns</p>
-                  </div>
-                  <div className="end-row danger">
-                    <XCircle size={16} strokeWidth={1.8} />
-                    <p>Escalation reaches <b>{failureEscalation}/5</b> — the NPC walks out</p>
-                  </div>
-                  <div className="end-row neutral">
-                    <Clock size={16} strokeWidth={1.8} />
-                    <p>Maximum of <b>{maxT}</b> turns — scored on final trust and escalation</p>
-                  </div>
-                </div>
+            <div className="col col-story">
+              <section className="info-block">
+                <p className="block-label">Situation</p>
+                {scenario.context
+                  ? <p className="block-text">{scenario.context}</p>
+                  : <div className="block-skel" />}
               </section>
-            )
-          })()}
 
-          {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (
-            <section>
-              <button type="button" onClick={() => setShowThresholds((v) => !v)} className="threshold-toggle">
-                {showThresholds ? <ChevronUp size={12} strokeWidth={1.8} /> : <ChevronDown size={12} strokeWidth={1.8} />}
-                {showThresholds ? 'Hide NPC thresholds' : 'Show NPC thresholds'}
-              </button>
-              {showThresholds && (
-                <div className="threshold-panel">
-                  {Object.keys(trustThr).length > 0 && (
-                    <div>
-                      <p className="threshold-title">Trust thresholds</p>
-                      {Object.entries(trustThr).map(([k, v]) => (
-                        <div key={k} className="threshold-row">
-                          <span className="cap">{k}</span><span className="threshold-val">{v}</span>
-                        </div>
-                      ))}
+              <section className="info-block">
+                <p className="block-label">The Roles</p>
+                {scenario.npc_role ? (
+                  <>
+                    <div className="role-row">
+                      <span className="role-label">You</span>
+                      <span className="role-val">The employee in this conversation</span>
                     </div>
-                  )}
-                  {Object.keys(escThr).length > 0 && (
-                    <div>
-                      <p className="threshold-title">Escalation thresholds</p>
-                      {Object.entries(escThr).map(([k, v]) => (
-                        <div key={k} className="threshold-row">
-                          <span className="cap">{k}</span><span className="threshold-val">{v}</span>
-                        </div>
-                      ))}
+                    <div className="role-row">
+                      <span className="role-label">Them</span>
+                      <span className="role-val">
+                        <b>{scenario.npc_role}</b>{scenario.npc_personality ? `, ${scenario.npc_personality}` : ''}
+                      </span>
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : <div className="block-skel" />}
+              </section>
+
+              {scenario.opening_npc_line && (
+                <section className="opening-line">
+                  <p className="opening-text">"{scenario.opening_npc_line}"</p>
+                </section>
               )}
-            </section>
-          )}
+            </div>
 
+            <div className="col col-practice">
+              <section className="info-block">
+                <p className="block-label">What You'll Practice</p>
+                {skills.length > 0 ? (
+                  <ul className="chip-list">
+                    {skills.map((s) => (
+                      <li key={s}><CheckCircle size={13} strokeWidth={2} /> {s.replace(/_/g, ' ')}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="block-text">General workplace conversation practice.</p>
+                )}
+              </section>
+
+              <section className="info-block">
+                <p className="block-label">How It Works</p>
+                <ul className="plain-list">
+                  <li>
+                    <Clock size={14} strokeWidth={2} />
+                    Usually about <b>{recommendedTurns}</b> exchanges
+                    {maxTurns > recommendedTurns && <> (up to <b>{maxTurns}</b> if you need more time)</>}
+                  </li>
+                  <li>
+                    <CheckCircle size={14} strokeWidth={2} className="tone-success" />
+                    Ends well once you've built solid, lasting trust with them
+                  </li>
+                  <li>
+                    <AlertTriangle size={14} strokeWidth={2} className="tone-warning" />
+                    Tension may rise along the way, that's expected, and it won't cut the conversation short
+                  </li>
+                </ul>
+                <p className="evaluated-note">What's evaluated: trust, tone, and how the conversation resolves</p>
+              </section>
+            </div>
+
+          </div>
         </div>
 
         <div className="modal-footer">
@@ -193,7 +123,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           <button type="button" onClick={() => onStart(scenario)} disabled={isStarting} className="start-btn">
             {isStarting
               ? <><Loader2 size={14} strokeWidth={1.8} className="spin" /> Starting…</>
-              : <><ChevronRight size={14} strokeWidth={1.8} /> Start Scenario</>}
+              : <><ChevronRight size={14} strokeWidth={1.8} /> Enter Simulation</>}
           </button>
         </div>
       </div>
@@ -207,8 +137,6 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           --bg-card:      #161B22;
           --bg-card-hi:   #21262D;
           --border:       #30363D;
-          --primary:      #4493F8;
-          --primary-glow: rgba(68,147,248,0.15);
           --accent:       #7C3AED;
           --accent-glow:  rgba(124,58,237,0.15);
           --success:      #3FB950;
@@ -222,7 +150,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           --text-low:     #484F58;
 
           background:var(--bg-card); border:1px solid var(--border); border-radius:18px;
-          max-width:560px; width:100%; max-height:88vh; overflow-y:auto;
+          max-width:840px; width:100%; max-height:88vh; overflow-y:auto;
           box-shadow:0 30px 70px rgba(0,0,0,0.5);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
           color:var(--text-hi);
@@ -235,79 +163,95 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
         .rpe-modal .modal-header{
           position:sticky; top:0; z-index:1;
-          background:linear-gradient(90deg, rgba(68,147,248,0.08), var(--bg-card));
+          background:linear-gradient(90deg, rgba(124,58,237,0.08), var(--bg-card));
           border-bottom:1px solid var(--border);
-          padding:18px 22px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+          padding:20px 30px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
           border-radius:18px 18px 0 0;
         }
         .rpe-modal .header-text{ flex:1; min-width:0; }
-        .rpe-modal .modal-title{ font-size:17px; font-weight:750; line-height:1.35; margin:0; }
-        .rpe-modal .header-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .rpe-modal .modal-title{ font-size:18px; font-weight:750; line-height:1.35; margin:0; }
+        .rpe-modal .header-pills{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:9px; }
         .rpe-modal .close-btn{
           flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--text-med);
           padding:6px; border-radius:8px; display:flex; transition:background .2s ease, color .2s ease;
         }
         .rpe-modal .close-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
 
-        .rpe-modal .modal-body{ padding:20px 22px; display:flex; flex-direction:column; gap:20px; }
+        .rpe-modal .modal-body{ padding:26px 30px; }
 
-        .rpe-modal .section-label{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--text-low); margin:0 0 8px; }
-        .rpe-modal .micro-label{ font-size:10px; color:var(--text-low); text-transform:uppercase; letter-spacing:.08em; margin:0 0 4px; }
-        .rpe-modal .body-text{ font-size:13.5px; line-height:1.6; color:#C9D1D9; margin:0; }
-        .rpe-modal .cap{ text-transform:capitalize; }
+        .rpe-modal .diff-badge{
+          display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:650;
+          padding:3px 10px; border-radius:100px; text-transform:capitalize; flex-shrink:0; white-space:nowrap;
+          background:var(--bg-card-hi); border:1px solid var(--border); color:var(--text-med);
+        }
+        .rpe-modal .diff-badge .dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+        .rpe-modal .diff-badge.success .dot{ background:var(--success); }
+        .rpe-modal .diff-badge.warning .dot{ background:var(--warning); }
+        .rpe-modal .diff-badge.danger  .dot{ background:var(--danger); }
+        .rpe-modal .diff-badge.neutral .dot{ background:var(--text-low); }
 
         .rpe-modal .pill{
-          display:inline-flex; align-items:center; font-size:11px; font-weight:650;
+          display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:650;
           padding:3px 10px; border-radius:100px; text-transform:capitalize;
         }
-        .rpe-modal .pill.success{ color:var(--success); background:var(--success-glow); }
-        .rpe-modal .pill.warning{ color:var(--warning); background:var(--warning-glow); }
-        .rpe-modal .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
-        .rpe-modal .pill.accent{  color:var(--accent);  background:var(--accent-glow); text-transform:none; }
-        .rpe-modal .pill.violet{  color:#A78BFA; background:rgba(167,139,250,0.12); }
-        .rpe-modal .pill.neutral{ color:var(--text-med); background:var(--bg-card-hi); text-transform:none; }
-        .rpe-modal .pill-row{ display:flex; flex-wrap:wrap; gap:6px; }
+        .rpe-modal .pill.accent{ color:var(--accent); background:var(--accent-glow); text-transform:none; }
 
-        .rpe-modal .npc-panel{ background:var(--bg-card-hi); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
-        .rpe-modal .npc-role{ font-size:14px; font-weight:700; margin:0; }
-        .rpe-modal .npc-personality{ font-size:12.5px; color:var(--text-med); font-style:italic; margin:3px 0 0; }
+        .rpe-modal .modal-grid{ display:grid; grid-template-columns:1.15fr 1fr; gap:0 36px; }
+        .rpe-modal .col{ display:flex; flex-direction:column; }
+        .rpe-modal .col-story{ padding-right:36px; border-right:1px solid var(--border); }
+
+        .rpe-modal .info-block{ margin-bottom:22px; }
+        .rpe-modal .info-block:last-child{ margin-bottom:0; }
+        .rpe-modal .block-label{
+          font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+          color:var(--accent); margin:0 0 9px;
+        }
+        .rpe-modal .block-text{ font-size:13.5px; line-height:1.65; color:#C9D1D9; margin:0; }
+
+        .rpe-modal .block-skel{
+          height:14px; width:82%; border-radius:5px;
+          background:linear-gradient(90deg, var(--bg-card-hi) 25%, var(--border) 50%, var(--bg-card-hi) 75%);
+          background-size:200% 100%; animation: rpeModalShimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes rpeModalShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+
+        .rpe-modal .role-row{ display:flex; align-items:baseline; gap:10px; margin:0 0 7px; }
+        .rpe-modal .role-row:last-child{ margin-bottom:0; }
+        .rpe-modal .role-label{
+          flex-shrink:0; width:44px; font-size:10px; font-weight:700; letter-spacing:.06em;
+          text-transform:uppercase; color:var(--text-low);
+        }
+        .rpe-modal .role-val{ font-size:13.5px; color:#C9D1D9; line-height:1.55; }
+        .rpe-modal .role-val b{ color:var(--text-hi); }
+
         .rpe-modal .opening-line{
-          margin-top:12px; background:var(--bg-card); border-radius:10px; padding:10px 12px;
-          border-left:3px solid rgba(68,147,248,0.6);
+          margin-top:auto; background:var(--bg-card-hi); border-radius:10px; padding:12px 14px;
+          border-left:3px solid rgba(124,58,237,0.6);
         }
         .rpe-modal .opening-text{ font-size:13px; font-style:italic; color:var(--text-hi); margin:0; }
 
-        .rpe-modal .info-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-        .rpe-modal .info-tile{ background:var(--bg-card-hi); border:1px solid var(--border); border-radius:10px; padding:9px 12px; }
-        .rpe-modal .info-value{ font-size:13.5px; font-weight:700; margin:0; }
-        .rpe-modal .info-value.success{ color:var(--success); }
-        .rpe-modal .info-value.warning{ color:var(--warning); }
-        .rpe-modal .weight-row{ margin-top:10px; display:flex; align-items:center; gap:6px; font-size:12px; font-weight:650; color:var(--primary); }
+        .rpe-modal .evaluated-note{ font-size:11.5px; color:var(--text-low); margin:12px 0 0; }
 
-        .rpe-modal .end-list{ display:flex; flex-direction:column; gap:8px; }
-        .rpe-modal .end-row{ display:flex; align-items:flex-start; gap:10px; border-radius:10px; padding:10px 12px; font-size:13px; border:1px solid transparent; }
-        .rpe-modal .end-row p{ margin:0; }
-        .rpe-modal .end-row.success{ background:var(--success-glow); border-color:rgba(63,185,80,0.25); color:var(--text-hi); }
-        .rpe-modal .end-row.success svg{ color:var(--success); flex-shrink:0; margin-top:1px; }
-        .rpe-modal .end-row.danger{ background:var(--danger-glow); border-color:rgba(248,81,73,0.25); color:var(--text-hi); }
-        .rpe-modal .end-row.danger svg{ color:var(--danger); flex-shrink:0; margin-top:1px; }
-        .rpe-modal .end-row.neutral{ background:var(--bg-card-hi); border-color:var(--border); color:var(--text-med); }
-        .rpe-modal .end-row.neutral svg{ color:var(--text-med); flex-shrink:0; margin-top:1px; }
-        .rpe-modal .end-row b{ color:var(--text-hi); }
-
-        .rpe-modal .threshold-toggle{
-          display:inline-flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer;
-          color:var(--text-med); font-size:12px; font-weight:600; transition:color .2s ease;
+        .rpe-modal .chip-list{ display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+        .rpe-modal .chip-list li{
+          display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600;
+          color:var(--text-hi); text-transform:capitalize; background:var(--bg-card-hi);
+          border:1px solid var(--border); border-radius:100px; padding:5px 12px 5px 10px;
         }
-        .rpe-modal .threshold-toggle:hover{ color:var(--text-hi); }
-        .rpe-modal .threshold-panel{ margin-top:10px; background:var(--bg-card-hi); border:1px solid var(--border); border-radius:10px; padding:12px; font-size:12px; color:var(--text-med); display:flex; flex-direction:column; gap:10px; }
-        .rpe-modal .threshold-title{ font-weight:700; color:var(--text-hi); margin:0 0 4px; }
-        .rpe-modal .threshold-row{ display:flex; justify-content:space-between; padding:2px 0; }
-        .rpe-modal .threshold-val{ font-weight:600; color:var(--text-hi); }
+        .rpe-modal .chip-list li svg{ flex-shrink:0; color:var(--accent); }
+
+        .rpe-modal .plain-list{ display:flex; flex-direction:column; gap:9px; margin:0; padding:0; list-style:none; }
+        .rpe-modal .plain-list li{
+          display:flex; align-items:flex-start; gap:8px; font-size:13.5px; line-height:1.5; color:var(--text-hi);
+        }
+        .rpe-modal .plain-list li svg{ flex-shrink:0; margin-top:2px; color:var(--accent); }
+        .rpe-modal .plain-list li svg.tone-success{ color:var(--success); }
+        .rpe-modal .plain-list li svg.tone-warning{ color:var(--warning); }
+        .rpe-modal .plain-list li b{ color:var(--text-hi); }
 
         .rpe-modal .modal-footer{
           position:sticky; bottom:0; display:flex; gap:10px; justify-content:flex-end;
-          padding:16px 22px; background:var(--bg-card); border-top:1px solid var(--border); border-radius:0 0 18px 18px;
+          padding:18px 30px; background:var(--bg-card); border-top:1px solid var(--border); border-radius:0 0 18px 18px;
         }
         .rpe-modal .cancel-btn{
           background:none; border:none; cursor:pointer; color:var(--text-med); font-size:13px; font-weight:600;
@@ -316,7 +260,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         .rpe-modal .cancel-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
         .rpe-modal .start-btn{
           display:inline-flex; align-items:center; gap:7px; border:none; cursor:pointer;
-          background:linear-gradient(135deg, var(--primary), #6BB2FF); color:#fff;
+          background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff;
           font-size:13px; font-weight:650; padding:9px 18px; border-radius:10px;
           transition:filter .2s ease;
         }
@@ -324,6 +268,11 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         .rpe-modal .start-btn:disabled{ opacity:.55; cursor:default; }
         .rpe-modal .spin{ animation:rpeModalSpin .75s linear infinite; }
         @keyframes rpeModalSpin{ to{ transform:rotate(360deg); } }
+
+        @media (max-width:640px){
+          .rpe-modal .modal-grid{ grid-template-columns:1fr; gap:22px 0; }
+          .rpe-modal .col-story{ padding-right:0; padding-bottom:22px; border-right:none; border-bottom:1px solid var(--border); }
+        }
       `}</style>
     </div>
   )

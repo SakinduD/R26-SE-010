@@ -7,10 +7,11 @@
  */
 
 /**
- * RPE owns scenario generation from a plan and it has not shipped yet.
- * Flip this to true (one line) once /roleplay accepts a planId param.
+ * RPE scenario generation from a plan has shipped — /roleplay now accepts a
+ * planId param (ScenarioSelect.jsx) and generates + starts a session in one
+ * call via POST /api/v1/rpe/from-plan/{plan_id}.
  */
-export const RPE_PLAN_HANDOFF_ENABLED = false
+export const RPE_PLAN_HANDOFF_ENABLED = true
 
 /** Where the handoff will point once RPE ships. */
 export const RPE_PLAN_HANDOFF_PATH = '/roleplay'

@@ -1,7 +1,8 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { Bell, Info } from 'lucide-react';
+import { Info, Search } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
+import NotificationBell from '@/components/achievements/NotificationBell';
 
 const CRUMB_MAP = {
   '/dashboard': ['Overview', 'Dashboard'],
@@ -71,34 +72,23 @@ export default function Topbar() {
 
       <div style={{ flex: 1 }} />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <kbd>⌘K</kbd>
-        <span className="t-cap" style={{ marginLeft: 6, marginRight: 14 }}>
-          Search
-        </span>
-        <button className="icon-btn" aria-label="Notifications" type="button">
-          <Bell size={14} strokeWidth={1.6} />
+      <div className="topbar-actions">
+        <button className="topbar-search" type="button">
+          <Search size={13} strokeWidth={1.8} />
+          <span className="t-cap">Search</span>
+          <kbd>⌘K</kbd>
         </button>
-        <button className="icon-btn" aria-label="Help" type="button">
-          <Info size={14} strokeWidth={1.6} />
-        </button>
-        <div
-          aria-hidden
-          style={{
-            marginLeft: 8,
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border-subtle)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 11,
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--text-secondary)',
-          }}
-        >
+
+        <div className="topbar-icons">
+          <NotificationBell />
+          <button className="icon-btn" aria-label="Help" type="button">
+            <Info size={14} strokeWidth={1.6} />
+          </button>
+        </div>
+
+        <div className="topbar-divider" aria-hidden />
+
+        <div className="topbar-avatar" aria-hidden>
           {initial}
         </div>
       </div>

@@ -9,7 +9,7 @@ Tables:
 
   rpe_turns     (id serial PK, session_id FK, turn int, user_input,
                  npc_response, emotion, trust_score, escalation_level,
-                 created_at timestamptz)
+                 user_behavior, created_at timestamptz)
 """
 
 import json
@@ -218,7 +218,6 @@ class RpeSessionService:
         recommended_turns: int,
         end_conditions:    dict,
         trust_history:     list[int],
-        escalation_level:  int,
         current_turn:      int,
         profanity_count:   int = 0,
     ) -> tuple[bool, str | None]:
@@ -229,8 +228,18 @@ class RpeSessionService:
         Priority:
           0. npc_exit (profanity) — immediate exit if user used profanity 3+ times
           1. max_turns_reached    — hard cap
-          2. trust_sustained      — trust ≥ threshold for N consecutive turns
-          3. npc_exit             — escalation ≥ failure threshold
+
+        High escalation alone no longer force-ends a session (removed per
+        supervisor guidance): the moment the NPC would previously have
+        stormed off is exactly the moment the learner needs to practise
+        recovering from — de-escalating, rebuilding trust — so it now stays
+        live rather than cutting the conversation short. escalation_level
+        keeps being tracked and still counts against the scenario's
+        success_criteria when a session ends some other way (max turns,
+        trust_sustained, natural resolution, explicit exit); it just no
+        longer triggers an end on its own. Repeated profanity is a
+        different case — abusive language, not a hard conversation — and
+        still ends the session immediately.
         """
         # Immediate NPC exit on repeated profanity
         if profanity_count >= 3:
@@ -244,10 +253,6 @@ class RpeSessionService:
         if len(trust_history) >= consecutive_needed:
             if all(t >= success_threshold for t in trust_history[-consecutive_needed:]):
                 return True, "trust_sustained"
-
-        failure_escalation = end_conditions.get("failure_escalation_threshold", 5)
-        if escalation_level >= failure_escalation:
-            return True, "npc_exit"
 
         return False, None
 
@@ -265,6 +270,7 @@ class RpeSessionService:
                     "emotion":          turn_data.get("emotion", "calm"),
                     "trust_score":      turn_data.get("trust_score", 50),
                     "escalation_level": turn_data.get("escalation_level", 0),
+                    "user_behavior":    turn_data.get("user_behavior"),
                     "created_at":       datetime.now(timezone.utc).isoformat(),
                 }).execute()
 
@@ -331,27 +337,62 @@ class RpeSessionService:
 
         self._finalize_json(session_id, ended_at, outcome, final_trust, final_escalation, end_reason)
 
-    def get_user_sessions(self, auth_user_id: str) -> list[dict]:
-        """Return all sessions for the given Supabase auth UUID, newest first."""
+    def get_user_sessions(self, auth_user_id: str, trashed: bool = False) -> list[dict]:
+        """
+        Return sessions for the given Supabase auth UUID, newest first.
+        trashed=False (default) returns the active list (deleted_at IS NULL);
+        trashed=True returns the recycle bin (deleted_at IS NOT NULL).
+        """
         sb = _get_supabase()
         if not sb:
             return []
         try:
-            result = (
+            query = (
                 sb.table("rpe_sessions")
                 .select(
                     "session_id, scenario_id, started_at, ended_at,"
                     "outcome, end_reason, final_trust,"
-                    "final_escalation, recommended_turns"
+                    "final_escalation, recommended_turns, deleted_at"
                 )
                 .eq("auth_user_id", auth_user_id)
-                .order("started_at", desc=True)
-                .execute()
             )
+            query = query.not_.is_("deleted_at", "null") if trashed else query.is_("deleted_at", "null")
+            result = query.order("started_at", desc=True).execute()
             return result.data or []
         except Exception as exc:
             logger.error("RPE get_user_sessions error: %s", exc)
             return []
+
+    def set_sessions_deleted(self, auth_user_id: str, session_ids: list[str], deleted: bool) -> None:
+        """
+        Move sessions into/out of the recycle bin (soft delete). Scoped to
+        the caller's own auth_user_id so one user can never touch another's
+        sessions — powers both the trash and restore actions.
+        """
+        sb = _get_supabase()
+        if not sb or not session_ids:
+            return
+        try:
+            value = datetime.now(timezone.utc).isoformat() if deleted else None
+            sb.table("rpe_sessions").update({"deleted_at": value}) \
+                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+        except Exception as exc:
+            logger.error("RPE set_sessions_deleted error: %s", exc)
+
+    def purge_sessions(self, auth_user_id: str, session_ids: list[str]) -> None:
+        """
+        Permanently delete sessions (must already be in the recycle bin, but
+        scoping is by ownership, not trash state — the frontend only ever
+        offers this from the bin). rpe_turns rows cascade via the FK.
+        """
+        sb = _get_supabase()
+        if not sb or not session_ids:
+            return
+        try:
+            sb.table("rpe_sessions").delete() \
+                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+        except Exception as exc:
+            logger.error("RPE purge_sessions error: %s", exc)
 
     # ── Supabase helpers ──────────────────────────────────────────────────────
 
@@ -419,6 +460,7 @@ class RpeSessionService:
                 "emotion":          t.get("emotion", "calm"),
                 "trust_score":      t.get("trust_score", 50),
                 "escalation_level": t.get("escalation_level", 0),
+                "user_behavior":    t.get("user_behavior"),
             }
             for t in raw_turns
         ]

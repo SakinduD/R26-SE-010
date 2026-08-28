@@ -49,7 +49,7 @@ export default function AnalyticsUnavailable({
           {loading
             ? 'Reading your recorded sessions.'
             : failed
-              ? 'No figures are shown, because an invented number would be worse than none. Check that the backend is running, then try again.'
+              ? 'No figures are shown, because an invented number would be worse than none. Try again in a moment.'
               : 'Complete a practice session, then load your results.'}
         </p>
 

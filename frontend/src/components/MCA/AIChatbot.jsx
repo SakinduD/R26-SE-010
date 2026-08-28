@@ -193,7 +193,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred while connecting to the AI core.";
-      toast.error("AI Core Connection Failed", {
+      toast.error("Couldn't connect", {
         description: errorMsg
       });
       setSessionId(null);
@@ -261,7 +261,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Network synchronization failed.";
-        toast.error("Session Finalization Failed", {
+        toast.error("Couldn't save the session", {
           description: errorMsg
         });
       } finally {
@@ -650,7 +650,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-[11px] font-black text-foreground tracking-tight uppercase">Intelligence Core</h3>
+              <h3 className="text-[11px] font-black text-foreground tracking-tight uppercase">Your AI Coach</h3>
               {isSpeaking && (
                 <div className="flex gap-0.5 h-3 items-end mb-0.5">
                   <div className="w-0.5 h-full bg-primary animate-[pulse_1s_infinite]"></div>
@@ -665,7 +665,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 isSpeaking ? 'bg-primary animate-pulse' : (isLoading ? 'bg-amber-500 animate-pulse' : (sessionActive ? 'bg-success' : 'bg-muted-foreground'))
               )}></div>
               <span className="text-[9px] text-card-foreground uppercase tracking-widest font-black opacity-60">
-                {isSpeaking ? 'Speaking_Response' : (isLoading ? 'Analyzing_Voice' : (sessionActive ? 'Baseline_Active' : 'Baseline_Ready'))}
+                {isSpeaking ? 'Speaking…' : (isLoading ? 'Listening to you…' : (sessionActive ? 'Session in progress' : 'Ready to start'))}
               </span>
             </div>
           </div>
@@ -713,7 +713,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2.5 text-[9px] font-black text-primary bg-primary/5 px-3 py-1.5 rounded-lg border border-primary/10 uppercase tracking-[0.2em]">
             <Volume2 size={12} />
-            Voice_Link
+            Voice connected
           </div>
         </div>
       </div>
@@ -731,7 +731,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border transition-all duration-500 shadow-sm font-bold',
               msg.type === 'user'
-                ? 'bg-secondary/10 border-secondary/20 text-secondary'
+                ? 'bg-secondary/10 border-secondary/20 text-secondary-foreground'
                 : 'bg-primary/10 border-primary/20 text-primary'
             )}>
               {msg.type === 'user' ? <User size={14} /> : <Bot size={14} />}
@@ -739,7 +739,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border break-words overflow-hidden min-w-0',
               msg.type === 'user'
-                ? 'bg-secondary text-white border-secondary/20 rounded-tr-none'
+                ? 'bg-secondary text-secondary-foreground border-secondary/20 rounded-tr-none'
                 : 'bg-primary text-white border-primary/20 rounded-tl-none'
             )}>
               {msg.text}
@@ -796,7 +796,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 )}
               </button>
               <span className="text-[8px] font-black text-card-foreground/60 uppercase tracking-[0.2em]">
-                {isListening ? 'SUBMIT' : 'TALK'}
+                {isListening ? 'Send' : 'Talk'}
               </span>
             </div>
 
@@ -858,10 +858,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         ) : (
           <div className="flex flex-col items-center justify-center gap-1 p-6 bg-muted/20 rounded-xl border border-border/50">
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em]">
-              Start Baseline Session
+              Start your baseline session
             </span>
             <span className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
-              8-minute adaptive learning intake
+              About 8 minutes — helps us personalize your training
             </span>
           </div>
         )}

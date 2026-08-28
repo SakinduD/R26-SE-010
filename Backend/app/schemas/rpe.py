@@ -9,6 +9,11 @@ class ScenarioSummary(BaseModel):
     turns:             int               # backward-compat alias = recommended_turns
     recommended_turns: int
     max_turns:         int
+    target_skills:     list[str] = []    # was silently dropped — built in list_all() but never declared here
+    difficulty_weight: float = 1.0       # same bug — see above
+    is_generated:      bool = False      # True for a scenario built from an APM Training Plan
+    context:           str = ""          # the real-life situation line, e.g. "Your manager wants..."
+    category:          str = "Difficult Conversations"  # one of the 6 Practice Lab categories
 
 
 class StartSessionRequest(BaseModel):
@@ -26,6 +31,7 @@ class StartSessionResponse(BaseModel):
     recommended_turns: int
     max_turns:         int
     is_authenticated:  bool = False
+    failure_escalation_threshold: int | None = None
 
 
 class RespondRequest(BaseModel):
@@ -33,16 +39,33 @@ class RespondRequest(BaseModel):
     user_input: str
 
 
+class ResponseOptionOut(BaseModel):
+    """
+    One tappable reply option shown instead of free-text/voice input when the
+    NPC's line just asked the user to hand over a concrete document/report —
+    see RpeNpcService._build_system_prompt's requestsDeliverable instructions.
+    quality is bookkeeping only; the frontend must never render it.
+    """
+    label:   str
+    text:    str
+    quality: str
+
+
 class RespondResponse(BaseModel):
     npc_response:     str
     emotion:          str
     animation:        str | None = None
+    user_behavior:    str | None = None
     trust_score:      int
     escalation_level: int
     turn:             int
     session_complete: bool
     outcome:          str | None = None
     end_reason:       str | None = None
+    requests_deliverable: bool = False
+    response_options:     list[ResponseOptionOut] | None = None
+    clarity_score:     float | None = None     # live per-turn heuristic — see RpeNlpService._score_turn
+    response_quality:  float | None = None
 
 
 class SessionSummaryResponse(BaseModel):
@@ -77,6 +100,7 @@ class ScenarioDetail(BaseModel):
     apa_metadata:      dict
     target_skills:     list[str] = []
     difficulty_weight: float = 1.0
+    category:          str = "Difficult Conversations"
 
 
 class ApaRecommendRequest(BaseModel):
@@ -97,6 +121,11 @@ class ApaRecommendRequest(BaseModel):
 class ApaSessionCompleteRequest(BaseModel):
     user_id:    str
     session_id: str
+
+
+class SessionIdsRequest(BaseModel):
+    """Body for the My Sessions recycle-bin bulk actions (trash/restore/purge)."""
+    session_ids: list[str]
 
 
 class TurnMetric(BaseModel):
@@ -128,18 +157,41 @@ class CoachingAdvice(BaseModel):
     advice:         list[str]
     strengths:      list[str]
     focus_areas:    list[str]
+    strongest_turn:        int | None = None
+    strongest_turn_note:   str | None = None
+    improvement_turn:       int | None = None
+    improvement_original:   str | None = None
+    improvement_suggested:  str | None = None
+
+
+class ConflictStyleSummary(BaseModel):
+    """
+    TKI-style conflict-handling label (Thomas & Kilmann's Conflict Mode
+    Instrument: assertiveness x cooperativeness -> 5 styles), derived from
+    the session's live userBehavior tags. See RpeNlpService.compute_conflict_style.
+    """
+    style:             str
+    label:             str
+    description:       str
+    assertive_share:   float
+    cooperative_share: float
+    turns_tagged:      int
 
 
 class FeedbackResponse(BaseModel):
     session_id:        str
     scenario_id:       str
     scenario_title:    str
+    difficulty:        str | None = None   # was referenced by FeedbackDashboard.jsx but never actually returned
+    category:          str | None = None
+    target_skills:     list[str] = []      # which skills this scenario was built to exercise
     user_id:           str
     outcome:           str | None
     final_trust:       int | None
     final_escalation:  int | None
     total_turns:       int
     turn_metrics:      list[TurnMetric]
+    conflict_style:    ConflictStyleSummary | None = None
     risk_flags:        list[RiskFlag]
     blind_spots:       list[BlindSpot]
     coaching_advice:   CoachingAdvice

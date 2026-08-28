@@ -35,7 +35,7 @@ export default function VerifyEmail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <h2 className="t-h2">Email verified</h2>
           <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Your email has been confirmed. You can now sign in to your account.
+            Your email's confirmed — you're all set to sign in.
           </p>
         </div>
 

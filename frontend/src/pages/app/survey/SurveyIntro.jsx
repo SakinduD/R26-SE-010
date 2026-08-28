@@ -1,15 +1,16 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Brain, Clock, ListChecks, Sparkles, ArrowRight, Check } from 'lucide-react';
+import { Brain, Clock, ListChecks, Save, Sparkles, ArrowRight, Check } from 'lucide-react';
 import { fadeInUp, staggerContainer, buttonMotion } from '@/lib/animations';
 import PageHead from '@/components/ui/PageHead';
 import Card from '@/components/ui/Card';
 
 const FEATURES = [
-  { icon: Clock,      text: 'Takes about 5 minutes' },
-  { icon: ListChecks, text: '44 short statements — agree or disagree on a 1–5 scale' },
-  { icon: Brain,      text: 'No right or wrong answers — honest is best' },
-  { icon: Sparkles,   text: 'Results power your personalised AI training scenarios' },
+  { icon: Clock,      text: 'About 5 minutes, start to finish' },
+  { icon: ListChecks, text: '44 short statements, five at a time — rate each one from 1 to 5' },
+  { icon: Brain,      text: 'No right or wrong answers. Your first instinct is usually the honest one' },
+  { icon: Save,       text: 'Your answers save as you go, so you can stop and pick it back up' },
+  { icon: Sparkles,   text: 'What you answer here shapes every training scenario you get' },
 ];
 
 export default function SurveyIntro({ onBegin }) {
@@ -22,8 +23,8 @@ export default function SurveyIntro({ onBegin }) {
     >
       <PageHead
         eyebrow="Big Five Inventory — 44 statements"
-        title="Personality Assessment"
-        sub="This assessment identifies your personality profile across five core dimensions. Results personalise every training scenario — so an introvert and an extravert working on the same skill get completely different experiences."
+        title="Let's build your profile"
+        sub="A few short statements about how you see yourself, scored across the five traits psychologists use to describe personality. It's what makes your training yours — two people practising the same skill get very different sessions out of it."
       />
 
       <motion.div variants={fadeInUp}>
@@ -82,7 +83,7 @@ export default function SurveyIntro({ onBegin }) {
               className="btn btn-primary btn-lg"
             >
               <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                Begin assessment
+                Start
                 <ArrowRight size={14} strokeWidth={1.8} />
               </span>
             </motion.button>
@@ -90,7 +91,7 @@ export default function SurveyIntro({ onBegin }) {
 
           <div className="t-cap" style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Check size={11} strokeWidth={2} style={{ color: 'var(--success)' }} />
-            Your responses are encrypted in transit and at rest, and only used to personalise your training.
+            Your answers are encrypted on the way over and while stored, and they're only used to personalise your training.
           </div>
         </Card>
       </motion.div>

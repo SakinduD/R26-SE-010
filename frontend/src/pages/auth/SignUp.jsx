@@ -83,7 +83,7 @@ export default function SignUp() {
   return (
     <AuthCard
       title="Create your account"
-      description="Start your adaptive training journey"
+      description="Get started with training that adapts to you"
       footer={
         <span>
           Already have an account?{' '}
@@ -125,7 +125,7 @@ export default function SignUp() {
           <AnimatedInput
             label="Password"
             type="password"
-            placeholder="Min. 8 characters"
+            placeholder="At least 8 characters"
             autoComplete="new-password"
             error={errors.password?.message}
             {...register('password')}

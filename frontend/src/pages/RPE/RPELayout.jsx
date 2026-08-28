@@ -3,6 +3,7 @@ import { LogOut, LayoutDashboard, Brain, Swords, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
+import logoMark from '@/assets/brand/logo-mark.png'
 
 const NAV_LINKS = [
   { to: '/dashboard',     icon: LayoutDashboard, label: 'Dashboard'     },
@@ -54,7 +55,9 @@ export default function RPELayout() {
               style={{ display: 'flex', alignItems: 'center', gap: 10 }}
               aria-label="EmpowerZ home"
             >
-              <div className="sb-mark" style={{ width: 24, height: 24, fontSize: 12 }}>EZ</div>
+              <div className="sb-mark" style={{ width: 24, height: 24, fontSize: 12 }}>
+                <img src={logoMark} alt="" />
+              </div>
               <span className="sb-brand-text">EmpowerZ</span>
             </Link>
 

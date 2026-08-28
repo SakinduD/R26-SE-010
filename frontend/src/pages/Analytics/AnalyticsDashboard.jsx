@@ -423,7 +423,7 @@ export default function AnalyticsDashboard() {
       console.error('Load error:', error)
       setData(null)
       setStatus('error')
-      setError('Could not connect to the real data API. Please check your backend connection.')
+      setError("We couldn't load your data. Try again in a moment.")
     }
   }
 

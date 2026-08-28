@@ -56,3 +56,5 @@ training/feedback_analytics/models/*
 !training/feedback_analytics/models/.gitkeep
 
 PROJECT_CONTEXT.md
+MCA_Scoring_Methodology.docx
+.claude/launch.json

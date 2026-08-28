@@ -31,6 +31,14 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
   const recorderRef = useRef(null)
   const streamRef    = useRef(null)
   const audioCtxRef  = useRef(null)
+  // True from the instant startListening() is called until the recording it
+  // started has fully stopped — including the getUserMedia() await, which is
+  // otherwise a window where a second concurrent call (e.g. an onEmpty retry
+  // firing while the previous cycle is still spinning up) creates a second
+  // overlapping recorder/stream that stomps on these refs and desyncs
+  // isListening from what's actually happening. This is what made auto
+  // mic on/off intermittently misbehave.
+  const activeRef = useRef(false)
 
   const cleanup = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -43,13 +51,24 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
   }, [])
 
   const startListening = useCallback(async () => {
-    if (!canRecord) { onPermissionDenied?.(); return }
+    if (activeRef.current) return
+    activeRef.current = true
+
+    if (!canRecord) { activeRef.current = false; onPermissionDenied?.(); return }
 
     let stream
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
+      activeRef.current = false
       onPermissionDenied?.()
+      return
+    }
+
+    if (!activeRef.current) {
+      // stopListening() ran while we were awaiting the permission prompt —
+      // don't start a recording nobody asked for anymore.
+      stream.getTracks().forEach((track) => track.stop())
       return
     }
     streamRef.current = stream
@@ -105,6 +124,7 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
     }, 100)
 
     recorder.onstop = async () => {
+      activeRef.current = false
       cleanup()
       setIsListening(false)
 
@@ -136,6 +156,7 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
   }, [cleanup, onResult, onEmpty, onError, onPermissionDenied])
 
   const stopListening = useCallback(() => {
+    activeRef.current = false
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop()
     } else {
