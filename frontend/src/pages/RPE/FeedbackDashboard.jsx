@@ -237,12 +237,22 @@ function WatchForScreen({ riskFlags = [], blindSpots = [] }) {
   )
 }
 
-function DoneScreen({ onTryAgain, onHarder, onOtherSkill }) {
+function DoneScreen({ targetSkills = [], onTryAgain, onHarder, onOtherSkill }) {
   return (
     <div className="screen screen-done">
       <p className="done-emoji">🏁</p>
       <h2 className="screen-title">Nice work</h2>
       <p className="screen-sub">Ready for another round, or take what you learned into the next one.</p>
+      {targetSkills.length > 0 && (
+        <div className="done-skills">
+          <p className="done-skills-label">This session practiced</p>
+          <div className="done-skills-row">
+            {targetSkills.map((s) => (
+              <span key={s} className="chip accent">{s.replace(/_/g, ' ')}</span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="done-actions">
         <button type="button" onClick={onTryAgain} className="btn-c primary">
           <RefreshCw size={14} strokeWidth={1.8} /> Try again
@@ -412,7 +422,7 @@ export default function FeedbackDashboard() {
                   <WatchForScreen riskFlags={fd.risk_flags} blindSpots={fd.blind_spots} />
                 )}
                 {stepKey === 'done' && (
-                  <DoneScreen onTryAgain={goRoleplay} onHarder={goHarder} onOtherSkill={goRoleplay} />
+                  <DoneScreen targetSkills={fd.target_skills} onTryAgain={goRoleplay} onHarder={goHarder} onOtherSkill={goRoleplay} />
                 )}
               </motion.div>
             </AnimatePresence>
@@ -536,9 +546,10 @@ const FEEDBACK_STYLES = `
     font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;
   }
   .coach-chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
-  .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; }
+  .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; text-transform:capitalize; }
   .chip.success{ color:var(--success); background:var(--success-glow); }
   .chip.warning{ color:var(--warning); background:var(--warning-glow); }
+  .chip.accent{  color:var(--accent);  background:var(--accent-glow); }
 
   .callout-box{ margin-top:18px; border-radius:12px; padding:14px 16px; border:1px solid transparent; }
   .callout-box.success{ background:var(--success-glow); border-color:rgba(63,185,80,0.25); }
@@ -563,6 +574,9 @@ const FEEDBACK_STYLES = `
 
   .screen-done{ align-items:center; text-align:center; padding-top:32px; }
   .done-emoji{ font-size:40px; margin:0 0 6px; }
+  .done-skills{ margin-top:18px; }
+  .done-skills-label{ font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); margin:0 0 8px; }
+  .done-skills-row{ display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
   .done-actions{ display:flex; gap:10px; margin-top:22px; }
 
   .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:10px; animation:cinemaShimmer 1.4s ease-in-out infinite; }

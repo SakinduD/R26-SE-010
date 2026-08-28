@@ -67,6 +67,7 @@ class RpeFeedbackService:
             "scenario_title":    scenario.title,
             "difficulty":        scenario.difficulty,
             "category":          scenario.category,
+            "target_skills":     scenario.apa_metadata.get("target_skills", []),
             "user_id":           session["user_id"],
             "outcome":           session.get("outcome"),
             "final_trust":       session.get("final_trust"),

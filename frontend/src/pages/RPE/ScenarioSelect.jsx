@@ -40,6 +40,11 @@ export default function ScenarioSelect() {
   const [activeDifficultyFilter, setActiveDifficultyFilter] = useState(() => searchParams.get('difficulty') || null)
   const [activeCategoryFilter, setActiveCategoryFilter]     = useState(() => searchParams.get('category') || null)
   const [selectedScenario, setSelectedScenario]   = useState(null)
+  // Set only while the open detail modal is previewing a just-generated
+  // plan scenario (see the planId effect below) — a session already exists
+  // for it server-side, so confirming just navigates instead of calling
+  // handleStart and creating a second, redundant one.
+  const [pendingPlanNav, setPendingPlanNav]       = useState(null)
   const [startingId, setStartingId]               = useState(null)
   const [isLoading, setIsLoading]                 = useState(true)
   const [error, setError]                         = useState(null)
@@ -68,8 +73,9 @@ export default function ScenarioSelect() {
   }, [])
 
   // ?planId=<id> entry point from StartRolePlayButton on the Training Plan
-  // detail page — generate a scenario from that plan and drop straight into
-  // a live session, no manual picker.
+  // detail page — generates a scenario from that plan, then previews it in
+  // the same detail modal every other scenario gets before you commit to it,
+  // instead of dropping you straight into a live session with no preview.
   useEffect(() => {
     if (!planId || authLoading) return
     if (!isAuthenticated) {
@@ -85,22 +91,46 @@ export default function ScenarioSelect() {
       try {
         const response = await rpeService.startSessionFromPlan(planId)
         if (cancelled) return
-        navigate('/roleplay/session', {
-          replace: true,
-          state: {
-            sessionId:      response.session_id,
-            openingNpcLine: response.opening_npc_line,
-            scenarioTitle:  response.scenario_title,
-            difficulty:     response.difficulty,
-            conflictType:   response.conflict_type,
-            totalTurns:     response.total_turns,
-            recommendedTurns: response.recommended_turns,
-            maxTurns:       response.max_turns,
-          },
+
+        // scenario_id is deterministic from plan_id (see
+        // rpe_plan_import_service.map_brief_to_scenario) — safe to derive
+        // here rather than adding a field to StartSessionResponse for it.
+        const scenarioId = `plan_${planId}`
+        let detail = null
+        try {
+          detail = await rpeService.getScenarioDetail(scenarioId)
+        } catch {
+          // fall through with summary-level data below
+        }
+        if (cancelled) return
+
+        setPendingPlanNav({
+          sessionId:      response.session_id,
+          openingNpcLine: response.opening_npc_line,
+          scenarioTitle:  response.scenario_title,
+          difficulty:     response.difficulty,
+          conflictType:   response.conflict_type,
+          totalTurns:     response.total_turns,
+          npcRole:        detail?.npc_role,
+          recommendedTurns: response.recommended_turns,
+          maxTurns:       response.max_turns,
+          failureEscalationThreshold: response.failure_escalation_threshold,
         })
+        setSelectedScenario(detail ?? {
+          scenario_id: scenarioId,
+          title: response.scenario_title,
+          difficulty: response.difficulty,
+          conflict_type: response.conflict_type,
+          recommended_turns: response.recommended_turns,
+          max_turns: response.max_turns,
+          is_generated: true,
+        })
+        setPlanImporting(false)
+        // Drop ?planId= so refreshing the page doesn't regenerate the scenario.
+        navigate('/roleplay', { replace: true })
       } catch (err) {
         if (!cancelled) {
-          setPlanError(err.message || 'Failed to generate a scenario from this plan')
+          setPlanError(err.message || "We couldn't create a scenario from this plan.")
           setPlanImporting(false)
         }
       }
@@ -252,6 +282,9 @@ export default function ScenarioSelect() {
               <p className="hero-sub">Practice real workplace conversations before they happen.</p>
             </div>
             <div className="hero-actions">
+              <button type="button" onClick={() => navigate('/training-plan/new')} className="my-sessions-btn accent">
+                <Sparkles size={13} strokeWidth={1.8} /> Get a Personalized Scenario
+              </button>
               <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
                 <History size={13} strokeWidth={1.8} /> My Sessions
               </button>
@@ -530,8 +563,8 @@ export default function ScenarioSelect() {
 
       <ScenarioDetailModal
         scenario={selectedScenario}
-        onClose={() => setSelectedScenario(null)}
-        onStart={handleStart}
+        onClose={() => { setSelectedScenario(null); setPendingPlanNav(null) }}
+        onStart={pendingPlanNav ? () => navigate('/roleplay/session', { state: pendingPlanNav }) : handleStart}
         isStarting={startingId === selectedScenario?.scenario_id}
       />
 
@@ -578,6 +611,8 @@ export default function ScenarioSelect() {
           transition:border-color .2s var(--ease), background .2s var(--ease);
         }
         .rpe-cinema .my-sessions-btn:hover{ border-color:var(--primary); background:var(--primary-glow); }
+        .rpe-cinema .my-sessions-btn.accent{ background:linear-gradient(135deg, var(--accent), #9B6BFF); border-color:transparent; color:#fff; }
+        .rpe-cinema .my-sessions-btn.accent:hover{ filter:brightness(1.08); border-color:transparent; background:linear-gradient(135deg, var(--accent), #9B6BFF); }
         .rpe-cinema .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--primary); margin:0 0 8px; }
         .rpe-cinema .hero-title{ font-size:28px; font-weight:800; letter-spacing:-0.01em; margin:0; }
         .rpe-cinema .hero-sub{ font-size:13.5px; color:var(--text-med); margin:8px 0 0; }

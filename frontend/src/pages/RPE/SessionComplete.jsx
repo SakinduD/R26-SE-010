@@ -2,49 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { RefreshCw, Home, BarChart2 } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
-import { submitSessionFeedback } from '@/lib/api/pedagogy'
 import { cn } from '@/lib/utils'
-
-// Map RPE emotion labels → APM turn metric scores (0-1)
-const EMOTION_SCORES = {
-  assertive:  { assertiveness_score: 0.9, empathy_score: 0.5, clarity_score: 0.8, response_quality: 0.85 },
-  calm:       { assertiveness_score: 0.6, empathy_score: 0.7, clarity_score: 0.7, response_quality: 0.70 },
-  anxious:    { assertiveness_score: 0.2, empathy_score: 0.4, clarity_score: 0.4, response_quality: 0.30 },
-  frustrated: { assertiveness_score: 0.3, empathy_score: 0.2, clarity_score: 0.4, response_quality: 0.30 },
-  confused:   { assertiveness_score: 0.3, empathy_score: 0.4, clarity_score: 0.3, response_quality: 0.35 },
-}
-const DEFAULT_SCORES = { assertiveness_score: 0.5, empathy_score: 0.5, clarity_score: 0.5, response_quality: 0.5 }
-
-async function _sendApmFeedback(data, sessionId, scenarioTitle) {
-  try {
-    const finalTrust = data.final_trust ?? 50
-    const rating = finalTrust >= 70 ? 'good' : finalTrust >= 40 ? 'fair' : 'poor'
-    const summary = finalTrust >= 70
-      ? 'Strong trust maintained throughout the session.'
-      : finalTrust >= 40
-      ? 'Moderate trust. Focus on clearer assertive communication.'
-      : 'Low trust recorded. Review de-escalation and emotional regulation strategies.'
-
-    await submitSessionFeedback({
-      session_id: sessionId,
-      scenario_id: data.scenario_id,
-      scenario_title: scenarioTitle || data.scenario_title || 'Role-play session',
-      user_id: data.user_id,
-      outcome: data.outcome,
-      final_trust: finalTrust,
-      final_escalation: data.final_escalation ?? 0,
-      total_turns: data.turns?.length ?? 0,
-      turn_metrics: (data.turns ?? []).map((t) => ({
-        turn: t.turn,
-        ...(EMOTION_SCORES[t.emotion] ?? DEFAULT_SCORES),
-        flags: [],
-      })),
-      coaching_advice: { overall_rating: rating, summary, advice: [], strengths: [], focus_areas: [] },
-    })
-  } catch (err) {
-    console.warn('APM feedback update failed (non-blocking):', err.message)
-  }
-}
 
 const getTrustTone = (s) => (s >= 70 ? 'success' : s >= 40 ? 'warning' : 'danger')
 
@@ -98,12 +56,7 @@ export default function SessionComplete() {
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     rpeService.getSessionSummary(sessionId)
-      .then((data) => {
-        setSessionData(data)
-        if (data?.outcome) {
-          _sendApmFeedback(data, sessionId, scenarioTitle)
-        }
-      })
+      .then(setSessionData)
       .catch(console.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

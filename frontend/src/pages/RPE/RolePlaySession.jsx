@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff, MessageCircle, X, Paperclip } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff, MessageCircle, X, Paperclip, Video, VideoOff, Activity } from 'lucide-react'
+import Webcam from 'react-webcam'
 import { rpeService } from '@/services/rpe/rpeService'
 import { analyticsService } from '@/services/analytics/analyticsService'
 import { integrateCompletedSession } from '@/pages/Analytics/analyticsIntegrationUtils'
@@ -10,6 +11,7 @@ import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
 import SessionLoadingScreen from '@/components/RPE/SessionLoadingScreen'
 import ResponseChoiceCards from '@/components/RPE/ResponseChoiceCards'
 import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
+import { useNudgeSensing } from '@/hooks/useNudgeSensing'
 
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
@@ -345,6 +347,24 @@ export default function RolePlaySession() {
     onPermissionDenied: () => setAutoMicEnabled(false),
   })
 
+  // Reuses MCA's live behavioral-sensing pipeline (camera/face-mesh + a
+  // separate continuous mic stream feeding the same nudge-analysis socket)
+  // so the same real-time coaching nudges can surface over a role-play
+  // conversation. Independent of useVoiceRecorder above — that's turn-based
+  // speech-to-text, this is continuous sensing; two mic consumers running at
+  // once is exactly what MCA's own live mode already does, no conflict.
+  // Off by default; the learner opts in with one combined toggle (camera +
+  // mic together, since nudges depend on the audio+visual fusion analyzer).
+  const {
+    webcamRef, canvasRef, nudges, isCameraActive,
+    toggleCamera, toggleMic, dismissNudge,
+  } = useNudgeSensing()
+
+  const handleToggleSensing = useCallback(() => {
+    toggleCamera()
+    toggleMic()
+  }, [toggleCamera, toggleMic])
+
   const startListening = useCallback(() => {
     if (!shouldListenRef.current) return
     startRecording()
@@ -521,7 +541,54 @@ export default function RolePlaySession() {
                 {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
                 {voicePillLabel}
               </button>
+              <button
+                type="button"
+                className={cn('sensing-pill', !isCameraActive && 'muted')}
+                onClick={handleToggleSensing}
+                title={isCameraActive ? 'Turn off camera coaching' : 'Turn on camera coaching for live nudges'}
+              >
+                {isCameraActive ? <Video size={12} strokeWidth={2} /> : <VideoOff size={12} strokeWidth={2} />}
+                {isCameraActive ? 'Coaching On' : 'Coaching'}
+              </button>
             </div>
+
+            {isCameraActive && (
+              <div className="camera-dock">
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  className="hidden"
+                  videoConstraints={{ facingMode: 'user', aspectRatio: 1.333333 }}
+                />
+                <canvas ref={canvasRef} className="camera-dock-canvas" />
+              </div>
+            )}
+
+            {nudges.length > 0 && (
+              <div className="nudge-stack">
+                {nudges.map((nudge, index) => (
+                  <div
+                    key={nudge.id}
+                    className={cn('nudge-toast', nudge.severity, index > 0 && 'stacked')}
+                  >
+                    <div className="nudge-icon"><Activity size={15} strokeWidth={2} /></div>
+                    <div className="nudge-body">
+                      <p className="nudge-text">{nudge.text}</p>
+                      <span className="nudge-time">{nudge.timestamp}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="nudge-dismiss"
+                      onClick={() => dismissNudge(nudge.id)}
+                      aria-label="Dismiss nudge"
+                    >
+                      <X size={12} strokeWidth={2} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="stage-bottom">
               <div className="state-block state-speaking">
@@ -687,6 +754,8 @@ export default function RolePlaySession() {
           --success-glow:  rgba(63,185,80,0.18);
           --danger:        #F85149;
           --danger-glow:   rgba(248,81,73,0.18);
+          --warning:       #D29922;
+          --warning-glow:  rgba(210,153,34,0.18);
           --text-hi:       #F0F6FC;
           --text-med:      #8B949E;
           --text-low:      #484F58;
@@ -836,6 +905,67 @@ export default function RolePlaySession() {
         .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
         .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
         .rpe-vs .voice-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+
+        .rpe-vs .sensing-pill{
+          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--accent);
+          background:rgba(22,27,34,0.75); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
+          padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
+          cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+        }
+        .rpe-vs .sensing-pill:hover{ filter:brightness(1.15); }
+        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+
+        /* Compact learner-camera feed, docked beside the avatar — off by
+           default, opt-in via the "Coaching" pill above. */
+        .rpe-vs .camera-dock{
+          position:absolute; top:66px; left:20px; z-index:6;
+          width:132px; aspect-ratio:4/3; border-radius:12px; overflow:hidden;
+          background:var(--surface-hi); border:1px solid var(--border);
+          box-shadow:0 10px 26px rgba(0,0,0,0.45);
+          opacity:0; animation: rpevsCameraDockIn .35s var(--ease) forwards;
+        }
+        @keyframes rpevsCameraDockIn{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:none; } }
+        .rpe-vs .camera-dock-canvas{ width:100%; height:100%; object-fit:cover; display:block; }
+
+        /* Nudge toasts — same severity language (critical/warning/info) and
+           slide-in/stack behaviour as MCA's live coaching screen. */
+        .rpe-vs .nudge-stack{
+          position:absolute; top:66px; right:20px; z-index:12;
+          display:flex; flex-direction:column; align-items:flex-end; gap:10px;
+          pointer-events:none; max-width:min(320px, calc(100% - 40px));
+        }
+        .rpe-vs .nudge-toast{
+          pointer-events:auto; display:flex; align-items:center; gap:12px;
+          padding:12px 14px; border-radius:14px; width:100%;
+          background:rgba(22,27,34,0.92); backdrop-filter:blur(10px);
+          border:1px solid rgba(124,58,237,0.4); color:var(--text-hi);
+          box-shadow:0 14px 34px rgba(0,0,0,0.4);
+          opacity:0; transform:translateX(24px);
+          animation: rpevsNudgeIn .4s var(--ease) forwards;
+          transition:transform .3s var(--ease), opacity .3s var(--ease);
+        }
+        @keyframes rpevsNudgeIn{ to{ opacity:1; transform:none; } }
+        .rpe-vs .nudge-toast.stacked{ transform:scale(0.94); opacity:0.55; }
+        .rpe-vs .nudge-toast.stacked:hover{ transform:scale(1); opacity:1; }
+        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:rgba(45,20,20,0.92); }
+        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:rgba(45,36,14,0.92); }
+        .rpe-vs .nudge-icon{
+          flex-shrink:0; width:30px; height:30px; border-radius:50%;
+          display:flex; align-items:center; justify-content:center;
+          background:var(--accent-glow); color:var(--accent);
+        }
+        .rpe-vs .nudge-toast.critical .nudge-icon{ background:var(--danger-glow); color:var(--danger); }
+        .rpe-vs .nudge-toast.warning .nudge-icon{ background:var(--warning-glow); color:var(--warning); }
+        .rpe-vs .nudge-body{ flex:1; min-width:0; }
+        .rpe-vs .nudge-text{ font-size:12.5px; font-weight:600; line-height:1.4; margin:0; }
+        .rpe-vs .nudge-time{ font-size:10px; color:var(--text-med); }
+        .rpe-vs .nudge-dismiss{
+          flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; cursor:pointer;
+          background:rgba(255,255,255,0.08); color:var(--text-med);
+          display:flex; align-items:center; justify-content:center;
+          transition:background .2s var(--ease), color .2s var(--ease);
+        }
+        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.16); color:var(--text-hi); }
 
         .rpe-vs .stage-bottom{
           position:absolute; bottom:0; left:0; right:0; z-index:5;
