@@ -53,7 +53,11 @@ export default function FeedbackForm() {
       presence_engagement: 75,
       emotional_intelligence: 75,
     },
-    sentiment: 'neutral',
+    // No pre-selection. This was 'neutral' - the one option now gone, and before
+    // that a recorded opinion from anyone who never touched the control. The
+    // whole point of this field is to compare what the learner says with what
+    // their words say, which is worth nothing if the default answered for them.
+    sentiment: '',
     comment: '',
   })
 
@@ -61,6 +65,8 @@ export default function FeedbackForm() {
   const [message, setMessage] = useState('')
   // The model's own reading of the written reflection, returned on save.
   const [reading, setReading] = useState(null)
+  // Null unless the reflection just written was about more than the session.
+  const [supportPath, setSupportPath] = useState(null)
   // Session options + status are loaded but not displayed in this restyle —
   // sidebar nav handles session selection. Kept to preserve existing fetch logic.
   // eslint-disable-next-line no-unused-vars
@@ -110,6 +116,7 @@ export default function FeedbackForm() {
     () =>
       Boolean(form.user_id.trim())
       && Boolean(form.session_id.trim())
+      && Boolean(form.sentiment)
       && form.comment.trim().length >= MIN_REFLECTION_LENGTH,
     [form]
   )
@@ -132,7 +139,9 @@ export default function FeedbackForm() {
       setMessage(
         !form.session_id.trim()
           ? 'Select a session first.'
-          : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
+          : !form.sentiment
+            ? 'Choose how the session felt overall.'
+            : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
       )
       return
     }
@@ -141,25 +150,54 @@ export default function FeedbackForm() {
     setMessage('')
 
     try {
-      // The written reflection travels with one entry; the sentiment you chose
-      // is recorded as *your* view, and the NLP model reads your words
-      // independently so the two can be compared afterwards.
       const written = form.comment.trim()
+      const userId = form.user_id.trim()
+      const sessionId = form.session_id.trim()
+
+      // Four ratings, one per skill, and nothing else on them.
       const promises = Object.entries(form.ratings).map(([skill, val]) => {
         return analyticsService.createFeedbackEntry({
-          user_id: form.user_id.trim(),
-          session_id: form.session_id.trim(),
+          user_id: userId,
+          session_id: sessionId,
           feedback_type: 'self',
           skill_area: skill,
           rating: val,
-          declared_sentiment: form.sentiment,
-          comment: skill === 'vocal_command' && written ? written : null
         })
       })
+
+      // The reflection is about the session, so it is its own entry: no skill,
+      // no rating, carrying the words and the sentiment you declared for them.
+      // It used to be stapled onto whichever row was vocal_command, which made
+      // the report print a thought about the whole session under that one skill.
+      // The NLP model reads the words independently, so the two readings can be
+      // compared afterwards.
+      if (written) {
+        promises.push(
+          analyticsService.createFeedbackEntry({
+            user_id: userId,
+            session_id: sessionId,
+            feedback_type: 'self',
+            // No skill and no rating. The form rates four skills; this is the
+            // one thing written about the session itself, so naming a skill area
+            // for it would put a fifth skill in the data that nobody rated.
+            skill_area: null,
+            rating: null,
+            comment: written,
+            declared_sentiment: form.sentiment,
+          })
+        )
+      }
 
       const saved = await Promise.all(promises)
       const analysed = saved.find((entry) => entry?.sentiment_source === 'model')
       setReading(analysed || null)
+
+      // Asked for after the save, so it reads the words as they were stored.
+      // Never allowed to fail the submit: the reflection is already safe, and a
+      // lookup that could not run is not a reason to show an error over it.
+      // optionalRequest wraps its result as { ok, data } - the payload is .data.
+      const support = await optionalRequest(() => analyticsService.getReflectionSupport(sessionId))
+      setSupportPath(support.data || null)
 
       setStatus('success')
       setMessage(
@@ -315,15 +353,19 @@ export default function FeedbackForm() {
             <SegmentedControl
               value={form.sentiment}
               onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
-              /* "Mixed" is offered because it is what learners actually write:
-                 every reflection collected so far says something went well and
-                 something did not. Without it they must round their own view to
-                 one pole, and the model then records a disagreement that is an
-                 artefact of these buttons rather than a fact about them. */
+              /* These are the three the model can return, and no more.
+                 "Neutral" used to be offered here, and the model has no such
+                 class - it is trained on negative/mixed/positive - so anyone who
+                 chose it was recorded as disagreeing with their own words no
+                 matter what they wrote. Six of the seventeen reflections read so
+                 far were marked neutral, and all six read back as a mismatch the
+                 learner could do nothing about.
+                 "Mixed" is what most of them mean anyway: every reflection
+                 collected so far says something went well and something did
+                 not. */
               options={[
                 { label: 'Positive', value: 'positive' },
                 { label: 'Mixed', value: 'mixed' },
-                { label: 'Neutral', value: 'neutral' },
                 { label: 'Negative', value: 'negative' },
               ]}
             />
@@ -381,6 +423,7 @@ export default function FeedbackForm() {
             )}
 
             {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
+            {supportPath && <SupportPathCard path={supportPath} />}
 
             {/* Once the evaluation is saved, "Complete evaluation" is no longer
                 the action available — offering it again invites a duplicate
@@ -438,7 +481,7 @@ export default function FeedbackForm() {
             <KeyValuePair k={<><Activity size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Type</>} v="Self reflection" />
             <KeyValuePair k={<><Star size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Skills</>} v="4 skills" />
             <KeyValuePair k={<><CheckCircle2 size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Avg rating</>} v={avgRating} mono />
-            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment}</span>} />
+            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment || 'Not chosen'}</span>} />
 
             <div
               style={{
@@ -510,6 +553,50 @@ function SentimentReading({ reading, declared }) {
         <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>
           Read by {reading.sentiment_model_version}. Nothing was overwritten — both readings are kept.
         </p>
+      </Card>
+    </div>
+  )
+}
+
+/**
+ * Where to go, when the words were about more than the session.
+ *
+ * Here rather than only on the recommendations page, because this is the moment
+ * the learner is thinking about what they just wrote; that page is later, and
+ * only if they go to it.
+ *
+ * Below the sentiment reading, and deliberately quiet. A red alarm over
+ * someone's sentence about their own life reads as the software reacting to
+ * them, and a learner who works out that certain words set something off will
+ * write a blander reflection next time. It offers phone numbers and says nothing
+ * about the person.
+ */
+function SupportPathCard({ path }) {
+  // Nothing to show is not a reason to take the page down with it. There is no
+  // error boundary in this app, so a bad shape here blanks the whole screen -
+  // which is how this component first shipped, handed optionalRequest's
+  // { ok, data } wrapper instead of the payload inside it.
+  if (!path?.message || !path.contacts?.length) return null
+
+  return (
+    <div style={{ width: '100%' }}>
+      <Card>
+        <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{path.message}</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 22px', marginTop: 12 }}>
+          {path.contacts.map((contact) => (
+            <div key={contact.number}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span className="fg" style={{ fontSize: 13, fontWeight: 600 }}>{contact.name}</span>
+                {/* Text, not a tel: link - on a laptop that opens nothing useful,
+                    and this is a number to read and dial from a phone. */}
+                <span className="fg" style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {contact.number}
+                </span>
+              </div>
+              <div className="t-cap" style={{ fontSize: 11 }}>{contact.detail}</div>
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
   )

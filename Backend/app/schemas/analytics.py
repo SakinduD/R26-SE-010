@@ -348,6 +348,35 @@ class BlindSpotSummary(BaseModel):
     sentiment_gap_count: int = 0
 
 
+class ReflectionReading(BaseModel):
+    """One written reflection, and what happened when the model read it.
+
+    Separate from SentimentBlindSpotItem, which is the subset that became a
+    finding. This is every reflection that was read, including the ones that
+    produced nothing, because the panel showing them had only findings to show
+    and stood empty the rest of the time - on a session where the learner had
+    written something, been read, and agreed with.
+
+    `outcome` is what separates them. `raised` became a finding; `agrees` means
+    the model read the text the way the learner marked it; `not_acted_on` means
+    it disagreed in a direction blind_spot_service has measured itself unreliable
+    about, so no finding was made.
+
+    The reading is returned in all three cases, with its confidence. Hiding it on
+    `not_acted_on` was tried and was worse: the learner's own sentence still sat
+    beside the sentiment they chose, so the disagreement was visible while the
+    page reported nothing found. Publishing the reading with its reliability is
+    the honest form of not acting on it.
+    """
+
+    session_id: str
+    comment_excerpt: str
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    outcome: Literal["agrees", "raised", "not_acted_on"]
+
+
 class BlindSpotDetectionResult(BaseModel):
     scope: Literal["session", "user"]
     user_id: str | None = None
@@ -355,6 +384,13 @@ class BlindSpotDetectionResult(BaseModel):
     summary: BlindSpotSummary
     blind_spots: list[BlindSpotItem]
     sentiment_gaps: list[SentimentBlindSpotItem] = []
+    # Every written reflection the model read in this scope, findings or not.
+    # An empty `sentiment_gaps` means one of two different things and the screen
+    # cannot tell them apart without this: nothing was written, or something was
+    # written and produced no finding. It said "write a reflection to have this
+    # checked" to a learner who had just written one.
+    reflection_readings: list[ReflectionReading] = []
+    reflections_examined: int = 0
     generated_at: datetime
     detection_version: str
 
@@ -445,6 +481,25 @@ class MentoringRecommendationItem(BaseModel):
     evidence_sources: list[str] = []
 
 
+class SupportContact(BaseModel):
+    name: str
+    number: str
+    detail: str
+
+
+class SupportPath(BaseModel):
+    """Where to go when a reflection was about more than the session.
+
+    Not a recommendation, and deliberately not in the recommendations list: those
+    are advice, they are written to the database, and neither is right for this.
+    This is computed when a response is built and is never stored.
+    """
+
+    level: Literal["support", "urgent"]
+    message: str
+    contacts: list[SupportContact]
+
+
 class MentoringRecommendationResult(BaseModel):
     user_id: str
     session_id: str | None = None
@@ -455,6 +510,10 @@ class MentoringRecommendationResult(BaseModel):
     model_version: str
     source: Literal["llm", "rule_based"]
     recommendation_type: Literal["overall_user", "session_specific"] = "overall_user"
+    # Present only when a written reflection tripped the distress rule. The
+    # recommendations above never mention the subject; this is the whole of the
+    # system's response to it.
+    support_path: SupportPath | None = None
 
 
 class PostSessionActionItem(BaseModel):
@@ -471,6 +530,37 @@ class PostSessionReportSummary(BaseModel):
     completion_status: Literal["complete", "partial", "empty"]
 
 
+class SkillContextItem(BaseModel):
+    """One skill in this session, against the same skill in every other session."""
+
+    skill_area: str
+    session_score: float
+    previous_average: float | None = None
+    delta: float | None = None
+    previous_best: float | None = None
+    is_personal_best: bool = False
+
+
+class SessionContext(BaseModel):
+    """Where this session sits among the learner's others.
+
+    The report answered "how did that go" with a score out of 100 and no way to
+    read it. 67 is a fine session for someone who usually scores 60 and a bad one
+    for someone who usually scores 82, and this learner is the second - so the
+    page opened on "Vocal Command held up" over their worst result in weeks.
+
+    Averages here exclude this session. Comparing a score against an average it
+    is itself part of shrinks the very difference the learner is being shown, and
+    on an account with three sessions it would hide it almost entirely.
+    """
+
+    sessions_compared: int
+    overall_score: float | None = None
+    previous_overall_average: float | None = None
+    overall_delta: float | None = None
+    skills: list[SkillContextItem] = []
+
+
 class PostSessionReportResult(BaseModel):
     session_id: str
     user_id: str | None = None
@@ -481,6 +571,9 @@ class PostSessionReportResult(BaseModel):
     blind_spots: BlindSpotDetectionResult
     action_items: list[PostSessionActionItem]
     computed_predictions: list[PredictiveModelingItem] = []
+    # Absent on a learner's first session: there is nothing to compare against
+    # yet, and an empty comparison is worse than none.
+    context: SessionContext | None = None
     generated_at: datetime
     report_version: str
 

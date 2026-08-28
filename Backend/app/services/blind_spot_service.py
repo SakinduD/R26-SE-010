@@ -8,6 +8,7 @@ from app.schemas.analytics import (
     BlindSpotItem,
     BlindSpotSummary,
     FeedbackAlignmentItem,
+    ReflectionReading,
     SentimentBlindSpotItem,
 )
 from app.services import feedback_analysis_service
@@ -93,7 +94,7 @@ def detect_session_blind_spots(db: Session, session_id: str) -> BlindSpotDetecti
         user_id=analysis.user_id,
         session_id=session_id,
         items=analysis.items,
-        sentiment_gaps=_detect_sentiment_gaps(db, session_id=session_id),
+        **_sentiment_findings(db, session_id=session_id),
     )
 
 
@@ -108,8 +109,18 @@ def detect_user_blind_spots(
         user_id=user_id,
         session_id=None,
         items=analysis.items,
-        sentiment_gaps=_detect_sentiment_gaps(db, user_id=user_id, limit=limit),
+        **_sentiment_findings(db, user_id=user_id, limit=limit),
     )
+
+
+def _sentiment_findings(db: Session, **kwargs) -> dict:
+    """Keyword bundle for _build_result: the findings, and every reading behind them."""
+    gaps, readings = _detect_sentiment_gaps(db, **kwargs)
+    return {
+        "sentiment_gaps": gaps,
+        "reflection_readings": readings,
+        "reflections_examined": len(readings),
+    }
 
 
 def _detect_sentiment_gaps(
@@ -118,11 +129,13 @@ def _detect_sentiment_gaps(
     session_id: str | None = None,
     user_id: str | None = None,
     limit: int = FULL_HISTORY_LIMIT,
-) -> list[SentimentBlindSpotItem]:
-    """Where the learner's stated sentiment disagrees with their own wording.
+) -> tuple[list[SentimentBlindSpotItem], list[ReflectionReading]]:
+    """The gaps found, and every reading they were drawn from.
 
     Only entries the NLP model actually judged are considered - a rule-derived
-    label carries no independent reading to disagree with.
+    label carries no independent reading to disagree with. That is also what
+    makes the second list the right denominator: it holds reflections genuinely
+    put to the model, not every row that happens to contain text.
     """
     query = db.query(FeedbackEntry).filter(
         FeedbackEntry.sentiment_source == "model",
@@ -142,7 +155,53 @@ def _detect_sentiment_gaps(
         if (gap := _sentiment_gap_from_entry(entry)) is not None
     ]
     gaps.sort(key=lambda item: (item.severity == "high", item.confidence), reverse=True)
-    return gaps
+
+    raised = {(gap.session_id, gap.comment_excerpt) for gap in gaps}
+    readings = [_reading_from_entry(entry, raised) for entry in entries]
+    # Readings outnumber findings whenever a reading agrees with the learner, and
+    # whenever one disagrees in a direction this module has measured itself
+    # unreliable about. Both are worth returning: a panel with only findings to
+    # show stands empty on a session where the learner did write something.
+    return gaps, readings
+
+
+def _reading_from_entry(entry: FeedbackEntry, raised: set) -> ReflectionReading:
+    comment = (entry.comment or "").strip()
+    excerpt = comment[:COMMENT_EXCERPT_LENGTH]
+    if len(comment) > COMMENT_EXCERPT_LENGTH:
+        excerpt += "..."
+
+    if (entry.session_id, excerpt) in raised:
+        outcome = "raised"
+    elif entry.sentiment == entry.declared_sentiment:
+        outcome = "agrees"
+    else:
+        outcome = "not_acted_on"
+
+    # The label is returned for every outcome, including the ones this module
+    # declines to act on.
+    #
+    # It was withheld at first, on the reasoning that printing it would state the
+    # finding while claiming not to make it. Withholding turned out worse. The
+    # screen still showed the learner's own sentence beside the sentiment they
+    # chose, so the disagreement was plainly visible - "I think I don't perform
+    # well because I was nervous", marked positive - under a heading that read
+    # "0 gaps" and a note that explained nothing. It looked like the system had
+    # missed what the reader could see.
+    #
+    # What TRUSTED_DETECTED_SENTIMENTS protects against is a finding asserted
+    # with authority that is wrong three times in ten. The answer to that is to
+    # publish the reading with its reliability rather than to hide it: the
+    # learner already saw this reading on the form when they wrote it, and here
+    # it is context for their own words, not a verdict about them.
+    return ReflectionReading(
+        session_id=entry.session_id,
+        comment_excerpt=excerpt,
+        declared_sentiment=entry.declared_sentiment,
+        detected_sentiment=entry.sentiment,
+        confidence=entry.sentiment_confidence,
+        outcome=outcome,
+    )
 
 
 def _sentiment_gap_from_entry(entry: FeedbackEntry) -> SentimentBlindSpotItem | None:
@@ -221,6 +280,8 @@ def _build_result(
     session_id: str | None,
     items: list[FeedbackAlignmentItem],
     sentiment_gaps: list[SentimentBlindSpotItem] | None = None,
+    reflection_readings: list[ReflectionReading] | None = None,
+    reflections_examined: int = 0,
 ) -> BlindSpotDetectionResult:
     blind_spots = sorted(
         [
@@ -239,6 +300,8 @@ def _build_result(
         summary=_summarize(blind_spots, sentiment_gaps or []),
         blind_spots=blind_spots,
         sentiment_gaps=sentiment_gaps or [],
+        reflection_readings=reflection_readings or [],
+        reflections_examined=reflections_examined,
         generated_at=datetime.utcnow(),
         detection_version=DETECTION_VERSION,
     )

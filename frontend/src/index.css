@@ -397,6 +397,22 @@ button { font-family: inherit; }
 .badge-danger  { color: var(--danger); border-color: oklch(0.660 0.180 20 / 0.35); background: var(--danger-soft); }
 .badge-info    { color: var(--info); border-color: oklch(0.700 0.130 230 / 0.35); background: var(--info-soft); }
 
+/* Report rows — stripe colour comes in as --row-tone so :hover can keep it */
+.report-row {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--row-tone, var(--border-strong));
+  background: var(--bg-input);
+  transition: border-color var(--dur-fast) var(--ease),
+              background var(--dur-fast) var(--ease);
+}
+.report-row:hover {
+  border-color: var(--border-default);
+  border-left-color: var(--row-tone, var(--border-strong));
+  background: var(--bg-elevated);
+}
+
 /* Banners */
 .banner {
   display: flex; gap: 12px; align-items: flex-start;

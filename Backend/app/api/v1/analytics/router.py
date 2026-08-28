@@ -34,6 +34,7 @@ from app.schemas.analytics import (
     GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
+    SupportPath,
     PostSessionReportResult,
     LearnerSessionOption,
     LearnerSessionPage,
@@ -797,6 +798,31 @@ def get_user_mentoring_recommendations(
 
 
 @router.get(
+    "/sessions/{session_id}/reflection-support",
+    response_model=SupportPath | None,
+)
+def get_session_reflection_support(session_id: str, db: Session = Depends(get_db)):
+    """The offer of a way out for the reflection just written on this session.
+
+    Its own endpoint so the self-reflection form can show this the moment the
+    words are written, which is when the learner is actually thinking about them
+    - the recommendations page is later, and only if they go there.
+
+    The phrase list stays on the server and is asked for rather than copied into
+    the browser. A safety rule with two copies has none: the two would drift, and
+    the one that drifted would be the one nobody was reading.
+
+    Returns null when there is nothing to offer, which is the common case.
+    """
+    try:
+        return llm_mentoring_service.support_path(db, session_id)
+    except Exception as exc:
+        # Never break the page that just saved the learner's reflection.
+        logger.warning("Reflection support lookup failed for %s: %s", session_id, exc)
+        return None
+
+
+@router.get(
     "/sessions/{session_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
 )
@@ -849,6 +875,10 @@ def get_session_mentoring_recommendations(
                     model_version=cached_recs[0].model_version,
                     source=cached_recs[0].source,
                     recommendation_type="session_specific",
+                    # Recomputed, never cached. The recommendations here are the
+                    # stored ones; a safety path that vanished on the second page
+                    # load would not be one.
+                    support_path=llm_mentoring_service.support_path(db, session_id),
                 )
 
         # Generate new recommendations (first time or explicit refresh)

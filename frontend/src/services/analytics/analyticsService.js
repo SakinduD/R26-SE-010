@@ -12,6 +12,11 @@ export const analyticsService = {
   getBlindSpotsBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/blind-spots`).then(unwrap),
 
+  // Null when there is nothing to offer, which is the common case. The phrase
+  // list this answers from lives on the server; see reflection_support.py.
+  getReflectionSupport: (sessionId) =>
+    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/reflection-support`).then(unwrap),
+
   getFeedbackAnalysisByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/feedback-analysis`).then(unwrap),
 

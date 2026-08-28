@@ -8,15 +8,19 @@ from app.schemas.analytics import (
     PostSessionActionItem,
     PostSessionReportResult,
     PostSessionReportSummary,
+    SessionContext,
+    SkillContextItem,
     SkillPredictionRead,
     SkillScoreBreakdown,
     SkillScoreResult,
 )
+from app.models.analytics import AnalyticsSessionMetric
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
     predictive_modeling_service,
+    progress_trend_service,
 )
 
 
@@ -31,12 +35,16 @@ SKILL_LABELS = {
 
 # Maps each composite MCA skill → the raw DB metric fields that contribute to it.
 # Scores are averaged across whichever fields are present in the session aggregate.
-COMPOSITE_SCORE_FIELDS: dict[str, list[str]] = {
-    "vocal_command": ["speech_volume_score", "professionalism_score"],
-    "speech_fluency": ["speech_pace_score", "clarity_score"],
-    "presence_engagement": ["eye_contact_score", "confidence_score"],
-    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
-}
+#
+# Borrowed rather than restated. This module kept its own copy, which listed
+# professionalism_score under vocal_command where feedback_analysis_service did
+# not - so the radar's "Measured" value and the blind spot's "Measured" value for
+# the same skill were averages of different fields. Nothing writes
+# professionalism_score today (the MCA integration maps vocal_command onto
+# speech_volume_score alone and sets professionalism to None), so the two agreed
+# by accident; the day anything filled that column they would have parted without
+# a line of code changing.
+COMPOSITE_SCORE_FIELDS = feedback_analysis_service.OBSERVED_SCORE_FIELDS
 
 def generate_session_report(db: Session, session_id: str) -> PostSessionReportResult:
     aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
@@ -63,19 +71,101 @@ def generate_session_report(db: Session, session_id: str) -> PostSessionReportRe
         skill_scores=skill_scores,
         feedback_analysis=feedback_analysis,
         blind_spots=blind_spots,
-        action_items=_build_action_items(skill_scores, blind_spots, aggregate.predictions.latest_predictions),
+        # The same predictions the report displays. The page prefers the freshly
+        # computed ones and falls back to the stored rows; building actions from
+        # the stored rows alone meant a high risk could be on screen with nothing
+        # in "Things to try" about it - stored rows are empty on these sessions,
+        # so every computed high risk was silently dropped.
+        action_items=_build_action_items(
+            skill_scores,
+            blind_spots,
+            computed_predictions or aggregate.predictions.latest_predictions,
+        ),
         computed_predictions=computed_predictions,
+        context=_session_in_context(db, user_id, session_id, skill_scores) if user_id else None,
         generated_at=datetime.utcnow(),
         report_version=REPORT_VERSION,
+    )
+
+
+def _session_in_context(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    skill_scores: SkillScoreResult,
+) -> SessionContext | None:
+    """This session measured against every other session the learner has.
+
+    A score out of 100 cannot be read on its own. 67 is a good session for
+    someone who usually scores 60 and a poor one for someone who usually scores
+    82, and the report had no way to say which - it opened with "Vocal Command
+    held up" over this learner's worst result in weeks.
+
+    Every average here excludes the session being reported on. Comparing a score
+    against an average that contains it shrinks the difference being shown, and
+    on a short history it erases it: with three sessions, a score sits a third of
+    the way into its own comparison.
+    """
+    others = [
+        float(score)
+        for stored_session, score in db.query(
+            AnalyticsSessionMetric.session_id, AnalyticsSessionMetric.overall_score
+        )
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.overall_score.isnot(None))
+        .all()
+        if stored_session != session_id
+    ]
+    if not others:
+        return None
+
+    trends = progress_trend_service.analyze_user_progress_trends(db, user_id)
+    skills: list[SkillContextItem] = []
+    for trend in trends.trends:
+        session_score = skill_scores.skill_scores.get(trend.skill_area)
+        if session_score is None:
+            continue
+        previous = [point.score for point in trend.points if point.session_id != session_id]
+        if not previous:
+            continue
+        average = round(sum(previous) / len(previous), 2)
+        best = max(previous)
+        skills.append(
+            SkillContextItem(
+                skill_area=trend.skill_area,
+                session_score=round(float(session_score), 2),
+                previous_average=average,
+                delta=round(float(session_score) - average, 2),
+                previous_best=best,
+                is_personal_best=float(session_score) > best,
+            )
+        )
+
+    overall = skill_scores.overall_score
+    previous_overall = round(sum(others) / len(others), 2)
+    return SessionContext(
+        sessions_compared=len(others),
+        overall_score=overall,
+        previous_overall_average=previous_overall,
+        overall_delta=round(overall - previous_overall, 2) if overall is not None else None,
+        skills=skills,
     )
 
 
 def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreResult:
     """Build composite MCA skill scores from the session aggregate.
 
-    Priority order (same as Analytics Dashboard):
-    1. Average the raw DB metric fields that belong to each composite skill.
-    2. If no metric fields are present, fall back to skill_rating_averages from feedback.
+    A skill scores only from the raw DB metric fields that belong to it. With no
+    metric fields it has no score, and the radar's existing `hasEvidence` path
+    renders it as not measured.
+
+    It used to fall back to the feedback averages, which are mostly the learner's
+    own ratings. On a session the engine never scored, that put the learner's
+    opinion in the "Observed" column beside the same numbers under "Self-Rating",
+    reported their mean as the session's score, and left blind spot detection
+    comparing a rating against itself - which is why such a session always read
+    "0 gaps". A page built to compare measurement with self-assessment cannot
+    substitute one for the other.
 
     Overall is the multimodal engine's own score, read from the stored
     `overall_score`, not the mean of the four composites. It used to be that mean,
@@ -100,10 +190,6 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         if vals:
             score = round(sum(v for _, v in vals) / len(vals), 2)
             inputs_used = [f for f, _ in vals]
-        elif skill_name in feedback_avgs and feedback_avgs[skill_name] is not None:
-            # Fall back to overall feedback average for this skill (matches Dashboard)
-            score = round(feedback_avgs[skill_name], 2)
-            inputs_used = [f"feedback:{skill_name}"]
         else:
             score = None
             inputs_used = []
@@ -118,8 +204,6 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         overall_score = round(float(stored_overall), 2)
     elif available_scores:
         overall_score = round(sum(available_scores) / len(available_scores), 2)
-    elif aggregate.feedback.average_rating is not None:
-        overall_score = round(aggregate.feedback.average_rating, 2)
     else:
         overall_score = None
 
@@ -284,9 +368,12 @@ def _build_action_items(
                 priority="medium" if score < 60 else "low",
                 skill_area=skill_area,
                 title=f"Practice {_label(skill_area)}",
+                # "before the next role-play session" - role-play is a separate
+                # module and nothing in this component reports on it. The
+                # sessions this report is about are multimodal ones.
                 detail=(
                     f"Current score is {round(score)}. Add one focused exercise for "
-                    f"{_label(skill_area).lower()} before the next role-play session."
+                    f"{_label(skill_area).lower()} before your next session."
                 ),
             )
         )
@@ -317,11 +404,19 @@ def _build_action_items(
 
 
 def _lowest_scores(skill_scores: SkillScoreResult) -> list[tuple[str, float]]:
+    """The skills weak enough to earn a practice item.
+
+    Bounded by STRENGTH_SCORE, not by a number of its own. It used to cut at 72
+    while _top_strengths kept everything from 70 up, so a skill scoring 70 or 71
+    was a strength and a weakness at once - this session listed Presence &
+    Engagement at 70 under "held up well" and then told the learner to practise
+    it, two panels apart on the same screen.
+    """
     return sorted(
         [
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 72
+            if score is not None and score < STRENGTH_SCORE
         ],
         key=lambda item: item[1],
     )[:3]

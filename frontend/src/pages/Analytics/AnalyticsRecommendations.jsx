@@ -43,6 +43,12 @@ export default function AnalyticsRecommendationsNew() {
   const recommendations = mode === 'overall'
     ? (overallCache?.recommendations || [])
     : (sessionCache[sessionId]?.recommendations || [])
+
+  // Present only when a reflection was about more than practice. See
+  // reflection_support.py for why this is not one of the recommendations.
+  const supportPath = mode === 'overall'
+    ? (overallCache?.supportPath || null)
+    : (sessionCache[sessionId]?.supportPath || null)
   const evidence = mode === 'overall'
     ? (overallCache?.evidence || null)
     : (sessionCache[sessionId]?.evidence || null)
@@ -84,7 +90,7 @@ export default function AnalyticsRecommendationsNew() {
       setError('')
       try {
         const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, false)
-        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null } }))
       } catch (err) {
         hasFetchedSession.current[sessionId] = false // allow retry
         setError(err.response?.data?.detail || err.message || 'Could not load recommendations')
@@ -107,7 +113,7 @@ export default function AnalyticsRecommendationsNew() {
       setError('')
       try {
         const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, false)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null })
       } catch (err) {
         hasFetchedOverall.current = false // allow retry
         setError(err.response?.data?.detail || err.message || 'Could not load overall recommendations')
@@ -124,10 +130,10 @@ export default function AnalyticsRecommendationsNew() {
     try {
       if (mode === 'session' && sessionId) {
         const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, true)
-        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null } }))
       } else if (mode === 'overall') {
         const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, true)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null })
       }
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Could not refresh recommendations')
@@ -361,6 +367,8 @@ export default function AnalyticsRecommendationsNew() {
                         <RecommendationCard key={idx} recommendation={rec} />
                       ))}
                     </div>
+
+                    <SupportPathNotice path={supportPath} />
                   </div>
                 )}
               </div>
@@ -369,6 +377,52 @@ export default function AnalyticsRecommendationsNew() {
         )}
       </div>
     </main>
+  )
+}
+
+/**
+ * The one thing this page says about a reflection that was not about practice.
+ *
+ * Below the advice, not above it: it is not a recommendation, it is not ranked
+ * against them, and it does not replace them. Quiet on purpose - a red alarm over
+ * someone's sentence about their own life reads as the software reacting to them,
+ * and a learner who works out that certain words trigger something will write
+ * blander reflections from then on.
+ *
+ * It offers phone numbers and says nothing about the person.
+ */
+function SupportPathNotice({ path }) {
+  // A shape check, not just a null check. There is no error boundary in this
+  // app, so one undefined field here takes the whole page down.
+  if (!path?.message || !path.contacts?.length) return null
+
+  return (
+    <div
+      className="mt-4"
+      style={{
+        padding: '14px 16px',
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-default)',
+        background: 'var(--bg-elevated)',
+      }}
+    >
+      <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{path.message}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 22px', marginTop: 12 }}>
+        {path.contacts.map((contact) => (
+          <div key={contact.number}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span className="fg" style={{ fontSize: 13, fontWeight: 600 }}>{contact.name}</span>
+              {/* Text, not a tel: link - on a laptop that opens nothing useful,
+                  and this number needs to be readable and dialled from a phone. */}
+              <span className="fg" style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {contact.number}
+              </span>
+            </div>
+            <div className="t-cap" style={{ fontSize: 11 }}>{contact.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
