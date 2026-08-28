@@ -39,6 +39,23 @@
   --danger:  oklch(0.660 0.180 20);
   --info:    oklch(0.700 0.130 230);
 
+  /* Semantic colours, adjusted for text.
+     The four above are picked to sit on a dark ground: --warning is lightness
+     0.760, which is about 1.8:1 on a pale surface - below the 3:1 even large
+     text is allowed. Used as a fill, a stroke or a 7px dot they are fine on
+     either ground; used as text they are only fine on one.
+     These mix each hue toward whatever the current theme calls text, so the
+     result darkens on a light ground and lightens on a dark one without either
+     theme having to know about the other. Mixed in oklab, not oklch: oklch
+     interpolates the hue channel, and mixing amber (75) toward a text colour at
+     hue 264 rotates it to about 24 - orange-red, not amber. oklab has no hue
+     channel, so the hue survives and only lightness and chroma move. A theme that wants exact values can
+     override these four directly. */
+  --success-text: color-mix(in oklab, var(--success), var(--text-primary) 30%);
+  --warning-text: color-mix(in oklab, var(--warning), var(--text-primary) 30%);
+  --danger-text:  color-mix(in oklab, var(--danger),  var(--text-primary) 30%);
+  --info-text:    color-mix(in oklab, var(--info),    var(--text-primary) 30%);
+
   --success-soft: oklch(0.700 0.150 165 / 0.12);
   --warning-soft: oklch(0.760 0.140 75 / 0.12);
   --danger-soft:  oklch(0.660 0.180 20 / 0.12);

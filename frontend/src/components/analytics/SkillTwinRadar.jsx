@@ -30,12 +30,12 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
         {/* Legend */}
         <div className="mt-4 flex items-center gap-5 text-[11px]">
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{background:'rgba(14,116,144,0.4)', border:'2px solid rgb(14,116,144)'}} />
+            <span className="inline-block w-3 h-3 rounded-sm" style={{background:'color-mix(in oklab, var(--accent) 40%, transparent)', border:'2px solid var(--accent)'}} />
             <span className="text-muted-foreground font-medium">Observed</span>
           </div>
           {hasSelfData && (
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{background:'rgba(245,158,11,0.3)', border:'2px solid rgb(245,158,11)'}} />
+              <span className="inline-block w-3 h-3 rounded-sm" style={{background:'color-mix(in oklab, var(--warning) 30%, transparent)', border:'2px solid var(--warning)'}} />
               <span className="text-muted-foreground font-medium">Self Rating</span>
             </div>
           )}
@@ -128,14 +128,14 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
           {points.every((p) => p.hasSelf) && (
             <polygon
               points={points.map((p) => `${p.selfX},${p.selfY}`).join(' ')}
-              fill="rgba(245, 158, 11, 0.15)"
-              stroke="rgb(245, 158, 11)"
+              fill="color-mix(in oklab, var(--warning) 15%, transparent)"
+              stroke="var(--warning)"
               strokeWidth="2"
               strokeDasharray="4 2"
             />
           )}
           {points.map((p) => (
-            p.hasSelf && <circle key={'s-'+p.key} cx={p.selfX} cy={p.selfY} r="3" fill="rgb(245, 158, 11)" />
+            p.hasSelf && <circle key={'s-'+p.key} cx={p.selfX} cy={p.selfY} r="3" fill="var(--warning)" />
           ))}
         </>
       )}
@@ -146,13 +146,13 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
       {points.every((p) => p.hasEvidence) && (
         <polygon
           points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-          fill="rgba(14, 116, 144, 0.2)"
-          stroke="rgb(14, 116, 144)"
+          fill="color-mix(in oklab, var(--accent) 20%, transparent)"
+          stroke="var(--accent)"
           strokeWidth="2"
         />
       )}
       {points.map((p) => (
-        p.hasEvidence && <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="rgb(14, 116, 144)" />
+        p.hasEvidence && <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="var(--accent)" />
       ))}
 
       {points.map((point) => (
@@ -171,21 +171,21 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
             <g transform={`translate(${point.labelX > center ? -125 : 5}, 15)`}>
               <rect x="0" y="0" width="120"
                 height={hasSelfData && point.hasSelf ? 48 : 34} rx="6"
-                fill="rgba(15,23,42,0.95)" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-              <text x="60" y="16" textAnchor="middle" className="text-[10px]" fill="white" fontWeight="bold">
+                fill="var(--bg-elevated)" stroke="var(--border-default)" strokeWidth="1" />
+              <text x="60" y="16" textAnchor="middle" className="text-[10px]" fill="var(--text-primary)" fontWeight="bold">
                 {point.label}
               </text>
-              <text x="35" y="32" textAnchor="middle" className="text-[9px]" fill="rgb(14,186,197)">
+              <text x="35" y="32" textAnchor="middle" className="text-[9px]" fill="var(--accent)">
                 Obs: {point.hasEvidence ? Math.round(point.value) : '--'}
               </text>
               {hasSelfData && point.hasSelf && (
-                <text x="85" y="32" textAnchor="middle" className="text-[9px]" fill="rgb(245,158,11)">
+                <text x="85" y="32" textAnchor="middle" className="text-[9px]" fill="var(--warning)">
                   Self: {Math.round(point.selfVal)}
                 </text>
               )}
               {hasSelfData && point.hasSelf && (
                 <text x="60" y="42" textAnchor="middle" className="text-[8px]"
-                  fill={point.selfVal > point.value ? '#fca5a5' : '#86efac'}>
+                  fill={point.selfVal > point.value ? 'var(--danger-text)' : 'var(--success-text)'}>
                   Gap: {Math.abs(Math.round(point.selfVal - point.value))} pts
                 </text>
               )}
@@ -199,7 +199,7 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
 
 function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall }) {
   const hasSelf = Number.isFinite(selfValue)
-  const barColor = isOverall ? 'rgb(139, 92, 246)' : 'rgb(14, 116, 144)'
+  const barColor = isOverall ? 'var(--accent)' : 'var(--accent)'
   
   return (
     <div>
@@ -209,7 +209,7 @@ function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall
         </span>
         <div className="flex items-center gap-2 shrink-0">
           {hasSelfData && hasSelf && (
-            <span style={{color:'rgb(245,158,11)'}} className="text-xs font-medium">{Math.round(selfValue)}</span>
+            <span style={{color:'var(--warning)'}} className="text-xs font-medium">{Math.round(selfValue)}</span>
           )}
           <span className={`${isOverall ? 'text-sm' : 'text-xs text-muted-foreground'} font-bold`}>
             {hasEvidence ? Math.round(value) : 'N/A'}
@@ -218,7 +218,7 @@ function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall
       </div>
       <div className="relative h-2 rounded-full bg-muted">
         {hasSelfData && hasSelf && (
-          <div className="absolute top-0 left-0 h-2 rounded-full" style={{ width: `${selfValue}%`, backgroundColor: 'rgba(245,158,11,0.4)' }} />
+          <div className="absolute top-0 left-0 h-2 rounded-full" style={{ width: `${selfValue}%`, backgroundColor: 'color-mix(in oklab, var(--warning) 40%, transparent)' }} />
         )}
         <div className="relative h-2 rounded-full" style={{ width: `${hasEvidence ? value : 0}%`, backgroundColor: barColor }} />
       </div>

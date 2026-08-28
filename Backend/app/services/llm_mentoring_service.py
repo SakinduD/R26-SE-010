@@ -431,13 +431,21 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     summary_data = {
         "session_id": session_id,
         "user_id": user_id,
-        # Self rows only. The screen labels this "Skills you rated", and
-        # total_count is every feedback row on the session - four notes this
-        # codebase generated, plus a mentor comment, plus the learner's four
-        # ratings - so a learner who rated four skills was shown nine.
-        # `feedback_entry_count` below is where the full total belongs.
+        # Skills rated, which is what the screen labels this - not rows.
+        #
+        # total_count is every feedback row on the session, so a learner who
+        # rated four skills was once shown nine. Counting self rows instead fixed
+        # most of that but not all: the written reflection is also a self row,
+        # carrying no skill and no rating, so four rated skills read as five.
+        # Counting the skills that actually hold a rating is the thing the label
+        # claims, and it cannot drift again as new kinds of row are added.
         "feedback_count": (
-            aggregate.feedback.by_type.get("self", 0) if aggregate else 0
+            len([
+                skill for skill in aggregate.feedback.self_rating_averages
+                if skill in feedback_analysis_service.OBSERVED_SCORE_FIELDS
+            ])
+            if aggregate
+            else 0
         ),
         "feedback_entry_count": aggregate.feedback.total_count if aggregate else 0,
         "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
