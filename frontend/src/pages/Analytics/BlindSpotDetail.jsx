@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -143,11 +143,25 @@ export default function BlindSpotDetail() {
 
   useEffect(() => { if (scope === 'user') setUserId(connectedUserId) }, [connectedUserId, scope])
 
+  // Load whatever is selected, as soon as it is selected.
+  //
+  // Only the user scope loaded itself; picking a session, or picking a different
+  // one, left the previous results on screen until Load Results was pressed - so
+  // the page showed one session's gaps under another session's name. One effect
+  // covers both scopes, keyed on what is actually being looked at, so switching
+  // away and back reloads rather than leaving the other scope's data in place.
+  // The button stays, for re-reading the same target.
+  const loadedTargetRef = useRef(null)
+
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated && connectedUserId && scope === 'user') {
-      loadBlindSpots('user', connectedUserId, sessionId)
-    }
-  }, [connectedUserId, isAuthLoading, isAuthenticated, scope])
+    if (isAuthLoading || !isAuthenticated) return
+    const targetId = scope === 'session' ? sessionId : connectedUserId
+    if (!targetId) return
+    const target = `${scope}:${targetId}`
+    if (target === loadedTargetRef.current) return
+    loadedTargetRef.current = target
+    loadBlindSpots(scope, connectedUserId, sessionId)
+  }, [scope, sessionId, connectedUserId, isAuthLoading, isAuthenticated])
 
   useEffect(() => {
     let isActive = true
