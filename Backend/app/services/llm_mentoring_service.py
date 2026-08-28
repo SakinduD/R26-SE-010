@@ -10,13 +10,19 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.database import SessionLocal
 from app.models.analytics import MentoringRecommendation
-from app.schemas.analytics import MentoringRecommendationItem, MentoringRecommendationResult
+from app.models.analytics import FeedbackEntry
+from app.schemas.analytics import (
+    MentoringRecommendationItem,
+    MentoringRecommendationResult,
+    SupportPath,
+)
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
     predictive_modeling_service,
     progress_trend_service,
+    reflection_support,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +90,10 @@ def generate_user_mentoring_recommendations(
     """
     evidence_bundle = _collect_evidence(db, user_id, limit)
     settings = get_settings()
+    # No support path on the overall view. It belongs beside the session it was
+    # written on; here it would sit over advice from a whole history, attached to
+    # nothing the learner could point at.
+    learner_support_path = None
 
     llm_items = (
         _call_openai_mentoring(evidence_bundle)
@@ -100,6 +110,7 @@ def generate_user_mentoring_recommendations(
             model_version=settings.openai_mentoring_model,
             source="llm",
             recommendation_type="overall_user",
+            support_path=learner_support_path,
         )
         # Save to database
         _save_recommendations_to_db(db, result)
@@ -115,6 +126,7 @@ def generate_user_mentoring_recommendations(
         model_version=FALLBACK_MODEL_VERSION,
         source="rule_based",
         recommendation_type="overall_user",
+        support_path=learner_support_path,
     )
     # Save to database
     _save_recommendations_to_db(db, result)
@@ -130,6 +142,8 @@ def generate_session_mentoring_recommendations(
     
     evidence_bundle = _collect_session_evidence(db, session_id)
     settings = get_settings()
+    # Computed before either branch: the offer must not depend on which one runs.
+    learner_support_path = support_path(db, session_id)
 
     llm_items = (
         _call_openai_session_mentoring(evidence_bundle)
@@ -147,6 +161,7 @@ def generate_session_mentoring_recommendations(
             model_version=settings.openai_mentoring_model,
             source="llm",
             recommendation_type="session_specific",
+            support_path=learner_support_path,
         )
         # Save to database
         _save_recommendations_to_db(db, result)
@@ -163,6 +178,7 @@ def generate_session_mentoring_recommendations(
         model_version=FALLBACK_MODEL_VERSION,
         source="rule_based",
         recommendation_type="session_specific",
+        support_path=learner_support_path,
     )
     # Save to database
     _save_recommendations_to_db(db, result)
@@ -849,13 +865,74 @@ def _rank_predictions(items):
 
 
 def _compact_feedback(entry: dict[str, Any]) -> dict[str, Any]:
+    """One feedback row as the prompt sees it, minus anything it must not use.
+
+    _BOUNDARY_RULES tells the model not to respond to a reflection about distress,
+    health or the learner's personal life. That rule stopped it writing about the
+    subject - but the words stayed in the evidence, and the model is asked for one
+    recommendation per skill, so a sentence about someone's week still shaped the
+    emotional_intelligence card without ever being named. Silence about a subject
+    is not the same as not reasoning from it.
+
+    So the text is withheld rather than merely forbidden, the same way
+    _has_usable_evidence enforces a prompt rule in code instead of asking twice.
+    The rating and the sentiment stay: those are about the session, and they are
+    what the model is entitled to.
+
+    This drops the practice content of a mixed reflection along with the rest -
+    "I was overwhelmed all week and I rushed my opening" loses the opening. That
+    is the right trade at a safety boundary, and it is a small loss: the model
+    still has scores, blind spots, trends and predictions to work from.
+    """
+    comment = entry.get("comment")
+    if reflection_support.distress_level(comment) is not None:
+        comment = None
     return {
         "feedback_type": entry.get("feedback_type"),
         "skill_area": entry.get("skill_area"),
         "rating": entry.get("rating"),
         "sentiment": entry.get("sentiment"),
-        "comment": entry.get("comment"),
+        "comment": comment,
     }
+
+
+# How many recent reflections the offer is read from.
+#
+# Not the learner's whole history: user-level advice is drawn from everything they
+# have done, but offering a helpline over a sentence written months ago would be
+# answering something that has already passed. This matches the reflections the
+# advice itself was composed from.
+_SUPPORT_REFLECTION_LIMIT = 5
+
+
+def support_path(db: Session, session_id: str) -> SupportPath | None:
+    """The offer of a way out, for one session's reflections.
+
+    One session, never a whole history, and the signature says so rather than
+    leaving it to whoever calls it. Offered across everything a learner had ever
+    written, this appeared beside advice drawn from months of sessions with
+    nothing to attach it to - a standing statement about the person rather than a
+    reply to something they wrote. Beside the session they wrote it on, it is an
+    answer to that.
+
+    Read here rather than out of the evidence bundle, because that bundle is
+    serialised whole into the prompt - anything put in it for another purpose
+    would reach the model, which is the one thing this must not do. Sourcing it
+    separately also means the offer does not depend on the prompt-shaping code,
+    on the model answering, or on there being an API key at all.
+    """
+    rows = (
+        db.query(FeedbackEntry.comment)
+        .filter(
+            FeedbackEntry.feedback_type == "self",
+            FeedbackEntry.comment.isnot(None),
+            FeedbackEntry.session_id == session_id,
+        )
+        .order_by(FeedbackEntry.created_at.desc())
+        .limit(_SUPPORT_REFLECTION_LIMIT)
+        .all()
+    )
+    return reflection_support.support_path_for([row[0] for row in rows])
 
 
 def _compact_trend(item: dict[str, Any]) -> dict[str, Any]:

@@ -481,6 +481,25 @@ class MentoringRecommendationItem(BaseModel):
     evidence_sources: list[str] = []
 
 
+class SupportContact(BaseModel):
+    name: str
+    number: str
+    detail: str
+
+
+class SupportPath(BaseModel):
+    """Where to go when a reflection was about more than the session.
+
+    Not a recommendation, and deliberately not in the recommendations list: those
+    are advice, they are written to the database, and neither is right for this.
+    This is computed when a response is built and is never stored.
+    """
+
+    level: Literal["support", "urgent"]
+    message: str
+    contacts: list[SupportContact]
+
+
 class MentoringRecommendationResult(BaseModel):
     user_id: str
     session_id: str | None = None
@@ -491,6 +510,10 @@ class MentoringRecommendationResult(BaseModel):
     model_version: str
     source: Literal["llm", "rule_based"]
     recommendation_type: Literal["overall_user", "session_specific"] = "overall_user"
+    # Present only when a written reflection tripped the distress rule. The
+    # recommendations above never mention the subject; this is the whole of the
+    # system's response to it.
+    support_path: SupportPath | None = None
 
 
 class PostSessionActionItem(BaseModel):

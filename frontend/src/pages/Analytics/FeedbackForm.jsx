@@ -61,6 +61,8 @@ export default function FeedbackForm() {
   const [message, setMessage] = useState('')
   // The model's own reading of the written reflection, returned on save.
   const [reading, setReading] = useState(null)
+  // Null unless the reflection just written was about more than the session.
+  const [supportPath, setSupportPath] = useState(null)
   // Session options + status are loaded but not displayed in this restyle —
   // sidebar nav handles session selection. Kept to preserve existing fetch logic.
   // eslint-disable-next-line no-unused-vars
@@ -182,6 +184,13 @@ export default function FeedbackForm() {
       const saved = await Promise.all(promises)
       const analysed = saved.find((entry) => entry?.sentiment_source === 'model')
       setReading(analysed || null)
+
+      // Asked for after the save, so it reads the words as they were stored.
+      // Never allowed to fail the submit: the reflection is already safe, and a
+      // lookup that could not run is not a reason to show an error over it.
+      // optionalRequest wraps its result as { ok, data } - the payload is .data.
+      const support = await optionalRequest(() => analyticsService.getReflectionSupport(sessionId))
+      setSupportPath(support.data || null)
 
       setStatus('success')
       setMessage(
@@ -403,6 +412,7 @@ export default function FeedbackForm() {
             )}
 
             {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
+            {supportPath && <SupportPathCard path={supportPath} />}
 
             {/* Once the evaluation is saved, "Complete evaluation" is no longer
                 the action available — offering it again invites a duplicate
@@ -532,6 +542,50 @@ function SentimentReading({ reading, declared }) {
         <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>
           Read by {reading.sentiment_model_version}. Nothing was overwritten — both readings are kept.
         </p>
+      </Card>
+    </div>
+  )
+}
+
+/**
+ * Where to go, when the words were about more than the session.
+ *
+ * Here rather than only on the recommendations page, because this is the moment
+ * the learner is thinking about what they just wrote; that page is later, and
+ * only if they go to it.
+ *
+ * Below the sentiment reading, and deliberately quiet. A red alarm over
+ * someone's sentence about their own life reads as the software reacting to
+ * them, and a learner who works out that certain words set something off will
+ * write a blander reflection next time. It offers phone numbers and says nothing
+ * about the person.
+ */
+function SupportPathCard({ path }) {
+  // Nothing to show is not a reason to take the page down with it. There is no
+  // error boundary in this app, so a bad shape here blanks the whole screen -
+  // which is how this component first shipped, handed optionalRequest's
+  // { ok, data } wrapper instead of the payload inside it.
+  if (!path?.message || !path.contacts?.length) return null
+
+  return (
+    <div style={{ width: '100%' }}>
+      <Card>
+        <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{path.message}</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 22px', marginTop: 12 }}>
+          {path.contacts.map((contact) => (
+            <div key={contact.number}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span className="fg" style={{ fontSize: 13, fontWeight: 600 }}>{contact.name}</span>
+                {/* Text, not a tel: link - on a laptop that opens nothing useful,
+                    and this is a number to read and dial from a phone. */}
+                <span className="fg" style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {contact.number}
+                </span>
+              </div>
+              <div className="t-cap" style={{ fontSize: 11 }}>{contact.detail}</div>
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
   )
