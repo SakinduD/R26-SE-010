@@ -35,7 +35,7 @@ export default function AnalyticsUnavailable({
           padding: '44px 24px',
         }}
       >
-        {failed && <AlertTriangle size={22} strokeWidth={1.7} style={{ color: 'var(--danger)' }} />}
+        {failed && <AlertTriangle size={22} strokeWidth={1.7} style={{ color: 'var(--danger-text)' }} />}
 
         <div className="t-h3">
           {loading

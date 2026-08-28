@@ -138,16 +138,16 @@ export default function GamifiedProgress() {
             style={{
               padding: '12px 16px',
               borderRadius: 'var(--radius)',
-              border: '1px solid color-mix(in oklch, var(--success) 40%, transparent)',
-              background: 'color-mix(in oklch, var(--success) 10%, transparent)',
+              border: '1px solid color-mix(in oklab, var(--success) 40%, transparent)',
+              background: 'color-mix(in oklab, var(--success) 10%, transparent)',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
               flexWrap: 'wrap',
             }}
           >
-            <Sparkles size={14} strokeWidth={1.8} style={{ color: 'var(--success)' }} />
-            <span className="t-cap" style={{ color: 'var(--success)' }}>
+            <Sparkles size={14} strokeWidth={1.8} style={{ color: 'var(--success-text)' }} />
+            <span className="t-cap" style={{ color: 'var(--success-text)' }}>
               New badge{justEarned.length > 1 ? 's' : ''} unlocked:{' '}
               {justEarned.map((badge) => badge.title).join(', ')}
             </span>
@@ -290,7 +290,7 @@ function StreakTracker({ streak }) {
                 justifyContent: 'center',
                 border: '1px solid var(--border-subtle)',
                 background: active
-                  ? 'color-mix(in oklch, var(--warning) 22%, transparent)'
+                  ? 'color-mix(in oklab, var(--warning) 22%, transparent)'
                   : 'var(--bg-input)',
                 color: active ? 'var(--warning)' : 'var(--text-quaternary)',
                 fontSize: 13,
@@ -323,9 +323,9 @@ function BadgeTile({ badge }) {
       style={{
         padding: 14,
         borderRadius: 'var(--radius)',
-        border: `1px solid ${badge.earned ? `color-mix(in oklch, ${tierColor} 45%, transparent)` : 'var(--border-subtle)'}`,
+        border: `1px solid ${badge.earned ? `color-mix(in oklab, ${tierColor} 45%, transparent)` : 'var(--border-subtle)'}`,
         background: badge.earned
-          ? `color-mix(in oklch, ${tierColor} 10%, transparent)`
+          ? `color-mix(in oklab, ${tierColor} 10%, transparent)`
           : 'var(--bg-input)',
         opacity: badge.earned ? 1 : 0.72,
       }}

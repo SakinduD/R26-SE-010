@@ -205,13 +205,13 @@ export default function BlindSpotDetail() {
         <Badge variant="neutral">
           {status === 'live' ? 'Live blind spots' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
-        {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
+        {error && <span className="t-cap" style={{ color: 'var(--warning-text)' }}>{error}</span>}
       </motion.div>
 
       {!hasLiveData && (
         <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
-            <span className="t-cap" style={{ color: 'var(--warning)' }}>
+          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklab, var(--warning) 40%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)' }}>
+            <span className="t-cap" style={{ color: 'var(--warning-text)' }}>
               Live API is connected, but no blind spot records were found for this {scope}.
             </span>
           </div>
@@ -329,19 +329,19 @@ export default function BlindSpotDetail() {
 const PATTERN_COPY = {
   consistent_overestimation: {
     headline: 'You rate this higher than it measures',
-    tone: 'var(--danger)',
+    tone: 'var(--danger-text)',
   },
   consistent_underestimation: {
     headline: 'You rate this lower than it measures',
-    tone: 'var(--warning, #d99a2b)',
+    tone: 'var(--warning-text)',
   },
   inconsistent: {
     headline: 'Sometimes high, sometimes low',
-    tone: 'var(--warning, #d99a2b)',
+    tone: 'var(--warning-text)',
   },
   aligned: {
     headline: 'You read this one well',
-    tone: 'var(--success)',
+    tone: 'var(--success-text)',
   },
 }
 
@@ -377,7 +377,7 @@ function RecurringPatternList({ items }) {
 
             <div style={{ fontSize: 12, color: copy.tone, marginTop: 4 }}>{copy.headline}</div>
 
-            <div style={{ height: 6, borderRadius: 999, background: 'var(--surface-3, rgba(255,255,255,0.08))', overflow: 'hidden', margin: '10px 0' }}>
+            <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-input)', overflow: 'hidden', margin: '10px 0' }}>
               <div style={{ height: '100%', width: pct + '%', background: copy.tone, borderRadius: 999 }} />
             </div>
 
@@ -430,7 +430,7 @@ function BlindSpotCard({ item, featured = false, recurrence = null }) {
       padding: 16,
       borderRadius: 'var(--radius)',
       border: '1px solid var(--border-subtle)',
-      background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+      background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
       minHeight: featured ? 240 : undefined,
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
@@ -624,7 +624,7 @@ function ReflectionReadingList({ readings }) {
             padding: 14,
             borderRadius: 'var(--radius)',
             border: '1px solid var(--border-subtle)',
-            background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+            background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
           }}
         >
           <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '2px solid var(--border-subtle)' }}>
@@ -643,7 +643,7 @@ function ReflectionReadingList({ readings }) {
             ) : (
               <>
                 <span className="t-cap">· your words read as</span>
-                <strong style={{ textTransform: 'capitalize', fontSize: 12, color: 'var(--warning)' }}>
+                <strong style={{ textTransform: 'capitalize', fontSize: 12, color: 'var(--warning-text)' }}>
                   {reading.detected_sentiment}
                 </strong>
                 {reading.confidence != null && (
@@ -681,7 +681,7 @@ function SentimentGapList({ items, readings = [] }) {
             borderRadius: 'var(--radius)',
             border: '1px solid var(--border-subtle)',
             borderLeft: `3px solid ${GAP_TONE[gap.severity] || 'var(--accent)'}`,
-            background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)',
+            background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
           }}
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>

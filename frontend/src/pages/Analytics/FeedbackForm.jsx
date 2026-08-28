@@ -300,7 +300,7 @@ export default function FeedbackForm() {
 
           <Card>
             <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
-              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--warning)' }} />
+              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--warning-text)' }} />
               Rate your performance
             </div>
             <p className="t-cap" style={{ margin: '0 0 24px' }}>
@@ -514,7 +514,7 @@ const SENTIMENT_TONE = {
   positive: 'var(--success)',
   // Mixed is not a milder negative — it is two feelings at once, so it gets its
   // own tone rather than a shade of either pole.
-  mixed: 'var(--warning, #d99a2b)',
+  mixed: 'var(--warning-text)',
   neutral: 'var(--text-secondary)',
   negative: 'var(--danger)',
 }

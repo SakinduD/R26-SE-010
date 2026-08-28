@@ -44,19 +44,19 @@ const TREND_TONE = {
 const PATTERN_COPY = {
   consistent_overestimation: {
     label: 'Rates higher than measured, almost every time',
-    tone: 'var(--danger)',
+    tone: 'var(--danger-text)',
   },
   consistent_underestimation: {
     label: 'Rates lower than measured, almost every time',
-    tone: 'var(--warning, #d99a2b)',
+    tone: 'var(--warning-text)',
   },
   inconsistent: {
     label: 'Sometimes high, sometimes low',
-    tone: 'var(--warning, #d99a2b)',
+    tone: 'var(--warning-text)',
   },
   aligned: {
     label: 'Reads this one accurately, session after session',
-    tone: 'var(--success)',
+    tone: 'var(--success-text)',
   },
 }
 
@@ -324,7 +324,7 @@ export default function AnalyticsDashboard() {
 
     if (falling) {
       return {
-        tone: 'var(--danger)',
+        tone: 'var(--danger-text)',
         title: `${labelFor(falling.skill_area)} needs your attention`,
         body: `Down from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}. Your best was ${Math.round(falling.best_score ?? 0)}.`,
         cta: 'See what to practise',
@@ -337,7 +337,7 @@ export default function AnalyticsDashboard() {
     )
     if (pattern) {
       return {
-        tone: 'var(--warning, #d99a2b)',
+        tone: 'var(--warning-text)',
         title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
         body: `In ${pattern.sessions_with_gap} of ${pattern.sessions_rated} sessions.`,
         cta: 'See what to practise',
@@ -346,7 +346,7 @@ export default function AnalyticsDashboard() {
     }
 
     return {
-      tone: 'var(--success)',
+      tone: 'var(--success-text)',
       title: 'Nothing is slipping right now',
       body: 'Your skills are holding steady.',
       cta: 'Start another session',
@@ -634,7 +634,7 @@ export default function AnalyticsDashboard() {
         {/* REDESIGN: yellow-500 banner replaced with Banner warning */}
         {!hasLive && !showGettingStarted && (
           <div className="banner banner-warning" role="status">
-            <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning)' }}/>
+            <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning-text)' }}/>
             <span>Complete a practice session to see your real results here.</span>
           </div>
         )}
@@ -761,7 +761,7 @@ export default function AnalyticsDashboard() {
               const v = measured ? Math.round(s.value) : null
               const isOverall = s.key === 'overall'
               const emoji = isOverall ? '🎯' : !measured ? '❓' : v >= 75 ? '🌟' : v >= 50 ? '👍' : '💪'
-              const barColor = isOverall ? '#8b5cf6' : !measured ? '#6b7280' : v >= 75 ? '#10b981' : v >= 50 ? '#6366f1' : '#f59e0b'
+              const barColor = isOverall ? 'var(--accent)' : !measured ? 'var(--text-tertiary)' : v >= 75 ? 'var(--success)' : v >= 50 ? 'var(--info)' : 'var(--warning)'
               return (
                 <div key={s.key} className={`rounded-xl border border-border bg-card p-4 hover:border-primary/50 transition-colors ${isOverall ? 'ring-2 ring-primary/20' : ''}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -892,14 +892,20 @@ export default function AnalyticsDashboard() {
                   const selfVal = selfScores.find(s => getInfo(s.key).key === getInfo(b.skill_area).key)?.value ?? b.self_rating
                   return (
                     <div key={i} className="rounded-xl p-4 border" style={{
-                      borderColor: isOver ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)',
-                      background: isOver ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.08)',
+                      borderColor: isOver
+                        ? 'color-mix(in oklab, var(--danger) 30%, transparent)'
+                        : 'color-mix(in oklab, var(--info) 30%, transparent)',
+                      background: isOver
+                        ? 'color-mix(in oklab, var(--danger) 8%, transparent)'
+                        : 'color-mix(in oklab, var(--info) 8%, transparent)',
                     }}>
                       <div className="flex items-center justify-between mb-3">
                         <span className="font-bold text-sm fg">{isOver ? '⬇️' : '⬆️'} {labelFor(b.skill_area)}</span>
                         <span className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-tight" style={{
-                          background: isOver ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
-                          color: isOver ? '#fca5a5' : '#93c5fd',
+                          background: isOver
+                            ? 'color-mix(in oklab, var(--danger) 20%, transparent)'
+                            : 'color-mix(in oklab, var(--info) 20%, transparent)',
+                          color: isOver ? 'var(--danger-text)' : 'var(--info-text)',
                         }}>
                           {isOver ? 'Overestimated' : 'Underestimated'}
                         </span>
@@ -985,7 +991,7 @@ export default function AnalyticsDashboard() {
                       <span className="text-muted-foreground font-bold">→</span>
                       <div className="flex-1 text-center rounded-lg py-2 border border-border bg-muted/50">
                         <p className="text-[10px] text-muted-foreground uppercase">Predicted</p>
-                        <p className="text-lg font-bold" style={{color: up ? '#10b981' : dir === 'flat' ? '#6366f1' : '#ef4444'}}>{fmtScore(p.predicted_score)}</p>
+                        <p className="text-lg font-bold" style={{color: up ? 'var(--success-text)' : dir === 'flat' ? 'var(--info-text)' : 'var(--danger-text)'}}>{fmtScore(p.predicted_score)}</p>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">💡 {p.recommendation}</p>

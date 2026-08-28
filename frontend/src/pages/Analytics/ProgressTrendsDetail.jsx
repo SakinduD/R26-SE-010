@@ -146,13 +146,13 @@ export default function ProgressTrendsDetail() {
             error code. A trend is arithmetic on the learner's own scores - no
             model is involved and none is claimed. */}
         <span className="t-cap">Measured from your sessions</span>
-        {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
+        {error && <span className="t-cap" style={{ color: 'var(--warning-text)' }}>{error}</span>}
       </motion.div>
 
       {!hasLiveData && (
         <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklch, var(--warning) 40%, transparent)', background: 'color-mix(in oklch, var(--warning) 10%, transparent)' }}>
-            <span className="t-cap" style={{ color: 'var(--warning)' }}>
+          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklab, var(--warning) 40%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)' }}>
+            <span className="t-cap" style={{ color: 'var(--warning-text)' }}>
               Live API is connected, but no progress trend history was found for this user.
             </span>
           </div>
@@ -218,7 +218,7 @@ function SelectedTrendCard({ item, selectedSkill }) {
   const emptyTrendValue = sessionCount > 0 ? 'Need one more session' : 'Nothing yet'
 
   return (
-    <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'color-mix(in oklch, var(--bg-input) 60%, transparent)' }}>
+    <div style={{ padding: 16, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <div>
           <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.skill_area || selectedSkill)}</div>

@@ -303,7 +303,7 @@ export default function PostSessionReport() {
         <Badge variant="neutral">
           {status === 'live' ? 'Live report' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
         </Badge>
-        {error && <span className="t-cap" style={{ color: 'var(--warning)' }}>{error}</span>}
+        {error && <span className="t-cap" style={{ color: 'var(--warning-text)' }}>{error}</span>}
       </motion.div>
 
       <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
@@ -316,7 +316,7 @@ export default function PostSessionReport() {
             flexWrap: 'wrap',
             gap: 32,
             alignItems: 'center',
-            background: 'linear-gradient(120deg, color-mix(in oklch, var(--accent) 9%, var(--bg-surface)) 0%, var(--bg-surface) 55%)',
+            background: 'linear-gradient(120deg, color-mix(in oklab, var(--accent) 9%, var(--bg-surface)) 0%, var(--bg-surface) 55%)',
           }}
         >
           <ScoreRing value={overallScore} tone={contextTone(report.context?.overall_delta)} />
@@ -505,7 +505,7 @@ function SentimentReading({ entry }) {
           <span className="t-cap">· your words read as</span>
           {/* Warning, not danger: a disagreement is something to look at, not a
               verdict. The Blind Spots page carries how far it can be trusted. */}
-          <strong style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--warning)' }}>
+          <strong style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--warning-text)' }}>
             {entry.sentiment}
           </strong>
           {confidence != null && <span className="t-cap">({confidence}% confidence)</span>}

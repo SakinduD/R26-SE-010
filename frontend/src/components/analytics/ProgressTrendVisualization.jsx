@@ -1,19 +1,23 @@
 import React, { useMemo, useState } from 'react'
 import { Activity, TrendingDown, TrendingUp } from 'lucide-react'
 
+// Tokens, not literals. These were fixed hex and rgb values picked against a
+// dark ground; on a light one the greys vanish and the mid-tones lose contrast.
+// The design system already carries a five-colour chart ramp and semantic
+// colours that each theme defines for itself.
 const TREND_COLORS = {
-  improving: 'rgb(5 150 105)',
-  stable: 'rgb(14 116 144)',
-  declining: 'rgb(157 23 77)',
-  insufficient_data: 'rgb(161 161 170)',
+  improving: 'var(--success)',
+  stable: 'var(--info)',
+  declining: 'var(--danger)',
+  insufficient_data: 'var(--text-tertiary)',
 }
 
 // One colour per skill. "Overall" is a summary, not a skill, so it has no series.
 const SKILL_COLORS = {
-  vocal_command: '#f43f5e',      // Rose
-  speech_fluency: '#f59e0b',     // Amber
-  presence_engagement: '#10b981', // Teal
-  emotional_intelligence: '#6366f1', // Indigo
+  vocal_command: 'var(--chart-1)',
+  speech_fluency: 'var(--chart-2)',
+  presence_engagement: 'var(--chart-3)',
+  emotional_intelligence: 'var(--chart-4)',
 }
 
 function getSkillColor(skill, trendLabel) {
