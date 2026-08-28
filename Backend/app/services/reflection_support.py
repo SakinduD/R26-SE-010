@@ -64,16 +64,37 @@ _THEME_WORDS = (
     "anxiety", "anxious",
     "exhausted", "exhausting", "exhaustion", "drained",
     "crying", "cried", "lonely",
-    "sick", "illness", "unwell", "health",
+    # Not bare "sick" or "health". Both turn up in sentences that are about
+    # nothing of the sort - "sick of my own filler words", "my health is fine",
+    # "recently improved my health" - and each of those asked for a helpline.
+    # A health theme has to be stated as a problem to count as one.
+    "illness", "unwell",
+    "health problem", "health problems", "health issue", "health issues",
     "family problem", "family problems",
     "personal problem", "personal problems",
     "money problem", "money problems",
     "financial problem", "financial problems",
 )
 
+# Anything that says the theme has lasted, or is past managing.
+#
+# Written the way people write, not the way a spec would. The first version held
+# "for days" but not "these days", so "I was stressed these days" - which is how
+# someone actually says it - matched nothing and the offer never appeared. Real
+# reflections are the source for this list; add to it when one gets missed.
 _PERSISTENCE_WORDS = (
-    "for weeks", "for months", "for days", "every day", "everyday",
-    "all the time", "constantly", "never stops",
+    # duration, stated
+    "for weeks", "for months", "for days", "for a while", "for ages",
+    "these days", "those days", "past few days", "past few weeks",
+    "past week", "past month", "last few days", "last few weeks",
+    # duration, implied. Not "still": it is the weakest of these and the one
+    # that turns up in ordinary practice notes - "still rushed the ending",
+    # "still need to work on my pauses", "still get anxious in the first minute".
+    # The last of those is stage nerves, which this must never answer.
+    "lately", "recently", "nowadays",
+    "every day", "everyday", "every night", "most days",
+    "all week", "all the time", "constantly", "keeps", "never stops",
+    # past managing
     "too much", "so much", "no longer", "can't", "cannot",
 )
 
