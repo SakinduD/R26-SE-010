@@ -184,6 +184,7 @@ class FeedbackResponse(BaseModel):
     scenario_title:    str
     difficulty:        str | None = None   # was referenced by FeedbackDashboard.jsx but never actually returned
     category:          str | None = None
+    target_skills:     list[str] = []      # which skills this scenario was built to exercise
     user_id:           str
     outcome:           str | None
     final_trust:       int | None
