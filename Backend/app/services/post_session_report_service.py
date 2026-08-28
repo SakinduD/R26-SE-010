@@ -35,12 +35,16 @@ SKILL_LABELS = {
 
 # Maps each composite MCA skill → the raw DB metric fields that contribute to it.
 # Scores are averaged across whichever fields are present in the session aggregate.
-COMPOSITE_SCORE_FIELDS: dict[str, list[str]] = {
-    "vocal_command": ["speech_volume_score", "professionalism_score"],
-    "speech_fluency": ["speech_pace_score", "clarity_score"],
-    "presence_engagement": ["eye_contact_score", "confidence_score"],
-    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
-}
+#
+# Borrowed rather than restated. This module kept its own copy, which listed
+# professionalism_score under vocal_command where feedback_analysis_service did
+# not - so the radar's "Measured" value and the blind spot's "Measured" value for
+# the same skill were averages of different fields. Nothing writes
+# professionalism_score today (the MCA integration maps vocal_command onto
+# speech_volume_score alone and sets professionalism to None), so the two agreed
+# by accident; the day anything filled that column they would have parted without
+# a line of code changing.
+COMPOSITE_SCORE_FIELDS = feedback_analysis_service.OBSERVED_SCORE_FIELDS
 
 def generate_session_report(db: Session, session_id: str) -> PostSessionReportResult:
     aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
@@ -67,7 +71,16 @@ def generate_session_report(db: Session, session_id: str) -> PostSessionReportRe
         skill_scores=skill_scores,
         feedback_analysis=feedback_analysis,
         blind_spots=blind_spots,
-        action_items=_build_action_items(skill_scores, blind_spots, aggregate.predictions.latest_predictions),
+        # The same predictions the report displays. The page prefers the freshly
+        # computed ones and falls back to the stored rows; building actions from
+        # the stored rows alone meant a high risk could be on screen with nothing
+        # in "Things to try" about it - stored rows are empty on these sessions,
+        # so every computed high risk was silently dropped.
+        action_items=_build_action_items(
+            skill_scores,
+            blind_spots,
+            computed_predictions or aggregate.predictions.latest_predictions,
+        ),
         computed_predictions=computed_predictions,
         context=_session_in_context(db, user_id, session_id, skill_scores) if user_id else None,
         generated_at=datetime.utcnow(),
@@ -142,9 +155,17 @@ def _session_in_context(
 def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreResult:
     """Build composite MCA skill scores from the session aggregate.
 
-    Priority order (same as Analytics Dashboard):
-    1. Average the raw DB metric fields that belong to each composite skill.
-    2. If no metric fields are present, fall back to skill_rating_averages from feedback.
+    A skill scores only from the raw DB metric fields that belong to it. With no
+    metric fields it has no score, and the radar's existing `hasEvidence` path
+    renders it as not measured.
+
+    It used to fall back to the feedback averages, which are mostly the learner's
+    own ratings. On a session the engine never scored, that put the learner's
+    opinion in the "Observed" column beside the same numbers under "Self-Rating",
+    reported their mean as the session's score, and left blind spot detection
+    comparing a rating against itself - which is why such a session always read
+    "0 gaps". A page built to compare measurement with self-assessment cannot
+    substitute one for the other.
 
     Overall is the multimodal engine's own score, read from the stored
     `overall_score`, not the mean of the four composites. It used to be that mean,
@@ -169,10 +190,6 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         if vals:
             score = round(sum(v for _, v in vals) / len(vals), 2)
             inputs_used = [f for f, _ in vals]
-        elif skill_name in feedback_avgs and feedback_avgs[skill_name] is not None:
-            # Fall back to overall feedback average for this skill (matches Dashboard)
-            score = round(feedback_avgs[skill_name], 2)
-            inputs_used = [f"feedback:{skill_name}"]
         else:
             score = None
             inputs_used = []
@@ -187,8 +204,6 @@ def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreRes
         overall_score = round(float(stored_overall), 2)
     elif available_scores:
         overall_score = round(sum(available_scores) / len(available_scores), 2)
-    elif aggregate.feedback.average_rating is not None:
-        overall_score = round(aggregate.feedback.average_rating, 2)
     else:
         overall_score = None
 

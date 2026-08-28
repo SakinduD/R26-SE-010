@@ -21,8 +21,7 @@ import PageHead from '@/components/ui/PageHead'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 
-// The service's words in the learner's. "medium" ranks an item; "keep an eye on
-// it" tells them what to do with it, which is what a badge is for.
+// The service's words in the learner's: a badge should say what to do, not rank.
 const PRIORITY_WORDS = { high: 'do this first', medium: 'worth doing', low: 'when you have time' }
 const priorityWords = (value) => PRIORITY_WORDS[value] || value || ''
 
@@ -34,9 +33,13 @@ const SKILL_LABELS = {
   overall: 'Overall',
 }
 
+// The four the radar has an axis for. Anything else on a session - the written
+// reflection, which names no skill, or the whole-session self-rating an older
+// form filed under "overall" - is not one of them and has no axis to sit on.
+const MCA_SKILLS = ['vocal_command', 'speech_fluency', 'presence_engagement', 'emotional_intelligence']
+
 // Empty shape, never sample values: a failed load must show nothing rather than
-// someone else's report. Keeping the shape means every render path below stays
-// valid and the existing empty states do the work.
+// someone else's report, and every render path below stays valid.
 const EMPTY_REPORT = {
   session_id: '',
   user_id: null,
@@ -88,9 +91,79 @@ const RAW_TO_COMPOSITE = {
 
 const PRIORITY_VARIANT = { high: 'danger', medium: 'warning', low: 'success' }
 
-// How a gap reads to the person who has it. The service calls these
-// "overestimation" and "underestimation"; neither is a word anybody uses about
-// themselves, and both sound like an accusation.
+// The same three states as a stripe colour: the badge names it, the stripe
+// lets the eye find it without reading.
+const PRIORITY_TONE = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--success)' }
+
+/** One fact on the hero's footer rule: label and number inline, divider between. */
+function HeroStat({ label, value, mark, last = false }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'baseline',
+        gap: 8,
+        paddingRight: last ? 0 : 18,
+        marginRight: last ? 0 : 18,
+        borderRight: last ? 'none' : '1px solid var(--border-subtle)',
+      }}
+    >
+      <span className="t-cap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {mark && <span style={{ width: 7, height: 7, borderRadius: '50%', background: mark, flex: '0 0 auto' }} />}
+        {label}
+      </span>
+      <span className="fg" style={{ fontSize: 17, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A labelled number, sized to be read at a glance.
+ *
+ * The value stays text-primary: --warning is ~1.8:1 on a light card, under the
+ * 3:1 large text needs. Meaning goes on the mark beside it, never the number.
+ */
+function Figure({ label, value, mark }) {
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, flex: '0 0 auto' }}>
+      <span className="t-cap" style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {mark && <span style={{ width: 7, height: 7, borderRadius: '50%', background: mark, flex: '0 0 auto' }} />}
+        {label}
+      </span>
+      <span className="fg" style={{ fontSize: 20, fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A panel row, striped down its leading edge.
+ *
+ * The stripe is where semantic colour belongs: beside text, not in it, so it
+ * carries no contrast requirement and survives either theme.
+ */
+function ListRow({ tone, children }) {
+  return (
+    <div className="report-row" style={tone ? { '--row-tone': tone } : undefined}>
+      {children}
+    </div>
+  )
+}
+
+/** The title-and-badge line every row starts with. */
+function RowHead({ title, badge }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+      <span className="fg" style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
+      {badge}
+    </div>
+  )
+}
+
+// The service says "overestimation"; nobody says that about themselves.
 const GAP_WORDS = {
   overestimation: 'You rated this higher than it measured',
   underestimation: 'You rated this lower than it measured',
@@ -108,10 +181,20 @@ function labelFor(value) {
   return SKILL_LABELS[value] || RAW_TO_COMPOSITE[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
 
+/**
+ * A skill name that will not break mid-name.
+ *
+ * Running text only — "Emotional Intelligence" wrapping after "Emotional" reads
+ * as two things. Headings and cells keep labelFor and may wrap freely.
+ */
+function labelNoBreak(value) {
+  return labelFor(value).replaceAll(' ', ' ')
+}
+
 export default function PostSessionReport() {
   const params = useParams()
-  // The session list is per learner, so this page needs to know who it is
-  // looking at - it previously only ever knew a session id.
+  // The session list is per learner, so this page needs the user, not just a
+  // session id.
   const { userId: connectedUserId } = useAnalyticsIdentity(params.userId)
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
@@ -136,11 +219,27 @@ export default function PostSessionReport() {
 
   const overallScore = report.skill_scores?.overall_score ?? null
 
-  // What the learner themselves wrote and rated. See FeedbackList for why the
-  // rest of the rows on a session do not belong under "What You Said".
-  const ownEntries = useMemo(
+  // The learner's own rows only - see FeedbackList for why the rest do not
+  // belong under "What You Said".
+  const ownSelf = useMemo(
     () => (report.aggregate?.feedback?.latest_entries || []).filter((e) => e.feedback_type === 'self'),
     [report.aggregate],
+  )
+
+  // The four skill ratings, and only those. A row needs both a rating and one of
+  // the four skills: the reflection has no rating, and one session still carries
+  // a whole-session self-rating filed under "overall" from an older form, which
+  // is not a skill and has no axis to sit on.
+  const ownEntries = useMemo(
+    () => ownSelf.filter((e) => hasScore(e.rating) && MCA_SKILLS.includes(e.skill_area)),
+    [ownSelf],
+  )
+
+  // The reflection is about the session, not a skill, and is shown as its own
+  // block above the ratings.
+  const reflection = useMemo(
+    () => ownSelf.find((e) => e.comment && e.comment.trim()) || null,
+    [ownSelf],
   )
 
   const loadReport = async (nextSessionId = sessionId) => {
@@ -187,7 +286,14 @@ export default function PostSessionReport() {
       />
 
       <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
-        <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
+        {/* The full session code is clipped at the 220px default. Same width as
+            the trends and prediction pages. */}
+        <AnalyticsSessionSelect
+          value={sessionId}
+          options={sessionOptions}
+          onChange={setSessionId}
+          minWidthClass="min-w-[260px]"
+        />
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadReport()} />
         </div>
@@ -201,26 +307,52 @@ export default function PostSessionReport() {
       </motion.div>
 
       <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
-        <Card>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <FileText size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
-                <span className="t-cap">
-                  {sessionOptions.find((o) => o.id === sessionId)?.label || 'Session Report'}
-                </span>
-              </div>
-              <div className="t-h3" style={{ maxWidth: 520 }}>{report.summary?.headline}</div>
-              <SessionInContext context={report.context} />
+        {/* The score is the news; the counts only point further down the page,
+            so they are not sized to match it. */}
+        <Card
+          variant="accent"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 32,
+            alignItems: 'center',
+            background: 'linear-gradient(120deg, color-mix(in oklch, var(--accent) 9%, var(--bg-surface)) 0%, var(--bg-surface) 55%)',
+          }}
+        >
+          <ScoreRing value={overallScore} tone={contextTone(report.context?.overall_delta)} />
+          <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <FileText size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+              <span className="t-cap">
+                {sessionOptions.find((o) => o.id === sessionId)?.label || 'Session Report'}
+              </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, minWidth: 240 }}>
-              <MetricBox label="Overall" value={formatScore(overallScore)} />
-              {/* Self rows only. total_count is every row on the session -
-                  four cues this codebase wrote from the multimodal engine, a
-                  survey note, and the learner's four ratings - so a learner who
-                  rated four skills was told they had rated nine. */}
-              <MetricBox label="Skills you rated" value={report.aggregate?.feedback?.by_type?.self || 0} />
-              <MetricBox label="Things to try" value={report.action_items?.length || 0} />
+            {/* Not a 560px reading measure: this is one sentence in a wide card.
+                `balance` keeps it even where it still has to wrap. */}
+            <div className="t-h3" style={{ maxWidth: 900, marginBottom: 8, textWrap: 'balance' }}>
+              {report.summary?.headline}
+            </div>
+            <SessionInContext context={report.context} />
+            {/* Ruled off from the verdict: these count what is further down the
+                page, and the rule says so without shrinking them. */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                marginTop: 18,
+                paddingTop: 14,
+                borderTop: '1px solid var(--border-subtle)',
+              }}
+            >
+              {/* Rated rows, not every row: the session also holds engine cues and
+                  the learner's written reflection, and counting those told someone
+                  who rated four skills that they had rated nine. Amber marks the
+                  learner's answer here as on the radar; the other two are the
+                  engine's and take no dot. */}
+              <HeroStat label="Skills you rated" value={ownEntries.length} mark="var(--warning)" />
+              <HeroStat label="Gaps found" value={report.blind_spots?.summary?.total_count || 0} />
+              <HeroStat label="Things to try" value={report.action_items?.length || 0} last />
             </div>
           </div>
         </Card>
@@ -249,7 +381,7 @@ export default function PostSessionReport() {
 
       <motion.div variants={fadeInUp} className="grid-2">
         <Panel title="What You Said" icon={FileText}>
-          <FeedbackList entries={ownEntries} />
+          <FeedbackList entries={ownEntries} reflection={reflection} />
         </Panel>
         <Panel title="If Nothing Changes" icon={AlertTriangle}>
           <PredictionList predictions={report.computed_predictions?.length ? report.computed_predictions : (report.aggregate?.predictions?.latest_predictions || [])} />
@@ -281,13 +413,13 @@ function ActionList({ actions }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {actions.map((item, index) => (
-        <div key={`${item.title}-${index}`} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{item.title}</span>
-            <Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{priorityWords(item.priority)}</Badge>
-          </div>
-          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.detail}</p>
-        </div>
+        <ListRow key={`${item.title}-${index}`} tone={PRIORITY_TONE[item.priority]}>
+          <RowHead
+            title={item.title}
+            badge={<Badge variant={PRIORITY_VARIANT[item.priority] ?? 'neutral'}>{priorityWords(item.priority)}</Badge>}
+          />
+          <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{item.detail}</p>
+        </ListRow>
       ))}
     </div>
   )
@@ -298,15 +430,87 @@ function BlindSpotList({ blindSpots }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {blindSpots.map((item) => (
-        <div key={item.skill_area} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>
+        <ListRow key={item.skill_area} tone={PRIORITY_TONE[item.severity]}>
+          <RowHead
+            title={labelFor(item.skill_area)}
+            badge={<Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>}
+          />
+          {/* The finding is the distance between these two, so they sit together. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <Figure label="You said" value={formatScore(item.self_rating)} mark="var(--warning)" />
+            <span className="t-cap" style={{ flex: '0 0 auto' }}>vs</span>
+            <Figure label="Measured" value={formatScore(item.comparison_score)} mark="var(--accent)" />
+            {/* Badge, not a hand-rolled pill: the badge classes are where a light
+                theme will be made to work. */}
+            <span style={{ marginLeft: 'auto' }}>
+              <Badge variant={PRIORITY_VARIANT[item.severity] ?? 'neutral'}>
+                {formatScore(item.gap)} apart
+              </Badge>
+            </span>
           </div>
-          <p className="t-cap" style={{ marginBottom: 4 }}>{gapWords(item.blind_spot_type)} — by {formatScore(item.gap)} points</p>
-          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
-        </div>
+          <p className="t-cap" style={{ margin: '0 0 6px', lineHeight: 1.6 }}>
+            <span className="fg">{gapWords(item.blind_spot_type)}.</span>
+          </p>
+          <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{item.recommendation}</p>
+        </ListRow>
       ))}
+    </div>
+  )
+}
+
+/**
+ * How the sentiment model read the words, beside how the learner marked them.
+ *
+ * The model runs on every reflection and its reading was stored but never shown
+ * here, so a learner who marked a session positive and wrote something negative
+ * saw only their own label. The disagreement is the interesting part, and it is
+ * the same evidence the Blind Spots page reasons from - so it uses that page's
+ * wording rather than inventing a second vocabulary for one thing.
+ *
+ * Only a reading the model actually produced is shown. `sentiment_source` is
+ * "declared" when the model could not run, and the stored sentiment is then a
+ * copy of the learner's own label: printing that as agreement would be the page
+ * agreeing with itself.
+ */
+function SentimentReading({ entry }) {
+  if (entry.sentiment_source !== 'model' || !entry.sentiment || !entry.declared_sentiment) return null
+
+  const agrees = entry.sentiment === entry.declared_sentiment
+  const confidence = hasScore(entry.sentiment_confidence)
+    ? Math.floor(Number(entry.sentiment_confidence) * 100)
+    : null
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 7,
+        marginTop: 12,
+        paddingTop: 10,
+        borderTop: '1px solid var(--border-subtle)',
+      }}
+    >
+      <span className="t-cap">You marked it</span>
+      <strong className="fg" style={{ fontSize: 12, textTransform: 'capitalize' }}>
+        {entry.declared_sentiment}
+      </strong>
+      {agrees ? (
+        <span className="t-cap">
+          · read the same way{confidence != null && ` (${confidence}% confidence)`}
+        </span>
+      ) : (
+        <>
+          <span className="t-cap">· your words read as</span>
+          {/* Warning, not danger: a disagreement is something to look at, not a
+              verdict. The Blind Spots page carries how far it can be trusted. */}
+          <strong style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--warning)' }}>
+            {entry.sentiment}
+          </strong>
+          {confidence != null && <span className="t-cap">({confidence}% confidence)</span>}
+        </>
+      )}
     </div>
   )
 }
@@ -314,17 +518,9 @@ function BlindSpotList({ blindSpots }) {
 /**
  * The learner's own ratings for this session — and only those.
  *
- * The panel is headed "What You Said" and used to render every feedback row on
- * the session: four cues this codebase writes from the multimodal engine, a
- * survey note stored as mentor feedback, then the four ratings the learner
- * actually gave. Five of the nine were not said by them, and they arrived
- * carrying raw column names as titles — "emotional_control", "speech_volume",
- * and twice just "system" — with bodies like "Multimodal Avg Mar average was
- * 0.06", where MAR is a mouth aspect ratio.
- *
- * Those rows are inputs to a score, not messages to a person, and there is no
- * screen where a learner reads them as feedback. Filtering to `self` is what
- * makes the heading true.
+ * A session also carries engine cues and mentor rows titled with raw column
+ * names ("speech_volume", "system"). Those are inputs to a score, not things
+ * the learner said, so filtering to `self` is what makes the heading true.
  */
 // Above this the two figures are the same score to a reader.
 const CONTEXT_MEANINGFUL_DELTA = 5
@@ -332,14 +528,9 @@ const CONTEXT_MEANINGFUL_DELTA = 5
 /**
  * One sentence placing this session among the learner's others.
  *
- * The report gave a score out of 100 and no way to read it. 67 is a good session
- * for somebody who usually scores 60 and a poor one for somebody who usually
- * scores 82 — this learner is the second, and the page opened on "Vocal Command
- * held up" over their worst result in weeks.
- *
- * A sentence rather than another table: every number here is already on the page
- * below, and repeating them in a grid would add a panel without adding anything
- * to read. What was missing was the comparison, not the data.
+ * A score out of 100 cannot be read alone: 67 is good for someone who usually
+ * scores 60 and poor for someone who usually scores 82. A sentence, not a
+ * table - every number is already on the page; the comparison was what was not.
  */
 function SessionInContext({ context }) {
   if (!context || context.overall_delta == null) return null
@@ -349,54 +540,71 @@ function SessionInContext({ context }) {
   const best = context.skills.filter((s) => s.is_personal_best)
   const furthest = [...context.skills].sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))[0]
 
+  // Emphasise the comparison; where it came from follows unemphasised.
   let lead
+  let rest
   if (Math.abs(delta) < CONTEXT_MEANINGFUL_DELTA) {
-    lead = `About where you usually land — your average across ${context.sessions_compared} other sessions is ${usual}.`
+    lead = 'About where you usually land'
+    rest = ` — your average across ${context.sessions_compared} other sessions is ${usual}`
   } else if (delta < 0) {
-    lead = `${Math.round(Math.abs(delta))} points below your usual ${usual}, measured across ${context.sessions_compared} other sessions.`
+    lead = `${Math.round(Math.abs(delta))} points below your usual ${usual}`
+    rest = ` — measured across ${context.sessions_compared} other sessions`
   } else {
-    lead = `${Math.round(delta)} points above your usual ${usual}, measured across ${context.sessions_compared} other sessions.`
+    lead = `${Math.round(delta)} points above your usual ${usual}`
+    rest = ` — measured across ${context.sessions_compared} other sessions`
   }
 
-  // Only ever one follow-up. A personal best is the better thing to say when
-  // there is one; otherwise, if the session dipped, name where it dipped most.
+  // Only ever one follow-up: a personal best if there is one, otherwise where
+  // the session dipped most. A continuation, not a second sentence.
   let tail = null
   if (best.length) {
-    tail = `${best.map((s) => labelFor(s.skill_area)).join(' and ')} ${best.length === 1 ? 'was a' : 'were'} personal best.`
+    tail = `, and ${best.map((s) => labelNoBreak(s.skill_area)).join(' and ')} ${best.length === 1 ? 'was a personal best' : 'were personal bests'}`
   } else if (delta <= -CONTEXT_MEANINGFUL_DELTA && furthest && furthest.delta <= -CONTEXT_MEANINGFUL_DELTA) {
-    tail = `${labelFor(furthest.skill_area)} fell furthest (${Math.round(furthest.delta)}).`
+    tail = `, with ${labelNoBreak(furthest.skill_area)} falling furthest at ${Math.round(furthest.delta)}`
   }
 
-  const tone = Math.abs(delta) < CONTEXT_MEANINGFUL_DELTA
-    ? 'var(--text-secondary)'
-    : delta < 0 ? 'var(--warning)' : 'var(--success)'
-
   return (
-    <p className="t-cap" style={{ maxWidth: 520, marginTop: 8, lineHeight: 1.6 }}>
-      <strong style={{ color: tone }}>{lead}</strong>
-      {tail && <> {tail}</>}
+    <p className="t-body" style={{ maxWidth: 900, margin: 0, lineHeight: 1.65, textWrap: 'pretty' }}>
+      {/* One colour: the ring already carries the comparison as a hue. */}
+      <strong className="fg">{lead}</strong>
+      <span className="fg" style={{ fontWeight: 400 }}>{rest}{tail}.</span>
     </p>
   )
 }
 
-function FeedbackList({ entries }) {
+function FeedbackList({ entries, reflection }) {
   if (!entries.length) {
     return <EmptyMsg text="You have not rated this session yet. Rate yourself and your answers will appear here beside what was measured." />
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {entries.map((item) => (
-        <div key={item.id} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
-            {/* Every row here is theirs, so a "Your rating" badge on each one
-                said nothing. The number they gave is the useful thing. */}
-            <span className="fg" style={{ fontSize: 15, fontWeight: 600 }}>{formatScore(item.rating)}</span>
-          </div>
-          <p className="t-cap" style={{ lineHeight: 1.55, fontStyle: item.comment ? 'italic' : 'normal' }}>
-            {item.comment ? `“${item.comment}”` : 'Rated without a written note.'}
+      {/* About the session, so above the four ratings rather than inside one. */}
+      {reflection && (
+        <div
+          style={{
+            padding: '14px 16px',
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-input)',
+          }}
+        >
+          <div className="t-cap" style={{ marginBottom: 6 }}>Your reflection on the session</div>
+          <p className="t-body" style={{ margin: 0, lineHeight: 1.65, fontStyle: 'italic' }}>
+            “{reflection.comment.trim()}”
           </p>
+          <SentimentReading entry={reflection} />
         </div>
+      )}
+      {entries.map((item) => (
+        <ListRow key={item.id} tone="var(--warning)">
+          {/* Every row here is theirs, so a "Your rating" badge said nothing. */}
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+            <span className="fg" style={{ fontSize: 14, fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
+            <span className="fg" style={{ fontSize: 22, fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              {formatScore(item.rating)}
+            </span>
+          </div>
+        </ListRow>
       ))}
     </div>
   )
@@ -407,37 +615,94 @@ function PredictionList({ predictions }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {predictions.map((item) => (
-        <div key={item.id || item.predicted_skill} style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{labelFor(item.predicted_skill)}</span>
-            <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>
+        <ListRow key={item.id || item.predicted_skill} tone={PRIORITY_TONE[item.risk_level]}>
+          <RowHead
+            title={labelFor(item.predicted_skill)}
+            badge={<Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>{riskWords(item.risk_level)}</Badge>}
+          />
+          {/* Name the move: otherwise the reader does the subtraction that is
+              the whole forecast. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <Figure label="Now" value={formatScore(item.current_score)} mark="var(--accent)" />
+            <span className="t-cap" style={{ flex: '0 0 auto' }}>→</span>
+            <Figure label="Next" value={formatScore(item.predicted_score)} mark={PRIORITY_TONE[item.risk_level]} />
+            {hasScore(item.predicted_score) && hasScore(item.current_score) && (
+              <span style={{ marginLeft: 'auto' }}>
+                <Badge variant={PRIORITY_VARIANT[item.risk_level] ?? 'neutral'}>
+                  {Number(item.predicted_score) > Number(item.current_score) ? '+' : ''}
+                  {Math.round(Number(item.predicted_score) - Number(item.current_score))}
+                </Badge>
+              </span>
+            )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span className="t-cap">Current {formatScore(item.current_score)}</span>
-            <span className="t-cap">Next {formatScore(item.predicted_score)}</span>
-          </div>
-          <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
-        </div>
+          <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{item.recommendation}</p>
+        </ListRow>
       ))}
     </div>
   )
 }
 
-function MetricBox({ label, value }) {
+
+/** The overall score drawn as an arc of a circle. */
+function ScoreRing({ value, tone }) {
+  const score = hasScore(value) ? Math.max(0, Math.min(100, Number(value))) : null
+  const radius = 58
+  const circumference = 2 * Math.PI * radius
+  // Full circle at 100 from twelve o'clock, so two rings compare at a glance.
+  const dash = score == null ? 0 : (score / 100) * circumference
+
   return (
-    <div style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
-      <div className="t-cap">{label}</div>
-      <div className="fg" style={{ fontSize: 22, fontWeight: 600, marginTop: 2 }}>{value}</div>
+    <div style={{ position: 'relative', width: 150, height: 150, flex: '0 0 auto' }}>
+      <svg width="150" height="150" viewBox="0 0 150 150" style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+        <circle cx="75" cy="75" r={radius} fill="none" stroke="var(--bg-input)" strokeWidth="11" />
+        <circle
+          cx="75"
+          cy="75"
+          r={radius}
+          fill="none"
+          stroke={tone}
+          strokeWidth="11"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circumference}`}
+          style={{ transition: 'stroke-dasharray 800ms var(--ease)' }}
+        />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+        <span className="fg" style={{ fontSize: 42, fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+          {formatScore(score)}
+        </span>
+        <span className="t-cap" style={{ fontSize: 10 }}>out of 100</span>
+      </div>
     </div>
   )
+}
+
+/** Worse than usual is a warning, better a success, level neither. The ring and
+ *  the sentence say one thing, so they take their colour from one place. */
+function contextTone(delta) {
+  if (delta == null || Math.abs(delta) < CONTEXT_MEANINGFUL_DELTA) return 'var(--accent)'
+  return delta < 0 ? 'var(--warning)' : 'var(--success)'
 }
 
 function Panel({ title, icon: Icon, children }) {
   return (
     <Card>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
-        <div className="t-over">{title}</div>
+      {/* A tinted disc, not a loose glyph: six panels need a findable mark. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <span
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--accent-soft)',
+            display: 'grid',
+            placeItems: 'center',
+            flex: '0 0 auto',
+          }}
+        >
+          <Icon size={15} strokeWidth={1.9} style={{ color: 'var(--accent)' }} />
+        </span>
+        <h2 className="fg" style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{title}</h2>
       </div>
       {children}
     </Card>
@@ -452,7 +717,18 @@ function EmptyMsg({ text }) {
   )
 }
 
+/**
+ * Is this a score, or the absence of one?
+ *
+ * Number(null) is 0 and Number.isFinite(0) is true, so `Number.isFinite(Number(x))`
+ * accepts null as a genuine zero - which is how an unscored session came to read
+ * as 0 out of 100.
+ */
+function hasScore(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+}
+
 function formatScore(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
+  if (!hasScore(value)) return 'N/A'
   return Math.round(Number(value))
 }

@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from app.models.analytics import AnalyticsSessionMetric
@@ -53,10 +53,30 @@ class _Candidate:
     label: str
 
 
+# A metric row proves a session was integrated only if it carries a score. The
+# completion hook can land before the MCA engine has finished scoring and store a
+# row of nothing but NULLs; counting that as "already integrated" left the sweep
+# skipping the session for good, and the report then had no measured scores to
+# show for a session the engine had in fact scored.
+_SCORE_COLUMNS = (
+    AnalyticsSessionMetric.overall_score,
+    AnalyticsSessionMetric.speech_volume_score,
+    AnalyticsSessionMetric.speech_pace_score,
+    AnalyticsSessionMetric.clarity_score,
+    AnalyticsSessionMetric.eye_contact_score,
+    AnalyticsSessionMetric.confidence_score,
+    AnalyticsSessionMetric.empathy_score,
+    AnalyticsSessionMetric.emotional_control_score,
+)
+
+
 def _sessions_with_metrics(db: Session, user_id: str) -> set[str]:
     rows = (
         db.query(AnalyticsSessionMetric.session_id)
-        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(
+            AnalyticsSessionMetric.user_id == user_id,
+            or_(*[column.isnot(None) for column in _SCORE_COLUMNS]),
+        )
         .distinct()
         .all()
     )

@@ -148,7 +148,38 @@ def _summarize_scores(metrics: list[AnalyticsSessionMetric]) -> ScoreSummary:
     )
 
 
+def _latest_per_skill(feedback: list[FeedbackEntry]) -> list[FeedbackEntry]:
+    """One row per (session, skill, source): the most recent one.
+
+    Re-submitting the rating form inserts rather than updates, so a session can
+    hold the same skill several times over - one here is six deep. Every figure
+    below was built from the raw list, which counted a correction as another
+    opinion and let a session submitted six times weigh six times as much.
+
+    feedback_analysis_service and blind_spot_service already do this, so the
+    same page showed a skill's self-rating as both 79 and 80. The source is
+    where it belongs, so that everything derived here agrees.
+
+    Callers order newest first, so the first row seen for a key stands. A row
+    with no session id cannot be paired with anything and is kept as its own.
+    """
+    seen: set[tuple] = set()
+    latest: list[FeedbackEntry] = []
+    for entry in feedback:
+        key = (
+            (entry.session_id, entry.skill_area, entry.feedback_type)
+            if entry.session_id
+            else ("", entry.id)
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        latest.append(entry)
+    return latest
+
+
 def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
+    feedback = _latest_per_skill(feedback)
     ratings = [entry.rating for entry in feedback if entry.rating is not None]
     self_entries = [entry for entry in feedback if entry.feedback_type == "self"]
 

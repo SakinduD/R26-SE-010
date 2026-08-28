@@ -141,21 +141,43 @@ export default function FeedbackForm() {
     setMessage('')
 
     try {
-      // The written reflection travels with one entry; the sentiment you chose
-      // is recorded as *your* view, and the NLP model reads your words
-      // independently so the two can be compared afterwards.
       const written = form.comment.trim()
+      const userId = form.user_id.trim()
+      const sessionId = form.session_id.trim()
+
+      // Four ratings, one per skill, and nothing else on them.
       const promises = Object.entries(form.ratings).map(([skill, val]) => {
         return analyticsService.createFeedbackEntry({
-          user_id: form.user_id.trim(),
-          session_id: form.session_id.trim(),
+          user_id: userId,
+          session_id: sessionId,
           feedback_type: 'self',
           skill_area: skill,
           rating: val,
-          declared_sentiment: form.sentiment,
-          comment: skill === 'vocal_command' && written ? written : null
         })
       })
+
+      // The reflection is about the session, so it is its own entry: no skill,
+      // no rating, carrying the words and the sentiment you declared for them.
+      // It used to be stapled onto whichever row was vocal_command, which made
+      // the report print a thought about the whole session under that one skill.
+      // The NLP model reads the words independently, so the two readings can be
+      // compared afterwards.
+      if (written) {
+        promises.push(
+          analyticsService.createFeedbackEntry({
+            user_id: userId,
+            session_id: sessionId,
+            feedback_type: 'self',
+            // No skill and no rating. The form rates four skills; this is the
+            // one thing written about the session itself, so naming a skill area
+            // for it would put a fifth skill in the data that nobody rated.
+            skill_area: null,
+            rating: null,
+            comment: written,
+            declared_sentiment: form.sentiment,
+          })
+        )
+      }
 
       const saved = await Promise.all(promises)
       const analysed = saved.find((entry) => entry?.sentiment_source === 'model')

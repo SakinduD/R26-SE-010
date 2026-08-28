@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 
-const hasScore = (value) => Number.isFinite(Number(value))
+// Number(null) is 0 and Number.isFinite(0) is true, so a null score passed this
+// guard and was drawn as a real zero. Only a number is a score here.
+const hasScore = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
 const clampScore = (value) => Math.max(0, Math.min(100, Number(value)))
 
 export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
@@ -61,7 +63,7 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
             <ScoreBar
               label="OVERALL SKILLS SCORE"
               value={overallScore}
-              hasEvidence={true}
+              hasEvidence={hasScore(overallScore)}
               isOverall={true}
             />
             {/* Said plainly because the reader can check it and find it does not
@@ -89,7 +91,10 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
   const points = scores.map((item, index) => {
     const angle = -Math.PI / 2 + (2 * Math.PI * index) / scores.length
     const valueRadius = radius * (item.value / 100)
-    const selfVal = selfMap[item.key] || 0
+    // A rating of 0 is a rating. Absence is the key not being in the map, so
+    // `selfVal > 0` treated a real zero as "never rated".
+    const hasSelf = Object.prototype.hasOwnProperty.call(selfMap, item.key)
+    const selfVal = hasSelf ? selfMap[item.key] : 0
     const selfRadius = radius * (selfVal / 100)
     return {
       ...item,
@@ -98,7 +103,7 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
       selfX: center + Math.cos(angle) * selfRadius,
       selfY: center + Math.sin(angle) * selfRadius,
       selfVal,
-      hasSelf: selfVal > 0,
+      hasSelf,
       labelX: center + Math.cos(angle) * (radius + 32),
       labelY: center + Math.sin(angle) * (radius + 32),
       axisX: center + Math.cos(angle) * radius,
@@ -120,27 +125,34 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
 
       {hasSelfData && (
         <>
-          <polygon
-            points={points.map((p) => `${p.selfX},${p.selfY}`).join(' ')}
-            fill="rgba(245, 158, 11, 0.15)"
-            stroke="rgb(245, 158, 11)"
-            strokeWidth="2"
-            strokeDasharray="4 2"
-          />
+          {points.every((p) => p.hasSelf) && (
+            <polygon
+              points={points.map((p) => `${p.selfX},${p.selfY}`).join(' ')}
+              fill="rgba(245, 158, 11, 0.15)"
+              stroke="rgb(245, 158, 11)"
+              strokeWidth="2"
+              strokeDasharray="4 2"
+            />
+          )}
           {points.map((p) => (
             p.hasSelf && <circle key={'s-'+p.key} cx={p.selfX} cy={p.selfY} r="3" fill="rgb(245, 158, 11)" />
           ))}
         </>
       )}
 
-      <polygon
-        points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-        fill="rgba(14, 116, 144, 0.2)"
-        stroke="rgb(14, 116, 144)"
-        strokeWidth="2"
-      />
+      {/* An unmeasured axis has no vertex to place. Putting one at the centre
+          draws it as a score of zero, so the shape is only closed when every
+          axis has a value; otherwise the measured axes show as points. */}
+      {points.every((p) => p.hasEvidence) && (
+        <polygon
+          points={points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill="rgba(14, 116, 144, 0.2)"
+          stroke="rgb(14, 116, 144)"
+          strokeWidth="2"
+        />
+      )}
       {points.map((p) => (
-        <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="rgb(14, 116, 144)" />
+        p.hasEvidence && <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="rgb(14, 116, 144)" />
       ))}
 
       {points.map((point) => (
@@ -152,7 +164,7 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
           <circle cx={point.labelX} cy={point.labelY} r="15" fill="transparent" />
           <text x={point.labelX} y={point.labelY} textAnchor="middle" dominantBaseline="middle"
             className="fill-muted-foreground text-[10px]" fontWeight={hovered === point.key ? 'bold' : 'normal'}>
-            {point.hasEvidence ? Math.round(point.value) : '0'}
+            {point.hasEvidence ? Math.round(point.value) : '--'}
           </text>
 
           {hovered === point.key && (
