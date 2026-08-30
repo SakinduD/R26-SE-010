@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertCircle, RefreshCw, Sparkles, ChevronDown, ChevronUp, Brain, History, Clock, Zap, BarChart2 } from 'lucide-react'
+import { AlertCircle, RefreshCw, Sparkles, Brain, History, Clock, Zap, BarChart2, X } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
@@ -49,6 +49,13 @@ export default function ScenarioSelect() {
   const [error, setError]                         = useState(null)
   const [showCompare, setShowCompare]             = useState(false)
   const [heroDetail, setHeroDetail]               = useState(null)
+
+  useEffect(() => {
+    if (!showCompare) return
+    const handleKey = (e) => { if (e.key === 'Escape') setShowCompare(false) }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [showCompare])
 
   const loadScenarios = async () => {
     setIsLoading(true)
@@ -280,6 +287,16 @@ export default function ScenarioSelect() {
               <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
                 <History size={13} strokeWidth={1.8} /> My Sessions
               </button>
+              {!isLoading && allScenarios.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCompare((v) => !v)}
+                  className={cn('my-sessions-btn', showCompare && 'active')}
+                  aria-expanded={showCompare}
+                >
+                  <BarChart2 size={13} strokeWidth={1.8} /> Compare All Scenarios
+                </button>
+              )}
               <span className="pill neutral">{allScenarios.length} scenarios</span>
             </div>
           </div>
@@ -424,41 +441,43 @@ export default function ScenarioSelect() {
           </div>
         </div>
 
-        {!isLoading && allScenarios.length > 0 && (
-          <button type="button" onClick={() => setShowCompare((v) => !v)} className="compare-affordance">
-            <BarChart2 size={14} strokeWidth={1.8} />
-            Compare all scenarios
-            {showCompare ? <ChevronUp size={14} strokeWidth={1.8} /> : <ChevronDown size={14} strokeWidth={1.8} />}
-          </button>
-        )}
-
         {showCompare && (
-          <div className="compare-panel">
-            <div className="compare-table-wrap">
-              <table className="compare-table">
-                <thead>
-                  <tr>
-                    {['Scenario', 'Difficulty', 'Category', 'Skills Practiced', 'Exchanges'].map((h) => (
-                      <th key={h}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {allScenarios.map((s) => (
-                    <tr key={s.scenario_id}>
-                      <td className="cmp-title">{s.title}</td>
-                      <td><span className={cn('diff-badge', DIFFICULTY_TONE[s.difficulty] ?? 'neutral')}><span className="dot" />{s.difficulty}</span></td>
-                      <td>{s.category}</td>
-                      <td className="cmp-skills">
-                        {(s.target_skills ?? []).length > 0
-                          ? s.target_skills.map((sk) => sk.replace(/_/g, ' ')).join(', ')
-                          : '—'}
-                      </td>
-                      <td className="cmp-num">~{s.turns}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="cmp-modal-backdrop" onClick={() => setShowCompare(false)}>
+            <div className="cmp-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="cmp-modal-header">
+                <h2 className="cmp-modal-title">Compare all scenarios</h2>
+                <button type="button" onClick={() => setShowCompare(false)} className="cmp-modal-close" aria-label="Close">
+                  <X size={16} strokeWidth={1.8} />
+                </button>
+              </div>
+              <div className="cmp-modal-body">
+                <div className="compare-table-wrap">
+                  <table className="compare-table">
+                    <thead>
+                      <tr>
+                        {['Scenario', 'Difficulty', 'Category', 'Skills Practiced', 'Exchanges'].map((h) => (
+                          <th key={h}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allScenarios.map((s) => (
+                        <tr key={s.scenario_id}>
+                          <td className="cmp-title">{s.title}</td>
+                          <td><span className={cn('diff-badge', DIFFICULTY_TONE[s.difficulty] ?? 'neutral')}><span className="dot" />{s.difficulty}</span></td>
+                          <td>{s.category}</td>
+                          <td className="cmp-skills">
+                            {(s.target_skills ?? []).length > 0
+                              ? s.target_skills.map((sk) => sk.replace(/_/g, ' ')).join(', ')
+                              : '—'}
+                          </td>
+                          <td className="cmp-num">~{s.turns}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -611,6 +630,7 @@ export default function ScenarioSelect() {
         .rpe-cinema .my-sessions-btn:hover{ border-color:var(--primary); background:var(--primary-glow); }
         .rpe-cinema .my-sessions-btn.accent{ background:linear-gradient(135deg, var(--accent), #9B6BFF); border-color:transparent; color:#fff; }
         .rpe-cinema .my-sessions-btn.accent:hover{ filter:brightness(1.08); border-color:transparent; background:linear-gradient(135deg, var(--accent), #9B6BFF); }
+        .rpe-cinema .my-sessions-btn.active{ border-color:var(--primary); background:var(--primary-glow); color:var(--primary); }
         .rpe-cinema .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--primary); margin:0 0 8px; }
         .rpe-cinema .hero-title{ font-size:28px; font-weight:800; letter-spacing:-0.01em; margin:0; }
         .rpe-cinema .hero-sub{ font-size:13.5px; color:var(--text-med); margin:8px 0 0; }
@@ -773,17 +793,31 @@ export default function ScenarioSelect() {
         .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
         .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
 
-        .rpe-cinema .compare-affordance{
-          align-self:flex-start; display:inline-flex; align-items:center; gap:8px;
-          background:var(--surface); border:1px solid var(--border); color:var(--text-hi);
-          font-size:12.5px; font-weight:650; padding:9px 16px; border-radius:9px; cursor:pointer;
-          transition:border-color .2s var(--ease), background .2s var(--ease);
+        .rpe-cinema .cmp-modal-backdrop{
+          position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
+          background:var(--cmp-modal-backdrop, rgba(6,8,12,0.72)); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
         }
-        .rpe-cinema .compare-affordance:hover{ border-color:var(--text-med); background:var(--surface-hi); }
-        .rpe-cinema .compare-affordance svg:first-child{ color:var(--accent); }
-        .rpe-cinema .compare-affordance svg:last-child{ color:var(--text-med); }
-
-        .rpe-cinema .compare-panel{ background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+        :root[data-theme="light"] .rpe-cinema .cmp-modal-backdrop{ --cmp-modal-backdrop: rgba(36,30,56,0.35); }
+        .rpe-cinema .cmp-modal{
+          background:var(--surface); border:1px solid var(--border); border-radius:16px;
+          max-width:920px; width:100%; max-height:85vh; overflow-y:auto;
+          box-shadow:0 30px 70px rgba(0,0,0,0.5);
+          opacity:0; transform:translateY(16px) scale(0.98);
+          animation: rpeCmpModalIn .25s cubic-bezier(0.22,1,0.36,1) forwards;
+        }
+        @keyframes rpeCmpModalIn{ to{ opacity:1; transform:none; } }
+        .rpe-cinema .cmp-modal-header{
+          position:sticky; top:0; z-index:1; background:var(--surface); border-bottom:1px solid var(--border);
+          padding:18px 24px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+          border-radius:16px 16px 0 0;
+        }
+        .rpe-cinema .cmp-modal-title{ font-size:16px; font-weight:750; margin:0; color:var(--text-hi); }
+        .rpe-cinema .cmp-modal-close{
+          flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--text-med);
+          padding:6px; border-radius:8px; display:flex; transition:background .2s ease, color .2s ease;
+        }
+        .rpe-cinema .cmp-modal-close:hover{ background:var(--surface-hi); color:var(--text-hi); }
+        .rpe-cinema .cmp-modal-body{ padding:8px; }
         .rpe-cinema .compare-table-wrap{ overflow-x:auto; }
         .rpe-cinema .compare-table{ width:100%; font-size:12px; text-align:left; border-collapse:collapse; }
         .rpe-cinema .compare-table thead{ background:var(--surface-hi); }

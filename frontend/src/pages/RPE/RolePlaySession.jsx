@@ -31,6 +31,28 @@ function pickNpcProfileImage(gender) {
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
+// NPC 3D avatar model — one random pick per session from the matching-gender
+// pool, same "covers every scenario, generated ones included" reasoning as
+// the profile photo above. These live in public/ (plain static files, not
+// bundled src/ imports), so they're referenced by root-relative URL rather
+// than import.meta.glob. "body" is TalkingHead's own rig-type option and has
+// to match each model's actual body, not just be cosmetic — avatar.glb's
+// existing body:'F' (the pre-existing default) is carried over unchanged.
+// ttsVoice must match too, or a male model speaks with the (previously
+// hardcoded, female) en-GB-Neural2-C voice regardless of which model is
+// showing — en-GB-Neural2-D is Google's real British male Neural2 voice.
+const NPC_AVATARS = {
+  male:   [{ url: '/david.glb', body: 'M', ttsVoice: 'en-GB-Neural2-D' }],
+  female: [
+    { url: '/avatar.glb',  body: 'F', ttsVoice: 'en-GB-Neural2-C' },
+    { url: '/avaturn.glb', body: 'F', ttsVoice: 'en-GB-Neural2-C' },
+  ],
+}
+function pickNpcAvatar(gender) {
+  const pool = gender === 'male' ? NPC_AVATARS.male : NPC_AVATARS.female
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
 const EMOTION_META = {
@@ -98,6 +120,7 @@ export default function RolePlaySession() {
 
   // Picked once per session mount, not re-rolled on every render.
   const [npcProfileImage] = useState(() => pickNpcProfileImage(npcGender))
+  const [npcAvatar] = useState(() => pickNpcAvatar(npcGender))
 
   const bottomRef            = useRef(null)
   const transcriptRef        = useRef(null)
@@ -590,6 +613,9 @@ export default function RolePlaySession() {
               onReady={(head) => { headRef.current = head; setAvatarReady(true); speakOpeningLine() }}
               onError={() => { setAvatarReady(true); speakOpeningLine() }}
               className="character-avatar"
+              avatarUrl={npcAvatar.url}
+              avatarBody={npcAvatar.body}
+              ttsVoice={npcAvatar.ttsVoice}
             />
 
             <div className="stage-topbar">

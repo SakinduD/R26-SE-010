@@ -30,5 +30,18 @@
       "controlled": 0
     }
   },
+  "apa_metadata": {
+    "target_skills": [
+      "assertiveness",
+      "emotional_regulation",
+      "boundary_setting"
+    ],
+    "big_five_relevance": [
+      "neuroticism",
+      "agreeableness"
+    ],
+    "recommended_for_profile": null,
+    "difficulty_weight": 1.0
+  },
   "category": "Difficult Conversations"
 }

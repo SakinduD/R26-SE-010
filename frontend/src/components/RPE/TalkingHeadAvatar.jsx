@@ -19,7 +19,14 @@ import { TalkingHead } from '@met4citizen/talkinghead'
 import { useRef, useEffect, useState } from 'react'
 import { API_URL } from '@/lib/config'
 
-export default function TalkingHeadAvatar({ onReady, onError, className }) {
+export default function TalkingHeadAvatar({
+  onReady,
+  onError,
+  className,
+  avatarUrl,
+  avatarBody = 'F',
+  ttsVoice = 'en-GB-Neural2-C',
+}) {
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
   const containerRef = useRef(null)
@@ -86,11 +93,11 @@ export default function TalkingHeadAvatar({ onReady, onError, className }) {
 
           head.showAvatar(
             {
-              url: import.meta.env.VITE_AVATAR_URL ?? '/avatar.glb',
-              body: 'F',
+              url: avatarUrl ?? import.meta.env.VITE_AVATAR_URL ?? '/avatar.glb',
+              body: avatarBody,
               baseline: 'M',
               ttsLang: 'en-GB',
-              ttsVoice: 'en-GB-Neural2-C',
+              ttsVoice,
               lipsyncLang: 'en',
             },
             (event) => {
