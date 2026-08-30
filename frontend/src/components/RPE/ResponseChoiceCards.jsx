@@ -47,12 +47,12 @@ export default function ResponseChoiceCards({ options, onChoose }) {
 
         .rpe-choice-card{
           display:flex; flex-direction:column; gap:6px; text-align:left; cursor:pointer;
-          background:rgba(22,27,34,0.85); backdrop-filter:blur(4px); border:1px solid var(--border, #30363D);
+          background:var(--choice-card-bg, rgba(22,27,34,0.85)); backdrop-filter:blur(4px); border:1px solid var(--border, #30363D);
           border-radius:12px; padding:12px 14px; color:var(--text-hi, #F0F6FC);
           transition:border-color .2s ease, transform .2s ease, background .2s ease;
         }
         .rpe-choice-card:hover, .rpe-choice-card:focus-visible{
-          border-color:var(--primary, #4493F8); background:rgba(68,147,248,0.1); transform:translateY(-2px);
+          border-color:var(--primary, #4493F8); background:var(--choice-card-hover-bg, rgba(68,147,248,0.1)); transform:translateY(-2px);
           outline:none;
         }
         .rpe-choice-label{ font-size:12.5px; font-weight:700; }

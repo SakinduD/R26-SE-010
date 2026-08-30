@@ -194,7 +194,7 @@ export default function SessionComplete() {
           border-left:2px solid rgba(124,58,237,0.5); padding-left:14px;
         }
         .rpe-cinema .hero-quote-label{ font-size:9.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }
-        .rpe-cinema .hero-quote-text{ font-size:13px; font-style:italic; color:#C9D1D9; margin:3px 0 0; line-height:1.55; }
+        .rpe-cinema .hero-quote-text{ font-size:13px; font-style:italic; color:var(--quote-text, #C9D1D9); margin:3px 0 0; line-height:1.55; }
 
         .rpe-cinema .hero-divider{ height:1px; background:var(--border); margin:18px 0 16px; }
 
@@ -220,6 +220,25 @@ export default function SessionComplete() {
         .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
         .rpe-cinema .btn-c.ghost{ background:transparent; color:var(--text-med); }
         .rpe-cinema .btn-c.ghost:hover{ color:var(--text-hi); background:var(--surface-hi); }
+
+        :root[data-theme="light"] .rpe-cinema{
+          --bg:            #F5F3FD;
+          --surface:       #FFFFFF;
+          --surface-hi:    #EFEAFB;
+          --border:        #D9CFF5;
+          --accent:        #6B3FD6;
+          --accent-glow:   rgba(107,63,214,0.12);
+          --success:       #1E8E4A;
+          --success-glow:  rgba(30,142,74,0.12);
+          --warning:       #B4790E;
+          --warning-glow:  rgba(180,121,14,0.14);
+          --danger:        #D93B32;
+          --danger-glow:   rgba(217,59,50,0.12);
+          --text-hi:       #241E38;
+          --text-med:      #5E5678;
+          --text-low:      #8D84A8;
+          --quote-text:    #3A3352;
+        }
       `}</style>
     </div>
   )

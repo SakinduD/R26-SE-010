@@ -762,6 +762,21 @@ export default function RolePlaySession() {
           --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
           --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
+          /* Overlays floating on the avatar stage — kept dark-by-default
+             since they were designed against the dark stage background, but
+             now themeable since the stage surface itself follows the app
+             theme (var(--surface)) rather than staying permanently black. */
+          --scrim-top:    linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
+          --scrim-bottom: linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+          --overlay-chip-bg:  rgba(22,27,34,0.75);
+          --overlay-toast-bg: rgba(22,27,34,0.92);
+          --overlay-toast-critical-bg: rgba(45,20,20,0.92);
+          --overlay-toast-warning-bg:  rgba(45,36,14,0.92);
+          --overlay-dismiss-bg:       rgba(255,255,255,0.08);
+          --overlay-dismiss-bg-hover: rgba(255,255,255,0.16);
+          --choice-card-bg: rgba(22,27,34,0.85);
+          --choice-card-hover-bg: rgba(68,147,248,0.1);
+
           background:var(--bg);
           color:var(--text-hi);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
@@ -871,7 +886,7 @@ export default function RolePlaySession() {
           font-size:13px; font-weight:600; cursor:pointer;
           transition:border-color .2s var(--ease), color .2s var(--ease), background .2s var(--ease);
         }
-        .rpe-vs .end-btn:hover:not(:disabled){ border-color:var(--danger); color:#FF7B72; background:var(--danger-glow); }
+        .rpe-vs .end-btn:hover:not(:disabled){ border-color:var(--danger); color:var(--danger-hover-text, #FF7B72); background:var(--danger-glow); }
         .rpe-vs .end-btn:disabled{ opacity:.4; cursor:default; }
         .rpe-vs .end-btn:focus-visible{ outline:2px solid var(--danger); outline-offset:2px; }
 
@@ -886,34 +901,34 @@ export default function RolePlaySession() {
         .rpe-vs .stage-topbar{
           position:absolute; top:0; left:0; right:0; z-index:5;
           height:56px; display:flex; align-items:center; gap:14px; padding:0 20px;
-          background:linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
+          background:var(--scrim-top);
         }
         .rpe-vs .back-btn{
-          background:rgba(22,27,34,0.7); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
+          background:var(--overlay-chip-bg); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
           width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease); flex-shrink:0;
         }
         .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
-        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 4px rgba(0,0,0,0.6); }
+        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:var(--topbar-title-shadow, 0 1px 4px rgba(0,0,0,0.6)); }
 
         .rpe-vs .voice-pill{
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
+          background:var(--overlay-chip-bg); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
         .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
-        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
 
         .rpe-vs .sensing-pill{
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--accent);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
+          background:var(--overlay-chip-bg); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .sensing-pill:hover{ filter:brightness(1.15); }
-        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
 
         /* Compact learner-camera feed, docked beside the avatar — off by
            default, opt-in via the "Coaching" pill above. */
@@ -937,7 +952,7 @@ export default function RolePlaySession() {
         .rpe-vs .nudge-toast{
           pointer-events:auto; display:flex; align-items:center; gap:12px;
           padding:12px 14px; border-radius:14px; width:100%;
-          background:rgba(22,27,34,0.92); backdrop-filter:blur(10px);
+          background:var(--overlay-toast-bg); backdrop-filter:blur(10px);
           border:1px solid rgba(124,58,237,0.4); color:var(--text-hi);
           box-shadow:0 14px 34px rgba(0,0,0,0.4);
           opacity:0; transform:translateX(24px);
@@ -947,8 +962,8 @@ export default function RolePlaySession() {
         @keyframes rpevsNudgeIn{ to{ opacity:1; transform:none; } }
         .rpe-vs .nudge-toast.stacked{ transform:scale(0.94); opacity:0.55; }
         .rpe-vs .nudge-toast.stacked:hover{ transform:scale(1); opacity:1; }
-        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:rgba(45,20,20,0.92); }
-        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:rgba(45,36,14,0.92); }
+        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:var(--overlay-toast-critical-bg); }
+        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:var(--overlay-toast-warning-bg); }
         .rpe-vs .nudge-icon{
           flex-shrink:0; width:30px; height:30px; border-radius:50%;
           display:flex; align-items:center; justify-content:center;
@@ -961,16 +976,16 @@ export default function RolePlaySession() {
         .rpe-vs .nudge-time{ font-size:10px; color:var(--text-med); }
         .rpe-vs .nudge-dismiss{
           flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; cursor:pointer;
-          background:rgba(255,255,255,0.08); color:var(--text-med);
+          background:var(--overlay-dismiss-bg); color:var(--text-med);
           display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease);
         }
-        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.16); color:var(--text-hi); }
+        .rpe-vs .nudge-dismiss:hover{ background:var(--overlay-dismiss-bg-hover); color:var(--text-hi); }
 
         .rpe-vs .stage-bottom{
           position:absolute; bottom:0; left:0; right:0; z-index:5;
           min-height:96px; display:flex; align-items:center; justify-content:center; padding:20px;
-          background:linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+          background:var(--scrim-bottom);
         }
 
         /* Floating chat toggle — bottom-right FAB, website-chat-widget style. */
@@ -1048,7 +1063,7 @@ export default function RolePlaySession() {
         }
 
         .rpe-vs .msg-body{ font-size:14px; line-height:1.6; letter-spacing:-0.003em; padding:2px 0 2px 12px; border-left:2px solid transparent; }
-        .rpe-vs .msg.npc .msg-body{ color:#C9D1D9; border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
+        .rpe-vs .msg.npc .msg-body{ color:var(--npc-msg-text, #C9D1D9); border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
         .rpe-vs .msg.user .msg-body{ color:var(--text-hi); border-left:none; border-right:2px solid var(--primary-glow); padding-left:0; padding-right:12px; }
 
         .rpe-vs .msg.latest .msg-body{ position:relative; border-radius:10px; padding:12px 16px; }
@@ -1128,7 +1143,7 @@ export default function RolePlaySession() {
 
         .rpe-vs .overlay{
           position:absolute; inset:0; display:none; align-items:flex-end; justify-content:center;
-          background:rgba(6,8,12,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); z-index:20;
+          background:var(--overlay-backdrop, rgba(6,8,12,0.72)); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); z-index:20;
         }
         .rpe-vs[data-voice-state="complete"] .overlay{ display:flex; }
 
@@ -1152,6 +1167,49 @@ export default function RolePlaySession() {
         .rpe-vs .result-card.success{ border-color:rgba(63,185,80,0.3); box-shadow:0 24px 60px rgba(63,185,80,0.12); }
         .rpe-vs .result-card.failure{ border-color:rgba(248,81,73,0.3); box-shadow:0 24px 60px rgba(248,81,73,0.12); }
         .rpe-vs .result-card.natural{ border-color:rgba(68,147,248,0.3); box-shadow:0 24px 60px rgba(68,147,248,0.12); }
+
+        /* Light theme override — see the matching block in ScenarioSelect.jsx
+           for why this needs its own vars rather than inheriting index.css.
+           The stage's floating scrims/pills/nudge toasts flip to light too
+           (translucent lavender instead of translucent black) — the avatar
+           viewport underneath already follows var(--surface), so a dark
+           scrim over a light stage looked like a stray black bar. */
+        :root[data-theme="light"] .rpe-vs{
+          --bg:            #F5F3FD;
+          --surface:       #FFFFFF;
+          --surface-hi:    #EFEAFB;
+          --border:        #D9CFF5;
+          --border-soft:   #E9E2FB;
+          --primary:       #3D6FE0;
+          --primary-glow:  rgba(61,111,224,0.10);
+          --primary-glow-strong: rgba(61,111,224,0.30);
+          --accent:        #6B3FD6;
+          --accent-glow:   rgba(107,63,214,0.12);
+          --success:       #1E8E4A;
+          --success-glow:  rgba(30,142,74,0.15);
+          --danger:        #D93B32;
+          --danger-glow:   rgba(217,59,50,0.15);
+          --warning:       #B4790E;
+          --warning-glow:  rgba(180,121,14,0.15);
+          --text-hi:       #241E38;
+          --text-med:      #5E5678;
+          --text-low:      #8D84A8;
+          --npc-msg-text:      #3A3352;
+          --danger-hover-text: #B42318;
+          --overlay-backdrop:  rgba(245,243,253,0.82);
+
+          --scrim-top:    linear-gradient(180deg, rgba(245,243,253,0.92) 0%, rgba(245,243,253,0.6) 60%, transparent 100%);
+          --scrim-bottom: linear-gradient(0deg, rgba(245,243,253,0.94) 0%, rgba(245,243,253,0.65) 55%, transparent 100%);
+          --overlay-chip-bg:  rgba(255,255,255,0.8);
+          --overlay-toast-bg: rgba(255,255,255,0.92);
+          --overlay-toast-critical-bg: rgba(255,231,229,0.95);
+          --overlay-toast-warning-bg:  rgba(255,242,220,0.95);
+          --overlay-dismiss-bg:       rgba(36,30,56,0.06);
+          --overlay-dismiss-bg-hover: rgba(36,30,56,0.12);
+          --choice-card-bg: rgba(255,255,255,0.9);
+          --choice-card-hover-bg: rgba(61,111,224,0.12);
+          --topbar-title-shadow: none;
+        }
       `}</style>
     </div>
   )

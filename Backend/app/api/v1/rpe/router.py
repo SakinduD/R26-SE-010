@@ -19,6 +19,7 @@ from app.services.rpe_apm_notify_service import RpeApmNotifyService
 from app.services.rpe_blind_spot_service import RpeBlindSpotService
 from app.services.rpe_coaching_service   import RpeCoachingService
 from app.services.rpe_emotion_service    import RpeEmotionService
+from app.services              import rpe_escalation_ml_service
 from app.services.rpe_feedback_service   import RpeFeedbackService
 from app.services.rpe_nlp_service        import RpeNlpService
 from app.services.rpe_npc_service        import RpeNpcService
@@ -200,6 +201,11 @@ def session_respond(
         new_trust = rpe_emotion_service.update_trust(current_trust, emotion, payload.user_input)
         new_esc   = rpe_emotion_service.update_escalation(current_esc, emotion)
 
+        # Advisory-only ML escalation read — never feeds into new_trust/new_esc
+        # or anything derived from them; best-effort, returns None on any
+        # failure so a missing/broken model can never break a live turn.
+        ml_escalation = rpe_escalation_ml_service.predict_escalation(payload.user_input)
+
         turn_number = rpe_session_service.advance_turn(payload.session_id)
         turn_data = {
             "turn":             turn_number,
@@ -298,6 +304,8 @@ def session_respond(
             response_options=response_options if not should_end else None,
             clarity_score=live_metrics["clarity_score"],
             response_quality=live_metrics["response_quality"],
+            ml_escalation_label=ml_escalation["label"] if ml_escalation else None,
+            ml_escalation_confidence=ml_escalation["confidence"] if ml_escalation else None,
         )
     except HTTPException:
         raise

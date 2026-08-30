@@ -139,7 +139,7 @@ export default function TalkingHeadAvatar({ onReady, onError, className }) {
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(13,17,23,0.6)',
+            background: 'var(--overlay-toast-bg, rgba(13,17,23,0.6))',
           }}
         >
           <span
@@ -156,7 +156,7 @@ export default function TalkingHeadAvatar({ onReady, onError, className }) {
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(13,17,23,0.85)',
+            background: 'var(--overlay-toast-bg, rgba(13,17,23,0.85))',
           }}
         >
           <span style={{ color: 'var(--text-med, #8B949E)', fontSize: 13, fontWeight: 600 }}>
