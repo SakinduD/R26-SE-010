@@ -1,0 +1,30 @@
+=== MCA SER Training Report ===
+Test accuracy : 43.71%
+Test macro F1 : 0.4373
+Train accuracy: 93.95%
+Overfit gap   : 50.24%
+
+Classification Report:
+              precision    recall  f1-score   support
+
+     neutral       0.41      0.57      0.48      1100
+       happy       0.34      0.42      0.38      1000
+         sad       0.39      0.48      0.43       997
+       angry       0.57      0.50      0.53      1000
+     fearful       0.60      0.43      0.51      1000
+     disgust       0.29      0.25      0.27      1000
+   surprised       0.59      0.38      0.47      1000
+
+    accuracy                           0.44      7097
+   macro avg       0.46      0.44      0.44      7097
+weighted avg       0.46      0.44      0.44      7097
+
+
+Confusion Matrix (rows=true, cols=pred):
+[[632  82 224  15 104  37   6]
+ [110 421 174  67  27 116  85]
+ [318  64 479  13  47  44  32]
+ [ 29 198  10 503  19 225  16]
+ [183  32 205  49 434  40  57]
+ [240 244  68  93  37 249  69]
+ [ 43 180  61 145  50 137 384]]

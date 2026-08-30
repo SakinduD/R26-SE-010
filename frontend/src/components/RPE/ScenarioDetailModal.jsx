@@ -131,8 +131,9 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
       <style>{`
         .rpe-modal-backdrop{
           position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
-          background:rgba(6,8,12,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+          background:var(--modal-backdrop, rgba(6,8,12,0.72)); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
         }
+        :root[data-theme="light"] .rpe-modal-backdrop{ --modal-backdrop: rgba(36,30,56,0.35); }
         .rpe-modal{
           --bg-card:      #161B22;
           --bg-card-hi:   #21262D;
@@ -206,7 +207,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
           color:var(--accent); margin:0 0 9px;
         }
-        .rpe-modal .block-text{ font-size:13.5px; line-height:1.65; color:#C9D1D9; margin:0; }
+        .rpe-modal .block-text{ font-size:13.5px; line-height:1.65; color:var(--quote-text, #C9D1D9); margin:0; }
 
         .rpe-modal .block-skel{
           height:14px; width:82%; border-radius:5px;
@@ -221,7 +222,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           flex-shrink:0; width:44px; font-size:10px; font-weight:700; letter-spacing:.06em;
           text-transform:uppercase; color:var(--text-low);
         }
-        .rpe-modal .role-val{ font-size:13.5px; color:#C9D1D9; line-height:1.55; }
+        .rpe-modal .role-val{ font-size:13.5px; color:var(--quote-text, #C9D1D9); line-height:1.55; }
         .rpe-modal .role-val b{ color:var(--text-hi); }
 
         .rpe-modal .opening-line{
@@ -272,6 +273,25 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         @media (max-width:640px){
           .rpe-modal .modal-grid{ grid-template-columns:1fr; gap:22px 0; }
           .rpe-modal .col-story{ padding-right:0; padding-bottom:22px; border-right:none; border-bottom:1px solid var(--border); }
+        }
+
+        :root[data-theme="light"] .rpe-modal{
+          --bg-card:      #FFFFFF;
+          --bg-card-hi:   #EFEAFB;
+          --border:       #D9CFF5;
+          --accent:       #6B3FD6;
+          --accent-glow:  rgba(107,63,214,0.12);
+          --success:      #1E8E4A;
+          --success-glow: rgba(30,142,74,0.12);
+          --warning:      #B4790E;
+          --warning-glow: rgba(180,121,14,0.14);
+          --danger:       #D93B32;
+          --danger-glow:  rgba(217,59,50,0.12);
+          --text-hi:      #241E38;
+          --text-med:     #5E5678;
+          --text-low:     #8D84A8;
+          --quote-text:   #3A3352;
+          box-shadow:0 20px 50px rgba(36,30,56,0.18);
         }
       `}</style>
     </div>

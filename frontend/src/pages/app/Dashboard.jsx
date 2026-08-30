@@ -6,6 +6,8 @@ import { useAuth } from '@/lib/auth/context';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { getMyProfile } from '@/lib/api/survey';
 import { getMyBaseline } from '@/lib/api/baseline';
+import { rpeService } from '@/services/rpe/rpeService';
+import { mcaService } from '@/services/mca/mcaService';
 import { TRAIT_META, OCEAN_ORDER } from '@/lib/survey/trait-copy';
 import PageHead from '@/components/ui/PageHead';
 import Card from '@/components/ui/Card';
@@ -111,6 +113,30 @@ function BaselineStatusRow({ baseline }) {
   );
 }
 
+// state: undefined = loading, false = not done yet, true = done
+function MilestoneStatusRow({ state, to }) {
+  if (state === undefined) {
+    return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>…</span>;
+  }
+  if (!state) {
+    return (
+      <Link
+        to={to}
+        style={{ fontSize: 12, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      >
+        Pending
+        <ArrowRight size={10} strokeWidth={2} />
+      </Link>
+    );
+  }
+  return (
+    <span style={{ fontSize: 12, color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <CheckCircle2 size={11} strokeWidth={2} />
+      Complete
+    </span>
+  );
+}
+
 // Module scope, resets on a full page reload: ensures the achievement toast
 // fires at most once per tab even if Dashboard unmounts and remounts (e.g.
 // the learner navigates away and back) while the same unseen-badge batch
@@ -122,6 +148,8 @@ export default function Dashboard() {
   const displayName = user?.display_name || user?.email?.split('@')[0] || 'there';
   const [profile, setProfile] = useState(undefined); // undefined = loading, null = not taken
   const [baseline, setBaseline] = useState(undefined); // undefined = loading, null = none
+  const [rpeSessions, setRpeSessions] = useState(undefined); // undefined = loading, [] = none yet
+  const [mcaSessions, setMcaSessions] = useState(undefined); // undefined = loading, [] = none yet
 
   useEffect(() => {
     getMyProfile()
@@ -130,7 +158,38 @@ export default function Dashboard() {
     getMyBaseline()
       .then(setBaseline)
       .catch(() => setBaseline(null));
+    rpeService
+      .getMyRpeSessions()
+      .then(setRpeSessions)
+      .catch(() => setRpeSessions([]));
+    mcaService
+      .getMySessions()
+      .then(setMcaSessions)
+      .catch(() => setMcaSessions([]));
   }, []);
+
+  // "First role-play" is done once any role-play session has been started;
+  // "Multimodal session" specifically means a completed *live* MCA session
+  // (mode "ai" is the baseline chat, already tracked by its own milestone).
+  const hasRoleplay =
+    rpeSessions === undefined ? undefined : rpeSessions.length > 0;
+  const hasMultimodalSession =
+    mcaSessions === undefined
+      ? undefined
+      : mcaSessions.some((s) => s.mode === 'live' && s.status === 'completed');
+
+  const sessionsThisWeek =
+    rpeSessions === undefined || mcaSessions === undefined
+      ? undefined
+      : (() => {
+          const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          const isThisWeek = (startedAt) =>
+            startedAt && new Date(startedAt).getTime() >= weekAgo;
+          return (
+            rpeSessions.filter((s) => isThisWeek(s.started_at)).length +
+            mcaSessions.filter((s) => isThisWeek(s.started_at)).length
+          );
+        })();
 
   // Achievement toast — the unseen-badge diff itself is computed once for
   // the whole app shell (AchievementsProvider, shared with the Topbar
@@ -189,8 +248,8 @@ export default function Dashboard() {
         />
         <StatCard
           label="Sessions this week"
-          value={0}
-          hint="vs last week"
+          value={sessionsThisWeek === undefined ? '…' : sessionsThisWeek}
+          hint="Role-play + multimodal"
         />
       </motion.div>
 
@@ -250,8 +309,14 @@ export default function Dashboard() {
           <div className="divider" style={{ margin: '20px 0 14px' }} />
           <div className="t-over" style={{ marginBottom: 8 }}>Next milestones</div>
           <KeyValuePair k="Voice baseline" v={profile ? <BaselineStatusRow baseline={baseline} /> : '—'} />
-          <KeyValuePair k="First role-play" v={profile ? 'Pending' : '—'} />
-          <KeyValuePair k="Multimodal session" v={profile ? 'Pending' : '—'} />
+          <KeyValuePair
+            k="First role-play"
+            v={profile ? <MilestoneStatusRow state={hasRoleplay} to="/roleplay" /> : '—'}
+          />
+          <KeyValuePair
+            k="Multimodal session"
+            v={profile ? <MilestoneStatusRow state={hasMultimodalSession} to="/multimodal-analysis" /> : '—'}
+          />
         </Card>
       </motion.div>
 

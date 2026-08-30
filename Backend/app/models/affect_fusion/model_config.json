@@ -1,10 +1,14 @@
 {
   "svm": {
-    "enabled": true,
+    "enabled": false,
     "path": "app/models/affect_fusion/svm_model.pkl"
   },
   "cnn": {
     "enabled": false,
     "path": "app/models/affect_fusion/cnn_model.pkl"
+  },
+  "wav2vec2": {
+    "enabled": true,
+    "path": "app/models/affect_fusion/wav2vec2_ser_finetuned/final_model"
   }
 }

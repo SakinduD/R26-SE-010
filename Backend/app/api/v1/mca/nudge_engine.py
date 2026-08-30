@@ -163,30 +163,35 @@ class SerAnalyzer(AudioAnalyzer):
     # Used only if the config file is missing/unreadable/has nothing enabled
     FALLBACK_MODEL_PATH = "app/models/affect_fusion/svm_model.pkl"
 
+    # Model kinds loaded via transformers (HF checkpoint dir) instead of joblib (.pkl)
+    HF_MODEL_KINDS = {"wav2vec2"}
+
     def __init__(self, config_path: str = "app/models/affect_fusion/model_config.json"):
         self.model = None
+        self.feature_extractor = None  # only set for HF (wav2vec2) models
         self.config_path = config_path
         self.model_path = None
+        self.model_kind = None  # "svm" | "cnn" | "wav2vec2", from model_config.json key
         self._load_model()
 
-    def _resolve_model_path(self) -> str:
-        """Reads model_config.json and returns the path of the model marked "enabled": true."""
+    def _resolve_model_path(self) -> tuple[str, str]:
+        """Reads model_config.json and returns (name, path) of the model marked "enabled": true."""
         log = logging.getLogger("uvicorn")
         try:
             with open(self.config_path, "r") as f:
                 config = json.load(f)
         except FileNotFoundError:
             log.warning(f"Model config not found at {self.config_path}. Falling back to {self.FALLBACK_MODEL_PATH}")
-            return self.FALLBACK_MODEL_PATH
+            return "svm", self.FALLBACK_MODEL_PATH
         except Exception as e:
             log.error(f"Failed to parse model config {self.config_path}: {e}. Falling back to {self.FALLBACK_MODEL_PATH}")
-            return self.FALLBACK_MODEL_PATH
+            return "svm", self.FALLBACK_MODEL_PATH
 
         enabled = [(name, entry) for name, entry in config.items() if entry.get("enabled")]
 
         if not enabled:
             log.warning(f"No model marked \"enabled\": true in {self.config_path}. Falling back to {self.FALLBACK_MODEL_PATH}")
-            return self.FALLBACK_MODEL_PATH
+            return "svm", self.FALLBACK_MODEL_PATH
 
         if len(enabled) > 1:
             names = ", ".join(name for name, _ in enabled)
@@ -194,18 +199,29 @@ class SerAnalyzer(AudioAnalyzer):
 
         name, entry = enabled[0]
         log.info(f"SER model selected via {self.config_path}: \"{name}\"")
-        return entry["path"]
+        return name, entry["path"]
 
     def _load_model(self):
-        self.model_path = self._resolve_model_path()
+        self.model_kind, self.model_path = self._resolve_model_path()
+        log = logging.getLogger("uvicorn")
         try:
-            if os.path.exists(self.model_path):
-                self.model = joblib.load(self.model_path)
-                logging.getLogger("uvicorn").info(f"Emotion model loaded from {self.model_path}")
+            if not os.path.exists(self.model_path):
+                log.warning(f"Model not found at {self.model_path}. Emotion detection disabled.")
+                return
+
+            if self.model_kind in self.HF_MODEL_KINDS:
+                # Wav2Vec2 (and any future HF model) is a saved
+                # transformers checkpoint directory, not a joblib .pkl
+                from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+
+                self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_path)
+                self.model = AutoModelForAudioClassification.from_pretrained(self.model_path)
+                self.model.eval()
             else:
-                logging.getLogger("uvicorn").warning(f"Model not found at {self.model_path}. Emotion detection disabled.")
+                self.model = joblib.load(self.model_path)
+            log.info(f"Emotion model ({self.model_kind}) loaded from {self.model_path}")
         except Exception as e:
-            logging.getLogger("uvicorn").error(f"Failed to load emotion model: {str(e)}")
+            log.error(f"Failed to load emotion model: {str(e)}")
 
     def analyze(self, _features: AudioFeatures) -> Optional[Nudge]:
         # Inference runs in NudgeEngine.evaluate(); this analyzer is classification-only.
@@ -315,6 +331,15 @@ class AudioFeatureExtractor:
             except Exception:
                 mel_spectrogram = None
 
+            # Wav2Vec2 input: raw mono waveform resampled to 16kHz
+            try:
+                if sr != 16000:
+                    waveform_16k = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+                else:
+                    waveform_16k = audio_data
+            except Exception:
+                waveform_16k = None
+
             return AudioFeatures(
                 audio_data=audio_data,
                 sample_rate=sr,
@@ -326,6 +351,7 @@ class AudioFeatureExtractor:
                 pitch_std=pitch_std,
                 feature_vector=feature_vector,
                 mel_spectrogram=mel_spectrogram,
+                waveform_16k=waveform_16k,
                 emotion_label=None,
             )
         except Exception as e:
@@ -406,23 +432,33 @@ class NudgeEngine:
         if self.ser_analyzer and self.ser_analyzer.model and features.avg_volume > 0.015:
             try:
                 model = self.ser_analyzer.model
-                is_cnn = getattr(model, "model_type", None) == "cnn"
+                kind = self.ser_analyzer.model_kind
 
-                if is_cnn and features.mel_spectrogram is not None:
+                if kind == "wav2vec2" and features.waveform_16k is not None:
+                    import torch
+
+                    extractor = self.ser_analyzer.feature_extractor
+                    inputs = extractor(features.waveform_16k, sampling_rate=16000, return_tensors="pt")
+                    with torch.no_grad():
+                        logits = model(**inputs).logits
+                    probs = torch.softmax(logits, dim=-1)[0].numpy()
+                    prediction = int(np.argmax(probs))
+                    features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
+                    features.emotion_confidence = float(np.max(probs))
+                elif kind == "cnn" and features.mel_spectrogram is not None:
                     # CNN path: flat mel spectrogram input (1, 16384)
                     inp = features.mel_spectrogram.flatten().reshape(1, -1)
-                elif not is_cnn and features.feature_vector is not None:
-                    # SVM path: 362-dim statistical feature vector
-                    inp = features.feature_vector.reshape(1, -1)
-                else:
-                    inp = None
-
-                if inp is not None:
                     prediction = int(model.predict(inp)[0])
                     features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
                     if hasattr(model, "predict_proba"):
-                        probs = model.predict_proba(inp)[0]
-                        features.emotion_confidence = float(np.max(probs))
+                        features.emotion_confidence = float(np.max(model.predict_proba(inp)[0]))
+                elif kind == "svm" and features.feature_vector is not None:
+                    # SVM path: 362-dim statistical feature vector
+                    inp = features.feature_vector.reshape(1, -1)
+                    prediction = int(model.predict(inp)[0])
+                    features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
+                    if hasattr(model, "predict_proba"):
+                        features.emotion_confidence = float(np.max(model.predict_proba(inp)[0]))
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 

@@ -66,6 +66,12 @@ class RespondResponse(BaseModel):
     response_options:     list[ResponseOptionOut] | None = None
     clarity_score:     float | None = None     # live per-turn heuristic — see RpeNlpService._score_turn
     response_quality:  float | None = None
+    # Advisory-only ML escalation read on this turn's user_input — see
+    # RpeEscalationMlService. Never influences trust_score/escalation_level;
+    # None whenever the model is unavailable. 0-2 scale, coarser than
+    # escalation_level's 0-5.
+    ml_escalation_label:      int | None = None
+    ml_escalation_confidence: float | None = None
 
 
 class SessionSummaryResponse(BaseModel):

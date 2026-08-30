@@ -1,0 +1,475 @@
+=== MCA SER Training: SUBESCO-only SVM ===
+Loaded 27994 samples, 362 features
+svm__max_iter cap: 50000 (guarantees every fit terminates)
+n_jobs: -2
+Backend label contract: {0: 'neutral', 1: 'happy', 2: 'sad', 3: 'angry', 4: 'fearful', 5: 'disgust', 6: 'surprised'}
+
+Full dataset distribution
+  neutral   : 4000
+  happy     : 4000
+  sad       : 3997
+  angry     : 3997
+  fearful   : 4000
+  disgust   : 4000
+  surprised : 4000
+
+Train distribution
+  neutral   : 3200
+  happy     : 3200
+  sad       : 3197
+  angry     : 3197
+  fearful   : 3200
+  disgust   : 3200
+  surprised : 3200
+
+Test distribution
+  neutral   : 800
+  happy     : 800
+  sad       : 800
+  angry     : 800
+  fearful   : 800
+  disgust   : 800
+  surprised : 800
+
+Using speaker-independent cross-validation by actor.
+
+[1/3] Hyperparameter search (100 candidates x 4 folds = 400 fits, macro F1)...
+Fitting 4 folds for each of 100 candidates, totalling 400 fits
+Best CV macro F1: 0.4913
+Best parameters : {'pca__n_components': None, 'scaler': 'StandardScaler', 'svm__C': 0.8545985545187502, 'svm__gamma': 0.002041647020718277, 'svm__kernel': 'rbf'}
+
+[2/3] Final fit with probability calibration enabled...
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.037766633271073366, svm__gamma=2.9375384576328295e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.06101491367302711, svm__gamma=3.511356313970405e-05, svm__kernel=rbf; total time= 7.3min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=1.5535445807588455, svm__gamma=1.3783237455007187e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=37.31160452474312, svm__gamma=0.002661901888489057, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=23.09664459647274, svm__gamma=5.9750279999602906e-05, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.048280425192712896, svm__gamma=0.008105016126411584, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=29.866092370009415, svm__gamma=0.004835952776465951, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.10085836630992923, svm__gamma=0.003063462210622081, svm__kernel=rbf; total time= 4.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=10.38406417693451, svm__gamma=0.001319994226153501, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.16748729494641598, svm__gamma=1.551225912648474e-05, svm__kernel=rbf; total time= 7.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.7606550128725066, svm__gamma=0.005280796376895365, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=16.730409962757935, svm__gamma=0.0025764174425233167, svm__kernel=rbf; total time=  43.1s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=20.635492551010678, svm__gamma=8.995191735587162e-05, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=20.635492551010678, svm__gamma=8.995191735587162e-05, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=15.269211449098359, svm__gamma=1.0491954332267901e-05, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.8298334718019178, svm__gamma=0.0012854549964879019, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=39.3181227988673, svm__gamma=0.007715105777813051, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.0155030931587191, svm__gamma=6.853925708853055e-05, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=6.564597632871665, svm__gamma=5.163124910488014e-05, svm__kernel=rbf; total time= 3.3min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=1.5335405800423352, svm__gamma=0.001078184503512226, svm__kernel=rbf; total time=  50.0s
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.7838209408657734, svm__gamma=4.7806541413289224e-05, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.02628664447360688, svm__gamma=0.0059440281134109305, svm__kernel=rbf; total time= 5.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=4.844938633680331, svm__gamma=0.004912819179585588, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.010814828032044511, svm__gamma=2.015647705936502e-05, svm__kernel=rbf; total time= 7.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=2.160542661234499, svm__gamma=0.0024234491447023164, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.702498913950285, svm__gamma=6.955319544158292e-05, svm__kernel=rbf; total time=  52.4s
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=2.4410836460802634, svm__gamma=3.398850311078458e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.011407055666413164, svm__gamma=0.006094747077200004, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=29.02741948034897, svm__gamma=0.001224868285680487, svm__kernel=rbf; total time=  40.0s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022879837497494424, svm__gamma=0.0006998769331752384, svm__kernel=rbf; total time= 6.0min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.593095850678257, svm__gamma=0.00010327268550128368, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=11.035062555482739, svm__gamma=0.00012038487446822947, svm__kernel=rbf; total time= 3.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=32.859708169642424, svm__gamma=0.001570297088405539, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.011916299962955157, svm__gamma=0.008123245085588688, svm__kernel=rbf; total time= 7.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.12040216379191711, svm__gamma=0.00012562773503807024, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.04273302319375403, svm__gamma=1.5673095467235405e-05, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=23.09664459647274, svm__gamma=5.9750279999602906e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.048280425192712896, svm__gamma=0.008105016126411584, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=25.703078530155583, svm__gamma=1.8427970406864546e-05, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.10943804457233494, svm__gamma=0.00042470585622618684, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=9.274757630456328, svm__gamma=1.6736010167825783e-05, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.1863809865307635, svm__gamma=3.9459088110999965e-05, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.026828486654670216, svm__gamma=0.0038842777547031426, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.15953036325173323, svm__gamma=0.0015446089075047066, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=7.108606477829395, svm__gamma=0.00030296104428212476, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.013069398946749291, svm__gamma=0.0008113929572637835, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.3296052515293967, svm__gamma=0.0018477934173519257, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=27.47411609758641, svm__gamma=0.002656813924114493, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=20.02391359179204, svm__gamma=0.0004149795789891589, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=15.269211449098359, svm__gamma=1.0491954332267901e-05, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.8298334718019178, svm__gamma=0.0012854549964879019, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=39.3181227988673, svm__gamma=0.007715105777813051, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.01369126926631841, svm__gamma=0.0006740513796374046, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.07693646851823213, svm__gamma=2.7207248059486674e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.22930777272400377, svm__gamma=0.0007887102624766477, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.15365823428370604, svm__gamma=3.627066608804409e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.04415462397789294, svm__gamma=0.0011825328508422654, svm__kernel=rbf; total time= 4.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=1.1315432245150114, svm__gamma=0.00038810723164094845, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.022099596557767907, svm__gamma=0.004916400722913764, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.03961500957894169, svm__gamma=0.004962066332418387, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.01044053243282532, svm__gamma=3.0368556852449644e-05, svm__kernel=rbf; total time= 3.7min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.22917631165023644, svm__gamma=6.246073681318086e-05, svm__kernel=rbf; total time= 4.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.011407055666413164, svm__gamma=0.006094747077200004, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.14869110563498858, svm__gamma=3.22461774864237e-05, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=5.49643247880369, svm__gamma=0.0012332389221028, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.21367169008989645, svm__gamma=7.599334001601094e-05, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.5362793388516294, svm__gamma=0.0012761467881730222, svm__kernel=rbf; total time=  36.2s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.5275129226520492, svm__gamma=0.0004245549454254906, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.5275129226520492, svm__gamma=0.0004245549454254906, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=11.035062555482739, svm__gamma=0.00012038487446822947, svm__kernel=rbf; total time= 2.8min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=32.859708169642424, svm__gamma=0.001570297088405539, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=15.994091701280443, svm__gamma=0.0006358358856676254, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.13346977574178093, svm__gamma=0.00037520558551242813, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.11946697137851396, svm__gamma=0.000684792009557478, svm__kernel=rbf; total time= 4.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=8.023102291340047, svm__gamma=3.972110727381908e-05, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.04273302319375403, svm__gamma=1.5673095467235405e-05, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.1422361277374358, svm__gamma=0.00036324869566766035, svm__kernel=rbf; total time= 4.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.014699223219374887, svm__gamma=9.46217535646148e-05, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=9.274757630456328, svm__gamma=1.6736010167825783e-05, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=10.38406417693451, svm__gamma=0.001319994226153501, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.026828486654670216, svm__gamma=0.0038842777547031426, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.132570498012026, svm__gamma=0.00026100256506134784, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.38147088994596473, svm__gamma=1.1919481947918725e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.3296052515293967, svm__gamma=0.0018477934173519257, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=27.47411609758641, svm__gamma=0.002656813924114493, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=16.730409962757935, svm__gamma=0.0025764174425233167, svm__kernel=rbf; total time=  44.7s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=20.635492551010678, svm__gamma=8.995191735587162e-05, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.06968275763613309, svm__gamma=0.00019112758217777883, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.34993773793166305, svm__gamma=4.6379219034580266e-05, svm__kernel=rbf; total time= 5.2min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.01369126926631841, svm__gamma=0.0006740513796374046, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=44.24777779536137, svm__gamma=5.3231145809288863e-05, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.9589908986012563, svm__gamma=1.865818136012483e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.15365823428370604, svm__gamma=3.627066608804409e-05, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=29.169979942604108, svm__gamma=2.5856088907313374e-05, svm__kernel=rbf; total time= 3.4min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.08997427249993818, svm__gamma=0.0009548873458201665, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.022099596557767907, svm__gamma=0.004916400722913764, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=7.668956091724513, svm__gamma=0.0008435191341743053, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.01044053243282532, svm__gamma=3.0368556852449644e-05, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=5.770976635605865, svm__gamma=0.0008889937283707153, svm__kernel=rbf; total time=  37.1s
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=2.7070131351207154, svm__gamma=0.0005069041070711453, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=2.160542661234499, svm__gamma=0.0024234491447023164, svm__kernel=rbf; total time=  57.4s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=1.3612884653684783, svm__gamma=0.0003002984436915126, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=33.771720988657115, svm__gamma=0.005553837526912238, svm__kernel=rbf; total time= 4.7min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.14869110563498858, svm__gamma=3.22461774864237e-05, svm__kernel=rbf; total time= 3.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=5.49643247880369, svm__gamma=0.0012332389221028, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.21367169008989645, svm__gamma=7.599334001601094e-05, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.5362793388516294, svm__gamma=0.0012761467881730222, svm__kernel=rbf; total time=  40.2s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.5275129226520492, svm__gamma=0.0004245549454254906, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=1.532761235913925, svm__gamma=1.2345274466024455e-05, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=11.035062555482739, svm__gamma=0.00012038487446822947, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=15.994091701280443, svm__gamma=0.0006358358856676254, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.06101491367302711, svm__gamma=3.511356313970405e-05, svm__kernel=rbf; total time= 6.9min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.11946697137851396, svm__gamma=0.000684792009557478, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.022976624140825, svm__gamma=0.0011290133559092666, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.028275856573117587, svm__gamma=0.0003058656666978527, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=29.866092370009415, svm__gamma=0.004835952776465951, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=25.703078530155583, svm__gamma=1.8427970406864546e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.10085836630992923, svm__gamma=0.003063462210622081, svm__kernel=rbf; total time= 4.3min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.126985539523763, svm__gamma=1.667761543019792e-05, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.15953036325173323, svm__gamma=0.0015446089075047066, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.132570498012026, svm__gamma=0.00026100256506134784, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=7.108606477829395, svm__gamma=0.00030296104428212476, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.7606550128725066, svm__gamma=0.005280796376895365, svm__kernel=rbf; total time= 3.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=27.47411609758641, svm__gamma=0.002656813924114493, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=20.02391359179204, svm__gamma=0.0004149795789891589, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.06968275763613309, svm__gamma=0.00019112758217777883, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.34993773793166305, svm__gamma=4.6379219034580266e-05, svm__kernel=rbf; total time= 5.3min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.0155030931587191, svm__gamma=6.853925708853055e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=6.564597632871665, svm__gamma=5.163124910488014e-05, svm__kernel=rbf; total time= 3.1min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.15365823428370604, svm__gamma=3.627066608804409e-05, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=29.169979942604108, svm__gamma=2.5856088907313374e-05, svm__kernel=rbf; total time= 3.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.02628664447360688, svm__gamma=0.0059440281134109305, svm__kernel=rbf; total time= 4.8min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.03961500957894169, svm__gamma=0.004962066332418387, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=3.624929649100787, svm__gamma=0.0009034076805537766, svm__kernel=rbf; total time=  59.4s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.308534526059976, svm__gamma=5.149288946949013e-05, svm__kernel=rbf; total time=  51.2s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.308534526059976, svm__gamma=5.149288946949013e-05, svm__kernel=rbf; total time=  49.3s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=5.770976635605865, svm__gamma=0.0008889937283707153, svm__kernel=rbf; total time=  35.1s
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.22917631165023644, svm__gamma=6.246073681318086e-05, svm__kernel=rbf; total time= 4.8min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=33.771720988657115, svm__gamma=0.005553837526912238, svm__kernel=rbf; total time= 4.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.03297361557993425, svm__gamma=0.0003589128083678785, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.21367169008989645, svm__gamma=7.599334001601094e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.7788255587326419, svm__gamma=0.00031955740374573204, svm__kernel=rbf; total time=  44.8s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.593095850678257, svm__gamma=0.00010327268550128368, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=1.532761235913925, svm__gamma=1.2345274466024455e-05, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.8545985545187502, svm__gamma=0.002041647020718277, svm__kernel=rbf; total time= 2.8min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=15.994091701280443, svm__gamma=0.0006358358856676254, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.011916299962955157, svm__gamma=0.008123245085588688, svm__kernel=rbf; total time= 7.3min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=8.023102291340047, svm__gamma=3.972110727381908e-05, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=1.5535445807588455, svm__gamma=1.3783237455007187e-05, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=37.31160452474312, svm__gamma=0.002661901888489057, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.1422361277374358, svm__gamma=0.00036324869566766035, svm__kernel=rbf; total time= 4.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.10085836630992923, svm__gamma=0.003063462210622081, svm__kernel=rbf; total time= 4.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.1863809865307635, svm__gamma=3.9459088110999965e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.026828486654670216, svm__gamma=0.0038842777547031426, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.132570498012026, svm__gamma=0.00026100256506134784, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.38147088994596473, svm__gamma=1.1919481947918725e-05, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.3296052515293967, svm__gamma=0.0018477934173519257, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.019263995910971148, svm__gamma=7.40038575908737e-05, svm__kernel=rbf; total time= 7.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.17734885626861138, svm__gamma=0.0067410742656406975, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.6907283923096206, svm__gamma=7.991621920384351e-05, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.0155030931587191, svm__gamma=6.853925708853055e-05, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.22930777272400377, svm__gamma=0.0007887102624766477, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.9589908986012563, svm__gamma=1.865818136012483e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.04415462397789294, svm__gamma=0.0011825328508422654, svm__kernel=rbf; total time= 5.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=1.1315432245150114, svm__gamma=0.00038810723164094845, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.022099596557767907, svm__gamma=0.004916400722913764, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=7.668956091724513, svm__gamma=0.0008435191341743053, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.01044053243282532, svm__gamma=3.0368556852449644e-05, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=2.7070131351207154, svm__gamma=0.0005069041070711453, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=39.73167331579856, svm__gamma=0.00015110998901295212, svm__kernel=rbf; total time=  54.5s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=1.3612884653684783, svm__gamma=0.0003002984436915126, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=2.4410836460802634, svm__gamma=3.398850311078458e-05, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.011407055666413164, svm__gamma=0.006094747077200004, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=29.02741948034897, svm__gamma=0.001224868285680487, svm__kernel=rbf; total time=  36.1s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022879837497494424, svm__gamma=0.0006998769331752384, svm__kernel=rbf; total time= 5.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.7788255587326419, svm__gamma=0.00031955740374573204, svm__kernel=rbf; total time=  49.0s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.593095850678257, svm__gamma=0.00010327268550128368, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=1.532761235913925, svm__gamma=1.2345274466024455e-05, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.8545985545187502, svm__gamma=0.002041647020718277, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=32.859708169642424, svm__gamma=0.001570297088405539, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.06101491367302711, svm__gamma=3.511356313970405e-05, svm__kernel=rbf; total time= 6.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=8.023102291340047, svm__gamma=3.972110727381908e-05, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=1.5535445807588455, svm__gamma=1.3783237455007187e-05, svm__kernel=rbf; total time= 3.2min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.028275856573117587, svm__gamma=0.0003058656666978527, svm__kernel=rbf; total time= 3.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.048280425192712896, svm__gamma=0.008105016126411584, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.014699223219374887, svm__gamma=9.46217535646148e-05, svm__kernel=rbf; total time= 4.2min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.1863809865307635, svm__gamma=3.9459088110999965e-05, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.026828486654670216, svm__gamma=0.0038842777547031426, svm__kernel=rbf; total time= 4.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.132570498012026, svm__gamma=0.00026100256506134784, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.38147088994596473, svm__gamma=1.1919481947918725e-05, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.7606550128725066, svm__gamma=0.005280796376895365, svm__kernel=rbf; total time= 3.7min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=20.02391359179204, svm__gamma=0.0004149795789891589, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.06968275763613309, svm__gamma=0.00019112758217777883, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.34993773793166305, svm__gamma=4.6379219034580266e-05, svm__kernel=rbf; total time= 5.3min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.01369126926631841, svm__gamma=0.0006740513796374046, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=44.24777779536137, svm__gamma=5.3231145809288863e-05, svm__kernel=rbf; total time= 2.8min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.9589908986012563, svm__gamma=1.865818136012483e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=1.5335405800423352, svm__gamma=0.001078184503512226, svm__kernel=rbf; total time=  52.2s
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.04415462397789294, svm__gamma=0.0011825328508422654, svm__kernel=rbf; total time= 4.8min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.08997427249993818, svm__gamma=0.0009548873458201665, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.022099596557767907, svm__gamma=0.004916400722913764, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.03961500957894169, svm__gamma=0.004962066332418387, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=3.624929649100787, svm__gamma=0.0009034076805537766, svm__kernel=rbf; total time=  56.5s
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=3.624929649100787, svm__gamma=0.0009034076805537766, svm__kernel=rbf; total time=  58.4s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.308534526059976, svm__gamma=5.149288946949013e-05, svm__kernel=rbf; total time=  49.5s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=5.770976635605865, svm__gamma=0.0008889937283707153, svm__kernel=rbf; total time=  36.6s
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.22917631165023644, svm__gamma=6.246073681318086e-05, svm__kernel=rbf; total time= 5.0min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.011407055666413164, svm__gamma=0.006094747077200004, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022879837497494424, svm__gamma=0.0006998769331752384, svm__kernel=rbf; total time= 5.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=9.92167842892137, svm__gamma=0.003992242886631504, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.5275129226520492, svm__gamma=0.0004245549454254906, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=1.532761235913925, svm__gamma=1.2345274466024455e-05, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.8545985545187502, svm__gamma=0.002041647020718277, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.037766633271073366, svm__gamma=2.9375384576328295e-05, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.13346977574178093, svm__gamma=0.00037520558551242813, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.13346977574178093, svm__gamma=0.00037520558551242813, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.11946697137851396, svm__gamma=0.000684792009557478, svm__kernel=rbf; total time= 4.6min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=1.5535445807588455, svm__gamma=1.3783237455007187e-05, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.022976624140825, svm__gamma=0.0011290133559092666, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.028275856573117587, svm__gamma=0.0003058656666978527, svm__kernel=rbf; total time= 3.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=29.866092370009415, svm__gamma=0.004835952776465951, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=25.703078530155583, svm__gamma=1.8427970406864546e-05, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.10943804457233494, svm__gamma=0.00042470585622618684, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=9.274757630456328, svm__gamma=1.6736010167825783e-05, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=10.38406417693451, svm__gamma=0.001319994226153501, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.16748729494641598, svm__gamma=1.551225912648474e-05, svm__kernel=rbf; total time= 6.7min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.013069398946749291, svm__gamma=0.0008113929572637835, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.019263995910971148, svm__gamma=7.40038575908737e-05, svm__kernel=rbf; total time= 7.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.17734885626861138, svm__gamma=0.0067410742656406975, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.8298334718019178, svm__gamma=0.0012854549964879019, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=39.3181227988673, svm__gamma=0.007715105777813051, svm__kernel=rbf; total time=  55.5s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.01369126926631841, svm__gamma=0.0006740513796374046, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=44.24777779536137, svm__gamma=5.3231145809288863e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.22930777272400377, svm__gamma=0.0007887102624766477, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=1.5335405800423352, svm__gamma=0.001078184503512226, svm__kernel=rbf; total time=  48.4s
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.7838209408657734, svm__gamma=4.7806541413289224e-05, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.02628664447360688, svm__gamma=0.0059440281134109305, svm__kernel=rbf; total time= 5.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=4.844938633680331, svm__gamma=0.004912819179585588, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.03961500957894169, svm__gamma=0.004962066332418387, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=3.624929649100787, svm__gamma=0.0009034076805537766, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.308534526059976, svm__gamma=5.149288946949013e-05, svm__kernel=rbf; total time=  54.0s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=5.770976635605865, svm__gamma=0.0008889937283707153, svm__kernel=rbf; total time=  36.3s
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=2.7070131351207154, svm__gamma=0.0005069041070711453, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=39.73167331579856, svm__gamma=0.00015110998901295212, svm__kernel=rbf; total time=  57.5s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=1.3612884653684783, svm__gamma=0.0003002984436915126, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=2.4410836460802634, svm__gamma=3.398850311078458e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=37.63805566203946, svm__gamma=0.007777856590163646, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=37.63805566203946, svm__gamma=0.007777856590163646, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.1227884789577206, svm__gamma=0.00014298589094443974, svm__kernel=rbf; total time=  59.3s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=29.02741948034897, svm__gamma=0.001224868285680487, svm__kernel=rbf; total time=  38.7s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.03297361557993425, svm__gamma=0.0003589128083678785, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=5.49643247880369, svm__gamma=0.0012332389221028, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=9.92167842892137, svm__gamma=0.003992242886631504, svm__kernel=rbf; total time= 1.6min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.5362793388516294, svm__gamma=0.0012761467881730222, svm__kernel=rbf; total time=  37.7s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022265701188194133, svm__gamma=0.0005430507564500919, svm__kernel=rbf; total time= 5.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.8545985545187502, svm__gamma=0.002041647020718277, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=15.994091701280443, svm__gamma=0.0006358358856676254, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.011916299962955157, svm__gamma=0.008123245085588688, svm__kernel=rbf; total time= 7.2min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.12040216379191711, svm__gamma=0.00012562773503807024, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=37.31160452474312, svm__gamma=0.002661901888489057, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.022976624140825, svm__gamma=0.0011290133559092666, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.028275856573117587, svm__gamma=0.0003058656666978527, svm__kernel=rbf; total time= 3.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=29.866092370009415, svm__gamma=0.004835952776465951, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.014699223219374887, svm__gamma=9.46217535646148e-05, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.10943804457233494, svm__gamma=0.00042470585622618684, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.126985539523763, svm__gamma=1.667761543019792e-05, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.15953036325173323, svm__gamma=0.0015446089075047066, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=4.347815171760584, svm__gamma=0.0019158219548093154, svm__kernel=rbf; total time=  50.6s
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=4.347815171760584, svm__gamma=0.0019158219548093154, svm__kernel=rbf; total time=  53.7s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=7.108606477829395, svm__gamma=0.00030296104428212476, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.38147088994596473, svm__gamma=1.1919481947918725e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.3296052515293967, svm__gamma=0.0018477934173519257, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=16.730409962757935, svm__gamma=0.0025764174425233167, svm__kernel=rbf; total time=  40.8s
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=16.730409962757935, svm__gamma=0.0025764174425233167, svm__kernel=rbf; total time=  47.9s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=20.635492551010678, svm__gamma=8.995191735587162e-05, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.06968275763613309, svm__gamma=0.00019112758217777883, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=15.269211449098359, svm__gamma=1.0491954332267901e-05, svm__kernel=rbf; total time= 3.9min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=39.3181227988673, svm__gamma=0.007715105777813051, svm__kernel=rbf; total time=  58.9s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.6907283923096206, svm__gamma=7.991621920384351e-05, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.07693646851823213, svm__gamma=2.7207248059486674e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=6.564597632871665, svm__gamma=5.163124910488014e-05, svm__kernel=rbf; total time= 3.1min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=1.5335405800423352, svm__gamma=0.001078184503512226, svm__kernel=rbf; total time=  47.6s
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.04415462397789294, svm__gamma=0.0011825328508422654, svm__kernel=rbf; total time= 4.9min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=1.1315432245150114, svm__gamma=0.00038810723164094845, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.196965819280599, svm__gamma=0.00010401341922663452, svm__kernel=rbf; total time=  50.3s
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=4.844938633680331, svm__gamma=0.004912819179585588, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.010814828032044511, svm__gamma=2.015647705936502e-05, svm__kernel=rbf; total time= 6.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.22917631165023644, svm__gamma=6.246073681318086e-05, svm__kernel=rbf; total time= 4.9min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=37.63805566203946, svm__gamma=0.007777856590163646, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.1227884789577206, svm__gamma=0.00014298589094443974, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.1227884789577206, svm__gamma=0.00014298589094443974, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022879837497494424, svm__gamma=0.0006998769331752384, svm__kernel=rbf; total time= 5.4min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.7788255587326419, svm__gamma=0.00031955740374573204, svm__kernel=rbf; total time=  45.1s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=19.593095850678257, svm__gamma=0.00010327268550128368, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=11.035062555482739, svm__gamma=0.00012038487446822947, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=2.013970876479895, svm__gamma=1.8031937565301106e-05, svm__kernel=rbf; total time= 2.8min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.037766633271073366, svm__gamma=2.9375384576328295e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.06101491367302711, svm__gamma=3.511356313970405e-05, svm__kernel=rbf; total time= 6.8min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=8.023102291340047, svm__gamma=3.972110727381908e-05, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=37.31160452474312, svm__gamma=0.002661901888489057, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.022976624140825, svm__gamma=0.0011290133559092666, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=23.09664459647274, svm__gamma=5.9750279999602906e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.048280425192712896, svm__gamma=0.008105016126411584, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=25.703078530155583, svm__gamma=1.8427970406864546e-05, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.10085836630992923, svm__gamma=0.003063462210622081, svm__kernel=rbf; total time= 4.3min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.126985539523763, svm__gamma=1.667761543019792e-05, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.16748729494641598, svm__gamma=1.551225912648474e-05, svm__kernel=rbf; total time= 6.4min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.7606550128725066, svm__gamma=0.005280796376895365, svm__kernel=rbf; total time= 3.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=27.47411609758641, svm__gamma=0.002656813924114493, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=20.02391359179204, svm__gamma=0.0004149795789891589, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=15.269211449098359, svm__gamma=1.0491954332267901e-05, svm__kernel=rbf; total time= 3.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.17734885626861138, svm__gamma=0.0067410742656406975, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.6907283923096206, svm__gamma=7.991621920384351e-05, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.07693646851823213, svm__gamma=2.7207248059486674e-05, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.22930777272400377, svm__gamma=0.0007887102624766477, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.15365823428370604, svm__gamma=3.627066608804409e-05, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=29.169979942604108, svm__gamma=2.5856088907313374e-05, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.08997427249993818, svm__gamma=0.0009548873458201665, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=1.1315432245150114, svm__gamma=0.00038810723164094845, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.196965819280599, svm__gamma=0.00010401341922663452, svm__kernel=rbf; total time=  48.0s
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=4.844938633680331, svm__gamma=0.004912819179585588, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.010814828032044511, svm__gamma=2.015647705936502e-05, svm__kernel=rbf; total time= 6.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=39.73167331579856, svm__gamma=0.00015110998901295212, svm__kernel=rbf; total time=  53.1s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=1.3612884653684783, svm__gamma=0.0003002984436915126, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.702498913950285, svm__gamma=6.955319544158292e-05, svm__kernel=rbf; total time=  47.2s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=33.771720988657115, svm__gamma=0.005553837526912238, svm__kernel=rbf; total time= 4.8min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=29.02741948034897, svm__gamma=0.001224868285680487, svm__kernel=rbf; total time=  39.7s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.03297361557993425, svm__gamma=0.0003589128083678785, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.21367169008989645, svm__gamma=7.599334001601094e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.7788255587326419, svm__gamma=0.00031955740374573204, svm__kernel=rbf; total time=  47.1s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022265701188194133, svm__gamma=0.0005430507564500919, svm__kernel=rbf; total time= 5.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=2.013970876479895, svm__gamma=1.8031937565301106e-05, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.037766633271073366, svm__gamma=2.9375384576328295e-05, svm__kernel=rbf; total time= 2.3min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.13346977574178093, svm__gamma=0.00037520558551242813, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.11946697137851396, svm__gamma=0.000684792009557478, svm__kernel=rbf; total time= 4.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.12040216379191711, svm__gamma=0.00012562773503807024, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.04273302319375403, svm__gamma=1.5673095467235405e-05, svm__kernel=rbf; total time= 4.3min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.1422361277374358, svm__gamma=0.00036324869566766035, svm__kernel=rbf; total time= 4.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.014699223219374887, svm__gamma=9.46217535646148e-05, svm__kernel=rbf; total time= 3.4min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=9.274757630456328, svm__gamma=1.6736010167825783e-05, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=10.38406417693451, svm__gamma=0.001319994226153501, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.16748729494641598, svm__gamma=1.551225912648474e-05, svm__kernel=rbf; total time= 6.8min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.013069398946749291, svm__gamma=0.0008113929572637835, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.019263995910971148, svm__gamma=7.40038575908737e-05, svm__kernel=rbf; total time= 7.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.17734885626861138, svm__gamma=0.0067410742656406975, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.8298334718019178, svm__gamma=0.0012854549964879019, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.6907283923096206, svm__gamma=7.991621920384351e-05, svm__kernel=rbf; total time= 1.9min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.07693646851823213, svm__gamma=2.7207248059486674e-05, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=6.564597632871665, svm__gamma=5.163124910488014e-05, svm__kernel=rbf; total time= 3.3min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.7838209408657734, svm__gamma=4.7806541413289224e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=29.169979942604108, svm__gamma=2.5856088907313374e-05, svm__kernel=rbf; total time= 3.0min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.08997427249993818, svm__gamma=0.0009548873458201665, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.196965819280599, svm__gamma=0.00010401341922663452, svm__kernel=rbf; total time=  46.7s
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.196965819280599, svm__gamma=0.00010401341922663452, svm__kernel=rbf; total time=  48.8s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=7.668956091724513, svm__gamma=0.0008435191341743053, svm__kernel=rbf; total time= 2.4min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.01044053243282532, svm__gamma=3.0368556852449644e-05, svm__kernel=rbf; total time= 3.8min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=2.7070131351207154, svm__gamma=0.0005069041070711453, svm__kernel=rbf; total time= 1.4min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=39.73167331579856, svm__gamma=0.00015110998901295212, svm__kernel=rbf; total time=  50.4s
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=2.160542661234499, svm__gamma=0.0024234491447023164, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.702498913950285, svm__gamma=6.955319544158292e-05, svm__kernel=rbf; total time=  47.4s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=33.771720988657115, svm__gamma=0.005553837526912238, svm__kernel=rbf; total time= 4.7min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.14869110563498858, svm__gamma=3.22461774864237e-05, svm__kernel=rbf; total time= 3.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=5.49643247880369, svm__gamma=0.0012332389221028, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=9.92167842892137, svm__gamma=0.003992242886631504, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=2.5362793388516294, svm__gamma=0.0012761467881730222, svm__kernel=rbf; total time=  40.3s
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022265701188194133, svm__gamma=0.0005430507564500919, svm__kernel=rbf; total time= 5.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=2.013970876479895, svm__gamma=1.8031937565301106e-05, svm__kernel=rbf; total time= 2.7min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=32.859708169642424, svm__gamma=0.001570297088405539, svm__kernel=rbf; total time= 1.3min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.011916299962955157, svm__gamma=0.008123245085588688, svm__kernel=rbf; total time= 7.1min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.12040216379191711, svm__gamma=0.00012562773503807024, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.04273302319375403, svm__gamma=1.5673095467235405e-05, svm__kernel=rbf; total time= 4.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=23.09664459647274, svm__gamma=5.9750279999602906e-05, svm__kernel=rbf; total time= 1.8min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.1422361277374358, svm__gamma=0.00036324869566766035, svm__kernel=rbf; total time= 4.3min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.10943804457233494, svm__gamma=0.00042470585622618684, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.1863809865307635, svm__gamma=3.9459088110999965e-05, svm__kernel=rbf; total time= 2.1min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=7.126985539523763, svm__gamma=1.667761543019792e-05, svm__kernel=rbf; total time= 2.9min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.15953036325173323, svm__gamma=0.0015446089075047066, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=4.347815171760584, svm__gamma=0.0019158219548093154, svm__kernel=rbf; total time=  55.7s
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=4.347815171760584, svm__gamma=0.0019158219548093154, svm__kernel=rbf; total time=  47.5s
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=7.108606477829395, svm__gamma=0.00030296104428212476, svm__kernel=rbf; total time= 1.1min
+[CV] END pca__n_components=0.9, scaler=StandardScaler(), svm__C=0.013069398946749291, svm__gamma=0.0008113929572637835, svm__kernel=rbf; total time= 2.0min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.019263995910971148, svm__gamma=7.40038575908737e-05, svm__kernel=rbf; total time= 7.2min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.34993773793166305, svm__gamma=4.6379219034580266e-05, svm__kernel=rbf; total time= 5.2min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.0155030931587191, svm__gamma=6.853925708853055e-05, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=44.24777779536137, svm__gamma=5.3231145809288863e-05, svm__kernel=rbf; total time= 2.6min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=0.9589908986012563, svm__gamma=1.865818136012483e-05, svm__kernel=rbf; total time= 1.7min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=0.7838209408657734, svm__gamma=4.7806541413289224e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=None, scaler=StandardScaler(), svm__C=0.02628664447360688, svm__gamma=0.0059440281134109305, svm__kernel=rbf; total time= 5.0min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=7.668956091724513, svm__gamma=0.0008435191341743053, svm__kernel=rbf; total time= 2.2min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.010814828032044511, svm__gamma=2.015647705936502e-05, svm__kernel=rbf; total time= 6.5min
+[CV] END pca__n_components=0.95, scaler=RobustScaler(), svm__C=2.160542661234499, svm__gamma=0.0024234491447023164, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=4.702498913950285, svm__gamma=6.955319544158292e-05, svm__kernel=rbf; total time=  49.5s
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=2.4410836460802634, svm__gamma=3.398850311078458e-05, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=37.63805566203946, svm__gamma=0.007777856590163646, svm__kernel=rbf; total time= 1.0min
+[CV] END pca__n_components=0.9, scaler=RobustScaler(), svm__C=0.1227884789577206, svm__gamma=0.00014298589094443974, svm__kernel=rbf; total time= 1.2min
+[CV] END pca__n_components=0.98, scaler=StandardScaler(), svm__C=0.14869110563498858, svm__gamma=3.22461774864237e-05, svm__kernel=rbf; total time= 3.5min
+[CV] END pca__n_components=0.95, scaler=StandardScaler(), svm__C=0.03297361557993425, svm__gamma=0.0003589128083678785, svm__kernel=rbf; total time= 2.5min
+[CV] END pca__n_components=0.98, scaler=RobustScaler(), svm__C=9.92167842892137, svm__gamma=0.003992242886631504, svm__kernel=rbf; total time= 1.5min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=0.022265701188194133, svm__gamma=0.0005430507564500919, svm__kernel=rbf; total time= 5.4min
+[CV] END pca__n_components=None, scaler=RobustScaler(), svm__C=2.013970876479895, svm__gamma=1.8031937565301106e-05, svm__kernel=rbf; total time= 2.6min
+
+[3/3] Holdout evaluation...
+
+Classification report
+              precision    recall  f1-score   support
+
+     neutral       0.39      0.58      0.46       800
+       happy       0.50      0.55      0.52       800
+         sad       0.37      0.34      0.35       800
+       angry       0.51      0.68      0.58       800
+     fearful       0.65      0.64      0.64       800
+     disgust       0.27      0.12      0.17       800
+   surprised       0.62      0.46      0.53       800
+
+    accuracy                           0.48      5600
+   macro avg       0.47      0.48      0.47      5600
+weighted avg       0.47      0.48      0.47      5600
+
+Confusion matrix rows=true, cols=pred
+[[464  48 247   0  29   9   3]
+ [ 50 441  43 148   5  81  32]
+ [340  73 269   0  97   3  18]
+ [ 13 100   9 541  16 101  20]
+ [172  22  85   0 508  10   3]
+ [100  93  30 309  26  99 143]
+ [ 65 108  38  55 105  64 365]]
+
+Test accuracy : 47.98%
+Test macro F1 : 0.4660
+Train accuracy: 86.63%
+Overfit gap   : 38.65%
+
+Saved model : svm_model.pkl
+Saved report: svm_model.report.json

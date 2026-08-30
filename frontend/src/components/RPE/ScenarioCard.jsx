@@ -116,6 +116,22 @@ export default function ScenarioCard({ scenario, onStart, onViewDetail, isStarti
         .rpe-card .start-btn:disabled{ opacity:.55; cursor:default; }
         .rpe-card .spin{ animation:rpeCardSpin .75s linear infinite; }
         @keyframes rpeCardSpin{ to{ transform:rotate(360deg); } }
+
+        :root[data-theme="light"] .rpe-card{
+          --bg-card:      #FFFFFF;
+          --bg-card-hi:   #EFEAFB;
+          --border:       #D9CFF5;
+          --accent:       #6B3FD6;
+          --accent-glow:  rgba(107,63,214,0.12);
+          --success:      #1E8E4A;
+          --warning:      #B4790E;
+          --danger:       #D93B32;
+          --text-hi:      #241E38;
+          --text-med:     #5E5678;
+          --text-low:     #8D84A8;
+        }
+        :root[data-theme="light"] .rpe-card{ box-shadow:0 1px 3px rgba(36,30,56,0.08); }
+        :root[data-theme="light"] .rpe-card:hover{ box-shadow:0 14px 30px rgba(36,30,56,0.12); }
       `}</style>
     </div>
   )

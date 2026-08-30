@@ -94,14 +94,8 @@ def load_audio(path: Path) -> np.ndarray | None:
 
 # Spectrogram extraction
 def waveform_to_mel(y: np.ndarray) -> np.ndarray:
-    """
-    Convert a waveform to a fixed-size (1, N_MELS, TARGET_FRAMES) log-mel
-    spectrogram normalised to [0, 1].
-
-    Padding / truncation:
-        - Short clips are zero-padded on the right.
-        - Long clips are centre-cropped to TARGET_SAMPLES.
-    """
+    """Convert a waveform to a fixed-size (1, N_MELS, TARGET_FRAMES) log-mel
+    spectrogram normalised to [0, 1]."""
     # Pad or centre-crop to TARGET_SAMPLES
     if y.size < TARGET_SAMPLES:
         pad = TARGET_SAMPLES - y.size
@@ -128,33 +122,48 @@ def waveform_to_mel(y: np.ndarray) -> np.ndarray:
 
 
 # Augmentation
-def augment_waveforms(y: np.ndarray) -> list[np.ndarray]:
-    """Return original + 5 augmented versions (6× total)."""
-    waves = [y]
+def augment_waveforms(y: np.ndarray, max_variants: int | None = None) -> list[np.ndarray]:
+    """Return original + up to 5 augmented versions (6x total by default).
 
-    # 1. Additive white noise
+    max_variants short-circuits before the expensive pitch-shift/time-stretch
+    steps run, instead of computing all 6 and truncating. None (default)
+    keeps the original unaugmented + 5-variant behaviour.
+    """
+    waves = [y]
+    if max_variants is not None and len(waves) >= max_variants:
+        return waves
+
+    # Additive white noise
     noise_amp = 0.005 * np.random.uniform() * np.amax(np.abs(y))
     waves.append(y + noise_amp * np.random.normal(size=y.shape[0]).astype(np.float32))
+    if max_variants is not None and len(waves) >= max_variants:
+        return waves
 
-    # 2. Pitch shift +2 semitones
+    # Pitch shift +2 semitones
     try:
         waves.append(librosa.effects.pitch_shift(y, sr=SAMPLE_RATE, n_steps=2).astype(np.float32))
     except Exception:
         pass
+    if max_variants is not None and len(waves) >= max_variants:
+        return waves
 
-    # 3. Pitch shift -2 semitones
+    # Pitch shift -2 semitones
     try:
         waves.append(librosa.effects.pitch_shift(y, sr=SAMPLE_RATE, n_steps=-2).astype(np.float32))
     except Exception:
         pass
+    if max_variants is not None and len(waves) >= max_variants:
+        return waves
 
-    # 4. Time stretch slow (0.9×) — longer duration, lower perceived energy
+    # Time stretch slow (0.9×) — longer duration, lower perceived energy
     try:
         waves.append(librosa.effects.time_stretch(y, rate=0.9).astype(np.float32))
     except Exception:
         pass
+    if max_variants is not None and len(waves) >= max_variants:
+        return waves
 
-    # 5. Time stretch fast (1.1×) — shorter duration, higher perceived energy
+    # Time stretch fast (1.1×) — shorter duration, higher perceived energy
     try:
         waves.append(librosa.effects.time_stretch(y, rate=1.1).astype(np.float32))
     except Exception:
@@ -163,13 +172,13 @@ def augment_waveforms(y: np.ndarray) -> list[np.ndarray]:
     return waves
 
 
-def extract_spectrograms(path: Path) -> list[np.ndarray]:
+def extract_spectrograms(path: Path, max_variants: int | None = None) -> list[np.ndarray]:
     try:
         y = load_audio(path)
         if y is None:
             return []
         spectrograms = []
-        for wave in augment_waveforms(y):
+        for wave in augment_waveforms(y, max_variants=max_variants):
             mel = waveform_to_mel(wave)
             if np.all(np.isfinite(mel)):
                 spectrograms.append(mel)
@@ -211,7 +220,7 @@ def main() -> None:
     if not records:
         raise RuntimeError(f"No valid RAVDESS .wav files found under: {ravdess_dir}")
 
-    X, y_list, actor_ids, emotion_codes = [], [], [], []
+    X, y_list, actor_ids, emotion_codes, is_original_list = [], [], [], [], []
     skipped = 0
 
     for record in tqdm(records, desc="Extracting mel spectrograms"):
@@ -219,30 +228,36 @@ def main() -> None:
         if not spectrograms:
             skipped += 1
             continue
-        for mel in spectrograms:
+        # Index 0 is always the clean, unaugmented waveform (see
+        # augment_waveforms); tagging it lets train_cnn.py build val/test
+        # holdouts from real recordings only, not augmented duplicates.
+        for i, mel in enumerate(spectrograms):
             X.append(mel)
             y_list.append(LABEL_TO_ID[record.label])
             actor_ids.append(record.actor_id)
             emotion_codes.append(record.emotion_code)
+            is_original_list.append(i == 0)
 
     if not X:
         raise RuntimeError("Spectrogram extraction produced no usable samples.")
 
-    X_array    = np.stack(X, axis=0).astype(np.float32)   # (N, 1, 128, 128)
-    y_array    = np.asarray(y_list, dtype=np.int64)
-    actor_arr  = np.asarray(actor_ids)
-    code_arr   = np.asarray(emotion_codes)
+    X_array         = np.stack(X, axis=0).astype(np.float32)   # (N, 1, 128, 128)
+    y_array         = np.asarray(y_list, dtype=np.int64)
+    actor_arr       = np.asarray(actor_ids)
+    code_arr        = np.asarray(emotion_codes)
+    is_original_arr = np.asarray(is_original_list, dtype=bool)
 
     # Remove exact duplicate spectrograms (same flat pixel values)
     X_flat = X_array.reshape(len(X_array), -1)
     _, unique_indices = np.unique(X_flat, axis=0, return_index=True)
     duplicate_count = len(X_array) - len(unique_indices)
     if duplicate_count:
-        unique_indices = np.sort(unique_indices)
-        X_array   = X_array[unique_indices]
-        y_array   = y_array[unique_indices]
-        actor_arr = actor_arr[unique_indices]
-        code_arr  = code_arr[unique_indices]
+        unique_indices  = np.sort(unique_indices)
+        X_array         = X_array[unique_indices]
+        y_array         = y_array[unique_indices]
+        actor_arr       = actor_arr[unique_indices]
+        code_arr        = code_arr[unique_indices]
+        is_original_arr = is_original_arr[unique_indices]
         print(f"Removed {duplicate_count} duplicate spectrograms.")
 
     print(f"\nFinal dataset shape: {X_array.shape}")
@@ -253,6 +268,7 @@ def main() -> None:
         y=y_array,
         actor=actor_arr,
         ravdess_emotion_code=code_arr,
+        is_original=is_original_arr,
         label_names=np.asarray(LABEL_NAMES),
         sample_rate=np.asarray(SAMPLE_RATE),
         n_mels=np.asarray(N_MELS),
@@ -277,6 +293,7 @@ def main() -> None:
         "label_to_id": LABEL_TO_ID,
         "ravdess_emotion_map": RAVDESS_EMOTION_MAP,
         "samples": int(len(y_array)),
+        "original_samples": int(is_original_arr.sum()),
         "skipped_files": int(skipped),
         "class_counts": {
             LABEL_NAMES[i]: int(class_counts.get(i, 0))
