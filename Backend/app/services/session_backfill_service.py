@@ -22,6 +22,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+import uuid
+
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
@@ -74,7 +76,12 @@ def _sessions_with_metrics(db: Session, user_id: str) -> set[str]:
     rows = (
         db.query(AnalyticsSessionMetric.session_id)
         .filter(
-            AnalyticsSessionMetric.user_id == user_id,
+            # A string, because this column is one. The caller may hand in either
+            # a str or a UUID - SessionResult.user_id beside it is a UUID column,
+            # so the two want different types from the same argument. Postgres
+            # casts whichever it is given and hides the mismatch; comparing the
+            # right type is what makes it true of any driver.
+            AnalyticsSessionMetric.user_id == str(user_id),
             or_(*[column.isnot(None) for column in _SCORE_COLUMNS]),
         )
         .distinct()
@@ -87,12 +94,31 @@ def _mca_candidates(db: Session, user_id: str) -> list[SessionResult]:
     return (
         db.query(SessionResult)
         .filter(
-            SessionResult.user_id == user_id,
+            # SessionResult.user_id is a UUID column and this argument is a
+            # string, which is what every caller has. Postgres casts it and
+            # SQLite raises, so the comparison is given the type the column
+            # actually holds rather than relying on the driver to bridge it.
+            SessionResult.user_id == _as_uuid(user_id),
             SessionResult.status == "completed",
         )
         .order_by(SessionResult.created_at.asc())
         .all()
     )
+
+
+def _as_uuid(value):
+    """The value as a UUID where it is one, and untouched where it is not.
+
+    An id that is not a UUID is left alone rather than raising: the comparison
+    then simply matches nothing, which is the same answer an unknown learner
+    should get.
+    """
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return value
 
 
 def _mca_skill_scores(session: SessionResult) -> dict[str, float] | None:
@@ -240,7 +266,13 @@ def backfill_user_sessions(
         if payload is None:
             skipped += 1
             continue
-        items.append(_integrate(db, payload, "mca", session.friendly_id or session_id))
+        # The label the learner sees for this session. `session_id` is None on a
+        # bulk sweep, so a session that never got a friendly id resolved to None
+        # and failed schema validation - one such session stopped the whole
+        # sweep. Its own id is always available and is a usable last resort.
+        items.append(
+            _integrate(db, payload, "mca", session.friendly_id or session_id or candidate_id)
+        )
 
     integrated = [item for item in items if item.integrated]
 
