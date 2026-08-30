@@ -24,6 +24,7 @@ be asked about text prepared exactly the way its training text was prepared.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -69,6 +70,7 @@ def load_transformer(model_path: str | Path):
     tokenizer = AutoTokenizer.from_pretrained(str(path))
     model = AutoModelForSequenceClassification.from_pretrained(str(path))
     model.eval()
+    accepted_inputs = set(inspect.signature(model.forward).parameters)
 
     id_to_label = {index: str(name).lower() for index, name in model.config.id2label.items()}
 
@@ -92,6 +94,14 @@ def load_transformer(model_path: str | Path):
             truncation=True,
             max_length=MAX_LENGTH,
         )
+        # DistilBERT does not accept token_type_ids, while BERT-family models do.
+        # Filter to the loaded model's forward signature so one artifact shape
+        # never breaks another at runtime.
+        encoded = {
+            name: value
+            for name, value in encoded.items()
+            if name in accepted_inputs
+        }
         with torch.no_grad():
             logits = model(**encoded).logits[0]
         probabilities = torch.softmax(logits, dim=-1)

@@ -1,0 +1,76 @@
+{
+  "scenario_id": "plan_e49ff536-bfe7-41df-bca8-917a7f3f8ded",
+  "title": "Team Collaboration with a colleague",
+  "difficulty": "intermediate",
+  "conflict_type": "team_collaboration",
+  "npc_role": "colleague",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a direct teaching tone at slow pacing, wants to Protect their own priorities in the team collaboration situation and Be seen as reasonable by anyone who hears about this later",
+  "context": "The learner and their colleague are meeting in a small conference room after a project update meeting. The team recently missed a critical deadline due to a miscommunication during a collaborative task. The colleague, who is neutral but protective of their own workload, has called this quick discussion to surface the issue and expects a clear response.",
+  "opening_npc_line": "I've noticed the timeline slipped after the last sprint, and we need to address how that happened before we move forward.",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 70,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 3
+  },
+  "success_criteria": {
+    "min_trust_score": 45,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 70,
+      "neutral": 50,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 3,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "trust_building",
+      "professional_communication",
+      "assertiveness",
+      "self_advocacy"
+    ],
+    "big_five_relevance": [
+      "openness",
+      "extraversion"
+    ],
+    "recommended_for_profile": "8f63ae60-feff-4b67-80ba-709cde7af989",
+    "difficulty_weight": 1.0,
+    "plan_generated": {
+      "plan_id": "e49ff536-bfe7-41df-bca8-917a7f3f8ded",
+      "plan_version": 1,
+      "required_beats": [
+        "The counterpart states their position on the team collaboration issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "An opportunity for the learner to acknowledge the counterpart's constraint before pressing their own",
+        "A moment requiring the learner to restate something complex clearly and concisely",
+        "The counterpart applies pressure that the learner must hold their ground against at least once"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising trust building or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

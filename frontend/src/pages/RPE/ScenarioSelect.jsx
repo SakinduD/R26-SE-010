@@ -33,7 +33,6 @@ export default function ScenarioSelect() {
   const [planError, setPlanError]         = useState(null)
 
   const [allScenarios, setAllScenarios]                     = useState([])
-  const [recommendedOrder, setRecommendedOrder]             = useState([])
   const [activeSourceFilter, setActiveSourceFilter]         = useState('all') // 'all' | 'generated' | 'library'
   // Pre-applied from ?difficulty=/?category= — the "Try a Harder Scenario" /
   // "Practice Another Skill" links on the feedback screen land here.
@@ -55,12 +54,8 @@ export default function ScenarioSelect() {
     setIsLoading(true)
     setError(null)
     try {
-      const [data, recs] = await Promise.all([
-        rpeService.getScenarios(),
-        rpeService.getApaRecommendations(isAuthenticated && user ? user.id : 'guest').catch(() => []),
-      ])
+      const data = await rpeService.getScenarios()
       setAllScenarios(data)
-      setRecommendedOrder(recs.map((s) => s.scenario_id))
     } catch (err) {
       setError(err.message || "We couldn't load the scenarios right now.")
     } finally {
@@ -112,6 +107,7 @@ export default function ScenarioSelect() {
           conflictType:   response.conflict_type,
           totalTurns:     response.total_turns,
           npcRole:        detail?.npc_role,
+          npcGender:      response.npc_gender,
           recommendedTurns: response.recommended_turns,
           maxTurns:       response.max_turns,
           failureEscalationThreshold: response.failure_escalation_threshold,
@@ -157,18 +153,10 @@ export default function ScenarioSelect() {
 
   const isFiltered = activeSourceFilter !== 'all' || !!activeDifficultyFilter || !!activeCategoryFilter
 
-  // The one scenario featured at the top — a real personalized pick if the
-  // user has any generated scenarios, otherwise the top APA-recommended
-  // result (currently just difficulty-sorted, since rpe_apa_service is a
-  // stub — labelled honestly further down, not claimed as "personalized").
-  const heroScenario = useMemo(() => {
-    if (generatedScenarios.length > 0) return generatedScenarios[0]
-    if (recommendedOrder.length > 0) {
-      const match = allScenarios.find((s) => s.scenario_id === recommendedOrder[0])
-      if (match) return match
-    }
-    return allScenarios[0] ?? null
-  }, [generatedScenarios, recommendedOrder, allScenarios])
+  // The hero card only exists for a user who actually has a personalized
+  // scenario — no generic/first-scenario fallback. A user with none just
+  // sees the "Get a Personalized Scenario" button and the regular grid.
+  const heroScenario = generatedScenarios[0] ?? null
 
   useEffect(() => {
     if (!heroScenario) { setHeroDetail(null); return }
@@ -229,6 +217,7 @@ export default function ScenarioSelect() {
           conflictType:                response.conflict_type,
           totalTurns:                  response.total_turns,
           npcRole:                     scenario.npc_role || scenario.conflict_type,
+          npcGender:                   response.npc_gender,
           failureEscalationThreshold:  response.failure_escalation_threshold,
         },
       })
@@ -311,9 +300,7 @@ export default function ScenarioSelect() {
           <div className="challenge-card">
             <div className="challenge-main">
               <div className="challenge-badge">
-                {heroScenario.is_generated
-                  ? <><Sparkles size={11} strokeWidth={2} /> Personalized for you</>
-                  : 'Recommended starting point'}
+                <Sparkles size={11} strokeWidth={2} /> Personalized for you
               </div>
 
               <h2 className="challenge-title">{heroScenario.title}</h2>
@@ -532,7 +519,15 @@ export default function ScenarioSelect() {
           <div className="grid-3">
             {gridScenarios.length === 0 ? (
               <div style={{ gridColumn: '1 / -1' }}>
-                {activeSourceFilter === 'generated' ? (
+                {activeSourceFilter === 'generated' && generatedScenarios.length > 0 ? (
+                  // Your only personalized scenario(s) are already the hero
+                  // card above (gridScenarios always excludes it) — this
+                  // isn't "you have none", so don't show that empty state.
+                  <div className="empty-state">
+                    <Sparkles size={28} strokeWidth={1.6} />
+                    <p className="empty-desc">Your personalized scenario is shown above.</p>
+                  </div>
+                ) : activeSourceFilter === 'generated' ? (
                   <div className="empty-state">
                     <Sparkles size={28} strokeWidth={1.6} />
                     <p className="empty-title">No personalized scenarios yet</p>

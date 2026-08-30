@@ -13,6 +13,24 @@ import ResponseChoiceCards from '@/components/RPE/ResponseChoiceCards'
 import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
 import { useNudgeSensing } from '@/hooks/useNudgeSensing'
 
+// NPC identity photo — one random pick per session from the matching-gender
+// pool, covering every scenario (hand-authored and Training-Plan-generated
+// alike) since the backend derives npc_gender per scenario_id rather than
+// requiring per-scenario image data. Path is relative (not the @ alias):
+// import.meta.glob resolves patterns statically at build time and doesn't
+// reliably follow custom aliases.
+const MALE_PROFILE_IMAGES = Object.values(
+  import.meta.glob('../../assets/profileimg/male/*.png', { eager: true, import: 'default' })
+)
+const FEMALE_PROFILE_IMAGES = Object.values(
+  import.meta.glob('../../assets/profileimg/female/*.png', { eager: true, import: 'default' })
+)
+function pickNpcProfileImage(gender) {
+  const pool = gender === 'female' ? FEMALE_PROFILE_IMAGES : MALE_PROFILE_IMAGES
+  if (pool.length === 0) return null
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
 const EMOTION_META = {
@@ -73,10 +91,13 @@ export default function RolePlaySession() {
   const { user, isAuthenticated } = useAuth()
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
-    totalTurns, npcRole, failureEscalationThreshold,
+    totalTurns, npcRole, npcGender, failureEscalationThreshold,
     recommendedTurns: recommendedTurnsFromState,
     maxTurns:         maxTurnsFromState,
   } = location.state || {}
+
+  // Picked once per session mount, not re-rolled on every render.
+  const [npcProfileImage] = useState(() => pickNpcProfileImage(npcGender))
 
   const bottomRef            = useRef(null)
   const transcriptRef        = useRef(null)
@@ -88,6 +109,7 @@ export default function RolePlaySession() {
   const completeTimeoutRef   = useRef(null)
   const completeNavStateRef  = useRef(null)
   const headRef              = useRef(null)
+  const sensingAutoStartedRef = useRef(false)
   const openingSpokenRef     = useRef(false)
 
   const [messages, setMessages]               = useState([])
@@ -324,6 +346,23 @@ export default function RolePlaySession() {
     }
   }
 
+  // Reuses MCA's live behavioral-sensing pipeline (camera/face-mesh + a
+  // continuous mic stream feeding the nudge-analysis socket) so the same
+  // real-time coaching nudges can surface over a role-play conversation.
+  // Off by default; the learner opts in with one combined toggle (camera +
+  // mic together, since nudges depend on the audio+visual fusion analyzer).
+  // Declared before useVoiceRecorder below so its audioStream is available
+  // to share — see that hook's own comment for why.
+  const {
+    webcamRef, canvasRef, nudges, isCameraActive, audioStream,
+    toggleCamera, toggleMic, dismissNudge,
+  } = useNudgeSensing({ persistMicConnection: true })
+
+  const handleToggleSensing = useCallback(() => {
+    toggleCamera()
+    toggleMic()
+  }, [toggleCamera, toggleMic])
+
   const { isListening, startListening: startRecording, stopListening } = useVoiceRecorder({
     onResult: (transcript) => {
       listenFailuresRef.current = 0
@@ -345,25 +384,15 @@ export default function RolePlaySession() {
       }
     },
     onPermissionDenied: () => setAutoMicEnabled(false),
+    // When coaching is on, reuse its mic stream for this turn's recording
+    // instead of opening a second device stream — the same "one stream, many
+    // recorders" pattern MCA's own transcription loop uses internally. When
+    // coaching is off (the default), audioStream is null and this falls back
+    // to opening its own stream exactly as before — the conversation's own
+    // speech-to-text must keep working independent of the optional coaching
+    // toggle.
+    externalStream: audioStream,
   })
-
-  // Reuses MCA's live behavioral-sensing pipeline (camera/face-mesh + a
-  // separate continuous mic stream feeding the same nudge-analysis socket)
-  // so the same real-time coaching nudges can surface over a role-play
-  // conversation. Independent of useVoiceRecorder above — that's turn-based
-  // speech-to-text, this is continuous sensing; two mic consumers running at
-  // once is exactly what MCA's own live mode already does, no conflict.
-  // Off by default; the learner opts in with one combined toggle (camera +
-  // mic together, since nudges depend on the audio+visual fusion analyzer).
-  const {
-    webcamRef, canvasRef, nudges, isCameraActive,
-    toggleCamera, toggleMic, dismissNudge,
-  } = useNudgeSensing()
-
-  const handleToggleSensing = useCallback(() => {
-    toggleCamera()
-    toggleMic()
-  }, [toggleCamera, toggleMic])
 
   const startListening = useCallback(() => {
     if (!shouldListenRef.current) return
@@ -377,6 +406,22 @@ export default function RolePlaySession() {
   useEffect(() => {
     stopListeningRef.current = stopListening
   }, [stopListening])
+
+  // Nudges should only ever surface during the user's own speaking turn —
+  // the fusion analyzer keeps running continuously in the background
+  // regardless (coaching stays on across the whole session), but a nudge
+  // timed to a moment the NPC was talking (or a lull between turns) isn't
+  // useful feedback, it's just noise. Drop any nudge the instant it arrives
+  // outside that window; one already shown during a real speaking turn
+  // keeps its normal lifecycle even if isListening flips right after.
+  const seenNudgeIdsRef = useRef(new Set())
+  useEffect(() => {
+    for (const nudge of nudges) {
+      if (seenNudgeIdsRef.current.has(nudge.id)) continue
+      seenNudgeIdsRef.current.add(nudge.id)
+      if (!isListening) dismissNudge(nudge.id)
+    }
+  }, [nudges, isListening, dismissNudge])
 
   // Manual override for the auto-mic detection — auto on/off can misfire
   // (permission hiccup, a few failed STT requests) and there was previously
@@ -397,6 +442,19 @@ export default function RolePlaySession() {
 
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
+    // The avatar stage wants the full width — collapse the app sidebar the
+    // moment a session actually starts (AppLayout owns the real state).
+    window.dispatchEvent(new Event('ez:collapse-sidebar'))
+    // Coaching (camera + nudge-sensing mic) starts on automatically with the
+    // simulation — the learner no longer has to remember to opt in each
+    // session; they can still turn it off manually via the pill if they want.
+    // Guarded by a ref (not just the [] deps below) because StrictMode's dev
+    // double-invoke of this effect would otherwise call the relative
+    // toggleCamera/toggleMic twice in the same tick and cancel itself out.
+    if (!sensingAutoStartedRef.current) {
+      sensingAutoStartedRef.current = true
+      handleToggleSensing()
+    }
     shouldListenRef.current = true
     setMessages([{ role: 'npc', message: openingNpcLine }])
 
@@ -449,10 +507,18 @@ export default function RolePlaySession() {
       <div className="shell">
         {/* ── Identity rail ───────────────────────────────── */}
         <aside className="rail">
+          <button type="button" className="back-btn" onClick={() => navigate('/roleplay')} aria-label="Back">
+            <ArrowLeft size={16} strokeWidth={1.8} />
+          </button>
+
           <div className="npc-card">
             <div className={cn('avatar-wrap', npcSpeaking && 'speaking')}>
               <div className="avatar-pulse" />
-              <div className="avatar-inner">🧑‍💼</div>
+              <div className="avatar-inner">
+                {npcProfileImage
+                  ? <img src={npcProfileImage} alt="" className="avatar-photo" />
+                  : '🧑‍💼'}
+              </div>
             </div>
             <div>
               <div className="npc-name">{npcRole || 'NPC'}</div>
@@ -527,9 +593,6 @@ export default function RolePlaySession() {
             />
 
             <div className="stage-topbar">
-              <button type="button" className="back-btn" onClick={() => navigate('/roleplay')} aria-label="Back">
-                <ArrowLeft size={16} strokeWidth={1.8} />
-              </button>
               <div className="topbar-title">{scenarioTitle}</div>
               <button
                 type="button"
@@ -724,19 +787,6 @@ export default function RolePlaySession() {
 
       <SessionLoadingScreen scenarioTitle={scenarioTitle} npcRole={npcRole} visible={!avatarReady} />
 
-      {/* Phase 1 dev-only: manual trigger to verify avatar speech + lip sync.
-          Remove once Phase 1 is confirmed. */}
-      {import.meta.env.DEV && (
-        <button
-          type="button"
-          onClick={() => headRef.current?.speakText(
-            'Hello. I am your manager. Please take a seat. We need to discuss your recent work.'
-          )}
-          className="dev-test-speech-btn"
-        >
-          Test Avatar Speech
-        </button>
-      )}
 
       <style>{`
         .rpe-vs{
@@ -759,6 +809,33 @@ export default function RolePlaySession() {
           --text-hi:       #F0F6FC;
           --text-med:      #8B949E;
           --text-low:      #484F58;
+
+          /* Stage-locked tokens — the avatar viewport's floating overlay UI
+             (topbar, voice/sensing pills, camera dock, nudge toasts, state
+             indicators) sits directly over the dark 3D canvas, not the page
+             background, so it must stay legible regardless of app theme.
+             These are never redefined in the light-mode override below. */
+          --stage-text-hi:    #F0F6FC;
+          --stage-text-med:   #8B949E;
+          --stage-text-low:   #6E7681;
+          --stage-success:    #3FB950;
+          --stage-primary:    #4493F8;
+          --stage-primary-glow:        rgba(68,147,248,0.15);
+          --stage-primary-glow-strong: rgba(68,147,248,0.35);
+          --stage-accent:     #7C3AED;
+          --stage-accent-glow: rgba(124,58,237,0.15);
+          --stage-danger:     #F85149;
+          --stage-danger-glow: rgba(248,81,73,0.18);
+          --stage-warning:    #D29922;
+          --stage-warning-glow: rgba(210,153,34,0.18);
+          --stage-border:     #30363D;
+          --stage-surface-hi: #21262D;
+          --stage-scrim:        rgba(22,27,34,0.75);
+          --stage-scrim-strong: rgba(22,27,34,0.92);
+          --stage-edge-rgb: 13,17,23;
+          --stage-danger-tint-bg:  rgba(45,20,20,0.92);
+          --stage-warning-tint-bg: rgba(45,36,14,0.92);
+
           --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
           --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -803,11 +880,12 @@ export default function RolePlaySession() {
         }
         @keyframes rpevsRingSpin{ to{ transform:rotate(360deg); } }
         .rpe-vs .avatar-inner{
-          position:absolute; inset:4px; border-radius:50%;
+          position:absolute; inset:4px; border-radius:50%; overflow:hidden;
           background:linear-gradient(160deg, var(--surface-hi), var(--surface));
           border:1px solid var(--border);
           display:flex; align-items:center; justify-content:center; font-size:44px;
         }
+        .rpe-vs .avatar-photo{ width:100%; height:100%; object-fit:cover; display:block; }
         .rpe-vs .avatar-pulse{ position:absolute; inset:-8px; border-radius:50%; opacity:0; }
         .rpe-vs .avatar-wrap.speaking .avatar-pulse{ animation: rpevsAvatarPulse 1.8s var(--ease) infinite; }
         @keyframes rpevsAvatarPulse{
@@ -886,41 +964,42 @@ export default function RolePlaySession() {
         .rpe-vs .stage-topbar{
           position:absolute; top:0; left:0; right:0; z-index:5;
           height:56px; display:flex; align-items:center; gap:14px; padding:0 20px;
-          background:linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
+          background:linear-gradient(180deg, rgba(var(--stage-edge-rgb),0.85) 0%, rgba(var(--stage-edge-rgb),0.55) 60%, transparent 100%);
         }
         .rpe-vs .back-btn{
-          background:rgba(22,27,34,0.7); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
+          background:var(--surface-hi); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
           width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease); flex-shrink:0;
+          align-self:flex-start; margin-bottom:18px;
         }
-        .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
-        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 4px rgba(0,0,0,0.6); }
+        .rpe-vs .back-btn:hover{ background:var(--border-soft); color:var(--text-hi); }
+        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--stage-text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 4px rgba(0,0,0,0.6); }
 
         .rpe-vs .voice-pill{
-          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
+          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--stage-success);
+          background:var(--stage-scrim); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
         .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
-        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .voice-pill.muted{ color:var(--stage-text-med); background:var(--stage-scrim); border-color:var(--stage-border); }
 
         .rpe-vs .sensing-pill{
-          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--accent);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
+          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--stage-accent);
+          background:var(--stage-scrim); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .sensing-pill:hover{ filter:brightness(1.15); }
-        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .sensing-pill.muted{ color:var(--stage-text-med); background:var(--stage-scrim); border-color:var(--stage-border); }
 
         /* Compact learner-camera feed, docked beside the avatar — off by
            default, opt-in via the "Coaching" pill above. */
         .rpe-vs .camera-dock{
           position:absolute; top:66px; left:20px; z-index:6;
-          width:132px; aspect-ratio:4/3; border-radius:12px; overflow:hidden;
-          background:var(--surface-hi); border:1px solid var(--border);
+          width:200px; aspect-ratio:4/3; border-radius:12px; overflow:hidden;
+          background:var(--stage-surface-hi); border:1px solid var(--stage-border);
           box-shadow:0 10px 26px rgba(0,0,0,0.45);
           opacity:0; animation: rpevsCameraDockIn .35s var(--ease) forwards;
         }
@@ -928,7 +1007,10 @@ export default function RolePlaySession() {
         .rpe-vs .camera-dock-canvas{ width:100%; height:100%; object-fit:cover; display:block; }
 
         /* Nudge toasts — same severity language (critical/warning/info) and
-           slide-in/stack behaviour as MCA's live coaching screen. */
+           slide-in/stack behaviour as MCA's live coaching screen. Colors are
+           the fixed --stage-* tokens (never redefined for light mode): these
+           float directly over the dark avatar canvas, not the page
+           background, so they must stay legible regardless of app theme. */
         .rpe-vs .nudge-stack{
           position:absolute; top:66px; right:20px; z-index:12;
           display:flex; flex-direction:column; align-items:flex-end; gap:10px;
@@ -937,8 +1019,8 @@ export default function RolePlaySession() {
         .rpe-vs .nudge-toast{
           pointer-events:auto; display:flex; align-items:center; gap:12px;
           padding:12px 14px; border-radius:14px; width:100%;
-          background:rgba(22,27,34,0.92); backdrop-filter:blur(10px);
-          border:1px solid rgba(124,58,237,0.4); color:var(--text-hi);
+          background:var(--stage-scrim-strong); backdrop-filter:blur(10px);
+          border:1px solid rgba(124,58,237,0.4); color:var(--stage-text-hi);
           box-shadow:0 14px 34px rgba(0,0,0,0.4);
           opacity:0; transform:translateX(24px);
           animation: rpevsNudgeIn .4s var(--ease) forwards;
@@ -947,30 +1029,30 @@ export default function RolePlaySession() {
         @keyframes rpevsNudgeIn{ to{ opacity:1; transform:none; } }
         .rpe-vs .nudge-toast.stacked{ transform:scale(0.94); opacity:0.55; }
         .rpe-vs .nudge-toast.stacked:hover{ transform:scale(1); opacity:1; }
-        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:rgba(45,20,20,0.92); }
-        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:rgba(45,36,14,0.92); }
+        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:var(--stage-danger-tint-bg); }
+        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:var(--stage-warning-tint-bg); }
         .rpe-vs .nudge-icon{
           flex-shrink:0; width:30px; height:30px; border-radius:50%;
           display:flex; align-items:center; justify-content:center;
-          background:var(--accent-glow); color:var(--accent);
+          background:var(--stage-accent-glow); color:var(--stage-accent);
         }
-        .rpe-vs .nudge-toast.critical .nudge-icon{ background:var(--danger-glow); color:var(--danger); }
-        .rpe-vs .nudge-toast.warning .nudge-icon{ background:var(--warning-glow); color:var(--warning); }
+        .rpe-vs .nudge-toast.critical .nudge-icon{ background:var(--stage-danger-glow); color:var(--stage-danger); }
+        .rpe-vs .nudge-toast.warning .nudge-icon{ background:var(--stage-warning-glow); color:var(--stage-warning); }
         .rpe-vs .nudge-body{ flex:1; min-width:0; }
         .rpe-vs .nudge-text{ font-size:12.5px; font-weight:600; line-height:1.4; margin:0; }
-        .rpe-vs .nudge-time{ font-size:10px; color:var(--text-med); }
+        .rpe-vs .nudge-time{ font-size:10px; color:var(--stage-text-med); }
         .rpe-vs .nudge-dismiss{
           flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; cursor:pointer;
-          background:rgba(255,255,255,0.08); color:var(--text-med);
+          background:rgba(255,255,255,0.08); color:var(--stage-text-med);
           display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease);
         }
-        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.16); color:var(--text-hi); }
+        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.16); color:var(--stage-text-hi); }
 
         .rpe-vs .stage-bottom{
           position:absolute; bottom:0; left:0; right:0; z-index:5;
           min-height:96px; display:flex; align-items:center; justify-content:center; padding:20px;
-          background:linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+          background:linear-gradient(0deg, rgba(var(--stage-edge-rgb),0.9) 0%, rgba(var(--stage-edge-rgb),0.6) 55%, transparent 100%);
         }
 
         /* Floating chat toggle — bottom-right FAB, website-chat-widget style. */
@@ -1009,15 +1091,6 @@ export default function RolePlaySession() {
           transition:background .2s var(--ease), color .2s var(--ease);
         }
         .rpe-vs .chat-panel-close:hover{ background:var(--surface-hi); color:var(--text-hi); }
-
-        .dev-test-speech-btn{
-          position:fixed; bottom:16px; left:16px; z-index:150;
-          background:#4493F8; color:#fff; border:none; border-radius:10px;
-          padding:10px 16px; font-size:13px; font-weight:650; cursor:pointer;
-          box-shadow:0 8px 24px rgba(0,0,0,0.4);
-          font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        }
-        .dev-test-speech-btn:hover{ filter:brightness(1.08); }
 
         .rpe-vs .transcript-wrap{ position:relative; flex:1; min-height:0; }
         .rpe-vs .transcript{
@@ -1084,7 +1157,7 @@ export default function RolePlaySession() {
         .rpe-vs[data-voice-state="processing"] .state-processing{ display:flex; }
 
         .rpe-vs .wave{ display:flex; align-items:center; gap:3px; height:30px; }
-        .rpe-vs .wave span{ width:3.5px; border-radius:3px; background:linear-gradient(180deg, #6BB2FF, var(--primary)); animation: rpevsWaveMove 1s ease-in-out infinite; display:block; }
+        .rpe-vs .wave span{ width:3.5px; border-radius:3px; background:linear-gradient(180deg, #6BB2FF, var(--stage-primary)); animation: rpevsWaveMove 1s ease-in-out infinite; display:block; }
         .rpe-vs .wave span:nth-child(1){ height:10px; animation-delay:-0.9s; }
         .rpe-vs .wave span:nth-child(2){ height:20px; animation-delay:-0.6s; }
         .rpe-vs .wave span:nth-child(3){ height:28px; animation-delay:-0.3s; }
@@ -1095,31 +1168,31 @@ export default function RolePlaySession() {
         @keyframes rpevsWaveMove{ 0%,100%{ transform:scaleY(0.4); } 50%{ transform:scaleY(1); } }
 
         .rpe-vs .state-text{ display:flex; flex-direction:column; gap:1px; }
-        .rpe-vs .state-title{ font-size:13.5px; font-weight:650; color:var(--text-hi); }
-        .rpe-vs .state-title.muted{ color:var(--text-med); }
-        .rpe-vs .state-sub{ font-size:11.5px; color:var(--text-med); }
+        .rpe-vs .state-title{ font-size:13.5px; font-weight:650; color:var(--stage-text-hi); }
+        .rpe-vs .state-title.muted{ color:var(--stage-text-med); }
+        .rpe-vs .state-sub{ font-size:11.5px; color:var(--stage-text-med); }
 
         .rpe-vs .listen-orb{ position:relative; width:30px; height:30px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-        .rpe-vs .listen-orb .ring{ position:absolute; inset:0; border-radius:50%; background:var(--primary-glow); animation:rpevsOrbPulse 1.8s ease-out infinite; }
+        .rpe-vs .listen-orb .ring{ position:absolute; inset:0; border-radius:50%; background:var(--stage-primary-glow); animation:rpevsOrbPulse 1.8s ease-out infinite; }
         .rpe-vs .listen-orb .ring.r2{ animation-delay:.6s; background:rgba(68,147,248,0.28); }
-        .rpe-vs .listen-orb .dot{ width:10px; height:10px; border-radius:50%; background:var(--primary); box-shadow:0 0 10px var(--primary-glow-strong); z-index:1; }
+        .rpe-vs .listen-orb .dot{ width:10px; height:10px; border-radius:50%; background:var(--stage-primary); box-shadow:0 0 10px var(--stage-primary-glow-strong); z-index:1; }
         @keyframes rpevsOrbPulse{ 0%{ transform:scale(0.4); opacity:.9; } 100%{ transform:scale(2.2); opacity:0; } }
 
-        .rpe-vs .spinner-arc{ width:22px; height:22px; border-radius:50%; border:2.5px solid var(--border); border-top-color:var(--primary); animation:rpevsSpin .75s linear infinite; }
+        .rpe-vs .spinner-arc{ width:22px; height:22px; border-radius:50%; border:2.5px solid var(--stage-border); border-top-color:var(--stage-primary); animation:rpevsSpin .75s linear infinite; }
         @keyframes rpevsSpin{ to{ transform:rotate(360deg); } }
         .rpe-vs .spin{ animation:rpevsSpin .75s linear infinite; }
 
         .rpe-vs .manual-bar{ display:flex; gap:8px; width:100%; max-width:640px; align-items:flex-end; }
         .rpe-vs .manual-input{
-          flex:1; resize:none; background:var(--surface-hi); border:1px solid var(--border);
-          border-radius:10px; padding:10px 12px; color:var(--text-hi); font-size:13px; line-height:1.5;
+          flex:1; resize:none; background:var(--stage-surface-hi); border:1px solid var(--stage-border);
+          border-radius:10px; padding:10px 12px; color:var(--stage-text-hi); font-size:13px; line-height:1.5;
           font-family:inherit; min-height:38px; max-height:80px;
         }
-        .rpe-vs .manual-input::placeholder{ color:var(--text-low); }
-        .rpe-vs .manual-input:focus{ outline:none; border-color:var(--primary); }
+        .rpe-vs .manual-input::placeholder{ color:var(--stage-text-low); }
+        .rpe-vs .manual-input:focus{ outline:none; border-color:var(--stage-primary); }
         .rpe-vs .manual-send{
           width:38px; height:38px; flex-shrink:0; border:none; border-radius:10px; cursor:pointer;
-          background:linear-gradient(135deg, var(--primary), #6BB2FF); color:#fff;
+          background:linear-gradient(135deg, var(--stage-primary), #6BB2FF); color:#fff;
           display:flex; align-items:center; justify-content:center;
           transition:filter .2s var(--ease);
         }
@@ -1155,10 +1228,10 @@ export default function RolePlaySession() {
 
         /* Light theme override — see the matching block in ScenarioSelect.jsx
            for why this needs its own vars rather than inheriting index.css.
-           The stage itself (avatar viewport, its floating scrims/pills/
-           nudge toasts) is left dark on purpose: it's overlaying the 3D
-           character canvas, which renders its own scene regardless of app
-           theme, not the page background. */
+           The stage overlay (topbar, pills, camera dock, nudge toasts, state
+           text) also switches to light-appropriate --stage-* values here, so
+           it reads as one consistent light surface instead of a permanent
+           dark strip across an otherwise light page. */
         :root[data-theme="light"] .rpe-vs{
           --bg:            #F5F3FD;
           --surface:       #FFFFFF;
@@ -1182,6 +1255,27 @@ export default function RolePlaySession() {
           --npc-msg-text:      #3A3352;
           --danger-hover-text: #B42318;
           --overlay-backdrop:  rgba(245,243,253,0.82);
+
+          --stage-text-hi:    #241E38;
+          --stage-text-med:   #5E5678;
+          --stage-text-low:   #8D84A8;
+          --stage-success:    #1E8E4A;
+          --stage-primary:    #3D6FE0;
+          --stage-primary-glow:        rgba(61,111,224,0.10);
+          --stage-primary-glow-strong: rgba(61,111,224,0.30);
+          --stage-accent:     #6B3FD6;
+          --stage-accent-glow: rgba(107,63,214,0.12);
+          --stage-danger:     #D93B32;
+          --stage-danger-glow: rgba(217,59,50,0.15);
+          --stage-warning:    #B4790E;
+          --stage-warning-glow: rgba(180,121,14,0.15);
+          --stage-border:     #D9CFF5;
+          --stage-surface-hi: #EFEAFB;
+          --stage-scrim:        rgba(255,255,255,0.75);
+          --stage-scrim-strong: rgba(255,255,255,0.92);
+          --stage-edge-rgb: 245,243,253;
+          --stage-danger-tint-bg:  rgba(253,235,233,0.95);
+          --stage-warning-tint-bg: rgba(253,244,224,0.95);
         }
       `}</style>
     </div>

@@ -26,11 +26,16 @@ export const canRecord =
   typeof window !== 'undefined' &&
   typeof window.MediaRecorder !== 'undefined'
 
-export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenied }) {
+export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenied, externalStream }) {
   const [isListening, setIsListening] = useState(false)
   const recorderRef = useRef(null)
   const streamRef    = useRef(null)
   const audioCtxRef  = useRef(null)
+  // True when streamRef holds a stream we opened ourselves (and must close);
+  // false when it's an externally-supplied, shared stream (e.g. RPE's
+  // continuous nudge-sensing mic) whose lifecycle belongs to its owner —
+  // mirrors MCA's own pattern of one mic stream feeding multiple recorders.
+  const ownsStreamRef = useRef(true)
   // True from the instant startListening() is called until the recording it
   // started has fully stopped — including the getUserMedia() await, which is
   // otherwise a window where a second concurrent call (e.g. an onEmpty retry
@@ -41,7 +46,9 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
   const activeRef = useRef(false)
 
   const cleanup = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop())
+    if (ownsStreamRef.current) {
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+    }
     streamRef.current = null
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {})
@@ -57,18 +64,27 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
     if (!canRecord) { activeRef.current = false; onPermissionDenied?.(); return }
 
     let stream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch {
-      activeRef.current = false
-      onPermissionDenied?.()
-      return
+    if (externalStream && externalStream.active) {
+      // Shared stream (e.g. RPE's continuous nudge-sensing mic, when
+      // coaching is on) — reuse it instead of opening a second device
+      // stream; we don't own it, so we never stop its tracks.
+      stream = externalStream
+      ownsStreamRef.current = false
+    } else {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch {
+        activeRef.current = false
+        onPermissionDenied?.()
+        return
+      }
+      ownsStreamRef.current = true
     }
 
     if (!activeRef.current) {
       // stopListening() ran while we were awaiting the permission prompt —
       // don't start a recording nobody asked for anymore.
-      stream.getTracks().forEach((track) => track.stop())
+      if (ownsStreamRef.current) stream.getTracks().forEach((track) => track.stop())
       return
     }
     streamRef.current = stream
@@ -153,7 +169,7 @@ export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenie
 
     recorder.start()
     setIsListening(true)
-  }, [cleanup, onResult, onEmpty, onError, onPermissionDenied])
+  }, [cleanup, onResult, onEmpty, onError, onPermissionDenied, externalStream])
 
   const stopListening = useCallback(() => {
     activeRef.current = false

@@ -24,9 +24,14 @@ const NUDGE_MAX = 5
  *     unrelated to nudge generation.
  *   - Picture-in-Picture — MCA-only UI, not part of the sensing pipeline itself.
  */
-export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
+export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false } = {}) {
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isMicActive, setIsMicActive] = useState(false)
+  // The raw mic MediaStream, exposed so a caller can feed a second, unrelated
+  // recorder off the same hardware stream instead of opening its own (the
+  // pattern MCA's own transcription loop relies on) — additive only, doesn't
+  // change anything for a caller that ignores it.
+  const [audioStream, setAudioStream] = useState(null)
   const [nudges, setNudges] = useState([])
   const [metrics, setMetrics] = useState({
     ear: 0,
@@ -130,11 +135,9 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       audioStreamRef.current = stream
       setIsMicActive(true)
+      setAudioStream(stream)
 
-      const socket = new WebSocket(mcaService.getAudioStreamUrl())
-      socketRef.current = socket
-
-      socket.onopen = () => {
+      const beginRecording = (socket) => {
         const startRecordingChunk = () => {
           if (socket.readyState !== WebSocket.OPEN) return
 
@@ -161,7 +164,26 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
         startRecordingChunk()
       }
 
+      // persistMicConnection callers (RPE) keep an already-open socket alive
+      // across UI mic on/off toggles instead of reconnecting — the backend
+      // spins up a fresh NudgeEngine (which loads an ML model) per connection,
+      // so reusing one avoids paying that cost on every toggle. MCA doesn't
+      // opt in, so its behaviour (fresh socket every toggle) is unchanged.
+      if (persistMicConnection && socketRef.current?.readyState === WebSocket.OPEN) {
+        beginRecording(socketRef.current)
+        return
+      }
+
+      const socket = new WebSocket(mcaService.getAudioStreamUrl())
+      socketRef.current = socket
+
+      socket.onopen = () => beginRecording(socket)
+
       socket.onerror = (err) => console.error('[useNudgeSensing] WS error:', err)
+
+      socket.onclose = () => {
+        if (socketRef.current === socket) socketRef.current = null
+      }
 
       socket.onmessage = (event) => {
         try {
@@ -186,9 +208,12 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
     } catch (err) {
       console.error('[useNudgeSensing] Audio capture error:', err)
     }
-  }, [handleNudge])
+  }, [handleNudge, persistMicConnection])
 
-  const stopAudioCapture = useCallback(() => {
+  // force=true always fully tears down (socket included) regardless of
+  // persistMicConnection — used on unmount, where there's no future toggle
+  // that could reuse a kept-alive socket, so keeping it open would just leak.
+  const stopAudioCapture = useCallback((force = false) => {
     setIsMicActive(false)
     if (recordRestartTimeoutRef.current) {
       clearTimeout(recordRestartTimeoutRef.current)
@@ -198,16 +223,22 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current = null
     }
-    if (socketRef.current) {
-      socketRef.current.close()
-      socketRef.current = null
+    if (force || !persistMicConnection) {
+      if (socketRef.current) {
+        socketRef.current.close()
+        socketRef.current = null
+      }
     }
+    // The actual microphone hardware always stops here regardless of
+    // persistMicConnection — "off" in the UI must mean no audio is being
+    // captured, even when the WS session is kept alive for a fast resume.
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((track) => track.stop())
       audioStreamRef.current = null
     }
+    setAudioStream(null)
     setMetrics((prev) => ({ ...prev, isSyncing: false, emotion: 'Sensing...' }))
-  }, [])
+  }, [persistMicConnection])
 
   const toggleMic = useCallback(() => {
     if (isMicActive) {
@@ -267,10 +298,12 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
     }
   }, [isCameraActive, onResults])
 
-  // Tear everything down on unmount.
+  // Tear everything down on unmount — force=true so a persistMicConnection
+  // caller's kept-alive socket doesn't leak; there's no future toggle left
+  // to reuse it.
   useEffect(() => {
     return () => {
-      stopAudioCapture()
+      stopAudioCapture(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -282,6 +315,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true } = {}) {
     metrics,
     isCameraActive,
     isMicActive,
+    audioStream,
     toggleCamera,
     toggleMic,
     dismissNudge,

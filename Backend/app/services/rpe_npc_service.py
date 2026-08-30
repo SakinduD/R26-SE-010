@@ -105,7 +105,14 @@ class RpeNpcService:
             f"what you just demanded (specific numbers, named evidence, a real answer or "
             f"document, not a vague promise or stalling), you must visibly soften this "
             f"turn even if you were furious a moment ago. Reserve staying angry for when "
-            f"the user is still vague, evasive, or dismissive."
+            f"the user is still vague, evasive, or dismissive.\n"
+            f"- Never defer your own judgment to a future real-world check-in — no "
+            f"\"I'll review this and get back to you in a few hours\", \"let me look this "
+            f"over and respond tomorrow\", \"check back with me later\". There is no time "
+            f"skip in this conversation: every reply is your real reaction to what was "
+            f"just said, right now, in this same turn. If what you were given is genuinely "
+            f"good enough, say so and move the conversation forward now. If you need more "
+            f"before deciding, ask for it now instead of promising a verdict later."
         )
 
         json_schema_task = """
