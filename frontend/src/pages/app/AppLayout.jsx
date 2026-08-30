@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
 import { AchievementsProvider } from '@/lib/achievements/AchievementsContext';
@@ -34,6 +34,22 @@ export default function AppLayout() {
       return false;
     }
   });
+
+  // A route can ask to collapse the sidebar on entry (e.g. an RPE role-play
+  // session, which wants the full width for the avatar stage) without
+  // needing a shared context — AppLayout owns the only state that matters.
+  useEffect(() => {
+    const handler = () => {
+      setSidebarCollapsed(true);
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, '1');
+      } catch {
+        // ignore — worst case the preference just doesn't persist
+      }
+    };
+    window.addEventListener('ez:collapse-sidebar', handler);
+    return () => window.removeEventListener('ez:collapse-sidebar', handler);
+  }, []);
 
   if (isLoading) return <NavSkeleton />;
 

@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 /*
  * ResponseChoiceCards.jsx
  * Shown instead of the mic/manual-text input for the one turn where the NPC
@@ -12,14 +14,33 @@
  * that field is bookkeeping only, never a visible hint. The point is the
  * user judges quality themselves, the same as a real handoff.
  */
+
+// Fisher-Yates — the backend always returns options ordered strong/adequate/
+// weak, so rendering them in that order would let a learner just always pick
+// slot 1 without ever judging the content. Shuffled once per options array
+// (see the useMemo below), not on every render.
+function shuffled(arr) {
+  const a = arr.slice()
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 export default function ResponseChoiceCards({ options, onChoose }) {
-  if (!options || options.length === 0) return null
+  const displayOptions = useMemo(
+    () => (options ? shuffled(options) : options),
+    [options]
+  )
+
+  if (!displayOptions || displayOptions.length === 0) return null
 
   return (
     <div className="rpe-choice">
       <p className="rpe-choice-prompt">How do you respond?</p>
       <div className="rpe-choice-grid">
-        {options.map((option, i) => (
+        {displayOptions.map((option, i) => (
           <button
             key={i}
             type="button"
@@ -40,7 +61,7 @@ export default function ResponseChoiceCards({ options, onChoose }) {
         @keyframes rpeChoiceIn{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
         .rpe-choice-prompt{
           margin:0; font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
-          color:var(--text-med, #8B949E);
+          color:var(--stage-text-med, #8B949E);
         }
         .rpe-choice-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%; }
         @media (max-width:640px){ .rpe-choice-grid{ grid-template-columns:1fr; } }
@@ -56,7 +77,7 @@ export default function ResponseChoiceCards({ options, onChoose }) {
           outline:none;
         }
         .rpe-choice-label{ font-size:12.5px; font-weight:700; }
-        .rpe-choice-text{ font-size:12px; line-height:1.5; color:var(--text-med, #8B949E); }
+        .rpe-choice-text{ font-size:12px; line-height:1.5; color:var(--stage-text-med, #8B949E); }
       `}</style>
     </div>
   )

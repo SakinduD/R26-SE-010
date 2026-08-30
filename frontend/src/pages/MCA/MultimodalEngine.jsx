@@ -704,9 +704,9 @@ const MultimodalEngine = () => {
             key={nudge.id}
             className={clsx(
               "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
-              nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
-                nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
-                  "bg-primary/95 border-white/20 text-white",
+              nudge.severity === 'critical' ? "bg-[var(--nudge-critical-bg)] border-white/30 text-white" :
+                nudge.severity === 'warning' ? "bg-[var(--nudge-warning-bg)] border-white/30 text-white" :
+                  "bg-[var(--nudge-info-bg)] border-white/20 text-white",
               index > 0 && "scale-90 opacity-40 hover:opacity-100"
             )}
           >

@@ -25,7 +25,7 @@ from app.services.rpe_nlp_service        import RpeNlpService
 from app.services.rpe_npc_service        import RpeNpcService
 from app.services              import rpe_plan_import_service
 from app.services.rpe_predictive_service import RpePredictiveService
-from app.services.rpe_scenario_service   import RpeScenarioService
+from app.services.rpe_scenario_service   import RpeScenarioService, derive_npc_gender
 from app.services.rpe_session_service    import RpeSessionService
 from app.services.rpe_viz_service        import RpeVizService
 
@@ -97,6 +97,7 @@ def start_session(
         max_turns         = scenario.max_turns,
         is_authenticated  = is_authenticated,
         failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
+        npc_gender        = derive_npc_gender(scenario.scenario_id),
     )
 
 
@@ -147,6 +148,7 @@ async def start_session_from_plan(
         max_turns         = scenario.max_turns,
         is_authenticated  = True,
         failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
+        npc_gender        = derive_npc_gender(scenario.scenario_id),
     )
 
 
@@ -331,8 +333,12 @@ def session_summary(
 
 
 @rpe_router.get("/scenarios", response_model=list[ScenarioSummary])
-def list_scenarios() -> list[dict]:
-    return rpe_scenario_service.list_all()
+def list_scenarios(
+    current_user: User | None = Depends(get_current_user_optional),
+) -> list[dict]:
+    return rpe_scenario_service.list_all(
+        current_user_id=str(current_user.id) if current_user else None
+    )
 
 
 @rpe_router.get("/scenarios/difficulty/{level}", response_model=list[ScenarioSummary])

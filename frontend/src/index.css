@@ -61,6 +61,15 @@
   --danger-soft:  oklch(0.660 0.180 20 / 0.12);
   --info-soft:    oklch(0.700 0.130 230 / 0.12);
 
+  /* MCA's nudge toasts are colored cards with white text on top — unlike the
+     --warning/--danger/--accent hues above (tuned as fills/strokes/dots, per
+     the comment below, NOT as a background sitting under text), these three
+     are picked to guarantee white-text contrast on the fill itself, in
+     whichever theme is active. */
+  --nudge-critical-bg: oklch(0.660 0.180 20);
+  --nudge-warning-bg:  oklch(0.760 0.140 75);
+  --nudge-info-bg:     oklch(0.650 0.220 290);
+
   /* Chart palette */
   --chart-1: oklch(0.650 0.220 290);
   --chart-2: oklch(0.700 0.150 165);
@@ -181,6 +190,16 @@ html, body, #root { height: 100%; }
   --warning-soft: oklch(0.620 0.150 75 / 0.12);
   --danger-soft:  oklch(0.550 0.180 20 / 0.12);
   --info-soft:    oklch(0.550 0.130 230 / 0.12);
+
+  /* Darker than --warning/--danger/--accent above specifically because those
+     are tuned as fills/strokes/dots (see the dark-mode comment on the
+     originals), not as a card background with white text sitting on it —
+     0.620 lightness for warning in particular is too light for white text
+     to read reliably. These three are deliberately dark enough to guarantee
+     white-text contrast on the nudge toast fill itself. */
+  --nudge-critical-bg: oklch(0.550 0.180 20);
+  --nudge-warning-bg:  oklch(0.520 0.140 75);
+  --nudge-info-bg:     oklch(0.560 0.220 290);
 
   /* Chart palette */
   --chart-1: oklch(0.560 0.220 290);
@@ -524,7 +543,7 @@ button { font-family: inherit; }
 .topbar {
   height: 48px; border-bottom: 1px solid var(--border-subtle);
   display: flex; align-items: center; padding: 0 28px;
-  background: color-mix(in oklch, var(--bg-canvas) 85%, transparent);
+  background: color-mix(in oklch, var(--bg-surface) 85%, transparent);
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 20;
 }

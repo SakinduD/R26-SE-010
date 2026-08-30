@@ -32,6 +32,7 @@ class StartSessionResponse(BaseModel):
     max_turns:         int
     is_authenticated:  bool = False
     failure_escalation_threshold: int | None = None
+    npc_gender:        str = "male"   # "male" | "female" — see rpe_scenario_service.derive_npc_gender
 
 
 class RespondRequest(BaseModel):
