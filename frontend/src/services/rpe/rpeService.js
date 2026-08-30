@@ -20,23 +20,27 @@ export const rpeService = {
     }
   },
 
-  startSession: async (scenarioId, userId) => {
+  startSession: async (scenarioId, userId, npcName) => {
     try {
       return await authClient
-        .post('/api/v1/rpe/start-session', { scenario_id: scenarioId, user_id: userId })
+        .post('/api/v1/rpe/start-session', { scenario_id: scenarioId, user_id: userId, npc_name: npcName || null })
         .then(unwrap)
     } catch (err) {
       throw new Error(err.response?.data?.detail || err.message || 'Failed to start session')
     }
   },
 
-  startSessionFromPlan: async (planId) => {
+  // Generates a scenario from a Training Plan and returns its detail — the
+  // same shape as getScenarioDetail() — without starting a session. Session
+  // start is a separate, explicit startSession() call once the learner has
+  // seen the detail screen, same as every other scenario.
+  generateFromPlan: async (planId) => {
     try {
       return await authClient
         .post(`/api/v1/rpe/from-plan/${encodeURIComponent(planId)}`)
         .then(unwrap)
     } catch (err) {
-      throw new Error(err.response?.data?.detail || err.message || 'Failed to start session from plan')
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to generate a scenario from this plan')
     }
   },
 

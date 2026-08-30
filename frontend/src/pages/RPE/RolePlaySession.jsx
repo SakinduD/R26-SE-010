@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Joyride, STATUS } from 'react-joyride'
 import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff, MessageCircle, X, Paperclip, Video, VideoOff, Activity } from 'lucide-react'
 import Webcam from 'react-webcam'
 import { rpeService } from '@/services/rpe/rpeService'
@@ -12,46 +13,7 @@ import SessionLoadingScreen from '@/components/RPE/SessionLoadingScreen'
 import ResponseChoiceCards from '@/components/RPE/ResponseChoiceCards'
 import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
 import { useNudgeSensing } from '@/hooks/useNudgeSensing'
-
-// NPC identity photo — one random pick per session from the matching-gender
-// pool, covering every scenario (hand-authored and Training-Plan-generated
-// alike) since the backend derives npc_gender per scenario_id rather than
-// requiring per-scenario image data. Path is relative (not the @ alias):
-// import.meta.glob resolves patterns statically at build time and doesn't
-// reliably follow custom aliases.
-const MALE_PROFILE_IMAGES = Object.values(
-  import.meta.glob('../../assets/profileimg/male/*.png', { eager: true, import: 'default' })
-)
-const FEMALE_PROFILE_IMAGES = Object.values(
-  import.meta.glob('../../assets/profileimg/female/*.png', { eager: true, import: 'default' })
-)
-function pickNpcProfileImage(gender) {
-  const pool = gender === 'female' ? FEMALE_PROFILE_IMAGES : MALE_PROFILE_IMAGES
-  if (pool.length === 0) return null
-  return pool[Math.floor(Math.random() * pool.length)]
-}
-
-// NPC 3D avatar model — one random pick per session from the matching-gender
-// pool, same "covers every scenario, generated ones included" reasoning as
-// the profile photo above. These live in public/ (plain static files, not
-// bundled src/ imports), so they're referenced by root-relative URL rather
-// than import.meta.glob. "body" is TalkingHead's own rig-type option and has
-// to match each model's actual body, not just be cosmetic — avatar.glb's
-// existing body:'F' (the pre-existing default) is carried over unchanged.
-// ttsVoice must match too, or a male model speaks with the (previously
-// hardcoded, female) en-GB-Neural2-C voice regardless of which model is
-// showing — en-GB-Neural2-D is Google's real British male Neural2 voice.
-const NPC_AVATARS = {
-  male:   [{ url: '/david.glb', body: 'M', ttsVoice: 'en-GB-Neural2-D' }],
-  female: [
-    { url: '/avatar.glb',  body: 'F', ttsVoice: 'en-GB-Neural2-C' },
-    { url: '/avaturn.glb', body: 'F', ttsVoice: 'en-GB-Neural2-C' },
-  ],
-}
-function pickNpcAvatar(gender) {
-  const pool = gender === 'male' ? NPC_AVATARS.male : NPC_AVATARS.female
-  return pool[Math.floor(Math.random() * pool.length)]
-}
+import { getAvatarOption, pickNpcAvatar, pickNpcProfileImage } from '@/lib/rpe/npcAvatars'
 
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
@@ -93,6 +55,80 @@ const ANIMATION_TO_GESTURE = {
   wave:          '👋',
 }
 
+// First-time-only walkthrough of the live session screen — separate from
+// ScenarioSelect's own tour since these targets (meters, mic, nudges) don't
+// exist until a session is actually running.
+const SESSION_TOUR_SEEN_KEY = 'rpe_tour_session_seen'
+
+const sessionTourSteps = [
+  {
+    target: '[data-tour="rpe-session-npc"]',
+    title: "Who you're talking to",
+    content: "This is the character for this scenario — their name, role, and difficulty. Speak to them like a real coworker.",
+    disableBeacon: true,
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="rpe-session-meters"]',
+    title: 'Trust, Tension & Clarity',
+    content: 'Trust rises when you sound calm and constructive, drops when things get heated. Tension is how escalated things are — if it maxes out, the NPC walks away. Clarity scores how well-formed your responses are. These are coaching signals to guide you, not a strict grade.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="rpe-session-voice"]',
+    title: 'Voice or text',
+    content: "Speak naturally and it's transcribed automatically, or switch to typing any time.",
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="rpe-session-sensing"]',
+    title: 'Live coaching nudges',
+    content: 'Turn on your camera for gentle real-time nudges about your tone and body language while you talk — fully optional.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="rpe-session-chat"]',
+    title: 'Full transcript',
+    content: 'Everything said so far, any time you want to scroll back through it.',
+    placement: 'left',
+  },
+  {
+    target: '[data-tour="rpe-session-end"]',
+    title: 'Ending things',
+    content: "End whenever you want — you'll still get feedback on how it went so far.",
+    placement: 'right',
+  },
+]
+
+// See ScenarioSelect.jsx's identical constants for why this is a fixed
+// bright card rather than a dark tooltip (Joyride portals outside .rpe-vs's
+// own theme scope) and why options live in their own top-level prop rather
+// than nested under styles (that's what react-joyride's getMergedStep
+// actually reads for primaryColor/backgroundColor/textColor/scrollOffset/etc).
+const joyrideOptions = {
+  zIndex: 10000,
+  primaryColor: '#7C3AED',
+  backgroundColor: '#FFFFFF',
+  textColor: '#241E38',
+  arrowColor: '#FFFFFF',
+  overlayColor: 'rgba(6,8,12,0.72)',
+  scrollOffset: 72, // clears the app shell's 48px sticky topbar (index.css .topbar)
+}
+
+const joyrideStyles = {
+  tooltip: { borderRadius: 12, fontSize: 13.5, padding: 20 },
+  tooltipTitle: { fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#241E38' },
+  tooltipContent: { color: '#5E5678', padding: '8px 0' },
+  tooltipFooter: { marginTop: 16 },
+  buttonNext: { borderRadius: 8, fontSize: 12.5, fontWeight: 700, padding: '8px 16px', backgroundColor: '#7C3AED', color: '#fff' },
+  buttonBack: { color: '#8D84A8', fontSize: 12.5, marginRight: 10 },
+  buttonSkip: { color: '#8D84A8', fontSize: 12 },
+  // The close "x" icon's fill comes from this color, not options.textColor
+  // directly (see react-joyride's JoyrideTooltipCloseButton) — pin it
+  // explicitly so it can't end up defaulting to something illegible.
+  buttonClose: { color: '#241E38' },
+}
+
 const END_REASON_COPY = {
   natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
   user_exit_intent:   { icon: '👋', title: 'Session Ended',            sub: 'You chose to end the conversation.' },
@@ -113,14 +149,24 @@ export default function RolePlaySession() {
   const { user, isAuthenticated } = useAuth()
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
-    totalTurns, npcRole, npcGender, failureEscalationThreshold,
+    totalTurns, npcRole, npcGender, npcName, avatarId, failureEscalationThreshold,
     recommendedTurns: recommendedTurnsFromState,
     maxTurns:         maxTurnsFromState,
   } = location.state || {}
 
-  // Picked once per session mount, not re-rolled on every render.
-  const [npcProfileImage] = useState(() => pickNpcProfileImage(npcGender))
-  const [npcAvatar] = useState(() => pickNpcAvatar(npcGender))
+  // The learner may have picked a specific avatar (+ name) from the
+  // scenario's "view details" screen — avatarId carries that choice through
+  // navigation state. No override means "never opened that screen", so fall
+  // back to a random pick within the matching gender, same as before this
+  // existed. Picked/resolved once per session mount, not re-rolled on
+  // every render.
+  const chosenAvatarOption = avatarId ? getAvatarOption(avatarId) : null
+  const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender))
+  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender))
+  // npcName is the backend's *effective* name (custom or scenario.npc_role,
+  // already resolved server-side) — always display-ready, no local fallback
+  // logic needed here beyond the pre-existing-session-state edge case.
+  const npcDisplayName = npcName || npcRole || 'NPC'
 
   const bottomRef            = useRef(null)
   const transcriptRef        = useRef(null)
@@ -172,6 +218,27 @@ export default function RolePlaySession() {
     recommendedTurnsFromState || totalTurns || 6
   )
   const [maxTurns, setMaxTurns] = useState(maxTurnsFromState || null)
+  const [runTour, setRunTour] = useState(false)
+
+  // First session ever in this browser gets a short walkthrough of the
+  // meters/mic/nudges — a brief delay lets the rail finish its initial paint
+  // before Joyride measures target positions.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SESSION_TOUR_SEEN_KEY) === 'true') return
+    } catch {
+      return
+    }
+    const id = setTimeout(() => setRunTour(true), 600)
+    return () => clearTimeout(id)
+  }, [])
+
+  const handleTourCallback = (data) => {
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
+      setRunTour(false)
+      try { localStorage.setItem(SESSION_TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+    }
+  }
 
   const turnCap = maxTurns || recommendedTurns || 1
   const progressPct = Math.min(100, Math.round((currentTurn / turnCap) * 100))
@@ -322,6 +389,7 @@ export default function RolePlaySession() {
           totalTurns,
           scenarioTitle,
           npcRole,
+          npcName: npcDisplayName,
           currentTurn:     response.turn,
         }
 
@@ -527,6 +595,17 @@ export default function RolePlaySession() {
   return (
     <div className="rpe-vs" data-voice-state={voiceState} style={{ height: '100%' }}>
 
+      <Joyride
+        steps={sessionTourSteps}
+        run={runTour}
+        continuous
+        showSkipButton
+        showProgress
+        callback={handleTourCallback}
+        options={joyrideOptions}
+        styles={joyrideStyles}
+      />
+
       <div className="shell">
         {/* ── Identity rail ───────────────────────────────── */}
         <aside className="rail">
@@ -534,7 +613,7 @@ export default function RolePlaySession() {
             <ArrowLeft size={16} strokeWidth={1.8} />
           </button>
 
-          <div className="npc-card">
+          <div className="npc-card" data-tour="rpe-session-npc">
             <div className={cn('avatar-wrap', npcSpeaking && 'speaking')}>
               <div className="avatar-pulse" />
               <div className="avatar-inner">
@@ -544,8 +623,12 @@ export default function RolePlaySession() {
               </div>
             </div>
             <div>
-              <div className="npc-name">{npcRole || 'NPC'}</div>
-              {difficulty && <div className="npc-role">{difficulty} scenario</div>}
+              <div className="npc-name">{npcDisplayName}</div>
+              {npcRole && npcDisplayName !== npcRole ? (
+                <div className="npc-role">{npcRole}{difficulty ? ` · ${difficulty}` : ''}</div>
+              ) : (
+                difficulty && <div className="npc-role">{difficulty} scenario</div>
+              )}
             </div>
             <div className="scenario-pill">{scenarioTitle}</div>
           </div>
@@ -566,7 +649,7 @@ export default function RolePlaySession() {
 
           <div className="rail-divider" />
 
-          <div className="live-meters">
+          <div className="live-meters" data-tour="rpe-session-meters">
             <div className="rail-label">How it's going</div>
             <div className="meter-row">
               <span className="meter-label">Trust</span>
@@ -598,6 +681,7 @@ export default function RolePlaySession() {
             className="end-btn"
             onClick={() => handleSendWithText('exit')}
             disabled={isLoading || sessionComplete}
+            data-tour="rpe-session-end"
           >
             End Session
           </button>
@@ -626,6 +710,7 @@ export default function RolePlaySession() {
                 onClick={handleToggleMic}
                 disabled={!canRecord || sessionComplete}
                 title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
+                data-tour="rpe-session-voice"
               >
                 {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
                 {voicePillLabel}
@@ -635,6 +720,7 @@ export default function RolePlaySession() {
                 className={cn('sensing-pill', !isCameraActive && 'muted')}
                 onClick={handleToggleSensing}
                 title={isCameraActive ? 'Turn off camera' : 'Turn on camera for live nudges'}
+                data-tour="rpe-session-sensing"
               >
                 {isCameraActive ? <Video size={12} strokeWidth={2} /> : <VideoOff size={12} strokeWidth={2} />}
                 {isCameraActive ? 'Analyzing On' : 'Analyzing'}
@@ -682,7 +768,7 @@ export default function RolePlaySession() {
             <div className="stage-bottom">
               <div className="state-block state-speaking">
                 <div className="wave"><span /><span /><span /><span /><span /><span /><span /></div>
-                <div className="state-text"><div className="state-title">{npcRole || 'NPC'} is speaking…</div></div>
+                <div className="state-text"><div className="state-title">{npcDisplayName} is speaking…</div></div>
               </div>
 
               <div className="state-block state-listening">
@@ -741,6 +827,7 @@ export default function RolePlaySession() {
             onClick={handleToggleChat}
             aria-label={chatOpen ? 'Hide transcript' : 'Show transcript'}
             aria-expanded={chatOpen}
+            data-tour="rpe-session-chat"
           >
             {chatOpen ? <X size={20} strokeWidth={2} /> : <MessageCircle size={20} strokeWidth={2} />}
             {!chatOpen && hasUnread && <span className="fab-dot" />}
@@ -767,7 +854,7 @@ export default function RolePlaySession() {
                         style={emo ? { '--msg-emotion': emo.color, '--msg-emotion-glow': emo.glow } : undefined}
                       >
                         <div className="msg-label">
-                          <span className="bullet">●</span>{msg.role === 'npc' ? (npcRole || 'NPC') : 'You'}
+                          <span className="bullet">●</span>{msg.role === 'npc' ? npcDisplayName : 'You'}
                           {emo && <emo.Icon size={11} strokeWidth={2} className="emo-icon" style={{ color: emo.color }} />}
                         </div>
                         {msg.deliverableLabel && (
@@ -783,7 +870,7 @@ export default function RolePlaySession() {
 
                   {isLoading && !npcSpeaking && (
                     <div className="typing">
-                      <div className="msg-label"><span className="bullet">●</span>{npcRole || 'NPC'}</div>
+                      <div className="msg-label"><span className="bullet">●</span>{npcDisplayName}</div>
                       <div className="typing-dots"><span /><span /><span /></div>
                     </div>
                   )}
@@ -811,7 +898,7 @@ export default function RolePlaySession() {
         </main>
       </div>
 
-      <SessionLoadingScreen scenarioTitle={scenarioTitle} npcRole={npcRole} visible={!avatarReady} />
+      <SessionLoadingScreen scenarioTitle={scenarioTitle} npcRole={npcDisplayName} visible={!avatarReady} />
 
 
       <style>{`

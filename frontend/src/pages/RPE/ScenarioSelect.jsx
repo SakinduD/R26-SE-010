@@ -1,11 +1,89 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Joyride, STATUS } from 'react-joyride'
 import { AlertCircle, RefreshCw, Sparkles, Brain, History, Clock, Zap, BarChart2, X } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
 import { cn } from '@/lib/utils'
+
+// First-visit walkthrough of this landing page — gated by localStorage so it
+// only ever runs once per browser, not once per session. Kept separate from
+// the in-session tour (RolePlaySession.jsx has its own), since the meters/
+// mic/nudges it explains aren't visible until a scenario is actually running.
+const TOUR_SEEN_KEY = 'rpe_tour_scenario_select_seen'
+
+const scenarioSelectTourSteps = [
+  {
+    target: '[data-tour="rpe-welcome"]',
+    title: 'Welcome to the Practice Lab',
+    content: "Rehearse real workplace conversations with an AI character before they happen for real. Quick tour, four stops.",
+    placement: 'bottom',
+    disableBeacon: true,
+  },
+  {
+    target: '[data-tour="rpe-personalized-btn"]',
+    title: 'Personalized scenarios',
+    content: 'Builds a scenario from your own Training Plan goals instead of the general library — tailored to what you\'re actually working on.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="rpe-categories"]',
+    title: 'Pick what to practice',
+    content: 'Filter by the skill you want to work on or by difficulty. Beginner scenarios are more forgiving; advanced ones escalate faster.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="rpe-compare-btn"]',
+    title: 'Compare scenarios',
+    content: 'See every scenario side-by-side — difficulty, category, skills practiced, length — before picking one.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="rpe-scenario-grid"]',
+    title: "You're ready",
+    content: 'Open any card to preview the situation and choose who you\'re talking to, then start the simulation.',
+    placement: 'top',
+  },
+]
+
+// Joyride's tooltip/overlay portal to document.body, outside .rpe-cinema's
+// own scope, so it can't just inherit this page's --surface/--text-hi theme
+// tokens. A dark tooltip read fine against a light-mode page but all but
+// disappeared against the dark-mode page's own dark backdrop dimming — so
+// this stays a fixed bright card instead, which pops against a dimmed
+// backdrop regardless of which theme that backdrop is.
+//
+// primaryColor/backgroundColor/textColor/arrowColor/overlayColor/scrollOffset
+// are read from the top-level `options` prop (see getMergedStep in
+// react-joyride's source) — NOT from `styles.options`. They were nested
+// under `styles` before, so none of them ever actually applied; Next kept
+// rendering with the library's own default black primaryColor regardless of
+// what was set here.
+const joyrideOptions = {
+  zIndex: 10000,
+  primaryColor: '#7C3AED',
+  backgroundColor: '#FFFFFF',
+  textColor: '#241E38',
+  arrowColor: '#FFFFFF',
+  overlayColor: 'rgba(6,8,12,0.72)',
+  scrollOffset: 72, // clears the app shell's 48px sticky topbar (index.css .topbar)
+}
+
+const joyrideStyles = {
+  tooltip: { borderRadius: 12, fontSize: 13.5, padding: 20 },
+  tooltipTitle: { fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#241E38' },
+  tooltipContent: { color: '#5E5678', padding: '8px 0' },
+  tooltipFooter: { marginTop: 16 },
+  buttonNext: { borderRadius: 8, fontSize: 12.5, fontWeight: 700, padding: '8px 16px', backgroundColor: '#7C3AED', color: '#fff' },
+  buttonBack: { color: '#8D84A8', fontSize: 12.5, marginRight: 10 },
+  buttonSkip: { color: '#8D84A8', fontSize: 12 },
+  // The close "x" icon's fill comes from this color, not options.textColor
+  // directly (see react-joyride's JoyrideTooltipCloseButton) — pin it
+  // explicitly so it can't end up defaulting to something illegible.
+  buttonClose: { color: '#241E38' },
+}
 
 const DIFFICULTY_TONE = {
   beginner:     'success',
@@ -39,16 +117,12 @@ export default function ScenarioSelect() {
   const [activeDifficultyFilter, setActiveDifficultyFilter] = useState(() => searchParams.get('difficulty') || null)
   const [activeCategoryFilter, setActiveCategoryFilter]     = useState(() => searchParams.get('category') || null)
   const [selectedScenario, setSelectedScenario]   = useState(null)
-  // Set only while the open detail modal is previewing a just-generated
-  // plan scenario (see the planId effect below) — a session already exists
-  // for it server-side, so confirming just navigates instead of calling
-  // handleStart and creating a second, redundant one.
-  const [pendingPlanNav, setPendingPlanNav]       = useState(null)
   const [startingId, setStartingId]               = useState(null)
   const [isLoading, setIsLoading]                 = useState(true)
   const [error, setError]                         = useState(null)
   const [showCompare, setShowCompare]             = useState(false)
   const [heroDetail, setHeroDetail]               = useState(null)
+  const [runTour, setRunTour]                     = useState(false)
 
   useEffect(() => {
     if (!showCompare) return
@@ -74,6 +148,25 @@ export default function ScenarioSelect() {
     loadScenarios()
   }, [])
 
+  // Only ever auto-run once the grid has actually rendered (so the last
+  // step's target exists) and only for a browser that hasn't seen it before.
+  useEffect(() => {
+    if (isLoading || planImporting) return
+    try {
+      if (localStorage.getItem(TOUR_SEEN_KEY) === 'true') return
+    } catch {
+      return
+    }
+    setRunTour(true)
+  }, [isLoading, planImporting])
+
+  const handleTourCallback = (data) => {
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
+      setRunTour(false)
+      try { localStorage.setItem(TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+    }
+  }
+
   // ?planId=<id> entry point from StartRolePlayButton on the Training Plan
   // detail page — generates a scenario from that plan, then previews it in
   // the same detail modal every other scenario gets before you commit to it,
@@ -91,43 +184,14 @@ export default function ScenarioSelect() {
       setPlanImporting(true)
       setPlanError(null)
       try {
-        const response = await rpeService.startSessionFromPlan(planId)
+        // Generates only — no session yet. The response is already a full
+        // ScenarioDetail, so it goes straight into the same detail modal
+        // every other scenario gets, avatar/name picker included; "Enter
+        // Simulation" from there calls handleStart like any other scenario.
+        const detail = await rpeService.generateFromPlan(planId)
         if (cancelled) return
 
-        // scenario_id is deterministic from plan_id (see
-        // rpe_plan_import_service.map_brief_to_scenario) — safe to derive
-        // here rather than adding a field to StartSessionResponse for it.
-        const scenarioId = `plan_${planId}`
-        let detail = null
-        try {
-          detail = await rpeService.getScenarioDetail(scenarioId)
-        } catch {
-          // fall through with summary-level data below
-        }
-        if (cancelled) return
-
-        setPendingPlanNav({
-          sessionId:      response.session_id,
-          openingNpcLine: response.opening_npc_line,
-          scenarioTitle:  response.scenario_title,
-          difficulty:     response.difficulty,
-          conflictType:   response.conflict_type,
-          totalTurns:     response.total_turns,
-          npcRole:        detail?.npc_role,
-          npcGender:      response.npc_gender,
-          recommendedTurns: response.recommended_turns,
-          maxTurns:       response.max_turns,
-          failureEscalationThreshold: response.failure_escalation_threshold,
-        })
-        setSelectedScenario(detail ?? {
-          scenario_id: scenarioId,
-          title: response.scenario_title,
-          difficulty: response.difficulty,
-          conflict_type: response.conflict_type,
-          recommended_turns: response.recommended_turns,
-          max_turns: response.max_turns,
-          is_generated: true,
-        })
+        setSelectedScenario({ ...detail, is_generated: true })
         setPlanImporting(false)
         // Drop ?planId= so refreshing the page doesn't regenerate the scenario.
         navigate('/roleplay', { replace: true })
@@ -207,13 +271,19 @@ export default function ScenarioSelect() {
     }
   }
 
-  const handleStart = async (scenario) => {
+  // customization is only present when starting from the detail modal's
+  // avatar/name picker — a plain "Start" click straight off a scenario card
+  // skips that screen entirely, so it stays undefined and everything falls
+  // back to exactly the pre-existing default behaviour (random avatar pick,
+  // scenario's own npc_role as the name).
+  const handleStart = async (scenario, customization) => {
     setStartingId(scenario.scenario_id)
     setError(null)
     try {
       const response = await rpeService.startSession(
         scenario.scenario_id,
-        isAuthenticated && user ? user.id : null
+        isAuthenticated && user ? user.id : null,
+        customization?.npcName
       )
       navigate('/roleplay/session', {
         state: {
@@ -225,6 +295,8 @@ export default function ScenarioSelect() {
           totalTurns:                  response.total_turns,
           npcRole:                     scenario.npc_role || scenario.conflict_type,
           npcGender:                   response.npc_gender,
+          npcName:                     response.npc_name,
+          avatarId:                    customization?.avatarId,
           failureEscalationThreshold:  response.failure_escalation_threshold,
         },
       })
@@ -263,6 +335,17 @@ export default function ScenarioSelect() {
   return (
     <div className="rpe-cinema">
 
+      <Joyride
+        steps={scenarioSelectTourSteps}
+        run={runTour}
+        continuous
+        showSkipButton
+        showProgress
+        callback={handleTourCallback}
+        options={joyrideOptions}
+        styles={joyrideStyles}
+      />
+
       {planError && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <div className="banner danger">
@@ -275,13 +358,13 @@ export default function ScenarioSelect() {
       <div className="hero-band">
         <div className="hero-inner">
           <div className="hero-row">
-            <div>
+            <div data-tour="rpe-welcome">
               <p className="eyebrow">Practice Lab</p>
               <h1 className="hero-title">Practice Lab</h1>
               <p className="hero-sub">Practice real workplace conversations before they happen.</p>
             </div>
             <div className="hero-actions">
-              <button type="button" onClick={() => navigate('/training-plan/new')} className="my-sessions-btn accent">
+              <button type="button" onClick={() => navigate('/training-plan/new')} className="my-sessions-btn accent" data-tour="rpe-personalized-btn">
                 <Sparkles size={13} strokeWidth={1.8} /> Get a Personalized Scenario
               </button>
               <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
@@ -293,6 +376,7 @@ export default function ScenarioSelect() {
                   onClick={() => setShowCompare((v) => !v)}
                   className={cn('my-sessions-btn', showCompare && 'active')}
                   aria-expanded={showCompare}
+                  data-tour="rpe-compare-btn"
                 >
                   <BarChart2 size={13} strokeWidth={1.8} /> Compare All Scenarios
                 </button>
@@ -402,7 +486,7 @@ export default function ScenarioSelect() {
           </div>
         )}
 
-        <div className="category-block">
+        <div className="category-block" data-tour="rpe-categories">
           <p className="category-prompt">What do you want to practice?</p>
           <div className="category-row">
             {CATEGORIES.map((category) => {
@@ -535,7 +619,7 @@ export default function ScenarioSelect() {
         )}
 
         {!isLoading && (
-          <div className="grid-3">
+          <div className="grid-3" data-tour="rpe-scenario-grid">
             {gridScenarios.length === 0 ? (
               <div style={{ gridColumn: '1 / -1' }}>
                 {activeSourceFilter === 'generated' && generatedScenarios.length > 0 ? (
@@ -580,8 +664,8 @@ export default function ScenarioSelect() {
 
       <ScenarioDetailModal
         scenario={selectedScenario}
-        onClose={() => { setSelectedScenario(null); setPendingPlanNav(null) }}
-        onStart={pendingPlanNav ? () => navigate('/roleplay/session', { state: pendingPlanNav }) : handleStart}
+        onClose={() => setSelectedScenario(null)}
+        onStart={handleStart}
         isStarting={startingId === selectedScenario?.scenario_id}
       />
 

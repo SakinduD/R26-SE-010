@@ -54,6 +54,7 @@ class RpeNpcService:
         trust_score: int,
         escalation_level: int,
         npc_behaviour: dict,
+        npc_name: str | None = None,
     ) -> str:
         trust_thresholds = npc_behaviour.get(
             "trust_thresholds",
@@ -87,14 +88,28 @@ class RpeNpcService:
         else:
             escalation_tone = "You are tense but controlled."
 
+        # A learner-chosen custom name (set once, at session start, from the
+        # scenario's "view details" screen) — only worth a distinct sentence
+        # when it's genuinely a name, not just the role label repeated back.
+        identity_line = f"You are roleplaying as {npc_role}.\n"
+        name_rule = ""
+        if npc_name and npc_name.strip() and npc_name.strip().lower() != npc_role.strip().lower():
+            article = "an" if npc_role.strip()[:1].lower() in "aeiou" else "a"
+            identity_line = f"You are roleplaying as {npc_name}, {article} {npc_role}.\n"
+            name_rule = (
+                f"- Your name is {npc_name}. If asked your name, or when introducing "
+                f"yourself, use exactly that name — never a different one.\n"
+            )
+
         base = (
-            f"You are roleplaying as {npc_role}.\n"
+            f"{identity_line}"
             f"Personality: {npc_personality}.\n"
             f"Context: {context}\n\n"
             f"Current state:\n"
             f"- Trust level: {trust_score}/100. {trust_tone}\n"
             f"- Escalation level: {escalation_level}/5. {escalation_tone}\n\n"
             f"Rules:\n"
+            f"{name_rule}"
             f"- Respond in 1-3 sentences only.\n"
             f"- Stay in character. Never break roleplay.\n"
             f"- IMPORTANT: Every response must be different from all previous responses. "
@@ -195,6 +210,7 @@ Do not include any text outside the JSON object."""
         trust_score: int,
         escalation_level: int,
         npc_behaviour: dict,
+        npc_name: str | None = None,
     ) -> dict:
         """
         Returns:
@@ -219,6 +235,7 @@ Do not include any text outside the JSON object."""
         system_prompt = self._build_system_prompt(
             npc_role, npc_personality, context,
             trust_score, escalation_level, npc_behaviour,
+            npc_name,
         )
         messages: list[dict] = [{"role": "assistant", "content": opening_npc_line}]
         for turn in session_turns:
