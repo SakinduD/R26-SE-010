@@ -400,7 +400,7 @@ export default function MySessions() {
         .rpe-cinema .seg-btn:hover{ color:var(--text-hi); }
         .rpe-cinema .seg-btn.active{ background:var(--accent); color:#fff; }
 
-        .rpe-cinema .banner.danger{ background:var(--danger-glow); border:1px solid rgba(248,81,73,0.3); color:#FF9490; border-radius:12px; padding:12px 16px; font-size:13px; }
+        .rpe-cinema .banner.danger{ background:var(--danger-glow); border:1px solid rgba(248,81,73,0.3); color:var(--danger-text, #FF9490); border-radius:12px; padding:12px 16px; font-size:13px; }
 
         .rpe-cinema .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
         @media (max-width:680px){ .rpe-cinema .grid-2{ grid-template-columns:1fr; } }
@@ -453,7 +453,7 @@ export default function MySessions() {
         .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); }
         .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
         .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
-        .rpe-cinema .btn-c.danger{ background:var(--danger-glow); border-color:rgba(248,81,73,0.4); color:#FF9490; }
+        .rpe-cinema .btn-c.danger{ background:var(--danger-glow); border-color:rgba(248,81,73,0.4); color:var(--danger-text, #FF9490); }
         .rpe-cinema .btn-c.danger:hover:not(:disabled){ background:rgba(248,81,73,0.25); }
         .rpe-cinema .btn-c:disabled{ opacity:.5; cursor:default; }
 
@@ -467,6 +467,25 @@ export default function MySessions() {
         }
         .rpe-cinema .action-count{ font-size:13px; font-weight:650; color:var(--text-hi); }
         .rpe-cinema .action-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
+
+        :root[data-theme="light"] .rpe-cinema{
+          --bg:            #F5F3FD;
+          --surface:       #FFFFFF;
+          --surface-hi:    #EFEAFB;
+          --border:        #D9CFF5;
+          --accent:        #6B3FD6;
+          --accent-glow:   rgba(107,63,214,0.12);
+          --success:       #1E8E4A;
+          --success-glow:  rgba(30,142,74,0.12);
+          --warning:       #B4790E;
+          --warning-glow:  rgba(180,121,14,0.14);
+          --danger:        #D93B32;
+          --danger-glow:   rgba(217,59,50,0.12);
+          --text-hi:       #241E38;
+          --text-med:      #5E5678;
+          --text-low:      #8D84A8;
+          --danger-text:   #B42318;
+        }
       `}</style>
     </div>
   )

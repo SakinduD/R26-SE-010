@@ -14,19 +14,19 @@ const CAPTURE_ITEMS = [
   {
     Icon: Mic,
     label: 'Voice',
-    detail: 'Tone, pace, and fluency during a ~60-second guided conversation',
+    detail: 'Tone, pace, and fluency during a 8 minutes guided conversation',
   },
   {
     Icon: Camera,
     label: 'Camera',
-    detail: 'Facial engagement signals via MediaPipe — processed locally in your browser',
+    detail: 'Facial engagement signals via MediaPipe - processed locally in your browser',
   },
 ]
 
 const PRIVACY_ITEMS = [
   'Raw audio and video are never stored on our servers',
   'No recordings are shared with third parties',
-  'You can redo or delete your baseline at any time from settings',
+  'You can redo your baseline at any time from settings',
 ]
 
 export default function BaselineConsent() {

@@ -871,7 +871,7 @@ export default function RolePlaySession() {
           font-size:13px; font-weight:600; cursor:pointer;
           transition:border-color .2s var(--ease), color .2s var(--ease), background .2s var(--ease);
         }
-        .rpe-vs .end-btn:hover:not(:disabled){ border-color:var(--danger); color:#FF7B72; background:var(--danger-glow); }
+        .rpe-vs .end-btn:hover:not(:disabled){ border-color:var(--danger); color:var(--danger-hover-text, #FF7B72); background:var(--danger-glow); }
         .rpe-vs .end-btn:disabled{ opacity:.4; cursor:default; }
         .rpe-vs .end-btn:focus-visible{ outline:2px solid var(--danger); outline-offset:2px; }
 
@@ -1048,7 +1048,7 @@ export default function RolePlaySession() {
         }
 
         .rpe-vs .msg-body{ font-size:14px; line-height:1.6; letter-spacing:-0.003em; padding:2px 0 2px 12px; border-left:2px solid transparent; }
-        .rpe-vs .msg.npc .msg-body{ color:#C9D1D9; border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
+        .rpe-vs .msg.npc .msg-body{ color:var(--npc-msg-text, #C9D1D9); border-left-color:var(--msg-emotion, var(--accent-glow)); transition:border-color .3s var(--ease); }
         .rpe-vs .msg.user .msg-body{ color:var(--text-hi); border-left:none; border-right:2px solid var(--primary-glow); padding-left:0; padding-right:12px; }
 
         .rpe-vs .msg.latest .msg-body{ position:relative; border-radius:10px; padding:12px 16px; }
@@ -1128,7 +1128,7 @@ export default function RolePlaySession() {
 
         .rpe-vs .overlay{
           position:absolute; inset:0; display:none; align-items:flex-end; justify-content:center;
-          background:rgba(6,8,12,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); z-index:20;
+          background:var(--overlay-backdrop, rgba(6,8,12,0.72)); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); z-index:20;
         }
         .rpe-vs[data-voice-state="complete"] .overlay{ display:flex; }
 
@@ -1152,6 +1152,37 @@ export default function RolePlaySession() {
         .rpe-vs .result-card.success{ border-color:rgba(63,185,80,0.3); box-shadow:0 24px 60px rgba(63,185,80,0.12); }
         .rpe-vs .result-card.failure{ border-color:rgba(248,81,73,0.3); box-shadow:0 24px 60px rgba(248,81,73,0.12); }
         .rpe-vs .result-card.natural{ border-color:rgba(68,147,248,0.3); box-shadow:0 24px 60px rgba(68,147,248,0.12); }
+
+        /* Light theme override — see the matching block in ScenarioSelect.jsx
+           for why this needs its own vars rather than inheriting index.css.
+           The stage itself (avatar viewport, its floating scrims/pills/
+           nudge toasts) is left dark on purpose: it's overlaying the 3D
+           character canvas, which renders its own scene regardless of app
+           theme, not the page background. */
+        :root[data-theme="light"] .rpe-vs{
+          --bg:            #F5F3FD;
+          --surface:       #FFFFFF;
+          --surface-hi:    #EFEAFB;
+          --border:        #D9CFF5;
+          --border-soft:   #E9E2FB;
+          --primary:       #3D6FE0;
+          --primary-glow:  rgba(61,111,224,0.10);
+          --primary-glow-strong: rgba(61,111,224,0.30);
+          --accent:        #6B3FD6;
+          --accent-glow:   rgba(107,63,214,0.12);
+          --success:       #1E8E4A;
+          --success-glow:  rgba(30,142,74,0.15);
+          --danger:        #D93B32;
+          --danger-glow:   rgba(217,59,50,0.15);
+          --warning:       #B4790E;
+          --warning-glow:  rgba(180,121,14,0.15);
+          --text-hi:       #241E38;
+          --text-med:      #5E5678;
+          --text-low:      #8D84A8;
+          --npc-msg-text:      #3A3352;
+          --danger-hover-text: #B42318;
+          --overlay-backdrop:  rgba(245,243,253,0.82);
+        }
       `}</style>
     </div>
   )

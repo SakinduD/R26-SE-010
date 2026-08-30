@@ -44,9 +44,18 @@ export default function SessionLoadingScreen({ scenarioTitle, npcRole, visible }
 
       <style>{`
         .rpe-load{
+          --bg:         #0D1117;
+          --surface:    #161B22;
+          --border:     #30363D;
+          --primary:    #4493F8;
+          --accent:     #7C3AED;
+          --text-hi:    #F0F6FC;
+          --text-med:   #8B949E;
+          --quote-text: #C9D1D9;
+
           position:fixed; inset:0; z-index:100;
           display:flex; align-items:center; justify-content:center;
-          background:radial-gradient(120% 100% at 50% 0%, rgba(124,58,237,0.10) 0%, transparent 55%), #0D1117;
+          background:radial-gradient(120% 100% at 50% 0%, rgba(124,58,237,0.10) 0%, transparent 55%), var(--bg);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
           opacity:1; transition:opacity .45s cubic-bezier(0.22,1,0.36,1), visibility .45s;
         }
@@ -60,31 +69,42 @@ export default function SessionLoadingScreen({ scenarioTitle, npcRole, visible }
         .rpe-load-ring{ position:relative; width:64px; height:64px; margin-bottom:28px; }
         .rpe-load-ring-arc{
           position:absolute; inset:0; border-radius:50%;
-          border:3px solid #21262D; border-top-color:#4493F8;
+          border:3px solid var(--border); border-top-color:var(--primary);
           animation:rpeLoadSpin 0.9s linear infinite;
         }
         @keyframes rpeLoadSpin{ to{ transform:rotate(360deg); } }
 
         .rpe-load-eyebrow{
           font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
-          color:#7C3AED; margin:0 0 10px;
+          color:var(--accent); margin:0 0 10px;
         }
         .rpe-load-title{
-          font-size:24px; font-weight:750; letter-spacing:-0.015em; color:#F0F6FC; margin:0 0 6px;
+          font-size:24px; font-weight:750; letter-spacing:-0.015em; color:var(--text-hi); margin:0 0 6px;
         }
-        .rpe-load-sub{ font-size:13.5px; color:#8B949E; margin:0 0 40px; }
+        .rpe-load-sub{ font-size:13.5px; color:var(--text-med); margin:0 0 40px; }
 
         .rpe-load-tip{
-          background:#161B22; border:1px solid #30363D; border-radius:14px;
+          background:var(--surface); border:1px solid var(--border); border-radius:14px;
           padding:16px 20px; width:100%; text-align:left;
           animation:rpeLoadTipIn .4s cubic-bezier(0.22,1,0.36,1);
         }
         @keyframes rpeLoadTipIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
         .rpe-load-tip-label{
           display:block; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
-          color:#4493F8; margin-bottom:6px;
+          color:var(--primary); margin-bottom:6px;
         }
-        .rpe-load-tip p{ margin:0; font-size:13.5px; line-height:1.6; color:#C9D1D9; }
+        .rpe-load-tip p{ margin:0; font-size:13.5px; line-height:1.6; color:var(--quote-text); }
+
+        :root[data-theme="light"] .rpe-load{
+          --bg:         #F5F3FD;
+          --surface:    #FFFFFF;
+          --border:     #D9CFF5;
+          --primary:    #3D6FE0;
+          --accent:     #6B3FD6;
+          --text-hi:    #241E38;
+          --text-med:   #5E5678;
+          --quote-text: #3A3352;
+        }
       `}</style>
     </div>
   )

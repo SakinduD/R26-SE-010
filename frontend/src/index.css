@@ -135,16 +135,28 @@ html, body, #root { height: 100%; }
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* Surfaces */
-  --bg-canvas:    oklch(0.970 0.004 264);
-  --bg-surface:   oklch(0.995 0.002 264);
-  --bg-elevated:  oklch(1.000 0.000 264);
-  --bg-input:     oklch(0.945 0.006 264);
+  /* Secondary palette — a light-purple ramp so the light theme reads as
+     "white with a lavender cast" rather than flat neutral gray. Used below
+     for canvas/input surfaces and borders, and available directly for any
+     component that wants a tonal wash (chip/badge backgrounds, hover
+     states) without going through the accent alpha tokens. */
+  --secondary-1: #e6e1f9;
+  --secondary-2: #d5cdf3;
+  --secondary-3: #cdc2f5;
+  --secondary-4: #c6b7fe;
+  --secondary-5: #bba8ff;
 
-  /* Borders — 3 levels */
-  --border-subtle:  oklch(0.900 0.006 264);
-  --border-default: oklch(0.850 0.008 264);
-  --border-strong:  oklch(0.720 0.012 264);
+  /* Surfaces — canvas/input carry the lavender tint; surface/elevated stay
+     near-white so cards still pop above the tinted base. */
+  --bg-canvas:    #f5f3fd;
+  --bg-surface:   #fbfafe;
+  --bg-elevated:  #ffffff;
+  --bg-input:     var(--secondary-1);
+
+  /* Borders — 3 levels, drawn from the secondary ramp */
+  --border-subtle:  var(--secondary-2);
+  --border-default: var(--secondary-3);
+  --border-strong:  var(--secondary-5);
   --border-focus:   oklch(0.560 0.180 290);
 
   /* Text — 4 levels */

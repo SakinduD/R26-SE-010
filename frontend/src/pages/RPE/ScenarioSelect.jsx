@@ -256,6 +256,9 @@ export default function ScenarioSelect() {
           @keyframes planImportSpin{ to{ transform:rotate(360deg); } }
           .plan-import-title{ font-size:16px; font-weight:700; margin:0; }
           .plan-import-sub{ font-size:13px; color:#8B949E; margin:0; }
+          :root[data-theme="light"] .rpe-cinema{ background:#F5F3FD; color:#241E38; }
+          :root[data-theme="light"] .plan-import-spinner{ border-color:#D9CFF5; border-top-color:#3D6FE0; }
+          :root[data-theme="light"] .plan-import-sub{ color:#5E5678; }
         `}</style>
       </div>
     )
@@ -796,6 +799,33 @@ export default function ScenarioSelect() {
         .rpe-cinema .cmp-title{ color:var(--text-hi); font-weight:600; white-space:nowrap; }
         .rpe-cinema .cmp-num{ font-variant-numeric:tabular-nums; }
         .rpe-cinema .cmp-skills{ text-transform:capitalize; min-width:220px; }
+
+        /* Light theme — this page defines its own dark "cinema" palette
+           above instead of reading the app's shared tokens, so it needs its
+           own override block rather than picking up index.css's
+           data-theme="light" automatically. Same variable names, light
+           values, drawn from the app's lavender secondary ramp. */
+        :root[data-theme="light"] .rpe-cinema{
+          --bg:            #F5F3FD;
+          --surface:       #FFFFFF;
+          --surface-hi:    #EFEAFB;
+          --border:        #D9CFF5;
+          --primary:       #3D6FE0;
+          --primary-glow:  rgba(61,111,224,0.10);
+          --accent:        #6B3FD6;
+          --accent-glow:   rgba(107,63,214,0.12);
+          --success:       #1E8E4A;
+          --success-glow:  rgba(30,142,74,0.12);
+          --warning:       #B4790E;
+          --warning-glow:  rgba(180,121,14,0.14);
+          --danger:        #D93B32;
+          --danger-glow:   rgba(217,59,50,0.12);
+          --text-hi:       #241E38;
+          --text-med:      #5E5678;
+          --text-low:      #8D84A8;
+        }
+        :root[data-theme="light"] .rpe-cinema .banner.warning{ color:#8A5A00; }
+        :root[data-theme="light"] .rpe-cinema .banner.danger{ color:#B42318; }
       `}</style>
     </div>
   )
