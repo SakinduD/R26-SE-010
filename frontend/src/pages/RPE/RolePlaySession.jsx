@@ -762,6 +762,21 @@ export default function RolePlaySession() {
           --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
           --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
+          /* Overlays floating on the avatar stage — kept dark-by-default
+             since they were designed against the dark stage background, but
+             now themeable since the stage surface itself follows the app
+             theme (var(--surface)) rather than staying permanently black. */
+          --scrim-top:    linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
+          --scrim-bottom: linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+          --overlay-chip-bg:  rgba(22,27,34,0.75);
+          --overlay-toast-bg: rgba(22,27,34,0.92);
+          --overlay-toast-critical-bg: rgba(45,20,20,0.92);
+          --overlay-toast-warning-bg:  rgba(45,36,14,0.92);
+          --overlay-dismiss-bg:       rgba(255,255,255,0.08);
+          --overlay-dismiss-bg-hover: rgba(255,255,255,0.16);
+          --choice-card-bg: rgba(22,27,34,0.85);
+          --choice-card-hover-bg: rgba(68,147,248,0.1);
+
           background:var(--bg);
           color:var(--text-hi);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
@@ -886,34 +901,34 @@ export default function RolePlaySession() {
         .rpe-vs .stage-topbar{
           position:absolute; top:0; left:0; right:0; z-index:5;
           height:56px; display:flex; align-items:center; gap:14px; padding:0 20px;
-          background:linear-gradient(180deg, rgba(13,17,23,0.85) 0%, rgba(13,17,23,0.55) 60%, transparent 100%);
+          background:var(--scrim-top);
         }
         .rpe-vs .back-btn{
-          background:rgba(22,27,34,0.7); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
+          background:var(--overlay-chip-bg); border:1px solid var(--border); color:var(--text-med); cursor:pointer;
           width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease); flex-shrink:0;
         }
         .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
-        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 1px 4px rgba(0,0,0,0.6); }
+        .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:var(--topbar-title-shadow, 0 1px 4px rgba(0,0,0,0.6)); }
 
         .rpe-vs .voice-pill{
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
+          background:var(--overlay-chip-bg); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
         .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
-        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
 
         .rpe-vs .sensing-pill{
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--accent);
-          background:rgba(22,27,34,0.75); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
+          background:var(--overlay-chip-bg); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
           padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
           cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
         }
         .rpe-vs .sensing-pill:hover{ filter:brightness(1.15); }
-        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:rgba(22,27,34,0.75); border-color:var(--border); }
+        .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
 
         /* Compact learner-camera feed, docked beside the avatar — off by
            default, opt-in via the "Coaching" pill above. */
@@ -937,7 +952,7 @@ export default function RolePlaySession() {
         .rpe-vs .nudge-toast{
           pointer-events:auto; display:flex; align-items:center; gap:12px;
           padding:12px 14px; border-radius:14px; width:100%;
-          background:rgba(22,27,34,0.92); backdrop-filter:blur(10px);
+          background:var(--overlay-toast-bg); backdrop-filter:blur(10px);
           border:1px solid rgba(124,58,237,0.4); color:var(--text-hi);
           box-shadow:0 14px 34px rgba(0,0,0,0.4);
           opacity:0; transform:translateX(24px);
@@ -947,8 +962,8 @@ export default function RolePlaySession() {
         @keyframes rpevsNudgeIn{ to{ opacity:1; transform:none; } }
         .rpe-vs .nudge-toast.stacked{ transform:scale(0.94); opacity:0.55; }
         .rpe-vs .nudge-toast.stacked:hover{ transform:scale(1); opacity:1; }
-        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:rgba(45,20,20,0.92); }
-        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:rgba(45,36,14,0.92); }
+        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:var(--overlay-toast-critical-bg); }
+        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:var(--overlay-toast-warning-bg); }
         .rpe-vs .nudge-icon{
           flex-shrink:0; width:30px; height:30px; border-radius:50%;
           display:flex; align-items:center; justify-content:center;
@@ -961,16 +976,16 @@ export default function RolePlaySession() {
         .rpe-vs .nudge-time{ font-size:10px; color:var(--text-med); }
         .rpe-vs .nudge-dismiss{
           flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; cursor:pointer;
-          background:rgba(255,255,255,0.08); color:var(--text-med);
+          background:var(--overlay-dismiss-bg); color:var(--text-med);
           display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease);
         }
-        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.16); color:var(--text-hi); }
+        .rpe-vs .nudge-dismiss:hover{ background:var(--overlay-dismiss-bg-hover); color:var(--text-hi); }
 
         .rpe-vs .stage-bottom{
           position:absolute; bottom:0; left:0; right:0; z-index:5;
           min-height:96px; display:flex; align-items:center; justify-content:center; padding:20px;
-          background:linear-gradient(0deg, rgba(13,17,23,0.9) 0%, rgba(13,17,23,0.6) 55%, transparent 100%);
+          background:var(--scrim-bottom);
         }
 
         /* Floating chat toggle — bottom-right FAB, website-chat-widget style. */
@@ -1155,10 +1170,10 @@ export default function RolePlaySession() {
 
         /* Light theme override — see the matching block in ScenarioSelect.jsx
            for why this needs its own vars rather than inheriting index.css.
-           The stage itself (avatar viewport, its floating scrims/pills/
-           nudge toasts) is left dark on purpose: it's overlaying the 3D
-           character canvas, which renders its own scene regardless of app
-           theme, not the page background. */
+           The stage's floating scrims/pills/nudge toasts flip to light too
+           (translucent lavender instead of translucent black) — the avatar
+           viewport underneath already follows var(--surface), so a dark
+           scrim over a light stage looked like a stray black bar. */
         :root[data-theme="light"] .rpe-vs{
           --bg:            #F5F3FD;
           --surface:       #FFFFFF;
@@ -1182,6 +1197,18 @@ export default function RolePlaySession() {
           --npc-msg-text:      #3A3352;
           --danger-hover-text: #B42318;
           --overlay-backdrop:  rgba(245,243,253,0.82);
+
+          --scrim-top:    linear-gradient(180deg, rgba(245,243,253,0.92) 0%, rgba(245,243,253,0.6) 60%, transparent 100%);
+          --scrim-bottom: linear-gradient(0deg, rgba(245,243,253,0.94) 0%, rgba(245,243,253,0.65) 55%, transparent 100%);
+          --overlay-chip-bg:  rgba(255,255,255,0.8);
+          --overlay-toast-bg: rgba(255,255,255,0.92);
+          --overlay-toast-critical-bg: rgba(255,231,229,0.95);
+          --overlay-toast-warning-bg:  rgba(255,242,220,0.95);
+          --overlay-dismiss-bg:       rgba(36,30,56,0.06);
+          --overlay-dismiss-bg-hover: rgba(36,30,56,0.12);
+          --choice-card-bg: rgba(255,255,255,0.9);
+          --choice-card-hover-bg: rgba(61,111,224,0.12);
+          --topbar-title-shadow: none;
         }
       `}</style>
     </div>
