@@ -1,0 +1,75 @@
+{
+  "scenario_id": "plan_ee4e00ae-9797-4edd-a87c-9393b7c02f14",
+  "title": "Other with a colleague",
+  "difficulty": "intermediate",
+  "conflict_type": "other",
+  "npc_role": "colleague",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a direct teaching tone at slow pacing, wants to Protect their own priorities in the other situation and Be seen as reasonable by anyone who hears about this later",
+  "context": "The learner, a team member, is preparing to lead a knowledge\u2011transfer session for a newly hired SE intern but feels insecure about their ability to present. Their colleague, who is neutral but focused on meeting a looming client deadline, raises a scheduling conflict at the start of their conversation. The learner must assertively advocate for the training while balancing the colleague's priorities.",
+  "opening_npc_line": "I need to finalize the client deliverable by tomorrow, so I\u2019m not sure we can fit a knowledge\u2011transfer session into the schedule.",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 70,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 3
+  },
+  "success_criteria": {
+    "min_trust_score": 45,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 70,
+      "neutral": 50,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 3,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "assertiveness",
+      "professional_communication",
+      "self_advocacy"
+    ],
+    "big_five_relevance": [
+      "openness",
+      "extraversion"
+    ],
+    "recommended_for_profile": "8f63ae60-feff-4b67-80ba-709cde7af989",
+    "difficulty_weight": 1.0,
+    "plan_generated": {
+      "plan_id": "ee4e00ae-9797-4edd-a87c-9393b7c02f14",
+      "plan_version": 1,
+      "required_beats": [
+        "The counterpart states their position on the other issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "The counterpart applies pressure that the learner must hold their ground against at least once",
+        "A moment requiring the learner to restate something complex clearly and concisely",
+        "A moment where the learner's own contribution or constraint goes unacknowledged unless they raise it"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising assertiveness or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

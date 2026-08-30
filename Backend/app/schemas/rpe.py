@@ -19,6 +19,9 @@ class ScenarioSummary(BaseModel):
 class StartSessionRequest(BaseModel):
     scenario_id: str
     user_id:     str | None = None
+    # Learner-chosen override from the scenario's "view details" screen —
+    # None means "use the scenario's own npc_role", same as before this existed.
+    npc_name:    str | None = None
 
 
 class StartSessionResponse(BaseModel):
@@ -33,6 +36,7 @@ class StartSessionResponse(BaseModel):
     is_authenticated:  bool = False
     failure_escalation_threshold: int | None = None
     npc_gender:        str = "male"   # "male" | "female" — see rpe_scenario_service.derive_npc_gender
+    npc_name:          str = ""       # effective name in use for this session — custom or scenario.npc_role
 
 
 class RespondRequest(BaseModel):
@@ -108,6 +112,7 @@ class ScenarioDetail(BaseModel):
     target_skills:     list[str] = []
     difficulty_weight: float = 1.0
     category:          str = "Difficult Conversations"
+    npc_gender:        str = "male"   # "male" | "female" — see rpe_scenario_service.derive_npc_gender
 
 
 class ApaRecommendRequest(BaseModel):

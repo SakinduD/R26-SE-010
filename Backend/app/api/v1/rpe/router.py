@@ -71,16 +71,21 @@ def start_session(
         auth_user_id     = None
         is_authenticated = False
 
+    scenario = rpe_scenario_service.get_scenario(payload.scenario_id)
+    if not scenario:
+        raise HTTPException(status_code=404, detail=f"Scenario '{payload.scenario_id}' not found.")
+    effective_npc_name = (payload.npc_name or "").strip() or scenario.npc_role
+
     try:
         state = rpe_session_service.start_session(
             scenario_id  = payload.scenario_id,
             user_id      = resolved_user_id,
             auth_user_id = auth_user_id,
+            npc_name     = effective_npc_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    scenario = rpe_scenario_service.get_scenario(payload.scenario_id)
     rpe_session_service.store_session_config(
         session_id        = state.session_id,
         recommended_turns = scenario.recommended_turns,
@@ -98,22 +103,32 @@ def start_session(
         is_authenticated  = is_authenticated,
         failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
         npc_gender        = derive_npc_gender(scenario.scenario_id),
+        npc_name          = effective_npc_name,
     )
 
 
-@rpe_router.post("/from-plan/{plan_id}", response_model=StartSessionResponse)
-async def start_session_from_plan(
+@rpe_router.post("/from-plan/{plan_id}", response_model=ScenarioDetail)
+async def generate_scenario_from_plan(
     plan_id:      str,
     current_user: User = Depends(get_current_user),
-) -> StartSessionResponse:
+) -> dict:
     """
-    Generate a scenario from an APM Training Plan brief and start a session
-    against it in one call. Target of RolePlaySession's ?planId= entry point
+    Generate a scenario from an APM Training Plan brief and return its
+    detail — same shape as /scenarios/detail/{scenario_id} — without
+    starting a session. Target of RolePlaySession's ?planId= entry point
     (see frontend/src/components/training-plan/StartRolePlayButton.jsx).
 
+    Deliberately does NOT start a session (it used to, in one eager call):
+    that skipped the "view details, pick an avatar, name them" screen every
+    other scenario gets, since a session already existed before the learner
+    ever saw the scenario. Generating only, then letting the frontend show
+    the normal detail modal and call /start-session itself once the learner
+    is ready, gives generated scenarios the exact same customizable start
+    as hand-authored ones — no special-cased shortcut to keep in sync.
+
     Requires auth (unlike /start-session) — a plan_id carries one learner's
-    Big Five profile and stated goal, so starting a session from it isn't
-    something a guest should be able to do for an arbitrary plan_id.
+    Big Five profile and stated goal, so generating from it isn't something
+    a guest should be able to do for an arbitrary plan_id.
     """
     try:
         scenario_id = await rpe_plan_import_service.generate_and_persist_scenario(plan_id)
@@ -122,34 +137,30 @@ async def start_session_from_plan(
 
     rpe_scenario_service.load_all()
 
-    try:
-        state = rpe_session_service.start_session(
-            scenario_id  = scenario_id,
-            user_id      = str(current_user.id),
-            auth_user_id = str(current_user.id),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
     scenario = rpe_scenario_service.get_scenario(scenario_id)
-    rpe_session_service.store_session_config(
-        session_id        = state.session_id,
-        recommended_turns = scenario.recommended_turns,
-        max_turns         = scenario.max_turns,
-    )
-    return StartSessionResponse(
-        session_id        = state.session_id,
-        opening_npc_line  = scenario.opening_npc_line,
-        scenario_title    = scenario.title,
-        difficulty        = scenario.difficulty,
-        conflict_type     = scenario.conflict_type,
-        total_turns       = scenario.recommended_turns,
-        recommended_turns = scenario.recommended_turns,
-        max_turns         = scenario.max_turns,
-        is_authenticated  = True,
-        failure_escalation_threshold = scenario.end_conditions.get("failure_escalation_threshold"),
-        npc_gender        = derive_npc_gender(scenario.scenario_id),
-    )
+    if not scenario:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found after generation.")
+
+    return {
+        "scenario_id":       scenario.scenario_id,
+        "title":             scenario.title,
+        "difficulty":        scenario.difficulty,
+        "conflict_type":     scenario.conflict_type,
+        "npc_role":          scenario.npc_role,
+        "npc_personality":   scenario.npc_personality,
+        "context":           scenario.context,
+        "opening_npc_line":  scenario.opening_npc_line,
+        "recommended_turns": scenario.recommended_turns,
+        "max_turns":         scenario.max_turns,
+        "end_conditions":    scenario.end_conditions,
+        "success_criteria":  scenario.success_criteria,
+        "npc_behaviour":     scenario.npc_behaviour,
+        "apa_metadata":      scenario.apa_metadata,
+        "target_skills":     scenario.apa_metadata.get("target_skills", []),
+        "difficulty_weight": scenario.apa_metadata.get("difficulty_weight", 1.0),
+        "category":          scenario.category,
+        "npc_gender":        derive_npc_gender(scenario.scenario_id),
+    }
 
 
 @rpe_router.post("/session-respond", response_model=RespondResponse)
@@ -167,11 +178,12 @@ def session_respond(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
-        prior_turns: list[dict]  = session_data.get("turns", [])
-        opening_npc_line: str    = session_data.get("opening_npc_line", "")
-        trust_history: list[int] = session_data.get("trust_history", [50])
-        current_trust: int       = trust_history[-1] if trust_history else 50
-        current_esc: int         = prior_turns[-1]["escalation_level"] if prior_turns else 0
+        prior_turns: list[dict]     = session_data.get("turns", [])
+        opening_npc_line: str       = session_data.get("opening_npc_line", "")
+        trust_history: list[int]    = session_data.get("trust_history", [50])
+        emotion_history: list[str]  = session_data.get("emotion_history", ["calm"])
+        current_trust: int          = trust_history[-1] if trust_history else 50
+        current_esc: int            = prior_turns[-1]["escalation_level"] if prior_turns else 0
 
         scenario = rpe_scenario_service.get_scenario(state.scenario_id)
 
@@ -218,7 +230,15 @@ def session_respond(
             "escalation_level": new_esc,
             "user_behavior":    user_behavior,
         }
-        rpe_session_service.log_turn(payload.session_id, turn_data)
+        # log_turn already has this turn's pre-state on hand from the fetch
+        # above, so it returns the updated histories directly instead of us
+        # re-fetching the whole session just to read trust_history back.
+        emotion_history, trust_history = rpe_session_service.log_turn(
+            payload.session_id,
+            turn_data,
+            current_emotion_history = emotion_history,
+            current_trust_history   = trust_history,
+        )
 
         # Live per-turn clarity/quality for the session sidebar meters — the
         # same pure local heuristic (word count + keyword matching, no LLM
@@ -226,10 +246,6 @@ def session_respond(
         # screen, just run once here so it's available while the user is
         # still talking instead of only after the session ends.
         live_metrics = rpe_nlp_service._score_turn(turn_data)
-
-        # Re-read session after logging to get updated trust_history
-        session_data  = rpe_session_service.get_session(payload.session_id)
-        trust_history = session_data["trust_history"]
 
         # LLM-based end detection: exit-intent keywords / natural resolution.
         llm_should_end, llm_end_reason = rpe_npc_service.should_conversation_end(
@@ -254,10 +270,13 @@ def session_respond(
                     else "failure"
                 )
         else:
+            # prior_turns excludes the turn just logged, so count it via the
+            # is_profane flag already computed for it above (step 1) instead
+            # of re-reading the session to see the just-inserted row.
             profanity_count = sum(
-                1 for t in session_data.get("turns", [])
+                1 for t in prior_turns
                 if rpe_emotion_service.is_profanity(t.get("user_input", ""))
-            )
+            ) + (1 if is_profane else 0)
             should_end, end_reason = rpe_session_service.should_end_session(
                 session_id        = payload.session_id,
                 max_turns         = scenario.max_turns,
@@ -380,6 +399,7 @@ def scenario_detail(scenario_id: str) -> dict:
         "target_skills":     scenario.apa_metadata.get("target_skills", []),
         "difficulty_weight": scenario.apa_metadata.get("difficulty_weight", 1.0),
         "category":          scenario.category,
+        "npc_gender":        derive_npc_gender(scenario.scenario_id),
     }
 
 

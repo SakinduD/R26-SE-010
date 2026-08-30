@@ -82,6 +82,7 @@ class RpeSessionService:
         scenario_id:  str,
         user_id:      str,
         auth_user_id: str | None = None,
+        npc_name:     str | None = None,
     ) -> SessionState:
         scenario = self._scenario_service.get_scenario(scenario_id)
         if not scenario:
@@ -101,6 +102,12 @@ class RpeSessionService:
         )
         self._sessions[session_id] = state
 
+        # A learner-chosen name for the NPC, set once at session start from
+        # the "view details" screen — falls back to the scenario's own role
+        # label so every existing session (no override ever offered) behaves
+        # exactly as before. Read back every turn in router.py's
+        # session_respond so the LLM stays consistent about its own name for
+        # the life of the conversation.
         payload: dict = {
             "session_id":        session_id,
             "scenario_id":       scenario_id,
@@ -108,6 +115,7 @@ class RpeSessionService:
             "auth_user_id":      auth_user_id,
             "started_at":        started_at,
             "opening_npc_line":  scenario.opening_npc_line,
+            "npc_name":          npc_name or scenario.npc_role,
             "emotion_history":   ["calm"],
             "trust_history":     [50],
             "turns":             [],
@@ -256,36 +264,74 @@ class RpeSessionService:
 
         return False, None
 
-    def log_turn(self, session_id: str, turn_data: dict) -> None:
-        """Append a completed turn to both Supabase and JSON."""
+    def log_turn(
+        self,
+        session_id: str,
+        turn_data: dict,
+        current_emotion_history: list[str] | None = None,
+        current_trust_history:   list[int] | None = None,
+    ) -> tuple[list[str], list[int]]:
+        """
+        Append a completed turn to both Supabase and JSON. Returns the
+        updated (emotion_history, trust_history) so the caller never has to
+        re-fetch the session just to read them back.
+
+        Pass current_emotion_history/current_trust_history when the caller
+        already has the pre-turn arrays (router.py's session_respond always
+        does, from its own earlier get_session() call this same turn) —
+        skips a redundant SELECT that would otherwise just re-read data
+        already in scope. Omit them and this reads the current arrays
+        itself first (Supabase if configured, else the JSON file), for any
+        future caller that doesn't already have them on hand.
+        """
+        emotion     = turn_data.get("emotion", "calm")
+        trust_score = turn_data.get("trust_score", 50)
         sb = _get_supabase()
+
+        if current_emotion_history is not None and current_trust_history is not None:
+            emotion_history = list(current_emotion_history)
+            trust_history   = list(current_trust_history)
+        else:
+            session_row = None
+            if sb:
+                try:
+                    session_row = (
+                        sb.table("rpe_sessions")
+                        .select("emotion_history, trust_history")
+                        .eq("session_id", session_id)
+                        .single()
+                        .execute()
+                    ).data
+                except Exception as exc:
+                    logger.warning("log_turn: Supabase history fetch failed, using JSON: %s", exc)
+            if session_row:
+                emotion_history = session_row.get("emotion_history") or ["calm"]
+                trust_history   = session_row.get("trust_history")   or [50]
+            else:
+                try:
+                    json_data = self._read_json(session_id)
+                except Exception:
+                    json_data = {}
+                emotion_history = json_data.get("emotion_history") or ["calm"]
+                trust_history   = json_data.get("trust_history")   or [50]
+
+        emotion_history.append(emotion)
+        trust_history.append(trust_score)
+
         if sb:
             try:
-                # Insert into rpe_turns
                 sb.table("rpe_turns").insert({
                     "session_id":       session_id,
                     "turn":             turn_data["turn"],
                     "user_input":       turn_data.get("user_input", ""),
                     "npc_response":     turn_data.get("npc_response", ""),
-                    "emotion":          turn_data.get("emotion", "calm"),
-                    "trust_score":      turn_data.get("trust_score", 50),
+                    "emotion":          emotion,
+                    "trust_score":      trust_score,
                     "escalation_level": turn_data.get("escalation_level", 0),
                     "user_behavior":    turn_data.get("user_behavior"),
                     "created_at":       datetime.now(timezone.utc).isoformat(),
                 }).execute()
 
-                # Update running history arrays in rpe_sessions
-                session_row = (
-                    sb.table("rpe_sessions")
-                    .select("emotion_history, trust_history")
-                    .eq("session_id", session_id)
-                    .single()
-                    .execute()
-                ).data or {}
-                emotion_history = session_row.get("emotion_history") or ["calm"]
-                trust_history   = session_row.get("trust_history")   or [50]
-                emotion_history.append(turn_data.get("emotion", "calm"))
-                trust_history.append(turn_data.get("trust_score", 50))
                 sb.table("rpe_sessions").update({
                     "emotion_history": emotion_history,
                     "trust_history":   trust_history,
@@ -296,6 +342,8 @@ class RpeSessionService:
 
         # Always write JSON fallback
         self._log_turn_json(session_id, turn_data)
+
+        return emotion_history, trust_history
 
     def get_session(self, session_id: str) -> dict:
         """
@@ -407,6 +455,7 @@ class RpeSessionService:
                     "user_id":           payload["user_id"],
                     "started_at":        payload["started_at"],
                     "opening_npc_line":  payload["opening_npc_line"],
+                    "npc_name":          payload["npc_name"],
                     "emotion_history":   payload["emotion_history"],
                     "trust_history":     payload["trust_history"],
                     "ended_at":          None,
@@ -472,6 +521,7 @@ class RpeSessionService:
             "auth_user_id":      row.get("auth_user_id"),
             "started_at":        row["started_at"],
             "opening_npc_line":  row.get("opening_npc_line", ""),
+            "npc_name":          row.get("npc_name"),
             "turns":             turns,
             "emotion_history":   row.get("emotion_history") or ["calm"],
             "trust_history":     row.get("trust_history")   or [50],
