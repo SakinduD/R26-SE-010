@@ -879,31 +879,31 @@ const MultimodalEngine = () => {
                   </div>
                 </div>
 
-                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface/80 border border-border-subtle rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface border border-border-default rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
                   <div className="flex items-center gap-6 flex-1 justify-start">
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Video</span>
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Video</span>
                       <div className="flex items-center gap-2.5">
-                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")} />
-                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-muted-foreground/40")}>
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-t-tertiary")}>
                           {isCameraActive ? "Active" : "Disabled"}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Audio</span>
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Audio</span>
                       <div className="flex items-center gap-2.5">
-                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
-                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMicActive ? "text-info" : "text-muted-foreground/40")}>
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMicActive ? "text-info" : "text-t-tertiary")}>
                           {liveMicActive ? "Active" : "Disabled"}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Meeting Audio</span>
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Meeting Audio</span>
                       <div className="flex items-center gap-2.5">
-                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMeetingAudioActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
-                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMeetingAudioActive ? "text-info" : "text-muted-foreground/40")}>
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMeetingAudioActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMeetingAudioActive ? "text-info" : "text-t-tertiary")}>
                           {liveMeetingAudioActive ? "Active" : "Optional"}
                         </span>
                       </div>
@@ -937,7 +937,7 @@ const MultimodalEngine = () => {
                       onClick={toggleCamera}
                       className={clsx(
                         "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                        isCameraActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        isCameraActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
@@ -947,7 +947,7 @@ const MultimodalEngine = () => {
                       onClick={toggleLiveMic}
                       className={clsx(
                         "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                        liveMicActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        liveMicActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
@@ -958,7 +958,7 @@ const MultimodalEngine = () => {
                       title="Optional: share your meeting tab/window with audio so both voices feed the session score"
                       className={clsx(
                         "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                        liveMeetingAudioActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        liveMeetingAudioActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <MonitorUp size={14} className={clsx(liveMeetingAudioActive && "animate-pulse")} />
@@ -969,7 +969,7 @@ const MultimodalEngine = () => {
                         onClick={toggleMesh}
                         className={clsx(
                           "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                          showMesh ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                          showMesh ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                         )}
                       >
                         <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
@@ -982,7 +982,7 @@ const MultimodalEngine = () => {
                         title="Pop out a floating mini window — auto-appears on minimize/tab-switch after first use, and closes automatically when you come back"
                         className={clsx(
                           "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                          isPipActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                          isPipActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                         )}
                       >
                         <PictureInPicture2 size={14} className={clsx(isPipActive && "animate-pulse")} />
