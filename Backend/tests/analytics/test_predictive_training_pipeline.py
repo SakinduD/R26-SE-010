@@ -1,7 +1,11 @@
 from pathlib import Path
 import sys
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+import pytest
+
+from tests.analytics import repo_root
+
+REPO_ROOT = repo_root()
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -45,8 +49,11 @@ def test_prediction_dataset_save_and_load_roundtrip():
 def test_kaggle_employee_dataset_is_transformed_when_raw_files_exist():
     raw_dir = REPO_ROOT / "training" / "feedback_analytics" / "datasets" / "raw"
     required_files = ["structured_data.csv", "behavior_logs.csv", "audio_features.csv"]
-    if not all((raw_dir / file_name).exists() for file_name in required_files):
-        return
+    missing = [name for name in required_files if not (raw_dir / name).exists()]
+    if missing:
+        # Skipped, not returned. A bare return leaves the test passing while
+        # asserting nothing, which is how a broken path went unnoticed.
+        pytest.skip(f"Raw Kaggle files not present: {', '.join(missing)}")
 
     rows = load_kaggle_employee_performance_rows(raw_dir)
 
@@ -60,8 +67,11 @@ def test_kaggle_employee_dataset_is_transformed_when_raw_files_exist():
 def test_kaggle_preprocessing_summary_reports_cleaning_steps_when_raw_files_exist():
     raw_dir = REPO_ROOT / "training" / "feedback_analytics" / "datasets" / "raw"
     required_files = ["structured_data.csv", "behavior_logs.csv", "audio_features.csv"]
-    if not all((raw_dir / file_name).exists() for file_name in required_files):
-        return
+    missing = [name for name in required_files if not (raw_dir / name).exists()]
+    if missing:
+        # Skipped, not returned. A bare return leaves the test passing while
+        # asserting nothing, which is how a broken path went unnoticed.
+        pytest.skip(f"Raw Kaggle files not present: {', '.join(missing)}")
 
     rows, summary = build_kaggle_employee_performance_dataset(raw_dir)
 

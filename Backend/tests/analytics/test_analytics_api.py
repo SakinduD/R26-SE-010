@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from tests.analytics import repo_root
+
 import pytest
 
 
@@ -892,7 +894,7 @@ def test_user_predicted_outcomes_uses_ml_model_when_feedback_evidence_exists(cli
 
 def test_user_predicted_outcomes_can_use_trained_model_artifact(client):
     model_path = (
-        Path(__file__).resolve().parents[2]
+        repo_root()
         / "training"
         / "feedback_analytics"
         / "models"
