@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.database import SessionLocal
@@ -46,6 +46,29 @@ PEER_TEXT_REPLACEMENTS = (
     (re.compile(r"\bpeer\s+review\b", re.IGNORECASE), "mentor/system review"),
     (re.compile(r"\bpeers\b", re.IGNORECASE), "mentors"),
     (re.compile(r"\bpeer\b", re.IGNORECASE), "observer"),
+)
+
+# The skill names as a learner reads them, not as the database spells them.
+#
+# The prompt restricts the `skill_area` field to these four values and the model
+# obeys that - then writes the same value into the prose, so a learner is told
+# "your speech_fluency score" and "Vocal_command measured 60". 37 of 114 stored
+# recommendations carry a raw column name.
+#
+# Enforced here rather than asked for in the prompt, for the same reason the
+# evidence rules are: a rule the model usually follows is not the same as one it
+# cannot break. progress_trend_service made this same correction to its own
+# generated text.
+SKILL_NAME_REPLACEMENTS = tuple(
+    (re.compile(rf"\b{raw}\b", re.IGNORECASE), label)
+    for raw, label in (
+        ("vocal_command", "Vocal Command"),
+        ("speech_fluency", "Speech Fluency"),
+        ("presence_engagement", "Presence & Engagement"),
+        ("emotional_intelligence", "Emotional Intelligence"),
+        # MCA's name for the fourth skill, in case it reaches the prompt.
+        ("emotional_regulation", "Emotional Intelligence"),
+    )
 )
 
 
@@ -986,7 +1009,7 @@ def _contains_impossible_score_text(*values: str) -> bool:
 
 def _sanitize_mentoring_text(value: str) -> str:
     sanitized = value
-    for pattern, replacement in PEER_TEXT_REPLACEMENTS:
+    for pattern, replacement in PEER_TEXT_REPLACEMENTS + SKILL_NAME_REPLACEMENTS:
         sanitized = pattern.sub(replacement, sanitized)
     return sanitized.strip()
 
@@ -1090,11 +1113,22 @@ _svc_logger = logging.getLogger(__name__)
 
 
 def _save_recommendations_to_db(
-    _unused_db: Session,
+    db: Session,
     result: MentoringRecommendationResult,
 ) -> None:
-    """Save generated recommendations using a fresh session to avoid stale-connection failures after long LLM calls."""
-    save_db = SessionLocal()
+    """Save generated recommendations on a fresh session bound to the caller's database.
+
+    A fresh session, because an LLM call can take long enough for the request's
+    own connection to go stale before the write.
+
+    Bound to the caller's engine, because opening one from SessionLocal ignored
+    whatever database the caller was using. Under test that is the SQLite file
+    the fixtures set up, and the writes went to the real Postgres instead - five
+    recommendation rows and four feedback rows from test users are in production
+    because of it. A fresh session is the fix for a stale connection; a different
+    database is not part of it.
+    """
+    save_db = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)()
     try:
         _svc_logger.info(
             "Saving %d recommendations for user %s session %s",
