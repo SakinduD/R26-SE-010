@@ -1058,10 +1058,10 @@ export default function RolePlaySession() {
           pointer-events:none; max-width:min(320px, calc(100% - 40px));
         }
         .rpe-vs .nudge-toast{
-          pointer-events:auto; display:flex; align-items:center; gap:12px;
-          padding:12px 14px; border-radius:14px; width:100%;
-          background:var(--overlay-toast-bg); backdrop-filter:blur(10px);
-          border:1px solid rgba(124,58,237,0.4); color:var(--text-hi);
+          pointer-events:auto; display:flex; align-items:center; gap:16px;
+          padding:14px 24px; border-radius:16px; width:100%;
+          background:var(--nudge-info-bg); backdrop-filter:blur(10px);
+          border:1px solid rgba(255,255,255,0.2); color:#ffffff;
           box-shadow:0 14px 34px rgba(0,0,0,0.4);
           opacity:0; transform:translateX(24px);
           animation: rpevsNudgeIn .4s var(--ease) forwards;
@@ -1070,25 +1070,25 @@ export default function RolePlaySession() {
         @keyframes rpevsNudgeIn{ to{ opacity:1; transform:none; } }
         .rpe-vs .nudge-toast.stacked{ transform:scale(0.94); opacity:0.55; }
         .rpe-vs .nudge-toast.stacked:hover{ transform:scale(1); opacity:1; }
-        .rpe-vs .nudge-toast.critical{ border-color:rgba(248,81,73,0.5); background:var(--overlay-toast-critical-bg); }
-        .rpe-vs .nudge-toast.warning{ border-color:rgba(210,153,34,0.5); background:var(--overlay-toast-warning-bg); }
+        .rpe-vs .nudge-toast.critical{ border-color:rgba(255,255,255,0.3); background:var(--nudge-critical-bg); }
+        .rpe-vs .nudge-toast.warning{ border-color:rgba(255,255,255,0.3); background:var(--nudge-warning-bg); }
         .rpe-vs .nudge-icon{
-          flex-shrink:0; width:30px; height:30px; border-radius:50%;
+          flex-shrink:0; width:36px; height:36px; border-radius:50%;
           display:flex; align-items:center; justify-content:center;
-          background:var(--stage-accent-glow); color:var(--stage-accent);
+          background:rgba(255,255,255,0.2); color:#ffffff;
         }
-        .rpe-vs .nudge-toast.critical .nudge-icon{ background:var(--stage-danger-glow); color:var(--stage-danger); }
-        .rpe-vs .nudge-toast.warning .nudge-icon{ background:var(--stage-warning-glow); color:var(--stage-warning); }
-        .rpe-vs .nudge-body{ flex:1; min-width:0; }
-        .rpe-vs .nudge-text{ font-size:12.5px; font-weight:600; line-height:1.4; margin:0; }
-        .rpe-vs .nudge-time{ font-size:10px; color:var(--stage-text-med); }
+        .rpe-vs .nudge-toast.critical .nudge-icon{ background:rgba(255,255,255,0.3); }
+        .rpe-vs .nudge-toast.warning .nudge-icon{ background:rgba(255,255,255,0.2); }
+        .rpe-vs .nudge-body{ flex:1; min-width:0; display:flex; flex-direction:column; }
+        .rpe-vs .nudge-text{ font-size:11px; font-weight:500; line-height:1.25; margin:0; letter-spacing:0.05em; text-transform:uppercase; color:#ffffff; }
+        .rpe-vs .nudge-time{ font-size:9px; color:rgba(255,255,255,0.5); font-weight:700; margin-top:6px; }
         .rpe-vs .nudge-dismiss{
-          flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; cursor:pointer;
-          background:var(--overlay-dismiss-bg); color:var(--text-med);
+          flex-shrink:0; width:28px; height:28px; border-radius:50%; border:none; cursor:pointer;
+          background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.7);
           display:flex; align-items:center; justify-content:center;
           transition:background .2s var(--ease), color .2s var(--ease);
         }
-        .rpe-vs .nudge-dismiss:hover{ background:var(--overlay-dismiss-bg-hover); color:var(--text-hi); }
+        .rpe-vs .nudge-dismiss:hover{ background:rgba(255,255,255,0.2); color:#ffffff; }
 
         .rpe-vs .stage-bottom{
           position:absolute; bottom:0; left:0; right:0; z-index:5;
