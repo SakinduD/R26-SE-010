@@ -191,16 +191,6 @@ html, body, #root { height: 100%; }
   --danger-soft:  oklch(0.550 0.180 20 / 0.12);
   --info-soft:    oklch(0.550 0.130 230 / 0.12);
 
-  /* Darker than --warning/--danger/--accent above specifically because those
-     are tuned as fills/strokes/dots (see the dark-mode comment on the
-     originals), not as a card background with white text sitting on it —
-     0.620 lightness for warning in particular is too light for white text
-     to read reliably. These three are deliberately dark enough to guarantee
-     white-text contrast on the nudge toast fill itself. */
-  --nudge-critical-bg: oklch(0.550 0.180 20);
-  --nudge-warning-bg:  oklch(0.520 0.140 75);
-  --nudge-info-bg:     oklch(0.560 0.220 290);
-
   /* Chart palette */
   --chart-1: oklch(0.560 0.220 290);
   --chart-2: oklch(0.550 0.150 165);
