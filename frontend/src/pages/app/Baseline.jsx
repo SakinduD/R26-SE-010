@@ -445,7 +445,7 @@ export default function Baseline() {
                   Processed on your device
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
-                  Multimodal Coaching
+                  Multimodal Analysis
                 </div>
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">

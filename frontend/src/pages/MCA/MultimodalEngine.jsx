@@ -735,7 +735,7 @@ const MultimodalEngine = () => {
             EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>MCA</span>
           </h1>
           <p className="t-over" style={{ marginTop: 4 }}>
-            Live coaching, powered by your voice and camera
+            Live analyzing, powered by your voice and camera
           </p>
           {liveSessionId && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
@@ -999,7 +999,7 @@ const MultimodalEngine = () => {
                   Processed on your device
                 </div>
                 <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
-                  Multimodal Coaching
+                  Multimodal Analysis
                 </div>
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">

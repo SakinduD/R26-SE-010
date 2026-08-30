@@ -545,10 +545,10 @@ export default function RolePlaySession() {
                 type="button"
                 className={cn('sensing-pill', !isCameraActive && 'muted')}
                 onClick={handleToggleSensing}
-                title={isCameraActive ? 'Turn off camera coaching' : 'Turn on camera coaching for live nudges'}
+                title={isCameraActive ? 'Turn off camera' : 'Turn on camera for live nudges'}
               >
                 {isCameraActive ? <Video size={12} strokeWidth={2} /> : <VideoOff size={12} strokeWidth={2} />}
-                {isCameraActive ? 'Coaching On' : 'Coaching'}
+                {isCameraActive ? 'Analyzing On' : 'Analyzing'}
               </button>
             </div>
 
