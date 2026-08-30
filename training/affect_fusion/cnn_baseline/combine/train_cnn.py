@@ -1,22 +1,8 @@
 """
-Train the MCA CNN Speech Emotion Recognition model on the combined
-RAVDESS + SUBESCO dataset.
-
-Architecture: 2-D Convolutional Neural Network on log-mel spectrograms.
-Input shape : (batch, 1, 128, 128)
-Output      : 7-class emotion logits
-
-The saved artifact is a CNNEmotionWrapper (sklearn-compatible) stored with
-joblib — drop-in replacement for the SVM pipeline in
-Backend/app/models/affect_fusion/svm_model.pkl.
-
-Backend label contract (must match nudge_engine.py SerAnalyzer.EMOTION_MAP):
-    0 neutral  1 happy  2 sad  3 angry  4 fearful  5 disgust  6 surprised
-
-Usage:
-    python train_cnn.py --data mel_features_combined.npz --output cnn_model_combined.pkl
-    python train_cnn.py --data mel_features_combined.npz --output cnn_model_combined.pkl --epochs 100 --batch-size 64
-
+Train MCA Speech Emotion Recognition model with:
+1. Dynamic 3-Channel Delta/Delta-Delta audio feature extraction (on-the-fly).
+2. Adversarial Speaker Disentanglement (GRL) to destroy speaker identity leakage.
+3. Residual Squeeze-and-Excitation CNN backbone with Self-Attention Pooling.
 """
 
 from __future__ import annotations
@@ -32,231 +18,253 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchaudio.functional as ta_F
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold
+from torch.autograd import Function
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
-
 
 LABEL_NAMES = ["neutral", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
 N_CLASSES   = len(LABEL_NAMES)
 RANDOM_SEED = 42
 DATA_PATH   = "mel_features_combined.npz"
-OUTPUT_PATH = "cnn_model_combined.pkl"
+OUTPUT_PATH = "cnn_model_combined_grl.pkl"
 
 
-# Dataset
-class MelDataset(Dataset):
-    def __init__(self, X: np.ndarray, y: np.ndarray, augment: bool = False):
-        self.X = torch.from_numpy(X)        # (N, 1, 128, 128) float32
+
+# Dataset with On-The-Fly Delta & Delta-Delta Computation
+class MelDeltaDataset(Dataset):
+    def __init__(self, X: np.ndarray, y: np.ndarray, actors: np.ndarray | None = None, augment: bool = False):
+        self.X = torch.from_numpy(X)          # (N, 1, 128, 128) float32
         self.y = torch.from_numpy(y.astype(np.int64))
+        self.actors = torch.from_numpy(actors.astype(np.int64)) if actors is not None else None
         self.augment = augment
 
     def __len__(self) -> int:
         return len(self.y)
 
     def __getitem__(self, idx: int):
-        x = self.X[idx].clone()
+        x = self.X[idx].clone()  # (1, 128, 128)
+
         if self.augment:
             x = self._spec_augment(x)
-        return x, self.y[idx]
+
+        # Compute 1st derivative (velocity) & 2nd derivative (acceleration)
+        delta  = ta_F.compute_deltas(x)
+        delta2 = ta_F.compute_deltas(delta)
+
+        # Stack into 3-channel input: (3, 128, 128)
+        x_3ch = torch.cat([x, delta, delta2], dim=0)
+
+        actor_label = self.actors[idx] if self.actors is not None else -1
+        return x_3ch, self.y[idx], actor_label
 
     @staticmethod
     def _spec_augment(x: torch.Tensor) -> torch.Tensor:
-        """SpecAugment: random time/frequency masking (Park et al., 2019)
-        plus a circular time-shift, regenerated fresh on every sample draw."""
         _, n_mels, n_frames = x.shape
+        mean_val = x.mean()
 
-        # Frequency masking: 2 independent masks up to 27 mel bands each
         for _ in range(2):
-            f_mask = np.random.randint(0, 27)
+            f_mask = np.random.randint(4, 18)
             f_start = np.random.randint(0, max(1, n_mels - f_mask))
-            x[:, f_start: f_start + f_mask, :] = 0.0
+            x[:, f_start: f_start + f_mask, :] = mean_val
 
-        # Time masking: 2 independent masks up to 27 frames each
         for _ in range(2):
-            t_mask = np.random.randint(0, 27)
+            t_mask = np.random.randint(4, 20)
             t_start = np.random.randint(0, max(1, n_frames - t_mask))
-            x[:, :, t_start: t_start + t_mask] = 0.0
-
-        # Circular time-shift: up to ~15% of the clip, wrapped around rather
-        # than zero-padded so no information is discarded, just repositioned.
-        max_shift = max(1, n_frames // 7)
-        shift = np.random.randint(-max_shift, max_shift + 1)
-        if shift != 0:
-            x = torch.roll(x, shifts=shift, dims=2)
+            x[:, :, t_start: t_start + t_mask] = mean_val
 
         return x
 
-# Model
-class ConvBlock(nn.Module):
+
+# Gradient Reversal Layer (GRL)
+class GradientReversalFunction(Function):
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.alpha = alpha
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg() * ctx.alpha, None
+
+
+def grad_reverse(x, alpha=1.0):
+    return GradientReversalFunction.apply(x, alpha)
+
+
+# Model Architecture (ResNet-SE + Speaker Adversarial Head)
+class SEBlock(nn.Module):
+    def __init__(self, channels: int, reduction: int = 16):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, _, _ = x.shape
+        w = self.fc(x).view(b, c, 1, 1)
+        return x * w
+
+
+class ResidualConvBlock(nn.Module):
     def __init__(self, in_ch: int, out_ch: int, dropout: float = 0.25):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_ch,  out_ch, 3, padding=1, bias=False),
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1, bias=False),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_ch, out_ch, 3, padding=1, bias=False),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(dropout),
         )
+        self.shortcut = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 1, bias=False),
+            nn.BatchNorm2d(out_ch),
+        ) if in_ch != out_ch else nn.Identity()
+
+        self.se = SEBlock(out_ch)
+        self.relu = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(2)
+        self.drop = nn.Dropout2d(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        res = self.shortcut(x)
+        out = self.conv(x)
+        out = self.se(out)
+        out = self.relu(out + res)
+        return self.drop(self.pool(out))
 
 
-class EmotionCNN(nn.Module):
-    """
-    2-D CNN for speech emotion recognition from log-mel spectrograms.
-
-    Input : (B, 1, 128, 128)
-    Blocks : ConvBlock(1→32→64→128→256), each MaxPool-halved
-    GAP → (B, 256) → FC(256→128) → ReLU → Dropout → FC(128→7)
-
-    1.2M params. Shrink experiments (300K, 679K) on the RAVDESS-only
-    baseline both scored worse on the test holdout despite a smaller
-    train/val gap -- shrinking traded real signal for a smaller gap number.
-    """
-
-    def __init__(self, n_classes: int = N_CLASSES, dropout: float = 0.3):
+class AdversarialEmotionCNN(nn.Module):
+    def __init__(self, n_classes: int = N_CLASSES, n_speakers: int = 44, dropout: float = 0.4):
         super().__init__()
-        self.block1 = ConvBlock(1,   32,  dropout=dropout / 2)
-        self.block2 = ConvBlock(32,  64,  dropout=dropout / 2)
-        self.block3 = ConvBlock(64,  128, dropout=dropout / 2)
-        self.block4 = ConvBlock(128, 256, dropout=dropout / 2)
-        self.gap     = nn.AdaptiveAvgPool2d(1)
-        self.head    = nn.Sequential(
+        # Backbone processes 3 channels (Mel + Delta + Delta2)
+        self.block1 = ResidualConvBlock(3,   32,  dropout=dropout / 2)
+        self.block2 = ResidualConvBlock(32,  64,  dropout=dropout / 2)
+        self.block3 = ResidualConvBlock(64,  128, dropout=dropout / 2)
+        self.block4 = ResidualConvBlock(128, 256, dropout=dropout / 2)
+
+        # Statistical Pooling (Mean + Std) -> 512 dimensions
+        self.feat_dim = 512
+
+        # 1. Main Emotion Classifier
+        self.emotion_head = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(256, 128),
+            nn.Linear(self.feat_dim, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(128, n_classes),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 2. Adversarial Speaker Classifier (Forces features to be speaker-invariant)
+        self.speaker_head = nn.Sequential(
+            nn.Linear(self.feat_dim, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, n_speakers),
+        )
+
+    def extract_features(self, x: torch.Tensor) -> torch.Tensor:
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
         x = self.block4(x)
-        x = self.gap(x).flatten(1)
-        return self.head(x)
+        mean = torch.mean(x, dim=[2, 3])
+        std  = torch.std(x, dim=[2, 3], unbiased=False)
+        return torch.cat([mean, std], dim=1)
 
-# Sklearn-compatible wrapper (drop-in for the SVM pkl)
+    def forward(self, x: torch.Tensor, grl_alpha: float = 0.0):
+        feats = self.extract_features(x)
+        emotion_logits = self.emotion_head(feats)
+
+        # Speaker branch receives inverted gradients via GRL
+        rev_feats = grad_reverse(feats, grl_alpha)
+        speaker_logits = self.speaker_head(rev_feats)
+
+        return emotion_logits, speaker_logits
+
+
+# Inference Wrapper
 class CNNEmotionWrapper:
-    """Wraps EmotionCNN to expose sklearn-style predict / predict_proba.
-
-    Accepts (N, 16384) flat or (N, 1, 128, 128) spectrogram input.
-    model_type lets NudgeEngine pick the right feature at inference time.
-    """
-
     model_type = "cnn"
 
-    def __init__(self, model: EmotionCNN, device: str = "cpu"):
-        self.model  = model
+    def __init__(self, model: AdversarialEmotionCNN, device: str = "cpu"):
+        self.model = model
         self.device = device
         self.model.to(device)
         self.model.eval()
 
-    def _to_tensor(self, X: np.ndarray) -> torch.Tensor:
-        if X.ndim == 2:                        # (N, 16384)
+    def _to_3ch_tensor(self, X: np.ndarray) -> torch.Tensor:
+        if X.ndim == 2:
             X = X.reshape(-1, 1, 128, 128)
-        elif X.ndim == 3:                      # (1, 128, 128) single sample
+        elif X.ndim == 3:
             X = X[np.newaxis]
-        return torch.from_numpy(X.astype(np.float32)).to(self.device)
+
+        t = torch.from_numpy(X.astype(np.float32))
+        delta  = ta_F.compute_deltas(t)
+        delta2 = ta_F.compute_deltas(delta)
+        x_3ch  = torch.cat([t, delta, delta2], dim=1)
+        return x_3ch.to(self.device)
 
     @torch.no_grad()
     def predict_proba(self, X: np.ndarray, batch_size: int = 64) -> np.ndarray:
         results = []
         for i in range(0, len(X), batch_size):
-            batch = self._to_tensor(X[i: i + batch_size])
-            logits = self.model(batch)
-            results.append(F.softmax(logits, dim=1).cpu().numpy())
+            batch = self._to_3ch_tensor(X[i: i + batch_size])
+            emotion_logits, _ = self.model(batch, grl_alpha=0.0)
+            results.append(F.softmax(emotion_logits, dim=1).cpu().numpy())
         return np.concatenate(results, axis=0)
 
     def predict(self, X: np.ndarray, batch_size: int = 64) -> np.ndarray:
         return self.predict_proba(X, batch_size=batch_size).argmax(axis=1)
 
-# Data loading & splitting
+
+# Data Splitting & Helper Functions
 def load_dataset(data_path: Path):
     if not data_path.exists():
-        raise FileNotFoundError(f"{data_path} not found. Run preprocess_cnn.py first.")
+        raise FileNotFoundError(f"{data_path} not found.")
 
     data        = np.load(data_path, allow_pickle=True)
-    X           = data["X"].astype(np.float32)          # (N, 1, 128, 128)
+    X           = data["X"].astype(np.float32)
     y           = data["y"].astype(np.int64)
     actor       = data["actor"] if "actor" in data.files else None
     is_original = data["is_original"] if "is_original" in data.files else None
-    source      = data["source"] if "source" in data.files else None  # RAVDESS/SUBESCO tag
-
-    if X.ndim != 4 or X.shape[1:] != (1, 128, 128):
-        raise ValueError(f"Expected (N, 1, 128, 128) data, got {X.shape}")
-    if not np.all(np.isfinite(X)):
-        raise ValueError("Dataset contains NaN or Inf values.")
-    if len(np.unique(y)) != N_CLASSES:
-        raise ValueError(f"Expected {N_CLASSES} classes, got {len(np.unique(y))}.")
+    source      = data["source"] if "source" in data.files else None
 
     return X, y, actor, is_original, source
 
 
-def _split_indices_single_group(idx, y, actor, val_size: float, test_size: float):
-    """Actor-grouped (or sample-stratified if actor is None) 3-way split over
-    one pool of indices. Returns absolute indices into the full-size arrays;
-    idx is the pool this call may choose from (e.g. one source's rows)."""
-    y_sub = y[idx]
-    if actor is not None:
-        actor_sub = actor[idx]
+def make_splits(X, y, actor, is_original, val_size: float, test_size: float, source=None):
+    def _split_group(idx):
+        y_sub, actor_sub = y[idx], actor[idx]
         n_splits = max(2, round(1 / test_size))
-        splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
-                                        random_state=RANDOM_SEED)
+        splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_SEED)
         trainval_rel, test_rel = next(splitter.split(idx, y_sub, actor_sub))
 
-        val_frac_of_remaining = val_size / (1 - test_size)
-        n_splits_val = max(2, round(1 / val_frac_of_remaining))
-        splitter_val = StratifiedGroupKFold(n_splits=n_splits_val, shuffle=True,
-                                            random_state=RANDOM_SEED)
-        tr_rel2, val_rel2 = next(splitter_val.split(
-            idx[trainval_rel], y_sub[trainval_rel], actor_sub[trainval_rel]
-        ))
-        train_rel = trainval_rel[tr_rel2]
-        val_rel   = trainval_rel[val_rel2]
-    else:
-        from sklearn.model_selection import train_test_split
-        pool = np.arange(len(idx))
-        trainval_rel, test_rel = train_test_split(
-            pool, test_size=test_size, stratify=y_sub[pool], random_state=RANDOM_SEED
-        )
-        val_frac_of_remaining = val_size / (1 - test_size)
-        train_rel, val_rel = train_test_split(
-            trainval_rel, test_size=val_frac_of_remaining,
-            stratify=y_sub[trainval_rel], random_state=RANDOM_SEED,
-        )
+        val_frac = val_size / (1 - test_size)
+        splitter_val = StratifiedGroupKFold(n_splits=max(2, round(1 / val_frac)), shuffle=True, random_state=RANDOM_SEED)
+        tr_rel, val_rel = next(splitter_val.split(idx[trainval_rel], y_sub[trainval_rel], actor_sub[trainval_rel]))
 
-    return idx[train_rel], idx[val_rel], idx[test_rel]
+        return idx[trainval_rel[tr_rel]], idx[trainval_rel[val_rel]], idx[test_rel]
 
+    train_parts, val_parts, test_parts = [], [], []
+    for src in sorted(set(source.tolist())):
+        idx = np.where(source == src)[0]
+        tr, va, te = _split_group(idx)
+        train_parts.append(tr)
+        val_parts.append(va)
+        test_parts.append(te)
 
-def make_splits(X, y, actor, is_original, val_size: float, test_size: float, source=None):
-    """Speaker-independent 3-way split: train / val / test, actor-grouped
-    and label-stratified. val/test are restricted to clean, unaugmented
-    recordings when is_original is available. When source (RAVDESS vs
-    SUBESCO) is available, each source is split independently and
-    concatenated to keep source proportions consistent across splits."""
-    if source is None:
-        train_idx, val_idx, test_idx = _split_indices_single_group(
-            np.arange(len(y)), y, actor, val_size, test_size
-        )
-    else:
-        train_parts, val_parts, test_parts = [], [], []
-        for src in sorted(set(source.tolist())):
-            idx = np.where(source == src)[0]
-            tr, va, te = _split_indices_single_group(idx, y, actor, val_size, test_size)
-            train_parts.append(tr)
-            val_parts.append(va)
-            test_parts.append(te)
-        train_idx = np.concatenate(train_parts)
-        val_idx   = np.concatenate(val_parts)
-        test_idx  = np.concatenate(test_parts)
+    train_idx = np.concatenate(train_parts)
+    val_idx   = np.concatenate(val_parts)
+    test_idx  = np.concatenate(test_parts)
 
     if is_original is not None:
         val_idx  = val_idx[is_original[val_idx]]
@@ -264,73 +272,69 @@ def make_splits(X, y, actor, is_original, val_size: float, test_size: float, sou
 
     return (X[train_idx], X[val_idx], X[test_idx],
             y[train_idx], y[val_idx], y[test_idx],
-            actor[train_idx] if actor is not None else None,
+            actor[train_idx], actor[val_idx], actor[test_idx],
             train_idx, val_idx, test_idx)
 
 
 def make_sampler(y_train: np.ndarray) -> WeightedRandomSampler:
-    """Over-sample minority classes to compensate for class imbalance."""
     counts  = Counter(y_train.tolist())
     weights = np.array([1.0 / counts[label] for label in y_train], dtype=np.float32)
     return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
 
 
-
-# MixUp
-def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4):
-    """Return mixed inputs, pairs of targets, and mixing coefficient."""
-    lam = float(np.random.beta(alpha, alpha)) if alpha > 0 else 1.0
-    idx = torch.randperm(x.size(0), device=x.device)
-    return lam * x + (1 - lam) * x[idx], y, y[idx], lam
-
-
-def mixup_loss(criterion, logits, y_a, y_b, lam):
-    return lam * criterion(logits, y_a) + (1 - lam) * criterion(logits, y_b)
-
-
-# Training
-def train_epoch(model, loader, criterion, optimiser, device, scaler, mixup_alpha=0.4):
+# Training Routine
+def train_epoch(model, loader, emotion_crit, speaker_crit, optimiser, device, scaler, epoch, total_epochs, mixup_alpha=0.3):
     model.train()
-    total_loss, n = 0.0, 0
-    for X_batch, y_batch in loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        X_mix, y_a, y_b, lam = mixup_data(X_batch, y_batch, alpha=mixup_alpha)
+    total_loss, total_em_loss, total_spk_loss, n = 0.0, 0.0, 0.0, 0
+
+    # Dynamic GRL Alpha schedule (0 -> 1 as training progresses)
+    p = float(epoch) / total_epochs
+    grl_alpha = 2.0 / (1.0 + np.exp(-10 * p)) - 1.0
+
+    for X_batch, y_batch, spk_batch in loader:
+        X_batch, y_batch, spk_batch = X_batch.to(device), y_batch.to(device), spk_batch.to(device)
+
+        # MixUp on emotion only
+        lam = float(np.random.beta(mixup_alpha, mixup_alpha)) if mixup_alpha > 0 else 1.0
+        idx = torch.randperm(X_batch.size(0), device=device)
+        X_mix = lam * X_batch + (1 - lam) * X_batch[idx]
+        y_a, y_b = y_batch, y_batch[idx]
+
         optimiser.zero_grad()
-        with torch.autocast(device_type=device if device != "cpu" else "cpu",
-                            enabled=(device == "cuda")):
-            logits = model(X_mix)
-            loss   = mixup_loss(criterion, logits, y_a, y_b, lam)
-        if device == "cuda":
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimiser)
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimiser)
-            scaler.update()
-        else:
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimiser.step()
-        total_loss += loss.item() * len(y_batch)
-        n          += len(y_batch)
-    return total_loss / n, 0.0  # train acc not meaningful with mixed labels
+        with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", enabled=(device == "cuda")):
+            em_logits, spk_logits = model(X_mix, grl_alpha=grl_alpha)
+            em_loss = lam * emotion_crit(em_logits, y_a) + (1 - lam) * emotion_crit(em_logits, y_b)
+            spk_loss = speaker_crit(spk_logits, spk_batch)
+            loss = em_loss + 0.25 * spk_loss
+
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimiser)
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scaler.step(optimiser)
+        scaler.update()
+
+        total_loss     += loss.item() * len(y_batch)
+        total_em_loss  += em_loss.item() * len(y_batch)
+        total_spk_loss += spk_loss.item() * len(y_batch)
+        n              += len(y_batch)
+
+    return total_loss / n, total_em_loss / n, total_spk_loss / n
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, criterion, device):
-    """Returns (loss, accuracy, macro_f1). macro_f1 drives checkpoint
-    selection (see main()) since it weights all 7 classes equally, unlike
-    accuracy which rewards the majority class."""
+def eval_epoch(model, loader, emotion_crit, device):
     model.eval()
     total_loss, n = 0.0, 0
     all_preds, all_targets = [], []
-    for X_batch, y_batch in loader:
+    for X_batch, y_batch, _ in loader:
         X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        logits     = model(X_batch)
-        loss       = criterion(logits, y_batch)
+        em_logits, _ = model(X_batch, grl_alpha=0.0)
+        loss = emotion_crit(em_logits, y_batch)
         total_loss += loss.item() * len(y_batch)
         n          += len(y_batch)
-        all_preds.append(logits.argmax(1).cpu())
+        all_preds.append(em_logits.argmax(1).cpu())
         all_targets.append(y_batch.cpu())
+
     all_preds   = torch.cat(all_preds).numpy()
     all_targets = torch.cat(all_targets).numpy()
     accuracy = float((all_preds == all_targets).mean())
@@ -338,217 +342,130 @@ def eval_epoch(model, loader, criterion, device):
     return total_loss / n, accuracy, macro_f1
 
 
-
-# Main
+# Main Entrypoint
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Train the MCA CNN Speech Emotion Recognition model on RAVDESS+SUBESCO."
-    )
-    parser.add_argument("--data",       default=DATA_PATH,  help="mel_features_combined.npz path")
-    parser.add_argument("--output",     default=OUTPUT_PATH, help="Output .pkl path")
-    parser.add_argument("--epochs",     type=int,   default=80,   help="Max training epochs")
-    parser.add_argument("--batch-size", type=int,   default=32,   help="Mini-batch size")
-    parser.add_argument("--lr",         type=float, default=1e-3, help="Initial learning rate")
-    parser.add_argument("--dropout",    type=float, default=0.4,  help="Dropout probability")
-    parser.add_argument("--test-size",  type=float, default=0.2,  help="Final holdout fraction (touched once, at the end)")
-    parser.add_argument("--val-size",   type=float, default=0.15, help="Validation fraction, used for early stopping / checkpoint selection")
-    parser.add_argument("--patience",      type=int,   default=25,    help="Early stopping patience")
-    parser.add_argument("--weight-decay",  type=float, default=5e-4,  help="AdamW weight decay (L2 regularisation)")
-    parser.add_argument("--mixup-alpha",   type=float, default=0.4,   help="MixUp alpha (0 = disabled)")
-    parser.add_argument("--no-group-split", action="store_true",
-                        help="Use sample-level split instead of speaker-independent split")
+    parser = argparse.ArgumentParser(description="Train Adversarial SER Model.")
+    parser.add_argument("--data",       default=DATA_PATH)
+    parser.add_argument("--output",     default=OUTPUT_PATH)
+    parser.add_argument("--epochs",     type=int,   default=100)
+    parser.add_argument("--batch-size", type=int,   default=64)
+    parser.add_argument("--lr",         type=float, default=0.0008)
+    parser.add_argument("--dropout",    type=float, default=0.45)
+    parser.add_argument("--test-size",  type=float, default=0.2)
+    parser.add_argument("--val-size",   type=float, default=0.2)
+    parser.add_argument("--patience",   type=int,   default=40)
+    parser.add_argument("--weight-decay", type=float, default=0.001)
+    parser.add_argument("--mixup-alpha", type=float, default=0.3)
     args = parser.parse_args()
 
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"=== MCA SER Training: 2-D CNN (RAVDESS+SUBESCO) ===")
-    print(f"Device  : {device}")
-    print(f"Epochs  : {args.epochs}  |  Batch: {args.batch_size}  |  LR: {args.lr}")
 
-    # Data
+    print("=== Training Speaker-Adversarial SER Model (Delta + GRL) ===")
     X, y, actor, is_original, source = load_dataset(Path(args.data))
-    if args.no_group_split:
-        actor = None
-    if is_original is None:
-        print("WARNING: no 'is_original' flag in this .npz -- val/test will "
-              "include augmented near-duplicates, inflating reported metrics.")
-    print(f"Loaded  : {X.shape[0]} samples, shape {X.shape[1:]}")
-    print(f"Backend label contract: {dict(enumerate(LABEL_NAMES))}")
-    if source is not None:
-        print("Source mix (whole dataset):", dict(Counter(source.tolist())))
 
-    X_train, X_val, X_test, y_train, y_val, y_test, train_actor, train_idx, val_idx, test_idx = make_splits(
-        X, y, actor, is_original, args.val_size, args.test_size, source=source
+    # Integer encode actors for speaker classification head
+    unique_actors = sorted(set(actor.tolist()))
+    actor_to_id = {name: i for i, name in enumerate(unique_actors)}
+    actor_encoded = np.array([actor_to_id[a] for a in actor])
+    n_speakers = len(unique_actors)
+    print(f"Detected {n_speakers} unique speakers across dataset.")
+
+    (X_train, X_val, X_test,
+     y_train, y_val, y_test,
+     act_train, act_val, act_test,
+     train_idx, val_idx, test_idx) = make_splits(
+        X, y, actor_encoded, is_original, args.val_size, args.test_size, source=source
     )
-    print(f"Train   : {len(y_train)}  |  Val : {len(y_val)}  |  Test : {len(y_test)}")
-    print("Train class counts:", Counter(y_train.tolist()))
-    if source is not None:
-        # Sanity check: confirms RAVDESS/SUBESCO stayed proportionally
-        # represented in every split (a skew here can masquerade as a
-        # modeling problem).
-        for split_name, idx in [("Train", train_idx), ("Val", val_idx), ("Test", test_idx)]:
-            counts = Counter(source[idx].tolist())
-            total = sum(counts.values())
-            pct = {k: f"{v} ({v / total * 100:.1f}%)" for k, v in counts.items()}
-            print(f"  {split_name} source mix: {pct}")
 
-    train_ds  = MelDataset(X_train, y_train, augment=True)
-    val_ds    = MelDataset(X_val,   y_val,   augment=False)
-    sampler   = make_sampler(y_train)
+    train_ds = MelDeltaDataset(X_train, y_train, act_train, augment=True)
+    val_ds   = MelDeltaDataset(X_val,   y_val,   act_val,   augment=False)
+    sampler  = make_sampler(y_train)
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              sampler=sampler, num_workers=0, pin_memory=(device == "cuda"))
-    val_loader   = DataLoader(val_ds,   batch_size=args.batch_size * 2,
-                              shuffle=False, num_workers=0)
-    # X_test/y_test stay untouched until the final wrapper.predict() below.
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=0, pin_memory=(device == "cuda"))
+    val_loader   = DataLoader(val_ds,   batch_size=args.batch_size * 2, shuffle=False, num_workers=0)
 
-    # Model
-    model     = EmotionCNN(n_classes=N_CLASSES, dropout=args.dropout).to(device)
-    n_params  = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Params  : {n_params:,}")
+    model = AdversarialEmotionCNN(n_classes=N_CLASSES, n_speakers=n_speakers, dropout=args.dropout).to(device)
+    print(f"Total Parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
-    # Label smoothing loss + class weights for hard-to-learn classes
-    class_counts = Counter(y_train.tolist())
-    class_weights = torch.tensor(
-        [len(y_train) / (N_CLASSES * class_counts.get(i, 1)) for i in range(N_CLASSES)],
-        dtype=torch.float32, device=device,
-    )
-    criterion  = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
-    optimiser  = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # Single smooth decay (not warm restarts) so early stopping can't fire
-    # right before a scheduled restart.
-    scheduler  = CosineAnnealingLR(optimiser, T_max=args.epochs, eta_min=1e-6)
-    scaler     = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
+    emotion_criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    speaker_criterion = nn.CrossEntropyLoss()
+    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = CosineAnnealingLR(optimiser, T_max=args.epochs, eta_min=1e-6)
+    scaler    = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
 
-    # Checkpoint selection uses macro F1, not accuracy (see eval_epoch);
-    # val_acc is still logged for reference.
-    best_val_f1   = 0.0
-    best_val_acc  = 0.0
-    best_state    = None
+    best_val_f1, best_val_acc, best_state = 0.0, 0.0, None
     patience_left = args.patience
-    history       = []
+    history = []
 
-    print(f"\n{'Epoch':>5} | {'TrainLoss':>9} | {'ValLoss':>8} | {'ValAcc':>7} | {'ValF1':>6} | LR")
-    print("-" * 65)
+    print(f"\n{'Epoch':>5} | {'Loss':>8} | {'EmLoss':>8} | {'SpkLoss':>8} | {'ValLoss':>8} | {'ValAcc':>7} | {'ValF1':>6} | LR")
+    print("-" * 80)
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
-        try:
-            tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimiser, device, scaler,
-                                          mixup_alpha=args.mixup_alpha)
-            va_loss, va_acc, va_f1 = eval_epoch(model, val_loader, criterion, device)
-        except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
-            raise RuntimeError(
-                f"CUDA out of memory at epoch {epoch}. Try a smaller --batch-size "
-                f"(currently {args.batch_size}), or restart the runtime to clear "
-                f"any memory held by a previous run."
-            ) from None
+        loss, em_loss, spk_loss = train_epoch(
+            model, train_loader, emotion_criterion, speaker_criterion, optimiser, device, scaler, epoch, args.epochs, mixup_alpha=args.mixup_alpha
+        )
+        va_loss, va_acc, va_f1 = eval_epoch(model, val_loader, emotion_criterion, device)
         scheduler.step()
         lr_now = optimiser.param_groups[0]["lr"]
-        elapsed = time.time() - t0
 
-        print(f"{epoch:>5} | {tr_loss:>9.4f} | "
-              f"{va_loss:>8.4f} | {va_acc * 100:>6.2f}% | {va_f1:>6.4f} | {lr_now:.6f}  [{elapsed:.1f}s]")
+        print(f"{epoch:>5} | {loss:>8.4f} | {em_loss:>8.4f} | {spk_loss:>8.4f} | {va_loss:>8.4f} | {va_acc * 100:>6.2f}% | {va_f1:>6.4f} | {lr_now:.6f} [{time.time() - t0:.1f}s]")
 
         history.append({
-            "epoch": epoch, "train_loss": tr_loss, "train_acc": tr_acc,
-            "val_loss": va_loss, "val_acc": va_acc, "val_f1": va_f1, "lr": lr_now,
+            "epoch": epoch, "train_loss": em_loss, "val_loss": va_loss, "val_acc": va_acc, "val_f1": va_f1, "lr": lr_now
         })
 
         if va_f1 > best_val_f1:
-            best_val_f1   = va_f1
-            best_val_acc  = va_acc
-            best_state    = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            best_val_f1, best_val_acc = va_f1, va_acc
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             patience_left = args.patience
         else:
             patience_left -= 1
             if patience_left == 0:
-                print(f"\nEarly stopping at epoch {epoch} (patience={args.patience}).")
+                print(f"\nEarly stopping at epoch {epoch}.")
                 break
 
-    # Load best weights and evaluate
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    model.eval()
-    wrapper  = CNNEmotionWrapper(model, device=device)
+    wrapper = CNNEmotionWrapper(model, device=device)
+    y_pred = wrapper.predict(X_test)
+    y_train_pred = wrapper.predict(X_train)
 
-    X_test_flat   = X_test.reshape(len(X_test), -1)   # (N, 16384)
-    X_train_flat  = X_train.reshape(len(X_train), -1)
-
-    y_pred        = wrapper.predict(X_test_flat)
-    y_train_pred  = wrapper.predict(X_train_flat)
-
-    test_acc      = accuracy_score(y_test, y_pred)
-    test_f1       = f1_score(y_test, y_pred, average="macro")
-    train_acc     = accuracy_score(y_train, y_train_pred)
-    overfit_gap   = train_acc - test_acc
+    test_acc    = accuracy_score(y_test, y_pred)
+    test_f1     = f1_score(y_test, y_pred, average="macro")
+    train_acc   = accuracy_score(y_train, y_train_pred)
+    overfit_gap = train_acc - test_acc
 
     print("\n=== Holdout Evaluation ===")
-    print(classification_report(
-        y_test, y_pred,
-        labels=list(range(N_CLASSES)),
-        target_names=LABEL_NAMES,
-        zero_division=0,
-    ))
-    matrix = confusion_matrix(y_test, y_pred, labels=list(range(N_CLASSES)))
-    print("Confusion matrix (rows=true, cols=pred):")
-    print(matrix)
-    print(f"\nTest accuracy  : {test_acc * 100:.2f}%")
+    print(classification_report(y_test, y_pred, target_names=LABEL_NAMES, zero_division=0))
+    matrix = confusion_matrix(y_test, y_pred)
+    print(f"Test accuracy  : {test_acc * 100:.2f}%")
     print(f"Test macro F1  : {test_f1:.4f}")
     print(f"Train accuracy : {train_acc * 100:.2f}%")
     print(f"Overfit gap    : {overfit_gap * 100:.2f}%")
-    print(f"Best val acc   : {best_val_acc * 100:.2f}%")
-    print(f"Best val F1    : {best_val_f1:.4f}  (checkpoint selection metric)")
 
-    # Save
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(wrapper, output_path)
-    print(f"\nSaved model : {output_path}")
-    print("Backend target: Backend/app/models/affect_fusion/svm_model.pkl")
 
     report = {
         "model_type": "cnn",
-        "architecture": "EmotionCNN_2D",
-        "input_shape": [1, 128, 128],
-        "data_path": args.data,
-        "model_path": str(output_path),
-        "label_names": LABEL_NAMES,
-        "label_contract": dict(enumerate(LABEL_NAMES)),
-        "n_params": n_params,
-        "epochs_trained": len(history),
+        "architecture": "AdversarialEmotionCNN_GRL_3Ch",
         "best_val_acc": float(best_val_acc),
         "best_val_f1": float(best_val_f1),
         "test_accuracy": float(test_acc),
         "test_macro_f1": float(test_f1),
         "train_accuracy": float(train_acc),
         "overfit_gap": float(overfit_gap),
-        "classification_report": classification_report(
-            y_test, y_pred, labels=list(range(N_CLASSES)),
-            target_names=LABEL_NAMES, zero_division=0, output_dict=True,
-        ),
+        "classification_report": classification_report(y_test, y_pred, target_names=LABEL_NAMES, zero_division=0, output_dict=True),
         "confusion_matrix": matrix.tolist(),
         "training_history": history,
-        "hyperparams": vars(args),
-        "split": "actor_grouped" if actor is not None else "sample_stratified",
-        "split_sizes": {"train": len(y_train), "val": len(y_val), "test": len(y_test)},
-        "split_source_mix": (
-            {
-                split_name: dict(Counter(source[idx].tolist()))
-                for split_name, idx in [("train", train_idx), ("val", val_idx), ("test", test_idx)]
-            }
-            if source is not None else None
-        ),
-        "test_set_is_clean_only": bool(is_original is not None),
-        "device": device,
     }
-    report_path = output_path.with_suffix(".report.json")
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Saved report: {report_path}")
+    output_path.with_suffix(".report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Saved report to {output_path.with_suffix('.report.json')}")
 
 
 if __name__ == "__main__":

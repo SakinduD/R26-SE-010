@@ -133,13 +133,13 @@ def augment_waveforms(y: np.ndarray, max_variants: int | None = None) -> list[np
     if max_variants is not None and len(waves) >= max_variants:
         return waves
 
-    # 1. Additive white noise
+    # Additive white noise
     noise_amp = 0.005 * np.random.uniform() * np.amax(np.abs(y))
     waves.append(y + noise_amp * np.random.normal(size=y.shape[0]).astype(np.float32))
     if max_variants is not None and len(waves) >= max_variants:
         return waves
 
-    # 2. Pitch shift +2 semitones
+    # Pitch shift +2 semitones
     try:
         waves.append(librosa.effects.pitch_shift(y, sr=SAMPLE_RATE, n_steps=2).astype(np.float32))
     except Exception:
@@ -147,7 +147,7 @@ def augment_waveforms(y: np.ndarray, max_variants: int | None = None) -> list[np
     if max_variants is not None and len(waves) >= max_variants:
         return waves
 
-    # 3. Pitch shift -2 semitones
+    # Pitch shift -2 semitones
     try:
         waves.append(librosa.effects.pitch_shift(y, sr=SAMPLE_RATE, n_steps=-2).astype(np.float32))
     except Exception:
@@ -155,7 +155,7 @@ def augment_waveforms(y: np.ndarray, max_variants: int | None = None) -> list[np
     if max_variants is not None and len(waves) >= max_variants:
         return waves
 
-    # 4. Time stretch slow (0.9×) — longer duration, lower perceived energy
+    # Time stretch slow (0.9×) — longer duration, lower perceived energy
     try:
         waves.append(librosa.effects.time_stretch(y, rate=0.9).astype(np.float32))
     except Exception:
@@ -163,7 +163,7 @@ def augment_waveforms(y: np.ndarray, max_variants: int | None = None) -> list[np
     if max_variants is not None and len(waves) >= max_variants:
         return waves
 
-    # 5. Time stretch fast (1.1×) — shorter duration, higher perceived energy
+    # Time stretch fast (1.1×) — shorter duration, higher perceived energy
     try:
         waves.append(librosa.effects.time_stretch(y, rate=1.1).astype(np.float32))
     except Exception:

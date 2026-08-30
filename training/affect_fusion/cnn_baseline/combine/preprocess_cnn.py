@@ -179,12 +179,12 @@ def waveform_to_mel(y: np.ndarray) -> np.ndarray:
     mel_db = librosa.power_to_db(mel, ref=np.max)       # (N_MELS, frames)
     mel_db = mel_db[:, :TARGET_FRAMES]                   # exact truncation guard
 
-    # Normalise to [0, 1]
-    mel_min, mel_max = mel_db.min(), mel_db.max()
-    if mel_max > mel_min:
-        mel_db = (mel_db - mel_min) / (mel_max - mel_min)
+    # Normalise using Z-score (standardisation) to preserve relative energy dynamics
+    mel_std = mel_db.std()
+    if mel_std > 0:
+        mel_db = (mel_db - mel_db.mean()) / (mel_std + 1e-6)
     else:
-        mel_db = np.zeros_like(mel_db)
+        mel_db = mel_db - mel_db.mean()
 
     return mel_db[np.newaxis].astype(np.float32)         # (1, 128, 128)
 
