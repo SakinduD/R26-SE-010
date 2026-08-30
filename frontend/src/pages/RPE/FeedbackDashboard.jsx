@@ -303,7 +303,7 @@ export default function FeedbackDashboard() {
       <div className="rpe-cinema">
         <div className="fb-loading">
           <div className="fb-loading-icon"><BarChart2 size={24} strokeWidth={1.8} /></div>
-          <p className="fb-loading-text">Analysing your session…</p>
+          <p className="fb-loading-text">Analyzing your session…</p>
           <div className="fb-page"><Skeleton /></div>
         </div>
         <style>{FEEDBACK_STYLES}</style>

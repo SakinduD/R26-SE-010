@@ -16,6 +16,7 @@ class AudioFeatures:
     pitch_std: float = 0.0      # Standard deviation of fundamental frequency
     feature_vector: Optional[np.ndarray] = None   # 362-dim flat features for SVM
     mel_spectrogram: Optional[np.ndarray] = None  # (1, 128, 128) log-mel for CNN
+    waveform_16k: Optional[np.ndarray] = None      # Raw mono waveform @16kHz for Wav2Vec2
     emotion_label: Optional[str] = None  # Model prediction
     emotion_confidence: float = 0.0      # Model probability
     visual_metrics: Optional[dict] = None # MediaPipe visual data (ear, mar, pose)

@@ -8,6 +8,7 @@ Backend/app/models/affect_fusion/cnn_*
 Backend/app/models/affect_fusion/transformer_*
 Backend/app/models/affect_fusion/*.h5
 Backend/app/models/affect_fusion/*.pt
+Backend/app/models/affect_fusion/wav2vec2_ser_finetuned/
 
 # RPE — large model artifacts and generated data (regenerate locally)
 Backend/app/models/rpe/ml/transformer/
