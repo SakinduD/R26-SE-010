@@ -163,7 +163,11 @@ def end_session(
     now = datetime.now(timezone.utc)
     session.ended_at = now
     session.status = "completed"
-    session.duration_seconds = int((now - session.started_at).total_seconds())
+    
+    started = session.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    session.duration_seconds = int((now - started).total_seconds())
     session.nudge_log = [n.model_dump() for n in body.nudge_log]
     
     # Calculate nudge_summary
