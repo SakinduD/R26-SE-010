@@ -507,6 +507,7 @@ async def get_coaching_response(
 
 class ScenarioProseResponse(BaseModel):
     """Generated prose for a plan-imported scenario — see rpe_plan_import_service.py."""
+    title: str
     opening_npc_line: str
     context: str
 
@@ -514,22 +515,26 @@ class ScenarioProseResponse(BaseModel):
 _SCENARIO_PROSE_SCHEMA = {
     "type": "object",
     "properties": {
+        "title": {"type": "string"},
         "opening_npc_line": {"type": "string"},
         "context": {"type": "string"},
     },
-    "required": ["opening_npc_line", "context"],
+    "required": ["title", "opening_npc_line", "context"],
     "additionalProperties": False,
 }
 
 
-def _scenario_prose_fallback(trigger_event: str, situation_summary: str) -> ScenarioProseResponse:
+def _scenario_prose_fallback(trigger_event: str, situation_summary: str, fallback_title: str) -> ScenarioProseResponse:
     return ScenarioProseResponse(
+        title=fallback_title,
         opening_npc_line="Alright, let's talk about this.",
         context=f"{situation_summary} {trigger_event}".strip(),
     )
 
 
-def generate_scenario_prose(prompt: str, trigger_event: str, situation_summary: str) -> ScenarioProseResponse:
+def generate_scenario_prose(
+    prompt: str, trigger_event: str, situation_summary: str, fallback_title: str
+) -> ScenarioProseResponse:
     """
     Write the opening NPC line + scene-setting context for a scenario
     generated from an APM Training Plan brief. Called once at scenario
@@ -544,7 +549,7 @@ def generate_scenario_prose(prompt: str, trigger_event: str, situation_summary: 
     """
     client = _get_groq_client()
     if not client:
-        return _scenario_prose_fallback(trigger_event, situation_summary)
+        return _scenario_prose_fallback(trigger_event, situation_summary, fallback_title)
 
     try:
         response = client.chat.completions.create(
@@ -563,7 +568,7 @@ def generate_scenario_prose(prompt: str, trigger_event: str, situation_summary: 
         return ScenarioProseResponse.model_validate(data)
     except (json.JSONDecodeError, ValidationError) as exc:
         logger.warning("RPE scenario prose returned invalid/schema-mismatched JSON: %s", exc)
-        return _scenario_prose_fallback(trigger_event, situation_summary)
+        return _scenario_prose_fallback(trigger_event, situation_summary, fallback_title)
     except Exception as exc:
         logger.warning("RPE scenario prose Groq call failed: %s", exc)
-        return _scenario_prose_fallback(trigger_event, situation_summary)
+        return _scenario_prose_fallback(trigger_event, situation_summary, fallback_title)

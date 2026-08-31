@@ -106,7 +106,7 @@ export default function App() {
 
               {/* RPE — Practice section, lives inside the app shell with sidebar */}
               <Route path="/roleplay" element={<ScenarioSelect />} />
-              <Route path="/roleplay/session" element={<RolePlaySession />} />
+              <Route path="/roleplay/session/:sessionId" element={<RolePlaySession />} />
               <Route path="/roleplay/session/complete" element={<SessionComplete />} />
               <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
               <Route path="/roleplay/my-sessions" element={<MySessions />} />

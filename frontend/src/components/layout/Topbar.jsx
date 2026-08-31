@@ -33,6 +33,7 @@ function getCrumbs(pathname) {
   if (CRUMB_MAP[pathname]) return CRUMB_MAP[pathname];
 
   // Parameterised routes: try the longest matching prefix
+  if (pathname.startsWith('/roleplay/session/')) return ['Practice', 'Role Play', 'Session'];
   if (pathname.startsWith('/roleplay/feedback')) return ['Practice', 'Role Play', 'Feedback'];
   if (pathname.startsWith('/analytics/users/')) {
     if (pathname.endsWith('/skill-twin')) return ['Progress', 'Skill Twin'];

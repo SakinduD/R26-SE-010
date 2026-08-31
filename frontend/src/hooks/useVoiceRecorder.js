@@ -1,185 +1,234 @@
 /*
  * useVoiceRecorder.js
- * Records one spoken utterance (mic -> MediaRecorder), auto-stops on
- * silence, and sends the clip to the backend's /api/stt proxy (Google
- * Cloud Speech-to-Text) for transcription. Replaces the browser's built-in
- * SpeechRecognition, which isn't available in every browser (e.g. Brave
- * strips the Google key Chromium relies on) and doesn't let us control the
- * transcription backend.
+ * Manual click-to-talk voice capture for RPE's reply bar — tap to start,
+ * watch the transcript fill in live as you talk, tap again to stop, then
+ * review/edit and send it yourself like any typed message.
  *
- * Silence detection: a Web Audio AnalyserNode samples the mic's RMS
- * amplitude every 100ms. Recording stops once amplitude has stayed below
- * SILENCE_THRESHOLD for SILENCE_DURATION_MS, mirroring how
- * SpeechRecognition used to auto-end an utterance.
+ * Two capture paths, chosen automatically per browser:
+ *
+ * 1. Native SpeechRecognition (Web Speech API) — preferred. Ports
+ *    /baseline's AIChatbot mechanism directly: results arrive in "final"
+ *    and "interim" pieces per recognition instance, live, so the reply bar
+ *    fills in as you talk. The API can end an instance on its own well
+ *    before you're actually done (long pauses, browser-internal timeouts),
+ *    so onend restarts a fresh instance seamlessly whenever the caller
+ *    hasn't explicitly stopped yet — text already finalized before that
+ *    restart is carried forward in sessionTranscriptRef so it reads as one
+ *    continuous capture, not several disconnected fragments. Not available
+ *    everywhere (e.g. Brave strips the Google key Chromium needs
+ *    internally for it) — canUseNativeSpeech reflects that.
+ *
+ * 2. MediaRecorder -> backend /api/stt (Google Cloud Speech-to-Text, same
+ *    endpoint MultimodalEngine's live mode already uses) — fallback for a
+ *    browser without native SpeechRecognition. Records the whole utterance,
+ *    then transcribes it in one batch call once you stop — there is no live
+ *    fill here, only isTranscribing while that round trip is in flight, so
+ *    a caller should show a "transcribing" state rather than expecting text
+ *    to build up as the fallback path listens.
+ *
+ * Validation: neither path checks that the transcript is *correct* — there
+ * is no ground truth to check it against, only what the recognizer itself
+ * reports. The one real signal available either way is confidence (0-1),
+ * exposed here as `lowConfidence`: true once any finalized chunk this
+ * session scored under LOW_CONFIDENCE_THRESHOLD. It's a hint to double-check
+ * before sending, not a hard gate — confidence scoring from either backend
+ * is known to be inconsistent, so this never blocks anything, it just flags it.
  */
 import { useCallback, useRef, useState } from 'react'
 import { API_URL } from '@/lib/config'
 
-const SILENCE_THRESHOLD   = 0.02   // RMS amplitude (0-1) below this counts as silence
-const SILENCE_DURATION_MS = 1200   // stop after this much continuous silence
-const MAX_RECORDING_MS    = 20000  // hard cap so a stuck mic doesn't record forever
-const MIN_RECORDING_MS    = 300    // ignore captures shorter than this (false starts)
+const SpeechRecognitionApi =
+  typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null
+const canUseNativeSpeech = !!SpeechRecognitionApi
 
-export const canRecord =
+const canUseMediaRecorderFallback =
   typeof navigator !== 'undefined' &&
   !!navigator.mediaDevices?.getUserMedia &&
   typeof window !== 'undefined' &&
   typeof window.MediaRecorder !== 'undefined'
 
-export function useVoiceRecorder({ onResult, onEmpty, onError, onPermissionDenied, externalStream }) {
+export const canRecord = canUseNativeSpeech || canUseMediaRecorderFallback
+
+const LOW_CONFIDENCE_THRESHOLD = 0.6
+const FALLBACK_MAX_RECORDING_MS = 20000 // hard cap so a stuck mic doesn't record forever
+
+export function useVoiceRecorder() {
   const [isListening, setIsListening] = useState(false)
-  const recorderRef = useRef(null)
-  const streamRef    = useRef(null)
-  const audioCtxRef  = useRef(null)
-  // True when streamRef holds a stream we opened ourselves (and must close);
-  // false when it's an externally-supplied, shared stream (e.g. RPE's
-  // continuous nudge-sensing mic) whose lifecycle belongs to its owner —
-  // mirrors MCA's own pattern of one mic stream feeding multiple recorders.
-  const ownsStreamRef = useRef(true)
-  // True from the instant startListening() is called until the recording it
-  // started has fully stopped — including the getUserMedia() await, which is
-  // otherwise a window where a second concurrent call (e.g. an onEmpty retry
-  // firing while the previous cycle is still spinning up) creates a second
-  // overlapping recorder/stream that stomps on these refs and desyncs
-  // isListening from what's actually happening. This is what made auto
-  // mic on/off intermittently misbehave.
-  const activeRef = useRef(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [liveTranscript, setLiveTranscript] = useState('')
+  const [lowConfidence, setLowConfidence] = useState(false)
 
-  const cleanup = useCallback(() => {
-    if (ownsStreamRef.current) {
-      streamRef.current?.getTracks().forEach((track) => track.stop())
-    }
-    streamRef.current = null
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {})
-      audioCtxRef.current = null
-    }
-    recorderRef.current = null
-  }, [])
+  // Native SpeechRecognition path
+  const recognitionRef       = useRef(null)
+  const shouldContinueRef    = useRef(false)
+  const sessionTranscriptRef = useRef('')
+  const instanceFinalRef     = useRef('')
+  const instanceInterimRef   = useRef('')
 
-  const startListening = useCallback(async () => {
-    if (activeRef.current) return
-    activeRef.current = true
+  // MediaRecorder fallback path
+  const recorderRef      = useRef(null)
+  const fallbackChunksRef = useRef([])
+  const fallbackTimeoutRef = useRef(null)
 
-    if (!canRecord) { activeRef.current = false; onPermissionDenied?.(); return }
-
-    let stream
-    if (externalStream && externalStream.active) {
-      // Shared stream (e.g. RPE's continuous nudge-sensing mic, when
-      // coaching is on) — reuse it instead of opening a second device
-      // stream; we don't own it, so we never stop its tracks.
-      stream = externalStream
-      ownsStreamRef.current = false
-    } else {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      } catch {
-        activeRef.current = false
-        onPermissionDenied?.()
-        return
+  const stopListening = useCallback(() => {
+    if (canUseNativeSpeech) {
+      shouldContinueRef.current = false
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop() } catch { /* already stopped */ }
       }
-      ownsStreamRef.current = true
-    }
-
-    if (!activeRef.current) {
-      // stopListening() ran while we were awaiting the permission prompt —
-      // don't start a recording nobody asked for anymore.
-      if (ownsStreamRef.current) stream.getTracks().forEach((track) => track.stop())
+      setIsListening(false)
       return
     }
-    streamRef.current = stream
 
+    if (fallbackTimeoutRef.current) {
+      clearTimeout(fallbackTimeoutRef.current)
+      fallbackTimeoutRef.current = null
+    }
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop() // onstop below does the rest
+    }
+  }, [])
+
+  const startListeningNative = useCallback(() => {
+    if (recognitionRef.current) return
+
+    sessionTranscriptRef.current = ''
+    instanceFinalRef.current = ''
+    instanceInterimRef.current = ''
+    setLiveTranscript('')
+    setLowConfidence(false)
+    shouldContinueRef.current = true
+
+    const recognition = new SpeechRecognitionApi()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+
+    recognition.onresult = (event) => {
+      let instanceFinal = ''
+      let interim = ''
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i]
+        const chunk = result[0].transcript
+        if (result.isFinal) {
+          instanceFinal += chunk + ' '
+          if (result[0].confidence > 0 && result[0].confidence < LOW_CONFIDENCE_THRESHOLD) {
+            setLowConfidence(true)
+          }
+        } else {
+          interim += chunk
+        }
+      }
+      instanceFinalRef.current = instanceFinal
+      instanceInterimRef.current = interim
+      setLiveTranscript((sessionTranscriptRef.current + instanceFinal + interim).trim())
+    }
+
+    recognition.onend = () => {
+      sessionTranscriptRef.current += (instanceFinalRef.current + instanceInterimRef.current).trim() + ' '
+      instanceFinalRef.current = ''
+      instanceInterimRef.current = ''
+
+      if (shouldContinueRef.current) {
+        try { recognition.start() } catch { /* already running */ }
+      } else {
+        recognitionRef.current = null
+        setIsListening(false)
+      }
+    }
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech') return
+      shouldContinueRef.current = false
+      recognitionRef.current = null
+      setIsListening(false)
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+    setIsListening(true)
+  }, [])
+
+  const startListeningFallback = useCallback(async () => {
+    if (recorderRef.current) return
+
+    setLiveTranscript('')
+    setLowConfidence(false)
+
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
+      })
+    } catch {
+      return // permission denied / no device — mic control stays off
+    }
+
+    fallbackChunksRef.current = []
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : 'audio/webm'
     const recorder = new MediaRecorder(stream, { mimeType })
     recorderRef.current = recorder
 
-    const chunks = []
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
-
-    const AudioContextApi = window.AudioContext || window.webkitAudioContext
-    const audioCtx = new AudioContextApi()
-    audioCtxRef.current = audioCtx
-    const analyser = audioCtx.createAnalyser()
-    analyser.fftSize = 2048
-    audioCtx.createMediaStreamSource(stream).connect(analyser)
-    const timeData = new Uint8Array(analyser.fftSize)
-
-    const recordingStart = Date.now()
-    let silenceStart = null
-    let finished = false
-
-    const finish = () => {
-      if (finished) return
-      finished = true
-      clearInterval(pollId)
-      if (recorder.state !== 'inactive') recorder.stop()
-    }
-
-    const pollId = setInterval(() => {
-      analyser.getByteTimeDomainData(timeData)
-      let sumSquares = 0
-      for (let i = 0; i < timeData.length; i++) {
-        const v = (timeData[i] - 128) / 128
-        sumSquares += v * v
-      }
-      const rms = Math.sqrt(sumSquares / timeData.length)
-      const elapsed = Date.now() - recordingStart
-
-      if (elapsed >= MAX_RECORDING_MS) { finish(); return }
-
-      if (rms < SILENCE_THRESHOLD) {
-        if (silenceStart === null) silenceStart = Date.now()
-        else if (elapsed >= MIN_RECORDING_MS && Date.now() - silenceStart >= SILENCE_DURATION_MS) {
-          finish()
-        }
-      } else {
-        silenceStart = null
-      }
-    }, 100)
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) fallbackChunksRef.current.push(e.data) }
 
     recorder.onstop = async () => {
-      activeRef.current = false
-      cleanup()
+      stream.getTracks().forEach((track) => track.stop())
+      recorderRef.current = null
       setIsListening(false)
 
-      const elapsed = Date.now() - recordingStart
-      if (elapsed < MIN_RECORDING_MS || chunks.length === 0) {
-        onEmpty?.()
-        return
-      }
+      const chunks = fallbackChunksRef.current
+      fallbackChunksRef.current = []
+      if (chunks.length === 0) return
 
-      const blob = new Blob(chunks, { type: mimeType })
+      setIsTranscribing(true)
       try {
+        const blob = new Blob(chunks, { type: mimeType })
         const res = await fetch(`${API_URL}/api/stt`, {
           method: 'POST',
           headers: { 'Content-Type': mimeType },
           body: blob,
         })
-        if (!res.ok) throw new Error(`STT request failed: ${res.status}`)
-        const data = await res.json()
-        const transcript = (data.transcript || '').trim()
-        if (transcript) onResult?.(transcript)
-        else onEmpty?.()
-      } catch (err) {
-        onError?.(err)
+        if (res.ok) {
+          const data = await res.json()
+          setLiveTranscript((data.transcript || '').trim())
+          if (typeof data.confidence === 'number' && data.confidence > 0 && data.confidence < LOW_CONFIDENCE_THRESHOLD) {
+            setLowConfidence(true)
+          }
+        }
+        // A non-OK response just leaves liveTranscript empty — the learner
+        // sees an empty bar and can try again or type instead, same as if
+        // nothing had been heard.
+      } catch {
+        /* network/backend failure — same graceful no-op as above */
+      } finally {
+        setIsTranscribing(false)
       }
     }
 
     recorder.start()
+    fallbackTimeoutRef.current = setTimeout(() => {
+      if (recorder.state !== 'inactive') recorder.stop()
+    }, FALLBACK_MAX_RECORDING_MS)
     setIsListening(true)
-  }, [cleanup, onResult, onEmpty, onError, onPermissionDenied, externalStream])
+  }, [])
 
-  const stopListening = useCallback(() => {
-    activeRef.current = false
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop()
-    } else {
-      cleanup()
-    }
-    setIsListening(false)
-  }, [cleanup])
+  const startListening = useCallback(() => {
+    if (canUseNativeSpeech) startListeningNative()
+    else if (canUseMediaRecorderFallback) startListeningFallback()
+  }, [startListeningNative, startListeningFallback])
 
-  return { isListening, startListening, stopListening, canRecord }
+  return {
+    isListening,
+    isTranscribing,
+    startListening,
+    stopListening,
+    liveTranscript,
+    lowConfidence,
+    canRecord,
+    // Lets a caller adjust copy/placeholders — the fallback path has no live
+    // fill, only a transcribing step after you stop.
+    usesLiveCaptions: canUseNativeSpeech,
+  }
 }

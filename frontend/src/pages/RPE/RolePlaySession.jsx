@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Joyride, STATUS } from 'react-joyride'
 import { ArrowLeft, Send, Loader2, Smile, Meh, AlertCircle, AlertTriangle, Frown, HelpCircle, Angry, Brain, Mic, MicOff, MessageCircle, X, Paperclip, Video, VideoOff, Activity } from 'lucide-react'
 import Webcam from 'react-webcam'
@@ -11,9 +11,10 @@ import { cn } from '@/lib/utils'
 import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
 import SessionLoadingScreen from '@/components/RPE/SessionLoadingScreen'
 import ResponseChoiceCards from '@/components/RPE/ResponseChoiceCards'
-import { useVoiceRecorder, canRecord } from '@/hooks/useVoiceRecorder'
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder'
 import { useNudgeSensing } from '@/hooks/useNudgeSensing'
 import { getAvatarOption, pickNpcAvatar, pickNpcProfileImage } from '@/lib/rpe/npcAvatars'
+import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme'
 
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
@@ -76,14 +77,14 @@ const sessionTourSteps = [
   },
   {
     target: '[data-tour="rpe-session-voice"]',
-    title: 'Voice or text',
-    content: "Speak naturally and it's transcribed automatically, or switch to typing any time.",
+    title: 'Talk or type',
+    content: "Tap the mic to talk — your words fill in live as you speak. Tap it again to stop, review or edit what it heard, then hit Send. Or just type instead, any time.",
     placement: 'bottom',
   },
   {
     target: '[data-tour="rpe-session-sensing"]',
     title: 'Live coaching nudges',
-    content: 'Turn on your camera for gentle real-time nudges about your tone and body language while you talk — fully optional.',
+    content: "Turn on your camera for gentle real-time nudges about your tone and body language while you talk — fully optional.",
     placement: 'bottom',
   },
   {
@@ -100,35 +101,6 @@ const sessionTourSteps = [
   },
 ]
 
-// See ScenarioSelect.jsx's identical constants for why this is a fixed
-// bright card rather than a dark tooltip (Joyride portals outside .rpe-vs's
-// own theme scope) and why options live in their own top-level prop rather
-// than nested under styles (that's what react-joyride's getMergedStep
-// actually reads for primaryColor/backgroundColor/textColor/scrollOffset/etc).
-const joyrideOptions = {
-  zIndex: 10000,
-  primaryColor: '#7C3AED',
-  backgroundColor: '#FFFFFF',
-  textColor: '#241E38',
-  arrowColor: '#FFFFFF',
-  overlayColor: 'rgba(6,8,12,0.72)',
-  scrollOffset: 72, // clears the app shell's 48px sticky topbar (index.css .topbar)
-}
-
-const joyrideStyles = {
-  tooltip: { borderRadius: 12, fontSize: 13.5, padding: 20 },
-  tooltipTitle: { fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#241E38' },
-  tooltipContent: { color: '#5E5678', padding: '8px 0' },
-  tooltipFooter: { marginTop: 16 },
-  buttonNext: { borderRadius: 8, fontSize: 12.5, fontWeight: 700, padding: '8px 16px', backgroundColor: '#7C3AED', color: '#fff' },
-  buttonBack: { color: '#8D84A8', fontSize: 12.5, marginRight: 10 },
-  buttonSkip: { color: '#8D84A8', fontSize: 12 },
-  // The close "x" icon's fill comes from this color, not options.textColor
-  // directly (see react-joyride's JoyrideTooltipCloseButton) — pin it
-  // explicitly so it can't end up defaulting to something illegible.
-  buttonClose: { color: '#241E38' },
-}
-
 const END_REASON_COPY = {
   natural_resolution: { icon: '✅', title: 'Conversation Resolved',    sub: 'You reached a natural, positive conclusion.' },
   user_exit_intent:   { icon: '👋', title: 'Session Ended',            sub: 'You chose to end the conversation.' },
@@ -143,8 +115,15 @@ const formatDuration = (totalSeconds) => {
   return `${m}:${s}`
 }
 
-export default function RolePlaySession() {
-  const location = useLocation()
+// The actual session screen — always mounted with a complete navState,
+// whether that came straight from ScenarioSelect's navigate() (fresh start)
+// or was reconstructed by the RolePlaySession wrapper below (a refresh or a
+// direct link to an in-progress session's URL). Keeping that reconstruction
+// entirely in the wrapper means every hook and lazy useState initializer
+// here — several of which (npcAvatar, npcProfileImage, recommendedTurns)
+// deliberately resolve once at mount and never again — always sees final
+// data on the very first render, fresh start or recovered.
+function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory }) {
   const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
   const {
@@ -152,7 +131,7 @@ export default function RolePlaySession() {
     totalTurns, npcRole, npcGender, npcName, avatarId, failureEscalationThreshold,
     recommendedTurns: recommendedTurnsFromState,
     maxTurns:         maxTurnsFromState,
-  } = location.state || {}
+  } = navState || {}
 
   // The learner may have picked a specific avatar (+ name) from the
   // scenario's "view details" screen — avatarId carries that choice through
@@ -162,7 +141,7 @@ export default function RolePlaySession() {
   // every render.
   const chosenAvatarOption = avatarId ? getAvatarOption(avatarId) : null
   const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender))
-  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender))
+  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender, npcRole, scenarioTitle))
   // npcName is the backend's *effective* name (custom or scenario.npc_role,
   // already resolved server-side) — always display-ready, no local fallback
   // logic needed here beyond the pre-existing-session-state edge case.
@@ -170,10 +149,7 @@ export default function RolePlaySession() {
 
   const bottomRef            = useRef(null)
   const transcriptRef        = useRef(null)
-  const startListeningRef    = useRef(() => {})
-  const stopListeningRef     = useRef(() => {})
-  const shouldListenRef      = useRef(false)
-  const listenFailuresRef    = useRef(0)
+  const replyInputRef        = useRef(null)
   const isNearBottomRef      = useRef(true)
   const completeTimeoutRef   = useRef(null)
   const completeNavStateRef  = useRef(null)
@@ -190,7 +166,6 @@ export default function RolePlaySession() {
   const [endReason, setEndReason]             = useState(null)
   const [showScrollPill, setShowScrollPill]   = useState(false)
   const [elapsedSeconds, setElapsedSeconds]   = useState(0)
-  const [autoMicEnabled, setAutoMicEnabled] = useState(canRecord)
   const [npcSpeaking, setNpcSpeaking]       = useState(false)
   // Set when the NPC's last line asked the user to hand over something
   // concrete — replaces the mic/manual-input with tappable reply cards for
@@ -332,16 +307,12 @@ export default function RolePlaySession() {
   const speakOpeningLine = useCallback(() => {
     if (openingSpokenRef.current) return
     openingSpokenRef.current = true
-    speak(openingNpcLine).then(() => {
-      if (autoMicEnabled) startListeningRef.current()
-    })
-  }, [speak, openingNpcLine, autoMicEnabled])
+    speak(openingNpcLine)
+  }, [speak, openingNpcLine])
 
   const handleSendWithText = useCallback(async (rawInput, deliverableLabel) => {
     const input = (rawInput ?? '').trim()
     if (!input || isLoading || sessionComplete) return
-
-    stopListeningRef.current()
 
     setMessages(prev => [...prev, { role: 'user', message: input, deliverableLabel }])
     setUserInput('')
@@ -363,8 +334,6 @@ export default function RolePlaySession() {
       ])
 
       if (response.session_complete) {
-        shouldListenRef.current = false
-
         // Hand the finished session to the analytics module straight away, so
         // scores, XP and the adapted training plan are ready without the learner
         // having to open an analytics page first. Fire-and-forget by design: it
@@ -410,8 +379,6 @@ export default function RolePlaySession() {
         await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
         if (response.requests_deliverable && response.response_options?.length >= 2) {
           setChoiceOptions(response.response_options)
-        } else if (autoMicEnabled) {
-          startListeningRef.current()
         }
       }
     } catch (err) {
@@ -419,11 +386,10 @@ export default function RolePlaySession() {
         ...prev,
         { role: 'npc', message: `[System error: ${err.message}]` },
       ])
-      if (autoMicEnabled && !sessionComplete) startListeningRef.current()
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, sessionComplete, sessionId, autoMicEnabled, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate, isAuthenticated, user])
+  }, [isLoading, sessionComplete, sessionId, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate, isAuthenticated, user])
 
   const handleChooseOption = useCallback((option) => {
     setChoiceOptions(null)
@@ -440,63 +406,65 @@ export default function RolePlaySession() {
   // Reuses MCA's live behavioral-sensing pipeline (camera/face-mesh + a
   // continuous mic stream feeding the nudge-analysis socket) so the same
   // real-time coaching nudges can surface over a role-play conversation.
-  // Off by default; the learner opts in with one combined toggle (camera +
-  // mic together, since nudges depend on the audio+visual fusion analyzer).
-  // Declared before useVoiceRecorder below so its audioStream is available
-  // to share — see that hook's own comment for why.
+  // Auto-starts with the simulation; the learner can still turn it off via
+  // the pill, and independently hide just the face-mesh overlay on the
+  // camera preview via showMesh (the raw feed stays visible either way —
+  // see useNudgeSensing's onResults).
+  const [showMesh, setShowMesh] = useState(true)
   const {
-    webcamRef, canvasRef, nudges, isCameraActive, audioStream,
+    webcamRef, canvasRef, nudges, isCameraActive,
     toggleCamera, toggleMic, dismissNudge,
-  } = useNudgeSensing({ persistMicConnection: true })
+  } = useNudgeSensing({ persistMicConnection: true, showMesh })
 
   const handleToggleSensing = useCallback(() => {
     toggleCamera()
     toggleMic()
   }, [toggleCamera, toggleMic])
 
-  const { isListening, startListening: startRecording, stopListening } = useVoiceRecorder({
-    onResult: (transcript) => {
-      listenFailuresRef.current = 0
-      handleSendWithText(transcript)
-    },
-    // Recorded but nothing understood (silence/noise only) — just listen again.
-    onEmpty: () => {
-      if (shouldListenRef.current) setTimeout(() => startListeningRef.current(), 300)
-    },
-    // /api/stt request failed (network, backend, Google STT) — retry like
-    // SpeechRecognition's old 'network' error, then give up after 3 strikes.
-    onError: () => {
-      listenFailuresRef.current += 1
-      if (listenFailuresRef.current >= 3) {
-        listenFailuresRef.current = 0
-        setAutoMicEnabled(false)
-      } else if (shouldListenRef.current) {
-        setTimeout(() => startListeningRef.current(), 300)
-      }
-    },
-    onPermissionDenied: () => setAutoMicEnabled(false),
-    // When coaching is on, reuse its mic stream for this turn's recording
-    // instead of opening a second device stream — the same "one stream, many
-    // recorders" pattern MCA's own transcription loop uses internally. When
-    // coaching is off (the default), audioStream is null and this falls back
-    // to opening its own stream exactly as before — the conversation's own
-    // speech-to-text must keep working independent of the optional coaching
-    // toggle.
-    externalStream: audioStream,
-  })
+  // Manual, click-to-talk voice input — ports /baseline's AIChatbot capture
+  // mechanism directly (native SpeechRecognition, continuous + interim
+  // results — see useVoiceRecorder's own comment for why that replaced the
+  // backend-STT round trip this used before). Tap the mic, talk, watch the
+  // reply bar fill in live, tap again to stop, then review and hit Send
+  // yourself. Nothing here auto-starts or auto-sends — the old
+  // auto-restart-after-every-NPC-line loop misfired more than it helped.
+  const {
+    isListening, isTranscribing, startListening: toggleVoiceInput, stopListening: stopVoiceInput,
+    liveTranscript, lowConfidence, canRecord: micAvailable, usesLiveCaptions,
+  } = useVoiceRecorder()
 
-  const startListening = useCallback(() => {
-    if (!shouldListenRef.current) return
-    startRecording()
-  }, [startRecording])
-
+  // Syncs the reply bar to whatever the mic has captured so far. On browsers
+  // with native live captions this fires continuously while isListening is
+  // true; on the MediaRecorder/backend-STT fallback (no native
+  // SpeechRecognition) it only fires once, after stopping, once the
+  // transcription round trip resolves — isListening is already false by
+  // then, so this can't gate on it the way an earlier version did.
   useEffect(() => {
-    startListeningRef.current = startListening
-  }, [startListening])
+    setUserInput(liveTranscript)
+  }, [liveTranscript])
 
+  // Textareas don't grow with wrapped content on their own — rows={1} fixes
+  // the box at one line's height regardless of how much text is actually in
+  // it, so a longer reply (typed or spoken) just overflowed past the pill's
+  // rounded edge instead of the box growing to fit. Re-measure on every
+  // change (typing AND the live-fill effect above both land here) and let
+  // CSS's max-height/overflow-y take over with an internal scrollbar past
+  // that cap instead of growing forever.
   useEffect(() => {
-    stopListeningRef.current = stopListening
-  }, [stopListening])
+    const el = replyInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [userInput])
+
+  const handleToggleMic = useCallback(() => {
+    if (isListening) {
+      stopVoiceInput()
+    } else {
+      setUserInput('')
+      toggleVoiceInput()
+    }
+  }, [isListening, stopVoiceInput, toggleVoiceInput])
 
   // Nudges should only ever surface during the user's own speaking turn —
   // the fusion analyzer keeps running continuously in the background
@@ -514,40 +482,42 @@ export default function RolePlaySession() {
     }
   }, [nudges, isListening, dismissNudge])
 
-  // Manual override for the auto-mic detection — auto on/off can misfire
-  // (permission hiccup, a few failed STT requests) and there was previously
-  // no way back from "Text Mode" except reloading the page. This lets the
-  // user flip it themselves at any point in the session.
-  const handleToggleMic = useCallback(() => {
-    if (autoMicEnabled) {
-      setAutoMicEnabled(false)
-      stopListeningRef.current()
-    } else {
-      listenFailuresRef.current = 0
-      setAutoMicEnabled(true)
-      if (!npcSpeaking && !isLoading && !sessionComplete && !choiceOptions) {
-        startListeningRef.current()
-      }
-    }
-  }, [autoMicEnabled, npcSpeaking, isLoading, sessionComplete, choiceOptions])
-
   useEffect(() => {
     if (!sessionId) { navigate('/roleplay'); return }
     // The avatar stage wants the full width — collapse the app sidebar the
     // moment a session actually starts (AppLayout owns the real state).
     window.dispatchEvent(new Event('ez:collapse-sidebar'))
-    // Coaching (camera + nudge-sensing mic) starts on automatically with the
+    // Coaching (nudge-sensing mic) starts on automatically with the
     // simulation — the learner no longer has to remember to opt in each
     // session; they can still turn it off manually via the pill if they want.
     // Guarded by a ref (not just the [] deps below) because StrictMode's dev
     // double-invoke of this effect would otherwise call the relative
-    // toggleCamera/toggleMic twice in the same tick and cancel itself out.
+    // toggleMic twice in the same tick and cancel itself out.
     if (!sensingAutoStartedRef.current) {
       sensingAutoStartedRef.current = true
       handleToggleSensing()
     }
-    shouldListenRef.current = true
-    setMessages([{ role: 'npc', message: openingNpcLine }])
+
+    if (recoveredTurns?.length) {
+      // Resuming after a refresh/reconnect — rebuild the transcript and live
+      // meters from what the backend already has instead of starting over.
+      const rebuilt = [{ role: 'npc', message: openingNpcLine }]
+      for (const t of recoveredTurns) {
+        rebuilt.push({ role: 'user', message: t.user_input })
+        rebuilt.push({ role: 'npc', message: t.npc_response, emotion: t.emotion })
+      }
+      setMessages(rebuilt)
+      setCurrentTurn(recoveredTurns.length)
+      setLiveTension(recoveredTurns[recoveredTurns.length - 1].escalation_level ?? 0)
+      if (recoveredTrustHistory?.length) {
+        setLiveTrust(recoveredTrustHistory[recoveredTrustHistory.length - 1])
+      }
+      // The opening line already played the first time this session was
+      // live; don't replay it just because the page reloaded.
+      openingSpokenRef.current = true
+    } else {
+      setMessages([{ role: 'npc', message: openingNpcLine }])
+    }
 
     if (!maxTurnsFromState) {
       rpeService.getSessionSummary(sessionId)
@@ -564,8 +534,7 @@ export default function RolePlaySession() {
     // avatar finishes loading and fall back to the robotic browser voice.
 
     return () => {
-      shouldListenRef.current = false
-      stopListeningRef.current()
+      stopVoiceInput()
       if (window.speechSynthesis) window.speechSynthesis.cancel()
       if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current)
     }
@@ -578,6 +547,10 @@ export default function RolePlaySession() {
       : endReason === 'npc_exit' || outcome === 'failure' ? 'failure'
       : 'natural'
 
+  // 'manual' covers the whole "it's the learner's turn" phase, typing or
+  // talking alike — isListening (see the mic-toggle bar below) is just an
+  // internal visual state within it now, not a separate top-level phase; the
+  // old auto-mic loop that made "listening" its own phase is gone.
   const voiceState = sessionComplete
     ? 'complete'
     : npcSpeaking
@@ -586,11 +559,7 @@ export default function RolePlaySession() {
         ? 'choice'
         : isLoading
           ? 'processing'
-          : isListening
-            ? 'listening'
-            : autoMicEnabled ? 'listening' : 'manual'
-
-  const voicePillLabel = autoMicEnabled ? 'Voice Active' : 'Text Mode'
+          : 'manual'
 
   return (
     <div className="rpe-vs" data-voice-state={voiceState} style={{ height: '100%' }}>
@@ -706,17 +675,6 @@ export default function RolePlaySession() {
               <div className="topbar-title">{scenarioTitle}</div>
               <button
                 type="button"
-                className={cn('voice-pill', !autoMicEnabled && 'muted')}
-                onClick={handleToggleMic}
-                disabled={!canRecord || sessionComplete}
-                title={autoMicEnabled ? 'Switch to manual text mode' : 'Switch to voice mode'}
-                data-tour="rpe-session-voice"
-              >
-                {autoMicEnabled ? <Mic size={12} strokeWidth={2} /> : <MicOff size={12} strokeWidth={2} />}
-                {voicePillLabel}
-              </button>
-              <button
-                type="button"
                 className={cn('sensing-pill', !isCameraActive && 'muted')}
                 onClick={handleToggleSensing}
                 title={isCameraActive ? 'Turn off camera' : 'Turn on camera for live nudges'}
@@ -737,6 +695,15 @@ export default function RolePlaySession() {
                   videoConstraints={{ facingMode: 'user', aspectRatio: 1.333333 }}
                 />
                 <canvas ref={canvasRef} className="camera-dock-canvas" />
+                <button
+                  type="button"
+                  className={cn('mesh-toggle-btn', !showMesh && 'muted')}
+                  onClick={() => setShowMesh((v) => !v)}
+                  title={showMesh ? 'Hide face tracking overlay' : 'Show face tracking overlay'}
+                  aria-label={showMesh ? 'Hide face mesh' : 'Show face mesh'}
+                >
+                  <Activity size={12} strokeWidth={2} />
+                </button>
               </div>
             )}
 
@@ -771,22 +738,32 @@ export default function RolePlaySession() {
                 <div className="state-text"><div className="state-title">{npcDisplayName} is speaking…</div></div>
               </div>
 
-              <div className="state-block state-listening">
-                <div className="listen-orb"><div className="ring" /><div className="ring r2" /><div className="dot" /></div>
-                <div className="state-text">
-                  <div className="state-title">Listening…</div>
-                  <div className="state-sub">Speak your response</div>
-                </div>
-              </div>
-
               <div className="state-block state-processing">
                 <div className="spinner-arc" />
                 <div className="state-text"><div className="state-title muted">Processing…</div></div>
               </div>
 
+              {/* Always the input for the learner's turn now — talk or type,
+                  same bar. Tap the mic to start; it live-fills the text below
+                  as you talk, tap again to stop, review/edit like any typed
+                  message, then hit Send yourself. Nothing here auto-sends. */}
               {voiceState === 'manual' && (
-                <div className="manual-bar">
+                <div className="manual-bar-wrap">
+                  <div className="manual-bar">
+                  <button
+                    type="button"
+                    onClick={handleToggleMic}
+                    disabled={!micAvailable || isTranscribing || isLoading || sessionComplete}
+                    className={cn('mic-toggle-btn', isListening && 'active')}
+                    title={isListening ? 'Stop and review before sending' : 'Tap to talk'}
+                    aria-label={isListening ? 'Stop listening' : 'Start talking'}
+                    data-tour="rpe-session-voice"
+                  >
+                    {isListening && <span className="mic-toggle-ring" />}
+                    {isListening ? <MicOff size={16} strokeWidth={1.8} /> : <Mic size={16} strokeWidth={1.8} />}
+                  </button>
                   <textarea
+                    ref={replyInputRef}
                     rows={1}
                     value={userInput}
                     onChange={(e) => setUserInput(e.target.value)}
@@ -796,19 +773,41 @@ export default function RolePlaySession() {
                         handleSendWithText(userInput)
                       }
                     }}
-                    disabled={isLoading || sessionComplete}
-                    placeholder="Voice unavailable, type your response…"
+                    disabled={isListening || isTranscribing || isLoading || sessionComplete}
+                    placeholder={
+                      isTranscribing
+                        ? 'Transcribing…'
+                        : isListening
+                          ? (usesLiveCaptions ? 'Listening…' : "Listening… I'll fill this in once you stop")
+                          : 'Type your response, or tap the mic to talk…'
+                    }
                     className="manual-input"
                   />
                   <button
                     type="button"
                     onClick={() => handleSendWithText(userInput)}
-                    disabled={!userInput.trim() || isLoading || sessionComplete}
+                    disabled={!userInput.trim() || isListening || isTranscribing || isLoading || sessionComplete}
                     className="manual-send"
                     aria-label="Send"
                   >
                     {isLoading ? <Loader2 size={16} strokeWidth={1.8} className="spin" /> : <Send size={16} strokeWidth={1.8} />}
                   </button>
+                  </div>
+
+                  {/* Confidence is the one real signal either capture path
+                      gives about whether it heard you right — there's no
+                      ground truth to check the transcript against, so this
+                      is a hint to re-read it before sending, never a block
+                      (confidence scoring from either backend is known to be
+                      inconsistent). Only shown once capture has fully
+                      settled — mid-listening or mid-transcribing it'd just
+                      flicker against a stale value. */}
+                  {!isListening && !isTranscribing && lowConfidence && userInput.trim() && (
+                    <p className="low-confidence-hint">
+                      <AlertTriangle size={12} strokeWidth={2} />
+                      Wasn't fully sure I heard that right — worth a quick read before sending.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1103,16 +1102,6 @@ export default function RolePlaySession() {
         .rpe-vs .back-btn:hover{ background:var(--surface-hi); color:var(--text-hi); }
         .rpe-vs .topbar-title{ font-size:12.5px; color:var(--text-hi); flex:1; text-align:center; letter-spacing:.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-shadow:var(--topbar-title-shadow, 0 1px 4px rgba(0,0,0,0.6)); }
 
-        .rpe-vs .voice-pill{
-          font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--success);
-          background:var(--overlay-chip-bg); border:1px solid rgba(63,185,80,0.3); backdrop-filter:blur(4px);
-          padding:5px 11px 5px 9px; border-radius:100px; display:flex; align-items:center; gap:7px; flex-shrink:0;
-          cursor:pointer; transition:filter .2s var(--ease), background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
-        }
-        .rpe-vs .voice-pill:hover:not(:disabled){ filter:brightness(1.15); }
-        .rpe-vs .voice-pill:disabled{ cursor:default; opacity:.55; }
-        .rpe-vs .voice-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
-
         .rpe-vs .sensing-pill{
           font-size:11px; font-weight:650; letter-spacing:.03em; color:var(--accent);
           background:var(--overlay-chip-bg); border:1px solid rgba(124,58,237,0.35); backdrop-filter:blur(4px);
@@ -1123,7 +1112,9 @@ export default function RolePlaySession() {
         .rpe-vs .sensing-pill.muted{ color:var(--text-med); background:var(--overlay-chip-bg); border-color:var(--border); }
 
         /* Compact learner-camera feed, docked beside the avatar — off by
-           default, opt-in via the "Coaching" pill above. */
+           default, opt-in via the "Coaching" pill above. The mesh-toggle
+           button only hides the wireframe overlay (see useNudgeSensing's
+           showMesh) — the raw feed keeps showing either way. */
         .rpe-vs .camera-dock{
           position:absolute; top:66px; left:20px; z-index:6;
           width:200px; aspect-ratio:4/3; border-radius:12px; overflow:hidden;
@@ -1133,6 +1124,14 @@ export default function RolePlaySession() {
         }
         @keyframes rpevsCameraDockIn{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:none; } }
         .rpe-vs .camera-dock-canvas{ width:100%; height:100%; object-fit:cover; display:block; }
+        .rpe-vs .mesh-toggle-btn{
+          position:absolute; top:6px; right:6px; z-index:2;
+          width:22px; height:22px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+          background:rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.15); color:#fff; cursor:pointer;
+          transition:background .2s ease, opacity .2s ease;
+        }
+        .rpe-vs .mesh-toggle-btn:hover{ background:rgba(0,0,0,0.75); }
+        .rpe-vs .mesh-toggle-btn.muted{ opacity:.45; }
 
         /* Nudge toasts — same severity language (critical/warning/info) and
            slide-in/stack behaviour as MCA's live coaching screen. Colors are
@@ -1281,7 +1280,6 @@ export default function RolePlaySession() {
 
         .rpe-vs .state-block{ display:none; align-items:center; gap:14px; }
         .rpe-vs[data-voice-state="speaking"] .state-speaking{ display:flex; }
-        .rpe-vs[data-voice-state="listening"] .state-listening{ display:flex; }
         .rpe-vs[data-voice-state="processing"] .state-processing{ display:flex; }
 
         .rpe-vs .wave{ display:flex; align-items:center; gap:3px; height:30px; }
@@ -1300,21 +1298,38 @@ export default function RolePlaySession() {
         .rpe-vs .state-title.muted{ color:var(--stage-text-med); }
         .rpe-vs .state-sub{ font-size:11.5px; color:var(--stage-text-med); }
 
-        .rpe-vs .listen-orb{ position:relative; width:30px; height:30px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-        .rpe-vs .listen-orb .ring{ position:absolute; inset:0; border-radius:50%; background:var(--stage-primary-glow); animation:rpevsOrbPulse 1.8s ease-out infinite; }
-        .rpe-vs .listen-orb .ring.r2{ animation-delay:.6s; background:rgba(68,147,248,0.28); }
-        .rpe-vs .listen-orb .dot{ width:10px; height:10px; border-radius:50%; background:var(--stage-primary); box-shadow:0 0 10px var(--stage-primary-glow-strong); z-index:1; }
         @keyframes rpevsOrbPulse{ 0%{ transform:scale(0.4); opacity:.9; } 100%{ transform:scale(2.2); opacity:0; } }
 
         .rpe-vs .spinner-arc{ width:22px; height:22px; border-radius:50%; border:2.5px solid var(--stage-border); border-top-color:var(--stage-primary); animation:rpevsSpin .75s linear infinite; }
         @keyframes rpevsSpin{ to{ transform:rotate(360deg); } }
         .rpe-vs .spin{ animation:rpevsSpin .75s linear infinite; }
 
-        .rpe-vs .manual-bar{ display:flex; gap:8px; width:100%; max-width:640px; align-items:flex-end; }
+        .rpe-vs .manual-bar-wrap{ display:flex; flex-direction:column; gap:6px; width:100%; max-width:640px; }
+        .rpe-vs .mic-toggle-btn{
+          position:relative; flex-shrink:0; width:38px; height:38px; border-radius:10px; cursor:pointer;
+          display:flex; align-items:center; justify-content:center; border:1px solid var(--stage-border);
+          background:var(--stage-surface-hi); color:var(--stage-text-hi);
+          transition:background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease);
+        }
+        .rpe-vs .mic-toggle-btn:hover:not(:disabled){ border-color:var(--stage-primary); }
+        .rpe-vs .mic-toggle-btn:disabled{ opacity:.4; cursor:default; }
+        .rpe-vs .mic-toggle-btn.active{
+          background:var(--stage-primary); border-color:transparent; color:#fff;
+        }
+        .rpe-vs .mic-toggle-ring{
+          position:absolute; inset:-4px; border-radius:12px; border:2px solid var(--stage-primary);
+          pointer-events:none; animation:rpevsMicPulse 1.6s ease-out infinite;
+        }
+        @keyframes rpevsMicPulse{ 0%{ transform:scale(0.9); opacity:.7; } 100%{ transform:scale(1.35); opacity:0; } }
+        .rpe-vs .manual-bar{ display:flex; gap:8px; width:100%; align-items:flex-end; }
+        .rpe-vs .low-confidence-hint{
+          display:flex; align-items:center; gap:6px; margin:0; padding:0 2px;
+          font-size:11px; color:var(--stage-warning); line-height:1.4;
+        }
         .rpe-vs .manual-input{
           flex:1; resize:none; background:var(--stage-surface-hi); border:1px solid var(--stage-border);
           border-radius:10px; padding:10px 12px; color:var(--stage-text-hi); font-size:13px; line-height:1.5;
-          font-family:inherit; min-height:38px; max-height:80px;
+          font-family:inherit; min-height:38px; max-height:120px; overflow-y:auto;
         }
         .rpe-vs .manual-input::placeholder{ color:var(--stage-text-low); }
         .rpe-vs .manual-input:focus{ outline:none; border-color:var(--stage-primary); }
@@ -1398,5 +1413,125 @@ export default function RolePlaySession() {
         }
       `}</style>
     </div>
+  )
+}
+
+// Resolves the URL's :sessionId into a full navState before RolePlaySessionInner
+// ever mounts. Two paths:
+//
+//   1. Fresh start — ScenarioSelect's navigate() already attached the full
+//      navState (scenario title, roles, opening line, ...) via router state,
+//      and it matches this URL's :sessionId. Render Inner immediately, same
+//      as before this existed — zero extra latency, zero extra requests.
+//
+//   2. Recovery — router state is missing (a hard refresh drops it) or
+//      belongs to a different session (a direct/bookmarked link to this
+//      URL). Re-fetch the session from the backend (it's the source of
+//      truth regardless — see rpe_session_service's dual Supabase/JSON
+//      persistence) plus its scenario, and rebuild the same shape of
+//      navState from that, along with the turns/trust history needed to
+//      restore the transcript and live meters. An already-finished session
+//      has nothing to resume, so that redirects to its feedback screen
+//      instead of trying to re-open a live chat.
+//
+// The one thing recovery can't restore is the specific avatar model/name
+// picked at "view details" time — that choice only ever lived in router
+// state, never persisted server-side — so a recovered session falls back to
+// a gender-matched random pick, same as a scenario started with no
+// customization at all.
+export default function RolePlaySession() {
+  const { sessionId: sessionIdParam } = useParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const freshNavState = location.state?.sessionId === sessionIdParam ? location.state : null
+
+  const [recovered, setRecovered] = useState(null)
+  const [recoveryError, setRecoveryError] = useState(null)
+
+  useEffect(() => {
+    if (freshNavState) return
+    if (!sessionIdParam) { navigate('/roleplay', { replace: true }); return }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const session = await rpeService.getSessionSummary(sessionIdParam)
+        if (session.ended_at) {
+          // Nothing left to resume — send them straight to the results
+          // they'd have landed on anyway had the session run to completion.
+          navigate(`/roleplay/feedback/${sessionIdParam}`, { replace: true })
+          return
+        }
+        const scenario = await rpeService.getScenarioDetail(session.scenario_id)
+        if (cancelled) return
+
+        setRecovered({
+          turns:        session.turns || [],
+          trustHistory: session.trust_history || [],
+          navState: {
+            sessionId:                  sessionIdParam,
+            openingNpcLine:             session.opening_npc_line,
+            scenarioTitle:              scenario.title,
+            difficulty:                 scenario.difficulty,
+            totalTurns:                 session.recommended_turns ?? scenario.recommended_turns,
+            recommendedTurns:           session.recommended_turns ?? scenario.recommended_turns,
+            maxTurns:                   session.max_turns ?? scenario.max_turns,
+            npcRole:                    scenario.npc_role,
+            npcGender:                  scenario.npc_gender,
+            npcName:                    session.npc_name,
+            failureEscalationThreshold: scenario.end_conditions?.failure_escalation_threshold,
+          },
+        })
+      } catch (err) {
+        if (!cancelled) setRecoveryError(err.message || "We couldn't reconnect to this session.")
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionIdParam])
+
+  if (freshNavState) {
+    return <RolePlaySessionInner navState={freshNavState} />
+  }
+
+  if (recoveryError) {
+    return (
+      <div className="rpe-recover-error">
+        <p className="rpe-recover-title">We couldn't reconnect to this session</p>
+        <p className="rpe-recover-sub">{recoveryError}</p>
+        <button type="button" onClick={() => navigate('/roleplay')} className="rpe-recover-btn">
+          Back to Practice Lab
+        </button>
+        <style>{`
+          .rpe-recover-error{
+            position:fixed; inset:0; z-index:100; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; gap:14px; text-align:center; padding:24px;
+            background:#0D1117; color:#F0F6FC;
+            font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+          }
+          .rpe-recover-title{ font-size:17px; font-weight:750; margin:0; }
+          .rpe-recover-sub{ font-size:13.5px; color:#8B949E; margin:0; max-width:360px; }
+          .rpe-recover-btn{
+            margin-top:8px; background:linear-gradient(135deg, #7C3AED, #9B6BFF); border:none; color:#fff;
+            font-size:13px; font-weight:650; padding:10px 20px; border-radius:10px; cursor:pointer;
+          }
+          :root[data-theme="light"] .rpe-recover-error{ background:#F5F3FD; color:#241E38; }
+          :root[data-theme="light"] .rpe-recover-sub{ color:#5E5678; }
+        `}</style>
+      </div>
+    )
+  }
+
+  if (!recovered) {
+    return <SessionLoadingScreen scenarioTitle="Reconnecting to your session…" visible />
+  }
+
+  return (
+    <RolePlaySessionInner
+      navState={recovered.navState}
+      recoveredTurns={recovered.turns}
+      recoveredTrustHistory={recovered.trustHistory}
+    />
   )
 }

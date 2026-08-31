@@ -207,6 +207,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
           background:var(--bg-card); border:1px solid var(--border); border-radius:18px;
           max-width:840px; width:100%; max-height:88vh; overflow-y:auto;
+          scrollbar-width:none; -ms-overflow-style:none;
           box-shadow:0 30px 70px rgba(0,0,0,0.5);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
           color:var(--text-hi);
@@ -214,12 +215,18 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           animation: rpeModalIn .3s cubic-bezier(0.22,1,0.36,1) forwards;
         }
         @keyframes rpeModalIn{ to{ opacity:1; transform:none; } }
-        .rpe-modal::-webkit-scrollbar{ width:8px; }
-        .rpe-modal::-webkit-scrollbar-thumb{ background:var(--bg-card-hi); border-radius:100px; }
+        .rpe-modal::-webkit-scrollbar{ display:none; }
 
         .rpe-modal .modal-header{
           position:sticky; top:0; z-index:1;
-          background:linear-gradient(90deg, rgba(124,58,237,0.08), var(--bg-card));
+          /* Solid, not a gradient into transparency — this is a sticky header
+             over scrolling content, and a gradient stop like
+             rgba(124,58,237,0.08) is still ~92% see-through, so scrolled
+             body text showed through it. background-color is the opaque
+             base; background-image layers the same subtle accent tint on
+             top without ever losing full coverage. */
+          background-color:var(--bg-card);
+          background-image:linear-gradient(90deg, rgba(124,58,237,0.08), transparent);
           border-bottom:1px solid var(--border);
           padding:20px 30px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
           border-radius:18px 18px 0 0;

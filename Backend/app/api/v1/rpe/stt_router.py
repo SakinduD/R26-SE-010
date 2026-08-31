@@ -1,9 +1,15 @@
 """
 stt_router.py
-Proxy endpoint for Google Cloud Speech-to-Text, used by RolePlaySession.jsx's
-voice input (frontend/src/hooks/useVoiceRecorder.js) to transcribe the
-user's spoken turns. Keeps GOOGLE_CLOUD_API_KEY server-side — the browser
-never sees it. Same key/pattern as tts_router.py's /gtts endpoint.
+Proxy endpoint for Google Cloud Speech-to-Text. Keeps GOOGLE_CLOUD_API_KEY
+server-side — the browser never sees it. Same key/pattern as
+tts_router.py's /gtts endpoint.
+
+Used today by MultimodalEngine.jsx's live-mode continuous transcription
+(scoring input for the LLM coach, not shown to the user as a chat message).
+RPE's own reply bar (frontend/src/hooks/useVoiceRecorder.js) no longer calls
+this — it now uses the browser's built-in SpeechRecognition (Web Speech API)
+directly, client-side, no key involved; see that hook's own docstring for
+why (mirrors /baseline's AIChatbot, which has always worked that way).
 
 The browser records one utterance with MediaRecorder (audio/webm;codecs=opus)
 and POSTs the raw audio bytes as the request body. This endpoint base64-encodes
@@ -45,6 +51,7 @@ async def transcribe_speech(request: Request) -> JSONResponse:
             "sampleRateHertz": 48000,
             "languageCode": "en-US",
             "model": "latest_short",
+            "enableAutomaticPunctuation": True,
         },
         "audio": {"content": base64.b64encode(audio_bytes).decode("ascii")},
     }
@@ -65,10 +72,19 @@ async def transcribe_speech(request: Request) -> JSONResponse:
         raise HTTPException(status_code=502, detail="Speech recognition failed")
 
     data = response.json()
-    transcript = " ".join(
-        result["alternatives"][0]["transcript"]
-        for result in data.get("results", [])
-        if result.get("alternatives")
-    ).strip()
+    results = [r for r in data.get("results", []) if r.get("alternatives")]
+    transcript = " ".join(r["alternatives"][0]["transcript"] for r in results).strip()
 
-    return JSONResponse(content={"transcript": transcript})
+    # Lowest confidence across all result chunks — mirrors the same
+    # conservative "did any part sound uncertain" signal RPE's native
+    # SpeechRecognition path already surfaces (see useVoiceRecorder.js).
+    # Google only reliably populates this for is_final results, which a
+    # synchronous recognize call always returns, so no filtering needed here.
+    confidences = [
+        r["alternatives"][0]["confidence"]
+        for r in results
+        if isinstance(r["alternatives"][0].get("confidence"), (int, float))
+    ]
+    confidence = min(confidences) if confidences else None
+
+    return JSONResponse(content={"transcript": transcript, "confidence": confidence})

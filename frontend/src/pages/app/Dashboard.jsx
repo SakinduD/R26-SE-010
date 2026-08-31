@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Brain, ArrowRight, CheckCircle2, Clock, ClipboardList, Mic, Target } from 'lucide-react';
+import { Joyride, STATUS } from 'react-joyride';
+import { Brain, ArrowRight, CheckCircle2, Clock, ClipboardList, Lock, Mic, Target } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { getMyProfile } from '@/lib/api/survey';
@@ -18,6 +19,41 @@ import KeyValuePair from '@/components/ui/KeyValuePair';
 import Button from '@/components/ui/Button';
 import { useAchievements } from '@/lib/achievements/AchievementsContext';
 import { showAchievementToasts } from '@/components/achievements/AchievementToast';
+import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme';
+
+// First-visit walkthrough of the dashboard — gated by localStorage so it only
+// ever runs once per browser. Only starts once isLoading is false (below),
+// since every target here is inside the stat row / two main panels that
+// don't exist yet during the loading skeleton.
+const TOUR_SEEN_KEY = 'ez_tour_dashboard_seen';
+
+const dashboardTourSteps = [
+  {
+    target: '[data-tour="dash-welcome"]',
+    title: 'Your training hub',
+    content: "Everything about your progress lives here — your profile, your plan, and quick links back into practice.",
+    placement: 'bottom',
+    disableBeacon: true,
+  },
+  {
+    target: '[data-tour="dash-stats"]',
+    title: 'At a glance',
+    content: 'How complete your personality profile is, whether your training plan is active, and how many practice sessions you\'ve logged this week.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="dash-profile"]',
+    title: 'Your personality profile',
+    content: 'Once you take the assessment, your OCEAN traits show up here — this is what tailors every practice scenario to you specifically.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="dash-continue"]',
+    title: 'Jump back in',
+    content: 'Your fastest way back into training, plus the milestones below — assessment, then voice baseline, then multimodal, then role-play. Each one becomes available once the step before it is done, so "Not yet" just means that one\'s next in line.',
+    placement: 'left',
+  },
+]
 
 /** Compact OCEAN summary shown once the user has a profile. */
 function OceanSummaryCard({ profile }) {
@@ -77,8 +113,19 @@ function OceanSummaryCard({ profile }) {
   );
 }
 
-// undefined = loading, null = not taken/not found, object = exists
-function BaselineStatusRow({ baseline }) {
+const LOCKED_ROW = (
+  <span style={{ fontSize: 12, color: 'var(--text-quaternary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+    <Lock size={10} strokeWidth={2} />
+    Not yet
+  </span>
+);
+
+// undefined = loading, null = not taken/not found, object = exists.
+// locked = an earlier step in the assessment → baseline → multimodal →
+// role-play flow isn't done yet, so this one isn't actionable regardless of
+// its own state.
+function BaselineStatusRow({ baseline, locked = false }) {
+  if (locked) return LOCKED_ROW;
   if (baseline === undefined) {
     return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>…</span>;
   }
@@ -114,7 +161,8 @@ function BaselineStatusRow({ baseline }) {
 }
 
 // state: undefined = loading, false = not done yet, true = done
-function MilestoneStatusRow({ state, to }) {
+function MilestoneStatusRow({ state, to, locked = false }) {
+  if (locked) return LOCKED_ROW;
   if (state === undefined) {
     return <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>…</span>;
   }
@@ -134,6 +182,35 @@ function MilestoneStatusRow({ state, to }) {
       <CheckCircle2 size={11} strokeWidth={2} />
       Complete
     </span>
+  );
+}
+
+/** Same footprint as StatCard (padding:16, label/value/hint stack) so the
+ *  real content doesn't jump around once loading resolves. */
+function StatCardSkeleton() {
+  return (
+    <Card style={{ padding: 16 }}>
+      <div className="skel" style={{ height: 10, width: 90, marginBottom: 10 }} />
+      <div className="skel" style={{ height: 26, width: 60, marginBottom: 10 }} />
+      <div className="skel" style={{ height: 10, width: 120 }} />
+    </Card>
+  );
+}
+
+/** Generic loading placeholder for the two main dashboard panels — a title
+ *  bar plus a handful of content lines, last one shorter for a natural look. */
+function PanelSkeleton({ lines = 4 }) {
+  return (
+    <Card>
+      <div className="skel" style={{ height: 11, width: 140, marginBottom: 18 }} />
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="skel"
+          style={{ height: 14, width: i === lines - 1 ? '55%' : '90%', marginBottom: i === lines - 1 ? 0 : 12 }}
+        />
+      ))}
+    </Card>
   );
 }
 
@@ -209,9 +286,31 @@ export default function Dashboard() {
     year: 'numeric',
   });
 
-  // Profile completion summary for the StatCard row
-  const profileComplete =
-    profile === undefined ? '…' : profile ? '100' : '0';
+  // Gates the stat row and the two main panels behind a skeleton until every
+  // async piece they read has resolved — previously each one rendered its
+  // own "…"/"Loading…" placeholder independently, so the page showed a
+  // half-populated dashboard for a moment on every load instead of either a
+  // clean loading state or the real numbers.
+  const isLoading =
+    profile === undefined || baseline === undefined || rpeSessions === undefined || mcaSessions === undefined
+
+  const [runTour, setRunTour] = useState(false)
+  useEffect(() => {
+    if (isLoading) return
+    try {
+      if (localStorage.getItem(TOUR_SEEN_KEY) === 'true') return
+    } catch {
+      return
+    }
+    setRunTour(true)
+  }, [isLoading])
+
+  const handleTourCallback = (data) => {
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
+      setRunTour(false)
+      try { localStorage.setItem(TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+    }
+  }
 
   return (
     <motion.div
@@ -220,104 +319,138 @@ export default function Dashboard() {
       animate="animate"
       className="page page-wide"
     >
+      <Joyride
+        steps={dashboardTourSteps}
+        run={runTour}
+        continuous
+        showSkipButton
+        showProgress
+        callback={handleTourCallback}
+        options={joyrideOptions}
+        styles={joyrideStyles}
+      />
+
       <PageHead
+        data-tour="dash-welcome"
         eyebrow={today}
         title={`Welcome back, ${displayName}.`}
         sub="Your training is calibrated to your current profile. Continue where you left off."
       />
 
       {/* Top stat row */}
-      <motion.div variants={fadeInUp} className="grid-3" style={{ marginBottom: 16 }}>
-        <StatCard
-          label="OCEAN Profile"
-          value={profileComplete}
-          unit="%"
-          hint={
-            profile === undefined
-              ? 'Loading…'
-              : profile
-                ? 'Complete · BFI-44'
-                : 'Take the assessment'
-          }
-        />
-        <StatCard
-          label="Training Plan"
-          value={profile ? 'Active' : '—'}
-          mono={false}
-          hint={profile ? 'Generated from profile' : 'Generate after assessment'}
-        />
-        <StatCard
-          label="Sessions this week"
-          value={sessionsThisWeek === undefined ? '…' : sessionsThisWeek}
-          hint="Role-play + multimodal"
-        />
+      <motion.div variants={fadeInUp} className="grid-3" style={{ marginBottom: 16 }} data-tour="dash-stats">
+        {isLoading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="OCEAN Profile"
+              value={profile ? '100' : '0'}
+              unit="%"
+              hint={profile ? 'Complete · BFI-44' : 'Take the assessment'}
+            />
+            <StatCard
+              label="Training Plan"
+              value={
+                profile ? (
+                  'Active'
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Lock size={20} strokeWidth={1.8} />
+                    Not yet
+                  </span>
+                )
+              }
+              mono={false}
+              hint={profile ? 'Generated from profile' : 'Available after the assessment'}
+            />
+            <StatCard label="Sessions this week" value={sessionsThisWeek} hint="Role-play + multimodal" />
+          </>
+        )}
       </motion.div>
 
       {/* Main two-column area */}
       <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
-        {/* Profile card or empty state */}
-        {profile ? (
-          <OceanSummaryCard profile={profile} />
-        ) : profile === undefined ? (
-          <Card>
-            <div className="t-over" style={{ marginBottom: 8 }}>Personality profile</div>
-            <div className="t-body" style={{ color: 'var(--text-tertiary)' }}>Loading your profile…</div>
-          </Card>
+        {isLoading ? (
+          <>
+            <PanelSkeleton lines={5} />
+            <PanelSkeleton lines={6} />
+          </>
         ) : (
-          <Card>
-            <EmptyState
-              icon={ClipboardList}
-              title="Begin assessment to unlock your training plan"
-              description="44 statements. About 5 minutes. Results power your personalised AI training scenarios."
-              action={
-                <Link to="/survey" className="btn btn-primary btn-lg">
-                  <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    Take the assessment
-                    <ArrowRight size={14} strokeWidth={1.8} />
+          <>
+            {/* Profile card or empty state */}
+            <div data-tour="dash-profile">
+              {profile ? (
+                <OceanSummaryCard profile={profile} />
+              ) : (
+                <Card>
+                  <EmptyState
+                    icon={ClipboardList}
+                    title="Begin assessment to build your training plan"
+                    description="44 statements. About 5 minutes. Results power your personalised AI training scenarios."
+                    action={
+                      <Link to="/survey" className="btn btn-primary btn-lg">
+                        <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          Take the assessment
+                          <ArrowRight size={14} strokeWidth={1.8} />
+                        </span>
+                      </Link>
+                    }
+                  />
+                </Card>
+              )}
+            </div>
+
+            {/* Continue training card */}
+            <Card variant="accent" data-tour="dash-continue">
+              <div className="t-over" style={{ marginBottom: 8, color: 'var(--accent)' }}>Continue training</div>
+              <div className="t-h3" style={{ marginBottom: 4 }}>
+                {profile ? 'Start your next session' : 'Profile required'}
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
+                {profile
+                  ? 'Your training plan is calibrated to your OCEAN profile.'
+                  : 'Complete the assessment for personalised practice scenarios.'}
+              </p>
+
+              {profile ? (
+                <Link to="/training-plan" className="btn btn-primary">
+                  <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Target size={14} strokeWidth={1.8} />
+                    Open training plan
                   </span>
                 </Link>
-              }
-            />
-          </Card>
+              ) : (
+                <Link to="/survey" className="btn btn-primary">
+                  <span className="btn-label">Begin assessment</span>
+                </Link>
+              )}
+
+              <div className="divider" style={{ margin: '20px 0 14px' }} />
+              <div className="t-over" style={{ marginBottom: 8 }}>Next milestones</div>
+              {/* This mirrors the system's actual required order — assessment
+                  → voice baseline → multimodal → role-play — so each row only
+                  ever unlocks once everything before it is genuinely done,
+                  rather than showing every unstarted step as a bare "—". */}
+              <KeyValuePair
+                k="Voice baseline"
+                v={<BaselineStatusRow baseline={baseline} locked={!profile} />}
+              />
+              <KeyValuePair
+                k="Multimodal session"
+                v={<MilestoneStatusRow state={hasMultimodalSession} to="/multimodal-analysis" locked={!profile || !baseline} />}
+              />
+              <KeyValuePair
+                k="First role-play"
+                v={<MilestoneStatusRow state={hasRoleplay} to="/roleplay" locked={!profile || !baseline || !hasMultimodalSession} />}
+              />
+            </Card>
+          </>
         )}
-
-        {/* Continue training card */}
-        <Card variant="accent">
-          <div className="t-over" style={{ marginBottom: 8, color: 'var(--accent)' }}>Continue training</div>
-          <div className="t-h3" style={{ marginBottom: 4 }}>
-            {profile ? 'Start your next session' : 'Profile required'}
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
-            {profile
-              ? 'Your training plan is calibrated to your OCEAN profile.'
-              : 'Complete the assessment to unlock personalised practice scenarios.'}
-          </p>
-
-          {profile ? (
-            <Link to="/training-plan" className="btn btn-primary">
-              <span className="btn-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Target size={14} strokeWidth={1.8} />
-                Open training plan
-              </span>
-            </Link>
-          ) : (
-            <Link to="/survey" className="btn btn-primary">
-              <span className="btn-label">Begin assessment</span>
-            </Link>
-          )}
-
-          <div className="divider" style={{ margin: '20px 0 14px' }} />
-          <div className="t-over" style={{ marginBottom: 8 }}>Next milestones</div>
-          <KeyValuePair k="Voice baseline" v={profile ? <BaselineStatusRow baseline={baseline} /> : '—'} />
-          <KeyValuePair
-            k="First role-play"
-            v={profile ? <MilestoneStatusRow state={hasRoleplay} to="/roleplay" /> : '—'}
-          />
-          <KeyValuePair
-            k="Multimodal session"
-            v={profile ? <MilestoneStatusRow state={hasMultimodalSession} to="/multimodal-analysis" /> : '—'}
-          />
-        </Card>
       </motion.div>
 
       {/* Account info */}

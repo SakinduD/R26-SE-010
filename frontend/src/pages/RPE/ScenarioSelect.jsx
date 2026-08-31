@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
 import { cn } from '@/lib/utils'
+import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme'
 
 // First-visit walkthrough of this landing page — gated by localStorage so it
 // only ever runs once per browser, not once per session. Kept separate from
@@ -47,43 +48,6 @@ const scenarioSelectTourSteps = [
     placement: 'top',
   },
 ]
-
-// Joyride's tooltip/overlay portal to document.body, outside .rpe-cinema's
-// own scope, so it can't just inherit this page's --surface/--text-hi theme
-// tokens. A dark tooltip read fine against a light-mode page but all but
-// disappeared against the dark-mode page's own dark backdrop dimming — so
-// this stays a fixed bright card instead, which pops against a dimmed
-// backdrop regardless of which theme that backdrop is.
-//
-// primaryColor/backgroundColor/textColor/arrowColor/overlayColor/scrollOffset
-// are read from the top-level `options` prop (see getMergedStep in
-// react-joyride's source) — NOT from `styles.options`. They were nested
-// under `styles` before, so none of them ever actually applied; Next kept
-// rendering with the library's own default black primaryColor regardless of
-// what was set here.
-const joyrideOptions = {
-  zIndex: 10000,
-  primaryColor: '#7C3AED',
-  backgroundColor: '#FFFFFF',
-  textColor: '#241E38',
-  arrowColor: '#FFFFFF',
-  overlayColor: 'rgba(6,8,12,0.72)',
-  scrollOffset: 72, // clears the app shell's 48px sticky topbar (index.css .topbar)
-}
-
-const joyrideStyles = {
-  tooltip: { borderRadius: 12, fontSize: 13.5, padding: 20 },
-  tooltipTitle: { fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#241E38' },
-  tooltipContent: { color: '#5E5678', padding: '8px 0' },
-  tooltipFooter: { marginTop: 16 },
-  buttonNext: { borderRadius: 8, fontSize: 12.5, fontWeight: 700, padding: '8px 16px', backgroundColor: '#7C3AED', color: '#fff' },
-  buttonBack: { color: '#8D84A8', fontSize: 12.5, marginRight: 10 },
-  buttonSkip: { color: '#8D84A8', fontSize: 12 },
-  // The close "x" icon's fill comes from this color, not options.textColor
-  // directly (see react-joyride's JoyrideTooltipCloseButton) — pin it
-  // explicitly so it can't end up defaulting to something illegible.
-  buttonClose: { color: '#241E38' },
-}
 
 const DIFFICULTY_TONE = {
   beginner:     'success',
@@ -285,7 +249,7 @@ export default function ScenarioSelect() {
         isAuthenticated && user ? user.id : null,
         customization?.npcName
       )
-      navigate('/roleplay/session', {
+      navigate(`/roleplay/session/${response.session_id}`, {
         state: {
           sessionId:                   response.session_id,
           openingNpcLine:              response.opening_npc_line,
