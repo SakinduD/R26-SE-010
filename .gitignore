@@ -59,3 +59,4 @@ training/feedback_analytics/models/*
 PROJECT_CONTEXT.md
 MCA_Scoring_Methodology.docx
 .claude/launch.json
+/Backend/app/models/rpe/scenarios

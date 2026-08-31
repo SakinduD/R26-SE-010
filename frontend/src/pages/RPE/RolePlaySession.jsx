@@ -265,6 +265,35 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
     setShowScrollPill(!nearBottom)
   }
 
+  // Manual, click-to-talk voice input — ports /baseline's AIChatbot capture
+  // mechanism directly (native SpeechRecognition, continuous + interim
+  // results — see useVoiceRecorder's own comment for why that replaced the
+  // backend-STT round trip this used before). Tap the mic, talk, watch the
+  // reply bar fill in live, tap again to stop, then review and hit Send
+  // yourself. Declared up here (rather than next to handleToggleMic further
+  // down) because speak()/speakOpeningLine() below need autoStartMic in
+  // their dependency arrays, which are evaluated immediately at render time
+  // — a `const` declared later in the component is still in its temporal
+  // dead zone at that point, so this can't live after them.
+  const {
+    isListening, isTranscribing, startListening: toggleVoiceInput, stopListening: stopVoiceInput,
+    liveTranscript, lowConfidence, canRecord: micAvailable, usesLiveCaptions,
+  } = useVoiceRecorder()
+
+  // Hands the mic to the learner the instant the NPC stops talking — a real
+  // conversation's turn-taking, instead of making them reach for the mic
+  // button after every single line. Only ever *starts* listening (never
+  // stops something already running via handleToggleMic), and every caller
+  // gates it on there actually being something to reply to: not when the
+  // NPC's line replaced the reply bar with tappable choice cards (see
+  // ResponseChoiceCards — nothing to say out loud there) and not on the
+  // session's final line (the completion overlay is coming, not a reply).
+  const autoStartMic = useCallback(() => {
+    if (!micAvailable) return
+    setUserInput('')
+    toggleVoiceInput()
+  }, [micAvailable, toggleVoiceInput])
+
   const speak = useCallback((text, { emotion, animation } = {}) => {
     return new Promise((resolve) => {
       if (!text) { resolve(); return }
@@ -308,8 +337,8 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
   const speakOpeningLine = useCallback(() => {
     if (openingSpokenRef.current) return
     openingSpokenRef.current = true
-    speak(openingNpcLine)
-  }, [speak, openingNpcLine])
+    speak(openingNpcLine).then(() => autoStartMic())
+  }, [speak, openingNpcLine, autoStartMic])
 
   const handleSendWithText = useCallback(async (rawInput, deliverableLabel) => {
     const input = (rawInput ?? '').trim()
@@ -380,6 +409,8 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
         await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
         if (response.requests_deliverable && response.response_options?.length >= 2) {
           setChoiceOptions(response.response_options)
+        } else {
+          autoStartMic()
         }
       }
     } catch (err) {
@@ -390,7 +421,7 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, sessionComplete, sessionId, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate, isAuthenticated, user])
+  }, [isLoading, sessionComplete, sessionId, speak, recommendedTurns, maxTurns, totalTurns, scenarioTitle, navigate, isAuthenticated, user, autoStartMic])
 
   const handleChooseOption = useCallback((option) => {
     setChoiceOptions(null)
@@ -421,18 +452,6 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
     toggleCamera()
     toggleMic()
   }, [toggleCamera, toggleMic])
-
-  // Manual, click-to-talk voice input — ports /baseline's AIChatbot capture
-  // mechanism directly (native SpeechRecognition, continuous + interim
-  // results — see useVoiceRecorder's own comment for why that replaced the
-  // backend-STT round trip this used before). Tap the mic, talk, watch the
-  // reply bar fill in live, tap again to stop, then review and hit Send
-  // yourself. Nothing here auto-starts or auto-sends — the old
-  // auto-restart-after-every-NPC-line loop misfired more than it helped.
-  const {
-    isListening, isTranscribing, startListening: toggleVoiceInput, stopListening: stopVoiceInput,
-    liveTranscript, lowConfidence, canRecord: micAvailable, usesLiveCaptions,
-  } = useVoiceRecorder()
 
   // Syncs the reply bar to whatever the mic has captured so far. On browsers
   // with native live captions this fires continuously while isListening is
@@ -466,6 +485,16 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
       toggleVoiceInput()
     }
   }, [isListening, stopVoiceInput, toggleVoiceInput])
+
+  // Since the mic now starts itself (autoStartMic), requiring a separate
+  // manual tap to stop it before Send even lit up made every turn two taps
+  // instead of one. Sending mid-listen is fine — live captions have already
+  // filled userInput with whatever was heard so far — so this just stops
+  // the mic (if still running) and sends whatever's in the bar right now.
+  const handleSendClick = useCallback(() => {
+    if (isListening) stopVoiceInput()
+    handleSendWithText(userInput)
+  }, [isListening, stopVoiceInput, handleSendWithText, userInput])
 
   // Nudges should only ever surface during the user's own speaking turn —
   // the fusion analyzer keeps running continuously in the background
@@ -786,8 +815,8 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
                   />
                   <button
                     type="button"
-                    onClick={() => handleSendWithText(userInput)}
-                    disabled={!userInput.trim() || isListening || isTranscribing || isLoading || sessionComplete}
+                    onClick={handleSendClick}
+                    disabled={!userInput.trim() || isTranscribing || isLoading || sessionComplete}
                     className="manual-send"
                     aria-label="Send"
                   >

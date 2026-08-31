@@ -1,18 +1,26 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion, animate, useReducedMotion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, RefreshCw, BarChart2, AlertTriangle, Target, TrendingUp } from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { RefreshCw, BarChart2, AlertTriangle, Target, TrendingUp } from 'lucide-react'
 
 import { rpeService } from '@/services/rpe/rpeService'
-import SessionRoadmap  from '@/components/RPE/SessionRoadmap'
 import { cn } from '@/lib/utils'
+import { FEEDBACK_THEME_VARS, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
+import FeedbackHeader from '@/components/RPE/feedback/FeedbackHeader'
+import FeedbackProgress from '@/components/RPE/feedback/FeedbackProgress'
+import FeedbackNavigation from '@/components/RPE/feedback/FeedbackNavigation'
+import TrustJourney from '@/components/RPE/feedback/TrustJourney'
+import JourneyDetail from '@/components/RPE/feedback/JourneyDetail'
+import OutcomeHero from '@/components/RPE/feedback/OutcomeHero'
+import ScoreCard from '@/components/RPE/feedback/ScoreCard'
+import CoachingInsight from '@/components/RPE/feedback/CoachingInsight'
+import ResponseComparison from '@/components/RPE/feedback/ResponseComparison'
+import StrengthsImprovements from '@/components/RPE/feedback/StrengthsImprovements'
+import WatchForCard from '@/components/RPE/feedback/WatchForCard'
+import BehaviorTimeline from '@/components/RPE/feedback/BehaviorTimeline'
+import SessionTakeaway from '@/components/RPE/feedback/SessionTakeaway'
 
 const DIFFICULTY_TONE = { beginner: 'success', intermediate: 'warning', advanced: 'danger' }
-const RATING_TONE = {
-  excellent:  { tone: 'success', label: 'Excellent'  },
-  good:       { tone: 'accent',  label: 'Good'        },
-  needs_work: { tone: 'warning', label: 'Needs Work'  },
-}
 
 function endReasonBadge(endReason, outcome) {
   if (endReason === 'trust_sustained')        return { tone: 'success', label: 'Trust Built'  }
@@ -21,7 +29,7 @@ function endReasonBadge(endReason, outcome) {
   if (endReason === 'max_turns_reached' && outcome === 'failure') return { tone: 'warning', label: 'Time Limit' }
   if (outcome === 'success')                  return { tone: 'success', label: 'Success'      }
   if (outcome === 'failure')                  return { tone: 'danger',  label: 'Needs Work'   }
-  return                                              { tone: 'neutral', label: 'Incomplete'   }
+  return                                              { tone: 'neutral', label: 'Session Ended' }
 }
 
 function outcomeIcon(endReason, outcome) {
@@ -34,6 +42,23 @@ function outcomeIcon(endReason, outcome) {
 
 function toReadableLabel(str) {
   return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+// Escalation is the one metric here where LOWER is better — scoreStatus()
+// (used for trust/quality, where higher is better) doesn't apply to it.
+function escalationStatus(value) {
+  if (value == null) return null
+  if (value === 0) return { tone: 'success', label: 'No escalation needed' }
+  if (value <= 2)  return { tone: 'accent',  label: 'Mostly calm' }
+  if (value === 3) return { tone: 'warning', label: 'Some tension' }
+  return { tone: 'danger', label: 'Escalated' }
+}
+
+function turnsStatus(total, recommended, max) {
+  if (total == null) return null
+  if (recommended != null && total <= recommended) return { tone: 'success', label: 'Efficient' }
+  if (max != null && total >= max) return { tone: 'warning', label: 'Ran long' }
+  return { tone: 'neutral', label: 'On track' }
 }
 
 // Plain-language labels for the Watch For screen — the raw flag_type/
@@ -52,25 +77,6 @@ const WATCH_LABELS = {
   missed_recovery:          'Missed Chances to Calm Things Down',
 }
 
-// Animates 0 -> target once `active` is true — used for the stat reveal on
-// the Result screen. Runs once per mount (each step remounts on entry).
-// framer-motion's animate() drives the tween (duration is in seconds).
-function useCountUp(target, active, duration = 0.8) {
-  const [value, setValue] = useState(0)
-  const prefersReduced = useReducedMotion()
-  useEffect(() => {
-    if (!active || target == null) { setValue(target ?? 0); return }
-    if (prefersReduced) { setValue(target); return }
-    const controls = animate(0, target, {
-      duration,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (v) => setValue(Math.round(v)),
-    })
-    return () => controls.stop()
-  }, [target, active, duration, prefersReduced])
-  return value
-}
-
 function Skeleton() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -79,170 +85,145 @@ function Skeleton() {
   )
 }
 
-function JourneyScreen({ trustCurve, trustDeltas, icon, tone }) {
+function JourneyScreen({ trustCurve, trustDeltas, outcomeTone, getTurnDetail }) {
+  const [selected, setSelected] = useState(trustCurve.length > 0 ? trustCurve.length - 1 : null)
+  const detail = selected != null ? getTurnDetail(selected) : null
+
   return (
     <div className="screen">
       <p className="screen-eyebrow">Your Journey</p>
       <h2 className="screen-title">How you got here</h2>
-      <p className="screen-sub">Every turn, tracked — tap a point to see where trust stood.</p>
-      <SessionRoadmap trustCurve={trustCurve} trustDeltas={trustDeltas} outcomeIcon={icon} outcomeTone={tone} />
+      <p className="screen-sub">Every turn, tracked — select a point to see exactly what happened there.</p>
+      <TrustJourney
+        trustCurve={trustCurve}
+        trustDeltas={trustDeltas}
+        outcomeTone={outcomeTone}
+        selectedIndex={selected}
+        onSelect={setSelected}
+      />
+      {detail && <JourneyDetail {...detail} />}
     </div>
   )
 }
 
-function ResultScreen({ fd, summary, badge, icon, active }) {
-  const trust = useCountUp(fd.final_trust ?? 0, active)
-  const esc   = useCountUp(fd.final_escalation ?? 0, active, 0.5)
-  const turns = useCountUp(fd.total_turns ?? 0, active, 0.5)
-
+function ResultScreen({ fd, summary, badge, icon }) {
   return (
     <div className="screen">
-      <p className="result-icon">{icon}</p>
       <p className="screen-eyebrow">Session Outcome</p>
-      <h2 className="screen-title">{badge.label}</h2>
-      <div className="result-stats">
-        <div className="result-stat">
-          <span className="result-val">{trust}</span>
-          <span className="result-unit">/100</span>
-          <span className="result-label">Final Trust</span>
-        </div>
-        <div className="result-stat">
-          <span className="result-val">{esc}</span>
-          <span className="result-unit">/5</span>
-          <span className="result-label">Escalation</span>
-        </div>
-        <div className="result-stat">
-          <span className="result-val">{turns}</span>
-          <span className="result-label">Turns</span>
-        </div>
+      <OutcomeHero finalTrust={fd.final_trust} interpretation={fd.coaching_advice?.summary} icon={icon} />
+      <div className="result-grid">
+        <ScoreCard label="Final Trust" value={fd.final_trust} unit="/ 100" status={scoreStatus(fd.final_trust)} />
+        <ScoreCard label="Escalation" value={fd.final_escalation} unit="/ 5" status={escalationStatus(fd.final_escalation)} />
+        <ScoreCard label="Turns" value={fd.total_turns} status={turnsStatus(fd.total_turns, fd.recommended_turns, fd.max_turns)} />
         {summary.avg_quality != null && (
-          <div className="result-stat">
-            <span className="result-val">{summary.avg_quality}</span>
-            <span className="result-unit">/10</span>
-            <span className="result-label">Avg Quality</span>
-          </div>
+          <ScoreCard label="Avg Quality" value={summary.avg_quality} unit="/ 10" status={scoreStatus(summary.avg_quality, { max: 10 })} />
         )}
       </div>
+      <span className={cn('pill', badge.tone)} style={{ marginTop: 18, alignSelf: 'flex-start' }}>{badge.label}</span>
     </div>
   )
-}
-
-const coachStepVariants = {
-  hidden:  { opacity: 0, x: -10 },
-  visible: (i) => ({
-    opacity: 1, x: 0,
-    transition: { duration: 0.35, ease: 'easeOut', delay: i * 0.22 },
-  }),
 }
 
 function CoachingScreen({ coachingAdvice }) {
   if (!coachingAdvice) return null
   const {
-    overall_rating, summary, advice = [], strengths = [], focus_areas = [],
-    strongest_turn, strongest_turn_note,
+    summary, advice = [], strengths = [], focus_areas = [],
     improvement_turn, improvement_original, improvement_suggested,
   } = coachingAdvice
-  const rating = RATING_TONE[overall_rating] ?? RATING_TONE.needs_work
 
   return (
     <div className="screen">
       <p className="screen-eyebrow">Coaching</p>
-      <div className="coach-head">
-        <h2 className="screen-title">What we noticed</h2>
-        <span className={cn('pill', rating.tone)}>{rating.label}</span>
-      </div>
-      {summary && <p className="coach-summary">{summary}</p>}
+      <h2 className="screen-title">What we noticed</h2>
 
-      {advice.length > 0 && (
-        <ol className="coach-steps">
-          {advice.map((point, i) => (
-            <motion.li key={i} custom={i} variants={coachStepVariants} initial="hidden" animate="visible">
-              <span className="coach-num">{i + 1}</span>
-              <p>{point}</p>
-            </motion.li>
-          ))}
-        </ol>
+      <div className="coach-block">
+        <CoachingInsight summary={summary} advice={advice} />
+      </div>
+
+      {improvement_suggested && (
+        <div className="coach-block">
+          <p className="coach-block-label">Before &amp; after</p>
+          <ResponseComparison
+            turn={improvement_turn}
+            original={improvement_original}
+            suggested={improvement_suggested}
+            focusAreas={focus_areas}
+          />
+        </div>
       )}
 
       {(strengths.length > 0 || focus_areas.length > 0) && (
-        <div className="coach-chip-row">
-          {strengths.map((s, i) => <span key={`s${i}`} className="chip success">{s}</span>)}
-          {focus_areas.map((f, i) => <span key={`f${i}`} className="chip warning">{f}</span>)}
-        </div>
-      )}
-
-      {strongest_turn != null && (
-        <div className="callout-box success">
-          <p className="callout-heading">Strongest moment — turn {strongest_turn}</p>
-          <p className="callout-note">{strongest_turn_note}</p>
-        </div>
-      )}
-
-      {improvement_turn != null && improvement_suggested && (
-        <div className="callout-box rewrite">
-          <p className="callout-heading">Try this instead — turn {improvement_turn}</p>
-          {improvement_original && <p className="rewrite-original">"{improvement_original}"</p>}
-          <p className="rewrite-arrow">↓</p>
-          <p className="rewrite-suggested">"{improvement_suggested}"</p>
+        <div className="coach-block">
+          <StrengthsImprovements strengths={strengths} focusAreas={focus_areas} />
         </div>
       )}
     </div>
   )
 }
 
-const watchCardVariants = {
-  hidden:  { opacity: 0, y: 8 },
-  visible: (i) => ({
-    opacity: 1, y: 0,
-    transition: { duration: 0.3, ease: 'easeOut', delay: i * 0.1 },
-  }),
-}
-
-function WatchForScreen({ riskFlags = [], blindSpots = [] }) {
+function WatchForScreen({ riskFlags = [], blindSpots = [], turnMetrics = [] }) {
   const items = [
     ...riskFlags.map((f) => ({
       key: `r-${f.flag_type}`, Icon: AlertTriangle,
       tone: f.severity === 'high' ? 'danger' : 'warning',
-      label: WATCH_LABELS[f.flag_type] ?? toReadableLabel(f.flag_type), desc: f.description,
+      label: WATCH_LABELS[f.flag_type] ?? toReadableLabel(f.flag_type),
+      description: f.description, affectedTurns: f.affected_turns,
     })),
     ...blindSpots.map((b) => ({
       key: `b-${b.blind_spot_type}`, Icon: Target, tone: 'warning',
-      label: WATCH_LABELS[b.blind_spot_type] ?? toReadableLabel(b.blind_spot_type), desc: b.description,
+      label: WATCH_LABELS[b.blind_spot_type] ?? toReadableLabel(b.blind_spot_type),
+      description: b.description, affectedTurns: b.affected_turns, recommendation: b.recommendation,
     })),
   ]
 
   return (
     <div className="screen">
       <p className="screen-eyebrow">Watch For</p>
-      <h2 className="screen-title">A few things to keep an eye on</h2>
+      <h2 className="screen-title">Things to watch for next time</h2>
       <div className="watch-list">
         {items.map((item, i) => (
-          <motion.div
+          <WatchForCard
             key={item.key}
-            custom={i}
-            variants={watchCardVariants}
-            initial="hidden"
-            animate="visible"
-            className={cn('watch-card', item.tone)}
-          >
-            <item.Icon size={16} strokeWidth={1.8} />
-            <div>
-              <p className="watch-label">{item.label}</p>
-              <p className="watch-desc">{item.desc}</p>
-            </div>
-          </motion.div>
+            index={i}
+            Icon={item.Icon}
+            tone={item.tone}
+            label={item.label}
+            description={item.description}
+            affectedTurns={item.affectedTurns}
+            recommendation={item.recommendation}
+          />
         ))}
       </div>
+      {turnMetrics.length > 0 && (
+        <div className="watch-timeline">
+          <BehaviorTimeline turnMetrics={turnMetrics} riskFlags={riskFlags} blindSpots={blindSpots} />
+        </div>
+      )}
     </div>
   )
 }
 
-function DoneScreen({ targetSkills = [], onTryAgain, onHarder, onOtherSkill }) {
+function DoneScreen({ fd, onTryAgain, onHarder, onOtherSkill }) {
+  const targetSkills = fd.target_skills ?? []
+  const advice = fd.coaching_advice?.advice ?? []
+
   return (
     <div className="screen screen-done">
       <p className="done-emoji">🏁</p>
-      <h2 className="screen-title">Nice work</h2>
-      <p className="screen-sub">Ready for another round, or take what you learned into the next one.</p>
+      <h2 className="screen-title">Session complete</h2>
+      <p className="screen-sub">Here's what to carry into your next round.</p>
+
+      <div className="done-takeaway">
+        <SessionTakeaway
+          takeaway={advice[0]}
+          summary={fd.coaching_advice?.summary}
+          finalTrust={fd.final_trust}
+          totalTurns={fd.total_turns}
+          strengthCount={fd.coaching_advice?.strengths?.length ?? null}
+          focusCount={fd.coaching_advice?.focus_areas?.length ?? null}
+        />
+      </div>
+
       {targetSkills.length > 0 && (
         <div className="done-skills">
           <p className="done-skills-label">This session practiced</p>
@@ -276,6 +257,7 @@ export default function FeedbackDashboard() {
   const sessionId = paramId || location.state?.sessionId
 
   const [feedbackData, setFeedbackData] = useState(null)
+  const [sessionData,  setSessionData]  = useState(null)
   const [isLoading,    setIsLoading]    = useState(true)
   const [error,        setError]        = useState(null)
   const [activeStep,   setActiveStep]   = useState(0)
@@ -287,8 +269,16 @@ export default function FeedbackDashboard() {
     setIsLoading(true)
     setError(null)
     try {
-      const data = await rpeService.getFeedback(sessionId)
-      setFeedbackData(data)
+      // Feedback (scores/coaching) and the raw session (turn transcripts)
+      // are two different endpoints — see rpeService — fetched together so
+      // the journey detail panel can show real user_input/npc_response text
+      // per turn, not just its score.
+      const [feedback, session] = await Promise.all([
+        rpeService.getFeedback(sessionId),
+        rpeService.getSessionSummary(sessionId).catch(() => null),
+      ])
+      setFeedbackData(feedback)
+      setSessionData(session)
     } catch (err) {
       setError(err.message || 'Failed to load the session outcome.')
     } finally {
@@ -298,6 +288,45 @@ export default function FeedbackDashboard() {
 
   useEffect(() => { load() }, [load])
 
+  // Joins viz_payload.trust_curve (index 0 = "Start", index N = turn N) with
+  // the raw session's turns[] (real transcript text) and turn_metrics (real
+  // flags) by turn number, plus the two turns coaching_advice singles out —
+  // this is the whole "click a journey point, see what actually happened"
+  // feature's only data source.
+  const getTurnDetail = useMemo(() => {
+    if (!feedbackData) return () => null
+    const trustCurve   = feedbackData.viz_payload?.trust_curve ?? []
+    const trustDeltas  = feedbackData.viz_payload?.trust_deltas ?? []
+    const turnMetrics  = feedbackData.turn_metrics ?? []
+    const rawTurns     = sessionData?.turns ?? []
+    const advice       = feedbackData.coaching_advice ?? {}
+
+    return (index) => {
+      const curvePoint = trustCurve[index]
+      if (!curvePoint) return null
+      if (index === 0) {
+        return { turnLabel: 'Start', trustValue: curvePoint.value, direction: null }
+      }
+      const turnNum = index
+      const metric  = turnMetrics.find((tm) => tm.turn === turnNum)
+      const raw     = rawTurns.find((t) => t.turn === turnNum)
+      const delta   = trustDeltas[index - 1]
+      return {
+        turnLabel: turnNum,
+        trustValue: curvePoint.value,
+        direction: delta?.direction,
+        userInput: raw?.user_input,
+        npcResponse: raw?.npc_response,
+        flags: metric?.flags ?? [],
+        isStrongest: advice.strongest_turn === turnNum,
+        strongestNote: advice.strongest_turn_note,
+        isImprovement: advice.improvement_turn === turnNum,
+        improvementOriginal: advice.improvement_original,
+        improvementSuggested: advice.improvement_suggested,
+      }
+    }
+  }, [feedbackData, sessionData])
+
   if (isLoading) {
     return (
       <div className="rpe-cinema">
@@ -306,7 +335,7 @@ export default function FeedbackDashboard() {
           <p className="fb-loading-text">Analyzing your session…</p>
           <div className="fb-page"><Skeleton /></div>
         </div>
-        <style>{FEEDBACK_STYLES}</style>
+        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
       </div>
     )
   }
@@ -317,7 +346,7 @@ export default function FeedbackDashboard() {
         <div className="fb-error-wrap">
           <div className="fb-error-card">
             <p className="fb-error-emoji">⚠️</p>
-            <h2 className="fb-error-title">Could not load the outcome for this session.</h2>
+            <h2 className="fb-error-title">Unable to load your feedback.</h2>
             <p className="fb-error-msg">{error}</p>
             <div className="fb-error-actions">
               <button type="button" onClick={load} className="btn-c primary">
@@ -329,7 +358,7 @@ export default function FeedbackDashboard() {
             </div>
           </div>
         </div>
-        <style>{FEEDBACK_STYLES}</style>
+        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
       </div>
     )
   }
@@ -341,9 +370,15 @@ export default function FeedbackDashboard() {
   const icon    = outcomeIcon(fd.end_reason, fd.outcome)
 
   const hasWatchFor = (fd.risk_flags?.length > 0) || (fd.blind_spots?.length > 0)
-  const STEPS = ['journey', 'result', 'coaching', ...(hasWatchFor ? ['watch'] : []), 'done']
+  const STEPS = [
+    { key: 'journey',  label: 'Journey' },
+    { key: 'result',   label: 'Outcome' },
+    { key: 'coaching', label: 'Coaching' },
+    ...(hasWatchFor ? [{ key: 'watch', label: 'Watch For' }] : []),
+    { key: 'done',     label: 'Next Step' },
+  ]
   const stepIndex  = Math.min(activeStep, STEPS.length - 1)
-  const stepKey    = STEPS[stepIndex]
+  const stepKey    = STEPS[stepIndex].key
   const isLastStep = stepIndex === STEPS.length - 1
 
   const goNext = () => { setDirection(1);  setActiveStep((s) => Math.min(s + 1, STEPS.length - 1)) }
@@ -373,30 +408,17 @@ export default function FeedbackDashboard() {
     <div className="rpe-cinema">
       <div className="fb-shell">
 
-        <div className="fb-header">
-          <div className="fb-header-inner">
-            <div className="fb-header-left">
-              <button type="button" onClick={() => navigate(-1)} className="fb-back" aria-label="Back">
-                <ChevronLeft size={18} strokeWidth={1.6} />
-              </button>
-              <div style={{ minWidth: 0 }}>
-                <h1 className="fb-title">Session Outcome</h1>
-                <div className="fb-subrow">
-                  <span className="fb-scenario">{fd.scenario_title}</span>
-                  {fd.difficulty && <span className={cn('pill', DIFFICULTY_TONE[fd.difficulty] ?? 'neutral')}>{fd.difficulty}</span>}
-                </div>
-              </div>
-            </div>
-            <span className={cn('pill', badge.tone)}>{badge.label}</span>
-          </div>
-          <div className="fb-dots">
-            {STEPS.map((s, i) => (
-              <span key={s} className={cn('fb-dot', i === stepIndex && 'active', i < stepIndex && 'done')} />
-            ))}
-          </div>
-        </div>
+        <FeedbackHeader
+          onBack={() => navigate(-1)}
+          title="Session Outcome"
+          scenarioTitle={fd.scenario_title}
+          difficulty={fd.difficulty}
+          difficultyTone={DIFFICULTY_TONE[fd.difficulty]}
+          badge={badge}
+        />
+        <FeedbackProgress steps={STEPS} activeIndex={stepIndex} />
 
-        <div className="fb-stage">
+        <div className={cn('fb-stage', !isLastStep && 'fb-stage-with-nav')}>
           <div style={{ width: '100%', overflow: 'hidden' }}>
             <AnimatePresence mode="wait" custom={direction} initial={false}>
               <motion.div
@@ -410,19 +432,24 @@ export default function FeedbackDashboard() {
                 className="fb-screen-wrap"
               >
                 {stepKey === 'journey' && (
-                  <JourneyScreen trustCurve={viz.trust_curve ?? []} trustDeltas={viz.trust_deltas ?? []} icon={icon} tone={badge.tone} />
+                  <JourneyScreen
+                    trustCurve={viz.trust_curve ?? []}
+                    trustDeltas={viz.trust_deltas ?? []}
+                    outcomeTone={badge.tone}
+                    getTurnDetail={getTurnDetail}
+                  />
                 )}
                 {stepKey === 'result' && (
-                  <ResultScreen fd={fd} summary={summary} badge={badge} icon={icon} active />
+                  <ResultScreen fd={fd} summary={summary} badge={badge} icon={icon} />
                 )}
                 {stepKey === 'coaching' && (
                   <CoachingScreen coachingAdvice={fd.coaching_advice} />
                 )}
                 {stepKey === 'watch' && (
-                  <WatchForScreen riskFlags={fd.risk_flags} blindSpots={fd.blind_spots} />
+                  <WatchForScreen riskFlags={fd.risk_flags} blindSpots={fd.blind_spots} turnMetrics={fd.turn_metrics} />
                 )}
                 {stepKey === 'done' && (
-                  <DoneScreen targetSkills={fd.target_skills} onTryAgain={goRoleplay} onHarder={goHarder} onOtherSkill={goRoleplay} />
+                  <DoneScreen fd={fd} onTryAgain={goRoleplay} onHarder={goHarder} onOtherSkill={goRoleplay} />
                 )}
               </motion.div>
             </AnimatePresence>
@@ -430,43 +457,17 @@ export default function FeedbackDashboard() {
         </div>
 
         {!isLastStep && (
-          <div className="fb-nav-band">
-            <div className="fb-nav">
-              <button type="button" onClick={goBack} disabled={stepIndex === 0} className="btn-c secondary">
-                Back
-              </button>
-              <button type="button" onClick={goNext} className="btn-c primary">
-                Continue <ChevronRight size={14} strokeWidth={1.8} />
-              </button>
-            </div>
-          </div>
+          <FeedbackNavigation onBack={goBack} onNext={goNext} backDisabled={stepIndex === 0} />
         )}
 
       </div>
-      <style>{FEEDBACK_STYLES}</style>
+      <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
     </div>
   )
 }
 
 const FEEDBACK_STYLES = `
   .rpe-cinema{
-    --bg:            #0D1117;
-    --surface:       #161B22;
-    --surface-hi:    #21262D;
-    --border:        #30363D;
-    --accent:        #7C3AED;
-    --accent-glow:   rgba(124,58,237,0.15);
-    --success:       #3FB950;
-    --success-glow:  rgba(63,185,80,0.15);
-    --warning:       #D29922;
-    --warning-glow:  rgba(210,153,34,0.15);
-    --danger:        #F85149;
-    --danger-glow:   rgba(248,81,73,0.15);
-    --text-hi:       #F0F6FC;
-    --text-med:      #8B949E;
-    --text-low:      #484F58;
-    --ease: cubic-bezier(0.22, 1, 0.36, 1);
-
     min-height:calc(100vh - 48px);
     background:var(--bg); color:var(--text-hi);
     font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
@@ -479,7 +480,7 @@ const FEEDBACK_STYLES = `
   .rpe-cinema button{ font-family:inherit; }
   .rpe-cinema .cap{ text-transform:capitalize; }
 
-  .fb-shell{ display:flex; flex-direction:column; flex:1; }
+  .fb-shell{ position:relative; display:flex; flex-direction:column; flex:1; }
 
   .fb-loading{ display:flex; flex-direction:column; align-items:center; padding:40px 16px; gap:12px; }
   .fb-loading-icon{ width:48px; height:48px; border-radius:12px; background:var(--accent-glow); border:1px solid rgba(124,58,237,0.3); display:flex; align-items:center; justify-content:center; color:var(--accent); }
@@ -492,38 +493,24 @@ const FEEDBACK_STYLES = `
   .fb-error-msg{ font-size:12.5px; color:var(--danger); margin:0; }
   .fb-error-actions{ display:flex; gap:12px; justify-content:center; }
 
-  .fb-header{ position:sticky; top:0; z-index:20; background:var(--header-backdrop, rgba(13,17,23,0.92)); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
-  .fb-header-inner{ max-width:640px; margin:0 auto; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .fb-header-left{ display:flex; align-items:center; gap:12px; min-width:0; }
-  .fb-back{ background:none; border:none; cursor:pointer; color:var(--text-med); width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:background .2s ease, color .2s ease; flex-shrink:0; }
-  .fb-back:hover{ background:var(--surface-hi); color:var(--text-hi); }
-  .fb-title{ font-size:15px; font-weight:700; margin:0; line-height:1.2; }
-  .fb-subrow{ display:flex; align-items:center; gap:8px; margin-top:3px; }
-  .fb-scenario{ font-size:11.5px; color:var(--text-med); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-  .fb-dots{ max-width:640px; margin:0 auto; padding:0 16px 12px; display:flex; gap:6px; }
-  .fb-dot{ height:4px; flex:1; border-radius:100px; background:var(--surface-hi); transition:background .3s var(--ease); }
-  .fb-dot.done{ background:var(--accent); }
-  .fb-dot.active{ background:linear-gradient(90deg, var(--accent), #9B6BFF); }
-
-  .fb-stage{ flex:1; display:flex; padding:8px 16px 24px; }
-  .fb-screen-wrap{ max-width:640px; margin:0 auto; width:100%; }
+  .fb-stage{ flex:1; display:flex; padding:16px 24px 32px; }
+  /* Reserve room so the floating side Back/Continue rails (fixed, ~88px
+     from each edge) never sit on top of page content; on narrow screens
+     FeedbackNavigation falls back to a bottom bar instead, so the side
+     gutters aren't needed there. */
+  @media (min-width:901px){ .fb-stage-with-nav{ padding-left:96px; padding-right:96px; } }
+  @media (max-width:900px){ .fb-stage-with-nav{ padding-bottom:92px; } }
+  @media (max-width:768px){ .fb-stage-with-nav{ padding-bottom:162px; } }
+  .fb-screen-wrap{ max-width:1200px; margin:0 auto; width:100%; }
 
   .screen{ display:flex; flex-direction:column; gap:6px; padding-top:12px; }
-  .screen-eyebrow{ font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0; }
-  .screen-title{ font-size:22px; font-weight:800; letter-spacing:-0.01em; margin:2px 0 0; }
-  .screen-sub{ font-size:13px; color:var(--text-med); margin:2px 0 0; }
+  .screen-eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0; }
+  .screen-title{ font-size:min(34px, 7vw); font-weight:800; letter-spacing:-0.01em; margin:2px 0 0; text-wrap:balance; }
+  .screen-sub{ font-size:14px; color:var(--text-med); margin:6px 0 0; max-width:560px; }
 
-  .result-icon{ font-size:38px; margin:0 0 4px; }
-  .result-stats{ display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; margin-top:20px; }
-  @media (max-width:420px){ .result-stats{ grid-template-columns:1fr; } }
-  .result-stat{
-    background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px;
-    display:flex; flex-direction:column; align-items:flex-start;
-  }
-  .result-val{ font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--text-hi); line-height:1; }
-  .result-unit{ font-size:12px; font-weight:600; color:var(--text-med); }
-  .result-label{ font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-low); margin-top:8px; }
+  .result-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin-top:28px; }
+  @media (max-width:820px){ .result-grid{ grid-template-columns:repeat(2, 1fr); } }
+  @media (max-width:420px){ .result-grid{ grid-template-columns:1fr; } }
 
   .pill{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; padding:4px 11px; border-radius:100px; text-transform:capitalize; flex-shrink:0; }
   .pill.success{ color:var(--success); background:var(--success-glow); }
@@ -532,87 +519,36 @@ const FEEDBACK_STYLES = `
   .pill.accent{  color:var(--accent);  background:var(--accent-glow); }
   .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
 
-  .coach-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:2px; }
-  .coach-summary{
-    font-size:13.5px; font-style:italic; color:var(--quote-text, #C9D1D9); margin:14px 0 0;
-    border-left:3px solid rgba(124,58,237,0.4); background:var(--accent-glow);
-    border-radius:0 8px 8px 0; padding:10px 14px;
-  }
-  .coach-steps{ list-style:none; margin:18px 0 0; padding:0; display:flex; flex-direction:column; gap:14px; }
-  .coach-steps li{ display:flex; gap:12px; align-items:flex-start; }
-  .coach-steps p{ margin:0; font-size:13.5px; line-height:1.6; color:var(--quote-text, #C9D1D9); padding-top:2px; }
-  .coach-num{
-    width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff;
-    font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;
-  }
-  .coach-chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  .coach-block{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+  .coach-block:first-of-type{ margin-top:22px; padding-top:0; border-top:none; }
+  .coach-block-label{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-low); margin:0 0 14px; }
+
   .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; text-transform:capitalize; }
-  .chip.success{ color:var(--success); background:var(--success-glow); }
-  .chip.warning{ color:var(--warning); background:var(--warning-glow); }
-  .chip.accent{  color:var(--accent);  background:var(--accent-glow); }
+  .chip.accent{ color:var(--accent); background:var(--accent-glow); }
 
-  .callout-box{ margin-top:18px; border-radius:12px; padding:14px 16px; border:1px solid transparent; }
-  .callout-box.success{ background:var(--success-glow); border-color:rgba(63,185,80,0.25); }
-  .callout-box.rewrite{ background:var(--surface); border-color:var(--border); }
-  .callout-heading{ font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin:0 0 8px; }
-  .callout-box.success .callout-heading{ color:var(--success); }
-  .callout-box.rewrite .callout-heading{ color:var(--text-low); }
-  .callout-note{ font-size:13px; color:var(--text-hi); margin:0; line-height:1.55; }
-  .rewrite-original{ font-size:13px; color:var(--text-med); font-style:italic; margin:0; text-decoration:line-through; text-decoration-color:rgba(248,81,73,0.5); }
-  .rewrite-arrow{ font-size:12px; color:var(--text-low); margin:6px 0; }
-  .rewrite-suggested{ font-size:13.5px; color:var(--text-hi); font-style:italic; margin:0; font-weight:600; }
+  .watch-list{ display:flex; flex-direction:column; gap:10px; margin-top:20px; }
+  .watch-timeline{ margin-top:28px; padding-top:22px; border-top:1px solid var(--border); }
 
-  .watch-list{ display:flex; flex-direction:column; gap:10px; margin-top:16px; }
-  .watch-card{
-    display:flex; gap:12px; align-items:flex-start; border-radius:12px; padding:14px 16px; border:1px solid transparent;
-  }
-  .watch-card.danger{  background:var(--danger-glow);  border-color:rgba(248,81,73,0.25);  color:var(--danger); }
-  .watch-card.warning{ background:var(--warning-glow); border-color:rgba(210,153,34,0.25); color:var(--warning); }
-  .watch-card svg{ flex-shrink:0; margin-top:2px; }
-  .watch-label{ font-size:13px; font-weight:700; color:var(--text-hi); margin:0; }
-  .watch-desc{ font-size:12.5px; color:var(--text-med); margin:4px 0 0; line-height:1.5; }
-
-  .screen-done{ align-items:center; text-align:center; padding-top:32px; }
-  .done-emoji{ font-size:40px; margin:0 0 6px; }
-  .done-skills{ margin-top:18px; }
+  .screen-done{ align-items:flex-start; padding-top:20px; }
+  .done-emoji{ font-size:34px; margin:0 0 4px; }
+  .done-takeaway{ margin-top:22px; width:100%; max-width:640px; }
+  .done-skills{ margin-top:26px; }
   .done-skills-label{ font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); margin:0 0 8px; }
-  .done-skills-row{ display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
-  .done-actions{ display:flex; gap:10px; margin-top:22px; }
+  .done-skills-row{ display:flex; flex-wrap:wrap; gap:8px; }
+  .done-actions{ display:flex; gap:10px; margin-top:24px; flex-wrap:wrap; }
 
   .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:10px; animation:cinemaShimmer 1.4s ease-in-out infinite; }
   @keyframes cinemaShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
-  .fb-page{ flex:1; padding:24px 16px; max-width:640px; margin:0 auto; width:100%; }
+  .fb-page{ flex:1; padding:24px 16px; max-width:1200px; margin:0 auto; width:100%; }
 
-  .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650; padding:10px 18px; border-radius:10px; cursor:pointer; border:1px solid transparent; transition:filter .2s var(--ease), border-color .2s var(--ease); }
+  .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650; padding:10px 18px; border-radius:10px; cursor:pointer; border:1px solid transparent; transition:filter .2s var(--ease), border-color .2s var(--ease), transform .15s var(--ease); }
   .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
-  .btn-c.primary:hover{ filter:brightness(1.08); }
+  .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
   .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
   .btn-c.secondary:hover{ border-color:var(--text-med); }
   .btn-c.secondary:disabled{ opacity:.4; cursor:default; }
 
-  .fb-nav-band{ position:sticky; bottom:0; z-index:20; background:var(--surface); border-top:1px solid var(--border); }
-  .fb-nav{
-    max-width:640px; margin:0 auto; padding:12px 16px;
-    display:flex; justify-content:space-between; align-items:center; gap:12px;
-  }
-
-  :root[data-theme="light"] .rpe-cinema{
-    --bg:            #F5F3FD;
-    --surface:       #FFFFFF;
-    --surface-hi:    #EFEAFB;
-    --border:        #D9CFF5;
-    --accent:        #6B3FD6;
-    --accent-glow:   rgba(107,63,214,0.12);
-    --success:       #1E8E4A;
-    --success-glow:  rgba(30,142,74,0.12);
-    --warning:       #B4790E;
-    --warning-glow:  rgba(180,121,14,0.14);
-    --danger:        #D93B32;
-    --danger-glow:   rgba(217,59,50,0.12);
-    --text-hi:       #241E38;
-    --text-med:      #5E5678;
-    --text-low:      #8D84A8;
-    --quote-text:      #3A3352;
-    --header-backdrop: rgba(245,243,253,0.92);
+  @media (max-width:640px){
+    .fb-stage{ padding:12px 16px 24px; }
   }
 `
