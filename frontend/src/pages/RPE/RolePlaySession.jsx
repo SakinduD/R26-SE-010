@@ -15,6 +15,7 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder'
 import { useNudgeSensing } from '@/hooks/useNudgeSensing'
 import { getAvatarOption, pickNpcAvatar, pickNpcProfileImage } from '@/lib/rpe/npcAvatars'
 import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme'
+import { useOnceTour } from '@/lib/tour/useOnceTour'
 
 // NPC's own emotional reaction per turn (8-value, from NPCResponse.emotion) — tints
 // the NPC's message bubble and shows a small reaction icon. Not the user's emotion.
@@ -193,25 +194,25 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
     recommendedTurnsFromState || totalTurns || 6
   )
   const [maxTurns, setMaxTurns] = useState(maxTurnsFromState || null)
-  const [runTour, setRunTour] = useState(false)
 
   // First session ever in this browser gets a short walkthrough of the
   // meters/mic/nudges — a brief delay lets the rail finish its initial paint
-  // before Joyride measures target positions.
+  // before Joyride measures target positions. See useOnceTour for how "only
+  // once" is actually guaranteed.
+  const [tourDelayElapsed, setTourDelayElapsed] = useState(false)
   useEffect(() => {
-    try {
-      if (localStorage.getItem(SESSION_TOUR_SEEN_KEY) === 'true') return
-    } catch {
-      return
-    }
-    const id = setTimeout(() => setRunTour(true), 600)
+    const id = setTimeout(() => setTourDelayElapsed(true), 600)
     return () => clearTimeout(id)
   }, [])
+  const [runTour, stopTour] = useOnceTour({
+    storagePrefix: SESSION_TOUR_SEEN_KEY,
+    email: user?.email,
+    ready: tourDelayElapsed,
+  })
 
   const handleTourCallback = (data) => {
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
-      setRunTour(false)
-      try { localStorage.setItem(SESSION_TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+      stopTour()
     }
   }
 

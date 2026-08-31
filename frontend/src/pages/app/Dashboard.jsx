@@ -20,6 +20,7 @@ import Button from '@/components/ui/Button';
 import { useAchievements } from '@/lib/achievements/AchievementsContext';
 import { showAchievementToasts } from '@/components/achievements/AchievementToast';
 import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme';
+import { useOnceTour } from '@/lib/tour/useOnceTour';
 
 // First-visit walkthrough of the dashboard — gated by localStorage so it only
 // ever runs once per browser. Only starts once isLoading is false (below),
@@ -294,21 +295,16 @@ export default function Dashboard() {
   const isLoading =
     profile === undefined || baseline === undefined || rpeSessions === undefined || mcaSessions === undefined
 
-  const [runTour, setRunTour] = useState(false)
-  useEffect(() => {
-    if (isLoading) return
-    try {
-      if (localStorage.getItem(TOUR_SEEN_KEY) === 'true') return
-    } catch {
-      return
-    }
-    setRunTour(true)
-  }, [isLoading])
+  // See useOnceTour for how "only once" is actually guaranteed.
+  const [runTour, stopTour] = useOnceTour({
+    storagePrefix: TOUR_SEEN_KEY,
+    email: user?.email,
+    ready: !isLoading,
+  })
 
   const handleTourCallback = (data) => {
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
-      setRunTour(false)
-      try { localStorage.setItem(TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+      stopTour()
     }
   }
 

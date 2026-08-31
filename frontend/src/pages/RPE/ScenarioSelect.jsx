@@ -8,11 +8,12 @@ import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
 import { cn } from '@/lib/utils'
 import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme'
+import { useOnceTour } from '@/lib/tour/useOnceTour'
 
-// First-visit walkthrough of this landing page — gated by localStorage so it
-// only ever runs once per browser, not once per session. Kept separate from
-// the in-session tour (RolePlaySession.jsx has its own), since the meters/
-// mic/nudges it explains aren't visible until a scenario is actually running.
+// First-visit walkthrough of this landing page — see useOnceTour for how
+// "only once" is actually guaranteed. Kept separate from the in-session tour
+// (RolePlaySession.jsx has its own), since the meters/mic/nudges it explains
+// aren't visible until a scenario is actually running.
 const TOUR_SEEN_KEY = 'rpe_tour_scenario_select_seen'
 
 const scenarioSelectTourSteps = [
@@ -86,7 +87,6 @@ export default function ScenarioSelect() {
   const [error, setError]                         = useState(null)
   const [showCompare, setShowCompare]             = useState(false)
   const [heroDetail, setHeroDetail]               = useState(null)
-  const [runTour, setRunTour]                     = useState(false)
 
   useEffect(() => {
     if (!showCompare) return
@@ -114,20 +114,15 @@ export default function ScenarioSelect() {
 
   // Only ever auto-run once the grid has actually rendered (so the last
   // step's target exists) and only for a browser that hasn't seen it before.
-  useEffect(() => {
-    if (isLoading || planImporting) return
-    try {
-      if (localStorage.getItem(TOUR_SEEN_KEY) === 'true') return
-    } catch {
-      return
-    }
-    setRunTour(true)
-  }, [isLoading, planImporting])
+  const [runTour, stopTour] = useOnceTour({
+    storagePrefix: TOUR_SEEN_KEY,
+    email: user?.email,
+    ready: !isLoading && !planImporting,
+  })
 
   const handleTourCallback = (data) => {
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(data.status)) {
-      setRunTour(false)
-      try { localStorage.setItem(TOUR_SEEN_KEY, 'true') } catch { /* ignore */ }
+      stopTour()
     }
   }
 

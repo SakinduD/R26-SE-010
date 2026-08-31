@@ -19,8 +19,17 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
     () => NPC_AVATAR_OPTIONS.find((a) => a.gender === scenario?.npc_gender)?.id ?? NPC_AVATAR_OPTIONS[0].id,
     [scenario?.scenario_id]
   )
+  // With 16 avatars now in the pool, a flat grid got long to scan — this
+  // opens pre-filtered to whichever gender the scenario's own default
+  // matches (same signal as defaultAvatarId above), with "All" one tap away
+  // for a learner who deliberately wants to cross over.
+  const defaultGenderFilter = useMemo(
+    () => (scenario?.npc_gender === 'female' ? 'female' : 'male'),
+    [scenario?.scenario_id]
+  )
   const [avatarId, setAvatarId] = useState(defaultAvatarId)
   const [customName, setCustomName] = useState('')
+  const [genderFilter, setGenderFilter] = useState(defaultGenderFilter)
 
   // Reset the picker to this scenario's own default whenever a *different*
   // scenario opens — without this, switching from one detail view straight
@@ -28,7 +37,8 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
   useEffect(() => {
     setAvatarId(defaultAvatarId)
     setCustomName('')
-  }, [scenario?.scenario_id, defaultAvatarId])
+    setGenderFilter(defaultGenderFilter)
+  }, [scenario?.scenario_id, defaultAvatarId, defaultGenderFilter])
 
   useEffect(() => {
     if (!scenario) return
@@ -44,6 +54,9 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
   const maxTurns         = scenario.max_turns ?? recommendedTurns
   const diffTone         = DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral'
   const selectedAvatar   = NPC_AVATAR_OPTIONS.find((a) => a.id === avatarId) ?? NPC_AVATAR_OPTIONS[0]
+  const filteredAvatars  = genderFilter === 'all'
+    ? NPC_AVATAR_OPTIONS
+    : NPC_AVATAR_OPTIONS.filter((a) => a.gender === genderFilter)
 
   const handleStart = () => {
     onStart(scenario, { avatarId: selectedAvatar.id, npcName: customName.trim() || selectedAvatar.label })
@@ -144,9 +157,24 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           </div>
 
           <section className="info-block avatar-picker-block">
-            <p className="block-label">Not who you pictured? Change it</p>
+            <div className="avatar-picker-header">
+              <p className="block-label">Not who you pictured? Change it</p>
+              <div className="gender-toggle" role="group" aria-label="Filter avatars by gender">
+                {['all', 'male', 'female'].map((g) => (
+                  <button
+                    type="button"
+                    key={g}
+                    className={cn('gender-toggle-btn', genderFilter === g && 'active')}
+                    onClick={() => setGenderFilter(g)}
+                    aria-pressed={genderFilter === g}
+                  >
+                    {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="avatar-picker">
-              {NPC_AVATAR_OPTIONS.map((a) => (
+              {filteredAvatars.map((a) => (
                 <button
                   type="button"
                   key={a.id}
@@ -296,6 +324,20 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         .rpe-modal .evaluated-note{ font-size:11.5px; color:var(--text-low); margin:12px 0 0; }
 
         .rpe-modal .avatar-picker-block{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+        .rpe-modal .avatar-picker-header{
+          display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:9px;
+        }
+        .rpe-modal .avatar-picker-header .block-label{ margin:0; }
+        .rpe-modal .gender-toggle{
+          display:inline-flex; background:var(--bg-card-hi); border:1px solid var(--border); border-radius:9px; padding:2px;
+        }
+        .rpe-modal .gender-toggle-btn{
+          background:none; border:none; cursor:pointer; color:var(--text-med);
+          font-size:11.5px; font-weight:650; padding:5px 12px; border-radius:7px;
+          transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .gender-toggle-btn:hover:not(.active){ color:var(--text-hi); }
+        .rpe-modal .gender-toggle-btn.active{ background:var(--accent); color:#fff; }
         .rpe-modal .avatar-picker{ display:flex; gap:10px; flex-wrap:wrap; }
         .rpe-modal .avatar-option{
           position:relative; display:flex; flex-direction:column; align-items:center; gap:8px;
