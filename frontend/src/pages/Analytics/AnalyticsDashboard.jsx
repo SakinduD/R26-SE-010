@@ -21,6 +21,7 @@ import {
   normalizeMcaSessionNudges, normalizeMcaSkillScores,
   normalizeSurveyProfile,
   integrateOnce, optionalRequest, scenarioIdOf, selectMcaSession,
+  selectPreferredComponentSession,
 } from './analyticsIntegrationUtils'
 
 const TREND_MARK = {
@@ -238,9 +239,14 @@ export default function AnalyticsDashboard() {
   const [searchParams] = useSearchParams()
   const [userId, setUserId] = useState(cid || '')
   // ?sessionId=… (e.g. the redirect after self-reflection) opens that session's
-  // results; without it the dashboard starts on the "All Sessions" overall view.
+  // results. Without it the newest session is picked once the list arrives: this
+  // page shows one session at a time, so there is no empty selection to fall
+  // back to.
   const [sessionId, setSessionId] = useState(searchParams.get('sessionId') || '')
   const [sessOpts, setSessOpts] = useState([])
+  // Whether the session list has come back, so the first load knows which
+  // session to ask for - see the effect below.
+  const [sessReady, setSessReady] = useState(false)
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
@@ -279,15 +285,22 @@ export default function AnalyticsDashboard() {
     return byArea
   }, [data])
 
-  // In history mode the headline figure is the latest session, not the mean of
-  // every session. The mean was answering "how have you done", under a heading
-  // that asks "how are you doing" — which let four consecutive declines read as
-  // "Great job". The mean is still shown, beside it, where it belongs.
+  // All Sessions shows the average across every session; a selected session shows
+  // that session.
+  //
+  // These used to be the latest session's scores under the "All Sessions" label,
+  // to stop a run of declines reading as "Great job" behind a flattering mean.
+  // That reasoning was sound and the placement was not: a view the learner chose
+  // by picking "All Sessions" has to answer about all of them, and a dropdown
+  // saying one thing while the number says another is a mismatch nobody can
+  // reason their way out of. The latest figure keeps its job - it now sits beside
+  // each number as the comparison rather than standing in for it, so both facts
+  // are on screen and each is labelled.
   const scoresShown = useMemo(() => {
     if (!isAllSessions || !data?.history) return scores
     return scores.map((s) => {
       const h = history[s.key]
-      return h?.latest_score != null ? { ...s, value: h.latest_score } : s
+      return h?.average_score != null ? { ...s, value: h.average_score } : s
     })
   }, [scores, history, isAllSessions, data])
 
@@ -298,11 +311,14 @@ export default function AnalyticsDashboard() {
 
   // How many sessions this learner actually has. Drives whether the page shows
   // results or explains itself.
-  const sessionCount = data?.aggregate?.scores?.metric_count ?? 0
+  // The learner's own history, not the selected session's row count.
+  const sessionCount = data?.lifetimeSessions ?? data?.aggregate?.scores?.metric_count ?? 0
   // Trends and forecasts need three points; below that the page would be drawing
   // conclusions from a line through two dots.
   const tooEarlyForTrends = isAllSessions && sessionCount > 0 && sessionCount < 3
-  const showGettingStarted = status === 'live' && isAllSessions && sessionCount < 3
+  // A learner with almost no history needs the explanation whichever session is
+  // showing - the view it used to be tied to is gone.
+  const showGettingStarted = status === 'live' && sessionCount < 3
 
   // The single thing this learner should do next.
   //
@@ -313,33 +329,94 @@ export default function AnalyticsDashboard() {
   //
   // One item, not a list: a page that reports four problems at once is read as
   // four problems and acted on as none.
+  // The one thing worth acting on in whatever is on screen.
+  //
+  // It reads the view it is sitting on: history in All Sessions, the selected
+  // session otherwise. It used to read history in both, which put the same
+  // sentence above every session and made the figure beside it - a lifetime
+  // number - read as that session's.
+  //
+  // It also says why. A verdict with no reason under it invites the obvious
+  // question, and a learner who cannot see what the system looked at has no way
+  // to judge whether it is right.
   const nextAction = useMemo(() => {
-    if (!isAllSessions || sessionCount < 3) return null
+    if (!data) return null
 
-    // A skill that is both falling and lowest is the clearest call. Failing that,
-    // the self-assessment pattern that shows up most often.
-    const falling = (data?.history?.skills || [])
-      .filter((item) => item.trend_label === 'declining' && item.latest_score != null)
-      .sort((a, b) => a.latest_score - b.latest_score)[0]
+    // All Sessions asks a different question from one session, so it gets a
+    // different answer. Across sessions the useful thing is a direction of
+    // travel, which no single session can show; within a session it is what
+    // happened in that session, which no average can show.
+    if (isAllSessions) {
+      // A trend needs a few sessions behind it before it is a trend.
+      if (sessionCount < 3) return null
 
-    if (falling) {
+      const falling = (data?.history?.skills || [])
+        .filter((item) => item.trend_label === 'declining' && item.latest_score != null)
+        .sort((a, b) => a.latest_score - b.latest_score)[0]
+
+      if (falling) {
+        return {
+          tone: 'var(--danger-text)',
+          title: `${labelFor(falling.skill_area)} has been sliding`,
+          body: `Across your sessions it has fallen to ${Math.round(falling.latest_score)}, from a best of ${Math.round(falling.best_score ?? falling.latest_score)}.`,
+          cta: 'See what to practise',
+          to: '/analytics-recommendations',
+        }
+      }
+
+      const pattern = (data?.recurring?.items || []).find(
+        (item) => item.pattern === 'consistent_overestimation' && item.severity !== 'none'
+      )
+      if (pattern) {
+        return {
+          tone: 'var(--warning-text)',
+          title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
+          body: `This has come up in ${pattern.sessions_with_gap} of ${pattern.sessions_rated} sessions you rated.`,
+          cta: 'See what to practise',
+          to: '/analytics-recommendations',
+        }
+      }
+
       return {
-        tone: 'var(--danger-text)',
-        title: `${labelFor(falling.skill_area)} needs your attention`,
-        body: `Down from ${Math.round(falling.first_score ?? 0)} to ${Math.round(falling.latest_score)}. Your best was ${Math.round(falling.best_score ?? 0)}.`,
+        tone: 'var(--success-text)',
+        title: 'Nothing is slipping right now',
+        body: 'None of your four skills is trending down across your sessions.',
+        cta: 'Start another session',
+        to: '/multimodal-analysis',
+      }
+    }
+
+    // 1. The strongest thing one session can show on its own: a skill rated well
+    //    above what was measured. blind_spot_service has already applied its gap
+    //    threshold, so anything returned here is a gap it considers real - this
+    //    picks the widest rather than re-deciding what counts.
+    const over = (data?.blindSpots?.blind_spots || [])
+      .filter((g) => g.blind_spot_type === 'overestimation' && g.gap != null)
+      .sort((a, b) => b.gap - a.gap)[0]
+
+    if (over) {
+      return {
+        tone: 'var(--warning-text)',
+        title: `You rated ${labelFor(over.skill_area)} higher than it measured`,
+        body: `You gave it ${Math.round(over.self_rating)}; this session measured ${Math.round(over.comparison_score)}.`,
         cta: 'See what to practise',
         to: '/analytics-recommendations',
       }
     }
 
-    const pattern = (data?.recurring?.items || []).find(
-      (item) => item.pattern === 'consistent_overestimation' && item.severity !== 'none'
-    )
-    if (pattern) {
+    // 2. Otherwise the weakest measured skill - but only when it is genuinely
+    //    weak. The lowest of four scores is not a problem by itself; something
+    //    is always lowest. 50 is the boundary the score cards on this same page
+    //    already use to turn a bar amber, so the banner and the cards agree.
+    const measured = scoresShown.filter((sk) => sk.value != null)
+    if (!measured.length) return null
+
+    const weakest = [...measured].sort((a, b) => a.value - b.value)[0]
+    if (weakest.value < 50) {
       return {
-        tone: 'var(--warning-text)',
-        title: `You rate your ${labelFor(pattern.skill_area)} higher than it measures`,
-        body: `In ${pattern.sessions_with_gap} of ${pattern.sessions_rated} sessions.`,
+        tone: 'var(--danger-text)',
+        title: `${weakest.label} needs your attention`,
+        body: `It measured ${Math.round(weakest.value)} out of 100 in this session - your lowest of the four.`,
         cta: 'See what to practise',
         to: '/analytics-recommendations',
       }
@@ -347,12 +424,12 @@ export default function AnalyticsDashboard() {
 
     return {
       tone: 'var(--success-text)',
-      title: 'Nothing is slipping right now',
-      body: 'Your skills are holding steady.',
+      title: 'Nothing stands out in this session',
+      body: `Your lowest was ${weakest.label} at ${Math.round(weakest.value)} out of 100.`,
       cta: 'Start another session',
       to: '/multimodal-analysis',
     }
-  }, [data, isAllSessions, sessionCount])
+  }, [data, scoresShown, isAllSessions, sessionCount])
 
   // A gap needs a measurement to compare against, not just a self-rating.
   const hasObserved = useMemo(() => scoresShown.some((s) => s.value !== null), [scoresShown])
@@ -366,6 +443,11 @@ export default function AnalyticsDashboard() {
       setStatus('loading')
       setError('')
       setMsg('')
+      // Drop what is on screen before fetching the next selection. Keeping it
+      // meant the previous session's numbers sat under the newly chosen
+      // session's name until the request came back - the dropdown said one
+      // session and every figure on the page belonged to another.
+      setData(null)
 
       // 1. If a session is selected, trigger integration first to calculate real system scores
       if (ts) {
@@ -375,27 +457,42 @@ export default function AnalyticsDashboard() {
 
       // 2. Fetch user-level totals
       const ag = await analyticsService.getAggregateByUser(tu).catch(() => null)
+      // How many sessions this learner has measured, kept aside because the
+      // session aggregate below replaces `aggregate` and its metric_count is 1 -
+      // the count of rows for the selected session, not the learner's history.
+      // Gating "enough evidence for a trend" on that would leave every learner
+      // permanently on the getting-started screen.
+      const lifetimeSessions = ag?.scores?.metric_count ?? 0
       let finalData = {
+        lifetimeSessions,
         aggregate: ag || { scores: { averages: {} }, feedback: { skill_rating_averages: {} } },
         blindSpots: { summary: { total_count: 0 }, blind_spots: [] },
         trends: { trends: [] },
         predictions: { predictions: [] }
       }
 
-      // 3. If a session is selected, fetch the newly calculated session aggregate
+      // 3. If a session is selected, fetch the newly calculated session aggregate.
+      //
+      // The skill history comes too, even though it is user-level. It is what
+      // puts the session's numbers in context: a 61 means nothing until the best
+      // and the average sit beside it. It describes the learner rather than the
+      // selection, so it is correct alongside any session.
       if (ts) {
-        const [sessAg, bs, tr, pr] = await Promise.all([
+        const [sessAg, bs, tr, pr, hist] = await Promise.all([
           analyticsService.getAggregateBySession(ts).catch(() => null),
           analyticsService.getBlindSpotsBySession(ts).catch(() => null),
           analyticsService.getProgressTrendsByUser(tu, { session_id: ts }).catch(() => null),
           analyticsService.getPredictedOutcomesByUser(tu, { session_id: ts }).catch(() => null),
+          analyticsService.getSkillHistory(tu).catch(() => null),
         ])
 
         finalData = {
+          lifetimeSessions,
           aggregate: sessAg || ag || finalData.aggregate,
           blindSpots: bs || { summary: { total_count: 0 }, blind_spots: [] },
           trends: tr || { trends: [] },
-          predictions: pr || { predictions: [] }
+          predictions: pr || { predictions: [] },
+          history: hist,
         }
       } else {
         // "All Sessions" asks different questions from a single session, so it
@@ -457,16 +554,42 @@ export default function AnalyticsDashboard() {
   const loadSess = async () => {
     try {
       const o = await loadComponentSessionOptions(analyticsService, cid)
-      setSessOpts(o); return o
-    } catch { return [] }
+      setSessOpts(o)
+      // selectPreferred is what the other analytics pages use, so the Overview
+      // opens on the same session they do.
+      setSessionId((current) => {
+        if (current) return current
+        const preferred = selectPreferredComponentSession(o)
+        return preferred ? preferred.id : current
+      })
+      return o
+    } catch {
+      return []
+    } finally {
+      // However the fetch ends. An empty list is still an answer, and a page
+      // that waits for one that never comes just hangs on "loading".
+      setSessReady(true)
+    }
   }
 
-  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) { setUserId(cid); loadSess() } }, [cid,isAuthLoading,isAuthenticated])
+  useEffect(() => {
+    if (isAuthLoading || !isAuthenticated || !cid) return
+    setUserId(cid)
+    setSessReady(false)
+    loadSess()
+  }, [cid, isAuthLoading, isAuthenticated])
 
-  // Load whatever the dropdown points at — '' means "All Sessions" (user-level
-  // overall totals), a session id means that session's own results. Runs on mount
-  // (honouring ?sessionId=) and again whenever the selection changes.
-  useEffect(() => { if(!isAuthLoading&&isAuthenticated&&cid) load(cid,sessionId) }, [cid,isAuthLoading,isAuthenticated,sessionId])
+  // Loads the selected session, on mount and whenever the selection changes.
+  //
+  // It waits for sessReady. Both effects run on mount, and this one used to fire
+  // straight away with sessionId still '' - which fetched the user-level totals
+  // and painted them under a session's name, until the second load replaced them
+  // with the session's own. That is why the first view showed the wrong numbers
+  // and a manual reload appeared to fix them.
+  useEffect(() => {
+    if (isAuthLoading || !isAuthenticated || !cid || !sessReady) return
+    load(cid, sessionId)
+  }, [cid, isAuthLoading, isAuthenticated, sessionId, sessReady])
 
   const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
@@ -481,21 +604,10 @@ export default function AnalyticsDashboard() {
   //
   // Counted by session rather than by row: a self-assessment is stored as four
   // rows, one per skill, so 41 sessions rated would otherwise read as 164.
-  const fb = data?.aggregate?.feedback || {}
-  const fbSelf = fb.self_session_count || 0
-  const fbTotal = fbSelf
   // One sentence telling a first-time reader what the headline number is. The
   // number alone invites the wrong reading: people assume a single score out of
   // 100 is a grade, and act on it accordingly.
   //
-  // It no longer says "averaged". The headline is the engine's own overall score
-  // for the session, so a caption promising the mean of the four cards below
-  // would describe an arithmetic the reader can then fail to reproduce - the two
-  // differ by up to 13.5 points on a single session.
-  const overallCaption = isAllSessions
-    ? 'The overall score from your most recent session'
-    : 'The overall score from this session'
-
   // The multimodal engine's own overall score for the session, not the mean of
   // the four cards beside it.
   //
@@ -506,59 +618,70 @@ export default function AnalyticsDashboard() {
   // this one both say "overall score" about the same session, they have to be
   // saying it about the same number.
   //
-  // Selected session -> that session's stored score. All Sessions -> the stored
-  // score of the most recent one, matching the skill cards, which are also the
-  // latest rather than an average. The mean survives only as a fallback for a
-  // session that stored no overall of its own.
+  // Selected session -> that session's stored score. All Sessions -> the average
+  // of those stored scores, matching the skill cards beside it. The mean of the
+  // four cards survives only as a fallback for a session that stored no overall
+  // of its own.
   const overallHistory = data?.history?.overall || null
+
+  // It does not promise the mean of the four cards below: the headline is the
+  // engine's own overall score, and the two differ by up to 13.5 points on a
+  // single session. What it does name is the time basis, because that is what
+  // "All Sessions" and one session actually differ by.
+  const overallCaption = isAllSessions
+    ? `Averaged across your ${overallHistory?.session_count ?? sessionCount} sessions`
+    : 'The overall score from this session'
 
   const overall = useMemo(() => {
     const stored = isAllSessions
-      ? overallHistory?.latest_score
+      ? overallHistory?.average_score
       : data?.aggregate?.scores?.averages?.overall_score
     if (stored != null) return Math.round(Number(stored))
     const vals = scoresShown.map(s => s.value).filter(v => v != null)
     if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-    return fmtScore(data?.aggregate?.feedback?.average_rating)
+    // A number or null, never the "--" string this used to return. Callers below
+    // subtract from it and compare it; a string that looks like a score turns
+    // those into NaN, and `Number('--') || 0` turns "not measured" into a
+    // measured zero.
+    const fallback = data?.aggregate?.feedback?.average_rating
+    return fallback == null || isNaN(Number(fallback)) ? null : Math.round(Number(fallback))
   }, [scoresShown, data, isAllSessions, overallHistory])
 
-  // The same engine score averaged over every session instead of the most recent
-  // one. Same source as `overall`, so the two can be compared and subtracted.
+  // The most recent session's engine score, shown beside the average on the All
+  // Sessions view. Same source as `overall`, so the two can be subtracted.
   //
-  // It exists because the headline figure is one session, and one session is a
-  // day rather than a level. This learner sits at 82 over 114 sessions and at 61
-  // in the latest; showing only the 61 reports a bad morning as a standing, and
-  // showing only the 82 was the bug that let four consecutive declines read as
-  // "Great job". Neither number is the answer on its own.
-  const lifetimeOverall = useMemo(() => {
-    if (!isAllSessions || overallHistory?.average_score == null) return null
-    return Math.round(Number(overallHistory.average_score))
+  // Neither figure answers on its own. An average alone let four consecutive
+  // declines read as "Great job"; a latest score alone reported a bad morning as
+  // a standing. This learner sits at 82 across 114 sessions and at 61 in the
+  // latest, and both of those are worth knowing.
+  const latestOverall = useMemo(() => {
+    if (!isAllSessions || overallHistory?.latest_score == null) return null
+    return Math.round(Number(overallHistory.latest_score))
   }, [overallHistory, isAllSessions])
 
-  // Below this the two figures are the same number to a reader, and the
-  // comparison is noise rather than news.
-  const overallGap = lifetimeOverall == null ? 0 : Number(overall) - lifetimeOverall
+  // How the most recent session sits against the average. Below this the two are
+  // the same number to a reader, and the comparison is noise rather than news.
+  const overallGap = latestOverall == null || overall == null ? 0 : latestOverall - Number(overall)
   const gapIsWorthSaying = Math.abs(overallGap) >= 5
 
-  // The sentence under the score used to read the headline alone, which is one
-  // session. A learner sitting at 82 over a hundred sessions got "Every session
-  // makes you better!" for a single bad morning - encouraging, and wrong about
-  // them. Where the two figures disagree, the gap is the thing worth saying, and
-  // saying it is more use than either cheering or consoling.
+  // Where the two figures disagree, the gap is the thing worth saying - more use
+  // than either cheering or consoling. The encouragement lines below are reached
+  // only on a single session, where there is no second figure to compare with.
   const overallMessage = useMemo(() => {
-    const latest = Number(overall)
-    if (lifetimeOverall != null && gapIsWorthSaying) {
+    const v = Number(overall)
+    if (latestOverall != null && gapIsWorthSaying) {
       return overallGap < 0
-        ? `This session came in ${Math.abs(overallGap)} points below your usual ${lifetimeOverall}. One session is a day, not a level.`
-        : `This session ran ${overallGap} points above your usual ${lifetimeOverall}. Worth knowing what you did differently.`
+        ? `Your most recent session came in ${Math.abs(overallGap)} points below this average. One session is a day, not a level.`
+        : `Your most recent session ran ${overallGap} points above this average. Worth knowing what you did differently.`
     }
-    if (lifetimeOverall != null) {
-      return `Right about where you usually land. Steady is its own result.`
+    if (latestOverall != null) {
+      return 'Your most recent session landed right about here. Steady is its own result.'
     }
-    if (latest >= 75) return 'Great job! Keep it up!'
-    if (latest >= 50) return 'Good progress. Keep practising!'
+    if (!Number.isFinite(v)) return 'No overall score was recorded for this session.'
+    if (v >= 75) return 'Great job! Keep it up!'
+    if (v >= 50) return 'Good progress. Keep practising!'
     return 'Every session makes you better!'
-  }, [overall, lifetimeOverall, overallGap, gapIsWorthSaying])
+  }, [overall, latestOverall, overallGap, gapIsWorthSaying])
 
   // Build self-rating scores from feedback averages + blind spot data for dual-layer radar.
   //
@@ -588,10 +711,11 @@ export default function AnalyticsDashboard() {
   // congratulating people on self-awareness they never demonstrated.
   const hasSelfRating = selfScores.length > 0
 
-  // What the radar draws. In history mode the observed layer is the latest
-  // session, matching the cards above it, and the averaged self layer is left
-  // off — see the note on selfScores.
-  const radarSelfScores = isAllSessions ? [] : selfScores
+  // What the radar draws. Both layers share one time basis - averages in All
+  // Sessions, the session itself when one is picked - so the gap between the two
+  // shapes is about the learner rather than about the two layers being measured
+  // over different spans.
+  const radarSelfScores = selfScores
 
   return (
     <div className="min-h-screen">
@@ -608,7 +732,6 @@ export default function AnalyticsDashboard() {
               options={sessOpts}
               onChange={setSessionId}
               minWidthClass="min-w-72"
-              allOptionLabel="All Sessions"
             />
             <AnalyticsLoadButton
               loading={status==='loading'}
@@ -649,13 +772,13 @@ export default function AnalyticsDashboard() {
         {/* REDESIGN: big score banner replaced hex gradient (#4f46e5/#7c3aed) + text-white
             with var(--gradient-accent) + tokenised text colors */}
         <div
-          className="rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-6"
+          className="rounded-2xl p-6"
           style={{ background: 'var(--gradient-accent)' }}
         >
-          <div className="flex-1" style={{ color: 'white' }}>
+          <div style={{ color: 'white' }}>
             <p style={{ color: 'rgba(255,255,255,0.85)' }} className="text-sm font-medium mb-1">Your Overall Score</p>
             <div className="flex items-end gap-2">
-              <span className="score-num" style={{ fontSize: 60, fontWeight: 600, lineHeight: 1 }}>{overall}</span>
+              <span className="score-num" style={{ fontSize: 60, fontWeight: 600, lineHeight: 1 }}>{fmtScore(overall)}</span>
               <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 20, marginBottom: 6 }}>/100</span>
             </div>
             {/* Where the number came from, before any encouragement about it. A
@@ -663,25 +786,18 @@ export default function AnalyticsDashboard() {
                 reader has no way to tell whether it is one session or a year. */}
             <p style={{ color: 'rgba(255,255,255,0.75)' }} className="text-xs mt-1">{overallCaption}</p>
 
-            {/* The lifetime figure sits beside the headline rather than under the
-                skill cards, because the headline is the number people quote and
-                one session is not a standing. Shown whenever all four skills have
-                a history to average; the size of the gap decides what the
-                sentence below says, not whether this appears. */}
-            {lifetimeOverall != null && (
+            {/* The most recent session sits beside the average rather than under
+                the skill cards, because the average is the number people quote
+                and it cannot show a bad week on its own. The size of the gap
+                decides what the sentence below says, not whether this appears. */}
+            {latestOverall != null && (
               <div
                 className="flex items-center gap-2 mt-3 rounded-lg px-3 py-2"
                 style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.18)' }}
               >
-                <span className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{lifetimeOverall}</span>
-                {/* The count can be named here, and only here. Every session
-                    stores an overall score, so this average really does cover all
-                    of them. The four skill averages do not: a channel that
-                    recorded nothing leaves the session out of that skill rather
-                    than scoring it zero, and on this account they run 93, 76, 99
-                    and 99 out of 114. Each card carries its own count. */}
+                <span className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{latestOverall}</span>
                 <span style={{ color: 'rgba(255,255,255,0.8)' }} className="text-xs">
-                  your average across {overallHistory?.session_count ?? sessionCount} sessions
+                  your most recent session
                 </span>
               </div>
             )}
@@ -689,31 +805,6 @@ export default function AnalyticsDashboard() {
             <p style={{ color: 'rgba(255,255,255,0.85)' }} className="text-sm mt-2">
               {overallMessage}
             </p>
-          </div>
-          <div className="grid grid-cols-3 gap-3 text-center" style={{ color: 'white' }}>
-            {[
-              // Sessions = user's lifetime total when no session is selected, or the
-              // selected session's count when one is chosen (aggregate scope follows the selection).
-              { l: 'Sessions', v: data?.aggregate?.scores?.metric_count || 0 },
-              {
-                l: 'Self-Assessments',
-                v: fbTotal,
-                sub: sessionCount ? `of ${sessionCount} sessions` : null,
-              },
-              { l: 'Insights', v: preds.length },
-            ].map(x =>
-              <div
-                key={x.l}
-                className="rounded-xl px-4 py-3"
-                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.18)' }}
-              >
-                <div className="score-num" style={{ fontSize: 22, fontWeight: 600 }}>{x.v}</div>
-                <div className="t-cap" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>{x.l}</div>
-                {x.sub && (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 3, lineHeight: 1.3 }}>{x.sub}</div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
@@ -746,11 +837,11 @@ export default function AnalyticsDashboard() {
             📊 Your Skill Scores
           </h2>
           <p className="text-xs text-muted-foreground mb-3">
-            {isAllSessions ? 'Your latest session, out of 100' : 'This session, out of 100'}
+            {isAllSessions ? 'Averaged across every session, out of 100' : 'This session, out of 100'}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[...scoresShown, { key:'overall', label:'Overall Score', value: Number(overall) || 0 }].map((s,i) => {
-              const h = isAllSessions ? history[s.key] : null
+            {[...scoresShown, { key:'overall', label:'Overall Score', value: overall }].map((s,i) => {
+              const h = history[s.key] || null
               // A measured zero and nothing measured are different facts, and
               // this card used to state both as "--". Scoring is by penalty, so
               // zero is a real and reachable result - a session that produced no
@@ -776,13 +867,14 @@ export default function AnalyticsDashboard() {
                     <motion.div initial={{width:0}} animate={{width:(measured ? v : 0)+'%'}} transition={{duration:0.8,delay:i*0.05}}
                       className="h-full rounded-full" style={{backgroundColor: barColor}}/>
                   </div>
-                  {/* The number above is one session. Without the average and the
-                      best beside it, a good day reads as a level and a bad one
-                      reads as a collapse. */}
+                  {/* The number above is one session. Without the best and the
+                      average beside it a good day reads as a level and a bad one
+                      reads as a collapse. A dash rather than a zero: a skill that
+                      was never measured is not a skill that scored zero. */}
                   {h ? (
                     <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                      <span>best {Math.round(h.best_score ?? 0)}</span>
-                      <span>avg {Math.round(h.average_score ?? 0)}</span>
+                      <span>best {h.best_score == null ? '--' : Math.round(h.best_score)}</span>
+                      <span>avg {h.average_score == null ? '--' : Math.round(h.average_score)}</span>
                       <span style={{ color: TREND_TONE[h.trend_label] }}>{TREND_MARK[h.trend_label]}</span>
                     </div>
                   ) : null}
@@ -808,10 +900,17 @@ export default function AnalyticsDashboard() {
               scores={scoresShown}
               selfScores={radarSelfScores}
               overallScore={overall}
+              overallNote={
+                isAllSessions
+                  ? 'Each session is scored as a whole and those scores are averaged, so this will not always match the average of the skills above.'
+                  : undefined
+              }
             />
             {isAllSessions && selfScores.length > 0 && (
               <p className="text-[11px] text-muted-foreground mt-3">
-                Your ratings are in the panel beside this one, counted per session.
+                Both shapes are averages, so a week you rated yourself unusually
+                high or low is smoothed out here. The panel beside this one counts
+                those sessions one by one.
               </p>
             )}
           </div>
