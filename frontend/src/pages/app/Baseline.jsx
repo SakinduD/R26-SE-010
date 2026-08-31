@@ -25,7 +25,7 @@ import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
 export default function Baseline() {
   const { isLoading: authLoading } = useProtectedRoute();
   const navigate = useNavigate();
-  const [showMesh, setShowMesh] = useState(true);
+  const [showMesh, setShowMesh] = useState(false);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);

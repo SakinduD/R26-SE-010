@@ -41,7 +41,7 @@ function wrapCanvasText(ctx, text, maxWidth) {
 const MultimodalEngine = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const showMesh = searchParams.get('mesh') !== 'false';
+  const showMesh = searchParams.get('mesh') === 'true';
 
   const [liveSessionId, setLiveSessionId] = useState(null);
   const [isLiveStarting, setIsLiveStarting] = useState(false);

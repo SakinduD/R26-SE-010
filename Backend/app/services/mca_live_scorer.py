@@ -27,15 +27,15 @@ _settings = get_settings()
 _TEMP_LOG_PATH = Path(__file__).resolve().parents[2] / "scratch" / "mca_live_llm_log.txt"
 
 # remove comments
-# def _append_temp_log(label: str, content: str) -> None:
-#     try:
-#         _TEMP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-#         with _TEMP_LOG_PATH.open("a", encoding="utf-8") as f:
-#             f.write(f"\n----- {label} @ {datetime.now(timezone.utc).isoformat()} -----\n")
-#             f.write(content)
-#             f.write("\n")
-#     except OSError as exc:
-#         logger.warning("Could not write MCA live-scorer temp log: %s", exc)
+def _append_temp_log(label: str, content: str) -> None:
+    try:
+        _TEMP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _TEMP_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"\n----- {label} @ {datetime.now(timezone.utc).isoformat()} -----\n")
+            f.write(content)
+            f.write("\n")
+    except OSError as exc:
+        logger.warning("Could not write MCA live-scorer temp log: %s", exc)
 
 _REQUIRED_DIMENSIONS = (
     "vocal_command",
@@ -55,7 +55,9 @@ _SYSTEM_INSTRUCTION = (
     "contact, vocal tone) — use the transcript around each nudge's timestamp "
     "to judge whether the underlying behavior actually persisted or was "
     "isolated, and weigh that into your scoring instead of just counting "
-    "nudges.\n\n"
+    "nudges. NOTE: All nudges reflect the learner's behavior only. If the other "
+    "participant is speaking, completely ignore any 'Take your time! Pauses "
+    "help gather ideas.' nudges, as silence from the learner is expected then.\n\n"
     "Score the learner (never the other participant) on exactly these four "
     "dimensions, each 0-100:\n"
     "- vocal_command: clarity, volume, pitch control, and directness of "
@@ -104,7 +106,7 @@ class MCALiveScorer:
         prompt = _build_prompt(nudge_log, user_transcript, meeting_transcript, duration_seconds)
 
         # Temp visibility log: the exact timeline text handed to the LLM.
-        # _append_temp_log("PROMPT", prompt)
+        _append_temp_log("PROMPT", prompt)
 
         try:
             response = self.model.generate_content(
@@ -113,7 +115,7 @@ class MCALiveScorer:
                     response_mime_type="application/json",
                 ),
             )
-            # _append_temp_log("RESPONSE", response.text)
+            _append_temp_log("RESPONSE", response.text)
             data = json.loads(response.text)
 
             breakdown = {
