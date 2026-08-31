@@ -82,7 +82,12 @@ export default function Topbar() {
 
         <div className="topbar-icons">
           <NotificationBell />
-          <button className="icon-btn" aria-label="Help" type="button">
+          <button
+            className="icon-btn"
+            aria-label="Help"
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('ez:start-tour'))}
+          >
             <Info size={14} strokeWidth={1.6} />
           </button>
         </div>

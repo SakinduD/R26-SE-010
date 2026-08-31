@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     display_name: Optional[str]
+    has_seen_tour: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

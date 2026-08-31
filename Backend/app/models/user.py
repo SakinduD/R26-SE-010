@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String
+from sqlalchemy import Boolean, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,9 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
+    # Tracks whether the user has completed the onboarding tour at least once.
+    has_seen_tour: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+
 
     personality_profile: Mapped[Optional["PersonalityProfile"]] = relationship(
         "PersonalityProfile",
