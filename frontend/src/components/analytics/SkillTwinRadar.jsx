@@ -5,7 +5,14 @@ import React, { useState } from 'react'
 const hasScore = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
 const clampScore = (value) => Math.max(0, Math.min(100, Number(value)))
 
-export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
+// The default wording describes one session, which is what two of the three
+// callers show. The dashboard's All Sessions view averages instead, and the
+// sentence has to say so - "scored on the session as a whole" under a figure
+// covering a hundred sessions is simply wrong.
+const SESSION_OVERALL_NOTE =
+  'Scored on the session as a whole, so it will not always match the average of the skills above.'
+
+export default function SkillTwinRadar({ scores, selfScores, overallScore, overallNote = SESSION_OVERALL_NOTE }) {
   const normalizedScores = scores.map((item) => ({
     ...item,
     hasEvidence: hasScore(item.value),
@@ -72,7 +79,7 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
                 single session. Without this line that gap reads as a broken
                 page. */}
             <p className="text-[10px] text-muted-foreground mt-1.5 italic">
-              Scored on the session as a whole, so it will not always match the average of the skills above.
+              {overallNote}
             </p>
           </div>
         </div>
