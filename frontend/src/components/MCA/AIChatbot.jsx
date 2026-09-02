@@ -15,7 +15,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     {
       id: 1,
       type: 'bot',
-      text: "Welcome to your EmpowerZ Baseline Session. Over the next 8 minutes, I'll ask you a few questions to understand your communication goals and challenges — this helps personalize your adaptive learning journey. There are no right or wrong answers, just share what feels true for you. Ready to begin?",
+      text: "Welcome!! I'm your EmpowerZ Communication Partner. Over the next 8 minutes we'll just have a relaxed conversation, it's not an interview, a quiz, or a test, and nothing you say is scored for content. I'm genuinely curious about the communication situations you find hard and the abilities you'd most like to strengthen, so talk as naturally as you would with a supportive mentor, the more you share, the more helpful this is. Ready to begin?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     },
   ]);
