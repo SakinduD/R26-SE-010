@@ -36,6 +36,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S = 8.0
 
 
+def _article(noun: str) -> str:
+    return "an" if noun[:1].lower() in "aeiou" else "a"
+
+
+def _fallback_title(mapped: dict) -> str:
+    """
+    Last-resort title when generate_scenario_prose() didn't return one (any
+    LLM failure there degrades to this rather than a hard error). The
+    mechanical "<Domain> with a <Role>" hint built as blueprint.title_hint
+    (plan_composer.py) is normally fine, but degrades badly whenever domain
+    classification itself already fell through to intent_parser.py's "other"
+    catch-all (e.g. its own Gemini call failed and the keyword-only parse
+    matched nothing) — "Other with a colleague" tells a learner nothing, and
+    stacking two silent fallbacks back to back is exactly how that title got
+    shipped. target_skills is always populated regardless of whether domain
+    classification succeeded, so anchor to the skill instead of the domain
+    word whenever the domain hint would be this uninformative.
+    """
+    hint = mapped["title"]
+    if not hint.lower().startswith("other "):
+        return hint
+
+    role = mapped["npc_role"]
+    skills = mapped["apa_metadata"]["target_skills"]
+    skill_label = skills[0].replace("_", " ").title() if skills else "Difficult Conversation"
+    return f"{skill_label} Practice with {_article(role)} {role}"
+
+
 class PlanImportError(Exception):
     """Raised when the brief can't be fetched or a scenario can't be built."""
 
@@ -70,6 +98,32 @@ async def fetch_scenario_brief(plan_id: str) -> ScenarioGenerationBrief:
             status_code=resp.status_code,
         )
     return ScenarioGenerationBrief.model_validate(resp.json())
+
+
+async def sync_plan_title(plan_id: str, title: str) -> None:
+    """
+    PATCH the plan's title_hint to match the scenario's final generated
+    title — otherwise the Training Plan page keeps showing the mechanical
+    "<Domain> with a <Role>" placeholder forever while the generated
+    scenario (and every session played from it) shows a different, more
+    specific name. Best-effort and silent on failure: a title cosmetic sync
+    must never be able to fail scenario generation itself, so this is called
+    after the scenario file is already written, and any error here only
+    gets logged.
+    """
+    settings = get_settings()
+    base_url = settings.rpe_base_url.rstrip("/")
+    url = f"{base_url}/api/v1/apa/training-plan/{plan_id}/generated-title"
+
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as client:
+            await client.patch(
+                url,
+                json={"title": title},
+                headers={"X-Service-Token": settings.apm_service_token},
+            )
+    except httpx.RequestError as exc:
+        logger.warning("Failed to sync generated title back to plan %s: %s", plan_id, exc)
 
 
 def _compress_personality(persona) -> str:
@@ -227,7 +281,7 @@ async def generate_and_persist_scenario(plan_id: str) -> str:
         situation_summary=brief.blueprint.situation_summary,
         fallback_title=mapped["title"],  # the mechanical "<Domain> with a <Role>" hint
     )
-    mapped["title"] = prose.title or mapped["title"]
+    mapped["title"] = prose.title or _fallback_title(mapped)
     mapped["opening_npc_line"] = prose.opening_npc_line
     mapped["context"] = prose.context or mapped["context"]
 
@@ -235,4 +289,7 @@ async def generate_and_persist_scenario(plan_id: str) -> str:
     path = SCENARIOS_DIR / f"{scenario_id}.json"
     path.write_text(json.dumps(mapped, indent=2))
     logger.info("Generated RPE scenario %s from plan %s", scenario_id, plan_id)
+
+    await sync_plan_title(plan_id, mapped["title"])
+
     return scenario_id

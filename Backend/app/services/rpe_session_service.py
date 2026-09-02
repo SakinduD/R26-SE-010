@@ -390,26 +390,74 @@ class RpeSessionService:
         Return sessions for the given Supabase auth UUID, newest first.
         trashed=False (default) returns the active list (deleted_at IS NULL);
         trashed=True returns the recycle bin (deleted_at IS NOT NULL).
+
+        Every other read path in this service (get_session, get_state) tries
+        Supabase then falls back to the session's JSON file — this one
+        didn't, even though _persist_session's own contract is "log and
+        swallow" on a Supabase insert failure specifically so a session is
+        never lost just because that write hiccuped. The result: a session
+        whose Supabase row never landed was still fully playable and
+        reviewable via its JSON file (direct link, feedback screen — both
+        go through get_session), but permanently invisible in My Sessions,
+        the one list view with no fallback at all. Topped up from JSON here
+        for parity with the rest of the class.
+
+        Only the active list gets JSON-topped-up: set_sessions_deleted only
+        ever writes deleted_at to Supabase, so a JSON-only session has no
+        trashed state to speak of and always counts as active.
         """
         sb = _get_supabase()
-        if not sb:
-            return []
-        try:
-            query = (
-                sb.table("rpe_sessions")
-                .select(
-                    "session_id, scenario_id, started_at, ended_at,"
-                    "outcome, end_reason, final_trust,"
-                    "final_escalation, recommended_turns, deleted_at"
+        rows: list[dict] = []
+        if sb:
+            try:
+                query = (
+                    sb.table("rpe_sessions")
+                    .select(
+                        "session_id, scenario_id, started_at, ended_at,"
+                        "outcome, end_reason, final_trust,"
+                        "final_escalation, recommended_turns, deleted_at"
+                    )
+                    .eq("auth_user_id", auth_user_id)
                 )
-                .eq("auth_user_id", auth_user_id)
+                query = query.not_.is_("deleted_at", "null") if trashed else query.is_("deleted_at", "null")
+                result = query.order("started_at", desc=True).execute()
+                rows = result.data or []
+            except Exception as exc:
+                logger.error("RPE get_user_sessions error: %s", exc)
+
+        if not trashed:
+            known_ids = {row["session_id"] for row in rows}
+            rows.extend(
+                row for row in self._json_sessions_for_user(auth_user_id)
+                if row["session_id"] not in known_ids
             )
-            query = query.not_.is_("deleted_at", "null") if trashed else query.is_("deleted_at", "null")
-            result = query.order("started_at", desc=True).execute()
-            return result.data or []
-        except Exception as exc:
-            logger.error("RPE get_user_sessions error: %s", exc)
-            return []
+            rows.sort(key=lambda row: row.get("started_at") or "", reverse=True)
+
+        return rows
+
+    def _json_sessions_for_user(self, auth_user_id: str) -> list[dict]:
+        """Same summary shape as the Supabase select above, read off disk."""
+        out: list[dict] = []
+        for path in LOGS_DIR.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("auth_user_id") != auth_user_id:
+                continue
+            out.append({
+                "session_id":        data.get("session_id"),
+                "scenario_id":       data.get("scenario_id"),
+                "started_at":        data.get("started_at"),
+                "ended_at":          data.get("ended_at"),
+                "outcome":           data.get("outcome"),
+                "end_reason":        data.get("end_reason"),
+                "final_trust":       data.get("final_trust"),
+                "final_escalation":  data.get("final_escalation"),
+                "recommended_turns": data.get("recommended_turns"),
+                "deleted_at":        None,
+            })
+        return out
 
     def set_sessions_deleted(self, auth_user_id: str, session_ids: list[str], deleted: bool) -> None:
         """
