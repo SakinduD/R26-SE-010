@@ -54,6 +54,31 @@ export const FEEDBACK_THEME_VARS = `
   }
 `
 
+// .pill / .btn-c — shared across FeedbackDashboard and SessionComplete
+// (previously each page hand-copied its own near-identical version of
+// these; a color or padding tweak in one didn't apply to the other). Both
+// pages embed this alongside FEEDBACK_THEME_VARS, same pattern.
+export const FEEDBACK_COMPONENT_STYLES = `
+  .rpe-cinema .pill{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; padding:4px 11px; border-radius:100px; text-transform:capitalize; flex-shrink:0; }
+  .rpe-cinema .pill.success{ color:var(--success); background:var(--success-glow); }
+  .rpe-cinema .pill.warning{ color:var(--warning); background:var(--warning-glow); }
+  .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
+  .rpe-cinema .pill.accent{  color:var(--accent);  background:var(--accent-glow); }
+  .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
+
+  .rpe-cinema .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; text-transform:capitalize; }
+  .rpe-cinema .chip.accent{ color:var(--accent); background:var(--accent-glow); }
+
+  .rpe-cinema .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650; padding:10px 18px; border-radius:10px; cursor:pointer; border:1px solid transparent; font-family:inherit; transition:filter .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease), transform .15s var(--ease); }
+  .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
+  .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
+  .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
+  .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
+  .rpe-cinema .btn-c.secondary:disabled{ opacity:.4; cursor:default; }
+  .rpe-cinema .btn-c.ghost{ background:transparent; color:var(--text-med); }
+  .rpe-cinema .btn-c.ghost:hover{ color:var(--text-hi); background:var(--surface-hi); }
+`
+
 // Semantic status tone for a 0-100 trust-style score — used anywhere a
 // score needs a Needs improvement/On track/Strong/Excellent read, not just
 // a bare number. Thresholds match the trust-tone logic already used across

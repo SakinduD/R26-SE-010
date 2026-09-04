@@ -76,6 +76,26 @@ UserBehaviorLabel = Literal[
 # the point is that they judge quality themselves, not get told the answer.
 ResponseOptionQuality = Literal["strong", "adequate", "weak"]
 
+# What kind of thing the NPC's own line is asking the user for — replaces a
+# single requestsDeliverable boolean. That boolean used to cover two very
+# different situations with one response shape (3 example reply texts):
+# "commit to sending something in general terms" (fine — a first-person
+# reply describing the handoff is a real, complete thing to say) and
+# "hand over the literal content right now" (not fine — the model has no
+# actual paragraph/filename/figures to put in a sample reply, so it
+# hallucinated placeholders like "[paste text here]" into responseOptions
+# text, which then got sent to the NPC verbatim as if it were real content).
+# Splitting the type stops the model from ever being asked to invent content
+# it doesn't have — content_request/direct_input turns get a short prompt
+# instead of fabricated example text, and the frontend renders a real input
+# instead of choice cards.
+InteractionType = Literal["normal", "deliverable_choice", "content_request", "direct_input"]
+
+# Only meaningful when interactionType is content_request/direct_input — the
+# frontend uses this to pick a textarea vs a single-line input (see
+# resolveInteraction() in the frontend, frontend/src/lib/rpe/interaction.js).
+ContentType = Literal["paragraph", "section", "evidence", "filename", "number", "short_text", "long_text"]
+
 
 class ResponseOption(BaseModel):
     label: str
@@ -90,8 +110,10 @@ class NPCResponse(BaseModel):
     internalNote: str
     scenarioProgress: ScenarioProgress
     userBehavior: UserBehaviorLabel
-    requestsDeliverable: bool
+    interactionType: InteractionType
     responseOptions: list[ResponseOption] | None
+    contentPrompt: str | None
+    contentType: ContentType | None
 
 
 _FALLBACK_RESPONSE = NPCResponse(
@@ -101,8 +123,10 @@ _FALLBACK_RESPONSE = NPCResponse(
     internalNote="",
     scenarioProgress="building",
     userBehavior="unclear",
-    requestsDeliverable=False,
+    interactionType="normal",
     responseOptions=None,
+    contentPrompt=None,
+    contentType=None,
 )
 
 _RESPONSE_OPTION_SCHEMA = {
@@ -125,16 +149,18 @@ _NPC_RESPONSE_SCHEMA = {
         "internalNote": {"type": "string"},
         "scenarioProgress": {"type": "string", "enum": list(ScenarioProgress.__args__)},
         "userBehavior": {"type": "string", "enum": list(UserBehaviorLabel.__args__)},
-        "requestsDeliverable": {"type": "boolean"},
+        "interactionType": {"type": "string", "enum": list(InteractionType.__args__)},
         "responseOptions": {
             "type": ["array", "null"],
             "items": _RESPONSE_OPTION_SCHEMA,
         },
+        "contentPrompt": {"type": ["string", "null"]},
+        "contentType": {"type": ["string", "null"], "enum": list(ContentType.__args__) + [None]},
     },
     "required": [
         "dialogue", "emotion", "animation", "internalNote",
         "scenarioProgress", "userBehavior",
-        "requestsDeliverable", "responseOptions",
+        "interactionType", "responseOptions", "contentPrompt", "contentType",
     ],
     "additionalProperties": False,
 }
@@ -301,6 +327,8 @@ async def get_npc_response(
     if response.responseOptions:
         for option in response.responseOptions:
             option.text = _strip_llm_dashes(option.text)
+    if response.contentPrompt:
+        response.contentPrompt = _strip_llm_dashes(response.contentPrompt)
 
     if response.internalNote:
         logger.info(

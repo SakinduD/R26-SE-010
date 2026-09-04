@@ -402,9 +402,10 @@ class RpeSessionService:
         the one list view with no fallback at all. Topped up from JSON here
         for parity with the rest of the class.
 
-        Only the active list gets JSON-topped-up: set_sessions_deleted only
-        ever writes deleted_at to Supabase, so a JSON-only session has no
-        trashed state to speak of and always counts as active.
+        set_sessions_deleted writes deleted_at to both Supabase and the
+        session's JSON file (see there), so a JSON-only session has a real
+        trashed state too — merged in below for whichever bucket (active vs
+        trash) it actually belongs to, same as the Supabase rows.
         """
         sb = _get_supabase()
         rows: list[dict] = []
@@ -425,17 +426,25 @@ class RpeSessionService:
             except Exception as exc:
                 logger.error("RPE get_user_sessions error: %s", exc)
 
-        if not trashed:
-            known_ids = {row["session_id"] for row in rows}
-            rows.extend(
-                row for row in self._json_sessions_for_user(auth_user_id)
-                if row["session_id"] not in known_ids
-            )
-            rows.sort(key=lambda row: row.get("started_at") or "", reverse=True)
+        known_ids = {row["session_id"] for row in rows}
+        rows.extend(
+            row for row in self._json_sessions_for_user(auth_user_id, trashed)
+            if row["session_id"] not in known_ids
+        )
+        rows.sort(key=lambda row: row.get("started_at") or "", reverse=True)
 
         return rows
 
-    def _json_sessions_for_user(self, auth_user_id: str) -> list[dict]:
+    def get_active_sessions(self, auth_user_id: str) -> list[dict]:
+        """
+        This user's unfinished sessions (ended_at IS NULL), newest first —
+        what "resume one of your in-progress sessions" and the active-
+        session cap both need. Just get_user_sessions filtered down, so it
+        inherits the same Supabase+JSON coverage.
+        """
+        return [row for row in self.get_user_sessions(auth_user_id, trashed=False) if not row.get("ended_at")]
+
+    def _json_sessions_for_user(self, auth_user_id: str, trashed: bool) -> list[dict]:
         """Same summary shape as the Supabase select above, read off disk."""
         out: list[dict] = []
         for path in LOGS_DIR.glob("*.json"):
@@ -444,6 +453,8 @@ class RpeSessionService:
             except Exception:
                 continue
             if data.get("auth_user_id") != auth_user_id:
+                continue
+            if bool(data.get("deleted_at")) != trashed:
                 continue
             out.append({
                 "session_id":        data.get("session_id"),
@@ -455,7 +466,7 @@ class RpeSessionService:
                 "final_trust":       data.get("final_trust"),
                 "final_escalation":  data.get("final_escalation"),
                 "recommended_turns": data.get("recommended_turns"),
-                "deleted_at":        None,
+                "deleted_at":        data.get("deleted_at"),
             })
         return out
 
@@ -464,31 +475,74 @@ class RpeSessionService:
         Move sessions into/out of the recycle bin (soft delete). Scoped to
         the caller's own auth_user_id so one user can never touch another's
         sessions — powers both the trash and restore actions.
+
+        Writes deleted_at to both Supabase and each session's own JSON file.
+        JSON-only sessions (Supabase insert never landed — see get_session's
+        fallback) previously couldn't be trashed at all: the Supabase UPDATE
+        silently matched zero rows, the JSON file was never touched, and the
+        session kept reappearing as "active" forever — including counting
+        against MAX_ACTIVE_SESSIONS in router.py, so a learner could delete
+        a stuck session and still be blocked from starting a new one by that
+        exact session. JSON writes are best-effort per id — a missing file
+        for a Supabase-backed session_id is expected and skipped.
         """
-        sb = _get_supabase()
-        if not sb or not session_ids:
+        if not session_ids:
             return
-        try:
-            value = datetime.now(timezone.utc).isoformat() if deleted else None
-            sb.table("rpe_sessions").update({"deleted_at": value}) \
-                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
-        except Exception as exc:
-            logger.error("RPE set_sessions_deleted error: %s", exc)
+        value = datetime.now(timezone.utc).isoformat() if deleted else None
+
+        sb = _get_supabase()
+        if sb:
+            try:
+                sb.table("rpe_sessions").update({"deleted_at": value}) \
+                    .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+            except Exception as exc:
+                logger.error("RPE set_sessions_deleted error: %s", exc)
+
+        for session_id in session_ids:
+            path = LOGS_DIR / f"{session_id}.json"
+            if not path.exists():
+                continue
+            try:
+                data = self._read_json(session_id)
+                if data.get("auth_user_id") != auth_user_id:
+                    continue
+                data["deleted_at"] = value
+                self._write_json(session_id, data)
+            except Exception as exc:
+                logger.error("JSON set_sessions_deleted failed for %s: %s", session_id, exc)
 
     def purge_sessions(self, auth_user_id: str, session_ids: list[str]) -> None:
         """
         Permanently delete sessions (must already be in the recycle bin, but
         scoping is by ownership, not trash state — the frontend only ever
         offers this from the bin). rpe_turns rows cascade via the FK.
+
+        Also removes each session's JSON file, for the same JSON-only-session
+        reason as set_sessions_deleted above — otherwise "permanently delete"
+        wasn't actually permanent for a session with no Supabase row.
         """
-        sb = _get_supabase()
-        if not sb or not session_ids:
+        if not session_ids:
             return
-        try:
-            sb.table("rpe_sessions").delete() \
-                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
-        except Exception as exc:
-            logger.error("RPE purge_sessions error: %s", exc)
+
+        sb = _get_supabase()
+        if sb:
+            try:
+                sb.table("rpe_sessions").delete() \
+                    .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+            except Exception as exc:
+                logger.error("RPE purge_sessions error: %s", exc)
+
+        for session_id in session_ids:
+            path = LOGS_DIR / f"{session_id}.json"
+            if not path.exists():
+                continue
+            try:
+                data = self._read_json(session_id)
+                if data.get("auth_user_id") != auth_user_id:
+                    continue
+                path.unlink()
+            except Exception as exc:
+                logger.error("JSON purge_sessions failed for %s: %s", session_id, exc)
 
     # ── Supabase helpers ──────────────────────────────────────────────────────
 

@@ -592,7 +592,7 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
           : 'manual'
 
   return (
-    <div className="rpe-vs" data-voice-state={voiceState} style={{ height: '100%' }}>
+    <div className="rpe-vs" data-voice-state={voiceState} style={{ height: 'calc(100vh - 48px)' }}>
 
       <Joyride
         steps={sessionTourSteps}
@@ -1012,7 +1012,7 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
         @media (max-width:720px){ .rpe-vs .shell{ grid-template-columns:1fr; } .rpe-vs .rail{ display:none; } }
 
         .rpe-vs .rail{
-          display:flex; flex-direction:column; height:100%;
+          display:flex; flex-direction:column; height:100%; min-height:0; overflow-y:auto;
           border-right:1px solid var(--border);
           background: radial-gradient(120% 60% at 0% 0%, rgba(124,58,237,0.06) 0%, transparent 55%), var(--surface);
           padding:28px 22px 20px;
@@ -1110,7 +1110,7 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
         .rpe-vs .end-btn:disabled{ opacity:.4; cursor:default; }
         .rpe-vs .end-btn:focus-visible{ outline:2px solid var(--danger); outline-offset:2px; }
 
-        .rpe-vs .main{ display:flex; flex-direction:column; height:100%; min-width:0; position:relative; }
+        .rpe-vs .main{ display:flex; flex-direction:column; height:100%; min-width:0; min-height:0; position:relative; }
 
         /* Stage — the avatar fills the whole main column; the topbar and
            voice controls float over it on scrims so the 3D character reads
@@ -1474,7 +1474,22 @@ export default function RolePlaySession() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const freshNavState = location.state?.sessionId === sessionIdParam ? location.state : null
+  // location.state surviving a back/forward navigation back to this exact
+  // URL does NOT mean "nothing has happened yet" — the learner may have
+  // played several turns before navigating away, and router state doesn't
+  // update to reflect that. Without this flag, returning via the browser's
+  // back button (same history entry, same matching state.sessionId) looked
+  // identical to a genuine fresh start and wiped the transcript back to
+  // just the opening line. sessionStorage (per-tab, cleared on close) marks
+  // a session "already live" the instant it first mounts here, so any
+  // later mount of the same URL is forced through the recovery/re-fetch
+  // path below instead of blindly trusting stale router state again.
+  const alreadyLive = !!sessionIdParam && sessionStorage.getItem(`rpe-session-live:${sessionIdParam}`) === '1'
+  const freshNavState = !alreadyLive && location.state?.sessionId === sessionIdParam ? location.state : null
+
+  useEffect(() => {
+    if (sessionIdParam) sessionStorage.setItem(`rpe-session-live:${sessionIdParam}`, '1')
+  }, [sessionIdParam])
 
   const [recovered, setRecovered] = useState(null)
   const [recoveryError, setRecoveryError] = useState(null)

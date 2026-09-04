@@ -1,0 +1,779 @@
+/*
+ * RolePlaySessionV2.css
+ *
+ * Isolated stylesheet for the V2 role-play experience. Every class is
+ * prefixed `rps2-` — unlike V1 (RolePlaySession.jsx), which scopes its
+ * styles via an inline <style> tag that only exists in the DOM while that
+ * component is mounted, this is a real imported CSS file, so it becomes
+ * part of the global bundle the moment this route is ever visited. The
+ * prefix is what keeps it from ever colliding with V1's classes (or
+ * anything else) even though it isn't DOM-scoped the same way.
+ *
+ * Deliberately a different, calmer palette than V1's saturated GitHub-dark
+ * theme — desaturated neutrals, a single restrained accent, soft borders
+ * instead of heavy ones. Dark is the default (unprefixed values), matching
+ * this app's own theme convention (see lib/theme/useTheme.js — no
+ * data-theme attribute = dark, data-theme="light" is the only opt-in).
+ */
+
+.rps2-root {
+  --rps2-bg:        #0B0C0F;
+  --rps2-stage:     #111318;
+  --rps2-surface:   rgba(255,255,255,0.045);
+  --rps2-surface-hi: rgba(255,255,255,0.075);
+  --rps2-border:    rgba(255,255,255,0.09);
+  --rps2-border-soft: rgba(255,255,255,0.05);
+  --rps2-text-hi:   #F3F3F5;
+  --rps2-text-med:  #9A9AA3;
+  --rps2-text-low:  #5C5C66;
+  --rps2-accent:    #9B9DFF;
+  --rps2-accent-soft: rgba(155,157,255,0.14);
+  --rps2-success:   #5FD98A;
+  --rps2-success-soft: rgba(95,217,138,0.14);
+  --rps2-warning:   #F0C169;
+  --rps2-warning-soft: rgba(240,193,105,0.14);
+  --rps2-danger:    #F58080;
+  --rps2-danger-soft: rgba(245,128,128,0.14);
+  --rps2-scrim:     rgba(6,7,10,0.7);
+  --rps2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ResponseChoiceCards.jsx (no longer used here, kept for anything else
+     that might still reuse it as-is) reads these exact var names as its
+     own fallback theme. */
+  --choice-card-bg: var(--rps2-surface-hi);
+  --choice-card-hover-bg: var(--rps2-accent-soft);
+  --border: var(--rps2-border);
+  --primary: var(--rps2-accent);
+  --text-hi: var(--rps2-text-hi);
+  --stage-text-med: var(--rps2-text-med);
+
+
+  /* Full viewport height, not calc(100vh - 48px) — this page runs in
+     immersive mode (see RolePlaySessionV2.jsx's ez:immersive-mode dispatch
+     in AppLayout.jsx), which hides the app's own topbar entirely, so there
+     is no longer a fixed header height to subtract. */
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--rps2-bg);
+  color: var(--rps2-text-hi);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ConversationReplayV2 / ResponseChoiceCardsV2 each define their own
+   self-contained crv2 and rcc2 prefixed token sets directly on their own
+   root class (own dark defaults, so they look reasonable dropped into any
+   page) — a var set on an ANCESTOR can't override a var an element sets
+   on itself via plain inheritance, so re-skinning them takes a selector
+   that targets those same elements directly, at higher specificity than
+   their own single-class rule (two classes beats one on the same node).
+   This is what actually makes them read as native to V2's palette rather
+   than a visibly different shade of dark.
+
+   ROOT-CAUSE NOTE (found during the light-theme whitespace/contrast
+   investigation): a previous version of this comment wrote two variable
+   prefixes back to back separated only by a slash, with no space —
+   asterisk immediately followed by slash is the CSS comment-close token,
+   so that sequence silently terminated this whole comment mid-sentence.
+   Everything after that point, up to the next occurrence of that same
+   two-character sequence (the real end of this comment, several lines
+   down), was then parsed as garbage CSS and silently dropped by the
+   browser's error recovery — taking the entire rule below (every
+   light-theme variable mapping in it) down with it. It rendered fine in
+   dark theme only because each component's own hardcoded dark defaults
+   happened to match what this rule would have set anyway — the
+   light-theme fallback to those same dark defaults is exactly the
+   invisible-text bug that was reported. Lesson: never let an asterisk
+   land immediately before a slash anywhere inside a CSS comment, even by
+   accident — always put a space (or word) between them. */
+.rps2-root .crv2-drawer, .rps2-root .rcc2-wrap, .rps2-root .crq2-wrap {
+  --crv2-bg: var(--rps2-bg);
+  --crv2-surface: var(--rps2-surface);
+  --crv2-border: var(--rps2-border);
+  --crv2-accent: var(--rps2-accent);
+  --crv2-accent-soft: var(--rps2-accent-soft);
+  --crv2-text-hi: var(--rps2-text-hi);
+  --crv2-text-med: var(--rps2-text-med);
+  --crv2-text-low: var(--rps2-text-low);
+  --crv2-success: var(--rps2-success);
+  --crv2-success-soft: var(--rps2-success-soft);
+  --crv2-warning: var(--rps2-warning);
+  --crv2-warning-soft: var(--rps2-warning-soft);
+  --crv2-danger: var(--rps2-danger);
+  --crv2-danger-soft: var(--rps2-danger-soft);
+
+  --rcc2-bg: var(--rps2-bg);
+  --rcc2-surface: var(--rps2-surface);
+  --rcc2-surface-hover: var(--rps2-accent-soft);
+  --rcc2-border: var(--rps2-border);
+  --rcc2-accent: var(--rps2-accent);
+  --rcc2-text-hi: var(--rps2-text-hi);
+  --rcc2-text-med: var(--rps2-text-med);
+  --rcc2-text-low: var(--rps2-text-low);
+
+  --crq2-bg: var(--rps2-bg);
+  --crq2-surface: var(--rps2-surface);
+  --crq2-border: var(--rps2-border);
+  --crq2-accent: var(--rps2-accent);
+  --crq2-text-hi: var(--rps2-text-hi);
+  --crq2-text-med: var(--rps2-text-med);
+  --crq2-text-low: var(--rps2-text-low);
+}
+
+/* No :root[data-theme="light"] override here on purpose — this session is
+   a cinematic simulation layered over a real environment photo, not app
+   chrome, so it deliberately commits to one considered dark look
+   regardless of the learner's light/dark app-theme preference, the same
+   way a film's subtitle track doesn't flip to a light background in a
+   light room. This also permanently closes out a real bug class: every
+   "text is invisible" report traced back through this session (the
+   content-request prompt, the direct-input question, the choice cards)
+   turned out to be this page's own components correctly reading a light-
+   theme text color while sitting on the stage's own backgrounds/gradients,
+   which were never designed to go light in the first place. Committing to
+   dark always removes the mismatch at its source instead of chasing it
+   component by component. */
+
+@media (prefers-reduced-motion: reduce) {
+  .rps2-root *, .rps2-root *::before, .rps2-root *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.rps2-root button { font-family: inherit; }
+.rps2-root :focus-visible { outline: 2px solid var(--rps2-accent); outline-offset: 2px; }
+
+/* ── Top bar — a minimal floating HUD cluster over the scene, not a row
+   that pushes it down. Anchored entirely top-LEFT on purpose (see
+   SessionTopBar.jsx's own comment) — the top-right corner stays the
+   camera preview's alone. ──────────────────────────────────────────── */
+
+.rps2-topbar {
+  position: absolute;
+  top: 16px; left: 22px; z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rps2-back {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,11,14,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--rps2-border-soft); color: var(--rps2-text-med);
+  cursor: pointer; transition: background .15s var(--rps2-ease), color .15s var(--rps2-ease);
+}
+.rps2-back:hover { background: var(--rps2-surface-hi); color: var(--rps2-text-hi); }
+.rps2-live {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600;
+  color: var(--rps2-text-med); font-variant-numeric: tabular-nums;
+  background: rgba(10,11,14,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--rps2-border-soft); border-radius: 100px; padding: 7px 12px;
+}
+.rps2-live-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--rps2-success); flex-shrink: 0;
+  animation: rps2Pulse 2s var(--rps2-ease) infinite;
+}
+@keyframes rps2Pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.rps2-fullscreen-btn {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,11,14,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--rps2-border-soft); color: var(--rps2-text-med);
+  cursor: pointer; transition: background .15s var(--rps2-ease), color .15s var(--rps2-ease);
+}
+.rps2-fullscreen-btn:hover { background: var(--rps2-surface-hi); color: var(--rps2-text-hi); }
+
+/* ── Dev tools toggle (dev-only) ──────────────────────────────────────── */
+.rps2-devtools-toggle {
+  position: absolute; bottom: 14px; right: 14px; z-index: 49;
+  background: rgba(10,11,14,0.7); border: 1px solid rgba(255,255,255,0.14); border-radius: 100px;
+  color: rgba(255,255,255,0.6); font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; padding: 5px 11px; cursor: pointer;
+}
+.rps2-devtools-toggle:hover { color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.3); }
+
+/* ── Stage — the cinematic scene zone.
+   ROOT CAUSE of the giant-white-region bug this replaces: the previous
+   version gave the stage a FIXED height formula (min(60vh, 100vh-250px)),
+   independent of how tall the response shelf's actual content is. On a
+   typical viewport the response shelf (state indicator + dialogue + trust +
+   dock + action row) only needs ~280-320px — far less than
+   "100vh - stageHeight" — so the flex-column had genuine LEFTOVER free
+   space with no child claiming it. .rps2-panel has no explicit height (just
+   padding + content), so that leftover space rendered as plain .rps2-root
+   background below it — same color as the panel, so it read as one
+   continuous "giant white page" with the real controls floating somewhere
+   in the middle of it, exactly the bug reported.
+   Fix: flex:1 — genuine flexbox space-filling, not a fixed formula. The
+   scene now always consumes exactly "100% minus whatever the response
+   shelf actually needs" with zero leftover gap, and automatically grows
+   the shelf (shrinking the scene) when an interaction needs more room
+   (choice cards, a content-request textarea) — flexbox's own algorithm
+   does this for free, no magic numbers, no JS measurement needed. ────── */
+
+.rps2-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(80% 60% at 50% 20%, rgba(255,255,255,0.03) 0%, transparent 60%),
+    var(--rps2-stage);
+  transition: background .6s var(--rps2-ease);
+}
+.rps2-stage[data-tension="elevated"] {
+  background:
+    radial-gradient(90% 70% at 50% 15%, rgba(245,128,128,0.05) 0%, transparent 65%),
+    var(--rps2-stage);
+}
+/* The scene fades into the response zone's own background color instead of
+   ending in a hard edge — this plus the dialogue card's negative margin
+   below (see .rps2-dialogue-zone) is what removes the "empty dark band"
+   between the avatar and the dialogue: there's no seam left to see. */
+.rps2-stage::after {
+  content: ""; position: absolute; inset: auto 0 0 0; z-index: 3; height: 34%; pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, var(--rps2-bg) 92%);
+}
+
+/* z-index explicit (not just DOM order) so the avatar always paints above
+   SceneEnvironmentV2's backdrop (z-index: 0) regardless of future JSX
+   reordering. */
+.rps2-avatar-layer { position: absolute; inset: 0; z-index: 1; }
+.rps2-avatar-layer.rps2-speaking { filter: saturate(1.04); }
+
+/* TalkingHeadAvatar's own root div only gets `position: relative` inline —
+   it needs an explicit width/height passed via className to actually fill
+   its container, otherwise it collapses to auto/zero height and the
+   Three.js canvas inside never receives real pixel dimensions to render
+   into (same fix V1 applies via its own .character-avatar rule).
+
+   No extra CSS transform on top of that, on purpose — this was tried
+   (scale + translateY, to "zoom in and recenter" what looked like too much
+   headroom in one screenshot) and made things measurably worse: verified
+   live at all four spec breakpoints (1920x1080, 1600x900, 1440x900,
+   1280x800) plus mobile via the dev-only /dev/rpe-environment-preview
+   route (see EnvironmentPreviewDev.jsx). TalkingHead's own cameraView:
+   'upper' already re-fits its framing to this container's aspect ratio on
+   every resize; stacking a fixed CSS zoom on top of that auto-fit pushed
+   the crop tight enough to clip the top of the hair at 1440x900 and
+   produced an extreme close-up on mobile portrait widths. Plain 100%/100%
+   sizing let TalkingHead's own resize-aware framing do the job correctly
+   at every tested size — good headroom, face and upper torso both clearly
+   visible, without fighting the library's own camera math. */
+.rps2-avatar-fill {
+  width: 100%;
+  height: 100%;
+}
+
+/* Consolidated scenario/NPC identity — stacked below the topbar cluster
+   (top:60px, clearing the back/live row above it at top:16px + ~34px tall)
+   rather than side-by-side, so both stay anchored top-left without
+   overlapping. Real scenario/NPC data only, regrouped from what used to be
+   split across this block and SessionTopBar's own title. */
+.rps2-npc-identity {
+  position: absolute; top: 60px; left: 22px; z-index: 5;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(60%, 420px);
+  padding: 6px 14px 6px 6px; margin: -6px -14px -6px -6px; border-radius: 100px;
+  /* Very soft local scrim, not a card — just enough to lift the text off
+     a bright patch of environment; fades to nothing past the content. */
+  background: radial-gradient(90% 140% at 0% 50%, rgba(0,0,0,0.28) 0%, transparent 75%);
+}
+.rps2-npc-photo {
+  width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+  border: 1.5px solid var(--rps2-border);
+}
+.rps2-npc-photo-fallback {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+  background: var(--rps2-surface-hi); border: 1.5px solid var(--rps2-border);
+}
+.rps2-npc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rps2-scenario-title {
+  font-size: 13px; font-weight: 750; letter-spacing: .01em; text-transform: uppercase;
+  color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.65), 0 1px 2px rgba(0,0,0,0.8);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rps2-npc-role {
+  font-size: 11px; color: rgba(255,255,255,0.75); text-shadow: 0 1px 5px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.8);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Camera preview — upper-right, still secondary to the avatar but closer
+   to V1's own size (200px, 4:3) rather than the smaller square this
+   started as. */
+.rps2-camera-dock {
+  position: absolute; top: 18px; right: 22px; z-index: 5;
+  width: 190px; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08); background: var(--rps2-surface);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.16);
+}
+.rps2-camera-dock video, .rps2-camera-dock canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.rps2-camera-label {
+  position: absolute; bottom: 4px; left: 6px; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 8.5px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+.rps2-camera-live-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--rps2-success);
+  animation: rps2Pulse 2s var(--rps2-ease) infinite;
+}
+.rps2-mesh-toggle {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: rgba(0,0,0,0.4); color: rgba(255,255,255,0.85); border: none;
+}
+.rps2-mesh-toggle.muted { opacity: 0.5; }
+
+/* Coaching pill + popover */
+.rps2-coaching-wrap { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 6; }
+/* Deliberately understated — should read as ambient status, not a control
+   competing for attention with the NPC. Smaller/quieter than the other
+   floating pills (back/live/fullscreen), no shadow, low-contrast text. */
+.rps2-coaching-pill {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 550;
+  padding: 4px 10px; border-radius: 100px; cursor: pointer;
+  background: rgba(14,15,19,0.35); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.5);
+  transition: background .15s ease, color .15s ease;
+}
+.rps2-coaching-pill:hover { background: rgba(14,15,19,0.55); color: rgba(255,255,255,0.85); }
+.rps2-coaching-pill .rps2-coaching-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--rps2-text-low); flex-shrink: 0; }
+.rps2-coaching-pill.active .rps2-coaching-dot { background: var(--rps2-success); animation: rps2Pulse 2s var(--rps2-ease) infinite; }
+
+.rps2-coaching-popover {
+  position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  width: 240px; background: var(--rps2-bg); border: 1px solid var(--rps2-border); border-radius: 14px;
+  padding: 16px 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.3); z-index: 10;
+  animation: rps2PopIn .18s var(--rps2-ease);
+}
+@keyframes rps2PopIn { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.rps2-coaching-title { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rps2-text-med); margin: 0 0 10px; }
+.rps2-coaching-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rps2-coaching-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--rps2-text-hi); }
+.rps2-coaching-list svg { color: var(--rps2-success); flex-shrink: 0; }
+.rps2-coaching-desc { font-size: 11.5px; line-height: 1.5; color: var(--rps2-text-med); margin: 0 0 12px; }
+.rps2-coaching-off {
+  width: 100%; background: var(--rps2-surface-hi); border: 1px solid var(--rps2-border); border-radius: 9px;
+  color: var(--rps2-text-hi); font-size: 12px; font-weight: 650; padding: 8px; cursor: pointer;
+}
+.rps2-coaching-off:hover { border-color: var(--rps2-danger); color: var(--rps2-danger); }
+
+/* Quiet coaching nudges — a dedicated "coaching zone" beside the NPC, not
+   part of the conversation stack. Deliberately moved off the vertical
+   state/identity/dialogue axis (it used to sit bottom-center, right where
+   the dialogue was about to appear, reading as part of the conversation
+   rather than a quiet aside) — left side, roughly chest/shoulder height,
+   horizontally clear of the face, dialogue, and response dock. Whisper
+   treatment: translucent pill, soft shadow, no bright notification
+   styling, fades/slides in and stays exactly as long as the existing
+   sensing logic already keeps it (unchanged — this is position/visual
+   treatment only). */
+.rps2-nudge-stack {
+  position: absolute; left: 28px; top: 52%; transform: translateY(-50%); z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  max-width: 200px; pointer-events: none;
+}
+.rps2-nudge {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 550;
+  padding: 7px 13px; border-radius: 100px; color: rgba(255,255,255,0.88);
+  background: rgba(14,15,19,0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+  animation: rps2NudgeIn .35s var(--rps2-ease);
+  cursor: default;
+}
+.rps2-nudge-sparkle { color: var(--rps2-accent); flex-shrink: 0; }
+@keyframes rps2NudgeIn { from { opacity: 0; transform: translate(-6px, 4px); } to { opacity: 1; transform: none; } }
+.rps2-nudge-dismiss { background: none; border: none; color: rgba(255,255,255,0.45); cursor: pointer; padding: 0; display: flex; }
+.rps2-nudge-dismiss:hover { color: rgba(255,255,255,0.9); }
+
+/* ── Scene -> response transition group ───────────────────────────────── */
+
+/* The group (state indicator + dialogue) is pulled UP together over the
+   stage's own bottom fade (.rps2-stage::after) with one negative margin
+   here — not on the dialogue alone, which would instead overlap the state
+   indicator sitting right above it inside this same wrapper. This reads as
+   the whole transition being physically connected to the scene rather than
+   separated from it by an empty gap; it never actually overlaps the avatar
+   itself (the fade zone is pure background/floor by the time it reaches
+   the bottom of the stage). */
+.rps2-scene-transition {
+  position: relative; z-index: 4; flex-shrink: 0;
+  margin-top: -34px;
+  display: flex; flex-direction: column;
+}
+
+/* ── NPC dialogue subtitle ────────────────────────────────────────────── */
+
+.rps2-dialogue-zone {
+  position: relative; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0 24px;
+}
+/* Floating caption, not a card — no fill, no border, no border-radius box
+   to see. Legibility comes from a soft ambient glow (::before, no hard
+   edge — feathered via blur() so far past the text that it never reads as
+   a "box") plus a real text-shadow on the words themselves, the same way
+   film subtitles stay readable over any footage without ever putting a
+   rectangle behind them. */
+.rps2-dialogue-bubble {
+  position: relative;
+  pointer-events: auto;
+  max-width: 620px; text-align: center;
+  padding: 4px 22px;
+}
+.rps2-dialogue-bubble::before {
+  content: "";
+  position: absolute; inset: -18px -10px;
+  background: radial-gradient(60% 130% at 50% 50%, rgba(6,7,10,0.45) 0%, rgba(6,7,10,0.2) 50%, transparent 78%);
+  filter: blur(14px);
+  z-index: -1;
+  pointer-events: none;
+}
+.rps2-dialogue-meta {
+  margin: 0 0 10px; font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: rgba(255,255,255,0.72);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.9);
+}
+.rps2-dialogue-emotion { text-transform: none; letter-spacing: 0; color: rgba(255,255,255,0.6); }
+.rps2-dialogue-text {
+  margin: 0; font-size: 16px; line-height: 1.5; font-weight: 600; color: #fff;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.95);
+}
+
+/* ── Conversation state indicator — the ONE "whose turn / what's
+   happening" cue (ConversationStateIndicatorV2). Fixed min-height so its
+   own presence never shifts layout as the label changes turn to turn. ── */
+
+.rps2-state-indicator {
+  position: relative; z-index: 4; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 24px; padding: 10px 24px 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--rps2-text-med);
+  transition: color .2s var(--rps2-ease);
+}
+.rps2-state-indicator.empty { visibility: hidden; }
+.rps2-state-indicator.emphasize {
+  font-size: 12px; font-weight: 800; letter-spacing: .08em; color: var(--rps2-accent);
+}
+.rps2-state-indicator.error {
+  color: var(--rps2-danger); gap: 8px;
+  font-size: 12px; font-weight: 600; letter-spacing: normal; text-transform: none;
+}
+.rps2-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.rps2-state-dot.live { animation: rps2Pulse 2s var(--rps2-ease) infinite; }
+.rps2-state-dots { display: inline-flex; gap: 3px; }
+.rps2-state-dots span {
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  animation: rps2ThinkBounce 1.2s ease-in-out infinite;
+}
+.rps2-state-dots span:nth-child(2) { animation-delay: .15s; }
+.rps2-state-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes rps2ThinkBounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
+.rps2-state-retry {
+  background: none; border: 1px solid var(--rps2-danger); border-radius: 100px; color: var(--rps2-danger);
+  font-size: 11px; font-weight: 700; padding: 3px 10px; cursor: pointer; margin-left: 2px;
+}
+.rps2-state-retry:hover { background: var(--rps2-danger-soft); }
+
+/* ── Bottom control panel — the response zone. Response dock is the
+   primary learner action here, so it gets the most visual weight; trust
+   and secondary nav both sit quieter around it. ──────────────────────── */
+
+.rps2-panel {
+  position: relative; z-index: 10; flex-shrink: 0;
+  padding: 20px 24px 20px;
+  background: var(--rps2-bg);
+}
+.rps2-panel-inner { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+
+/* Trust gets its own breathing room on both sides — 20px above (the
+   panel's own top padding, giving room from the dialogue/scene-transition
+   group above it) and this margin below (separating it from the dock) —
+   so it reads as its own quiet "relationship layer" rather than a label
+   stuck to the input, per the spec's own before/after diagram. */
+.rps2-trust-zone { margin-bottom: 16px; }
+
+/* Compact relationship readout — "TRUST 42 ↑", not a labeled progress
+   track. Sits centered, quiet, above the dock. */
+.rps2-trust-compact {
+  display: flex; align-items: baseline; justify-content: center; gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.rps2-trust-compact-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--rps2-text-low);
+}
+.rps2-trust-compact-value { font-size: 14px; font-weight: 750; color: var(--rps2-text-hi); }
+.rps2-trust-compact-dir { display: inline-flex; align-items: center; color: var(--rps2-text-low); }
+.rps2-trust-compact-dir.up { color: var(--rps2-success); }
+.rps2-trust-compact-dir.down { color: var(--rps2-danger); }
+.rps2-trust-compact-dir.flat { color: var(--rps2-text-low); }
+
+/* Voice dock — the primary learner action, promoted with a more elevated
+   glass surface, a touch taller, and a clearer focus/active state than a
+   standard chat input. */
+/* Primary user action, not primary visual hero — the NPC keeps that role.
+   Slightly less glow/height than an earlier pass (was min-height:58px,
+   42px controls, a heavier shadow) while staying clearly the dominant
+   element of the response shelf itself. */
+.rps2-dock {
+  display: flex; align-items: center; gap: 9px;
+  background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.10); border-radius: 100px;
+  padding: 6px 7px 6px 7px; min-height: 50px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.rps2-dock.listening {
+  border-color: var(--rps2-accent); background: rgba(155,157,255,0.1);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18), 0 0 0 3px var(--rps2-accent-soft);
+}
+.rps2-dock:focus-within {
+  border-color: rgba(255,255,255,0.2); box-shadow: 0 6px 18px rgba(0,0,0,0.18), 0 0 0 3px rgba(255,255,255,0.05);
+}
+
+.rps2-mic-btn {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; position: relative;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--rps2-surface-hi); border: none; color: var(--rps2-text-hi);
+  transition: background .15s ease, color .15s ease;
+}
+.rps2-mic-btn.active { background: var(--rps2-accent); color: var(--rps2-bg); }
+.rps2-mic-btn:disabled { opacity: .35; cursor: default; }
+.rps2-mic-ring {
+  position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid var(--rps2-accent);
+  animation: rps2Ring 1.6s var(--rps2-ease) infinite;
+}
+@keyframes rps2Ring { 0% { transform: scale(0.9); opacity: .8; } 100% { transform: scale(1.35); opacity: 0; } }
+
+.rps2-dock-input {
+  flex: 1; min-width: 0; resize: none; border: none; background: transparent; outline: none;
+  font-family: inherit; font-size: 14px; color: var(--rps2-text-hi); line-height: 1.4;
+  max-height: 90px; overflow-y: auto; padding: 8px 4px;
+}
+.rps2-dock-input::placeholder { color: var(--rps2-text-low); }
+.rps2-dock-input:disabled { color: var(--rps2-text-med); }
+
+.rps2-wave { display: flex; align-items: center; justify-content: center; gap: 3px; flex: 1; height: 24px; }
+.rps2-wave span {
+  width: 3px; border-radius: 100px; background: var(--rps2-accent);
+  animation: rps2WaveMove 1s ease-in-out infinite;
+}
+.rps2-wave span:nth-child(1) { height: 30%; animation-delay: 0s; }
+.rps2-wave span:nth-child(2) { height: 60%; animation-delay: .1s; }
+.rps2-wave span:nth-child(3) { height: 100%; animation-delay: .2s; }
+.rps2-wave span:nth-child(4) { height: 45%; animation-delay: .3s; }
+.rps2-wave span:nth-child(5) { height: 75%; animation-delay: .4s; }
+.rps2-wave span:nth-child(6) { height: 40%; animation-delay: .5s; }
+.rps2-wave span:nth-child(7) { height: 65%; animation-delay: .6s; }
+@keyframes rps2WaveMove { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+.rps2-listening-label { font-size: 12.5px; font-weight: 600; color: var(--rps2-accent); flex-shrink: 0; padding-right: 6px; }
+
+.rps2-send-btn {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--rps2-accent); border: none; color: var(--rps2-bg);
+  box-shadow: 0 3px 10px var(--rps2-accent-soft);
+  transition: filter .15s ease, opacity .15s ease;
+}
+.rps2-send-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.rps2-send-btn:disabled { opacity: .3; cursor: default; }
+.rps2-spin { animation: rps2Spin .8s linear infinite; }
+@keyframes rps2Spin { to { transform: rotate(360deg); } }
+
+.rps2-dock-hint { font-size: 11px; color: var(--rps2-text-low); text-align: center; }
+.rps2-type-instead { background: none; border: none; color: var(--rps2-text-med); cursor: pointer; text-decoration: underline; padding: 0; font: inherit; }
+.rps2-type-instead:hover { color: var(--rps2-text-hi); }
+.rps2-low-confidence { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--rps2-warning); text-align: center; }
+
+/* Bottom action row */
+/* Deliberately quieter than the dock above it — secondary controls, not
+   competing calls to action. Smaller text, lower-contrast default color. */
+.rps2-action-row { display: flex; align-items: center; justify-content: center; gap: 20px; padding-top: 6px; }
+.rps2-action-btn {
+  display: inline-flex; align-items: center; gap: 5px; background: none; border: none; cursor: pointer;
+  font-size: 11px; font-weight: 600; color: var(--rps2-text-med); padding: 4px; position: relative;
+  transition: color .15s ease;
+}
+.rps2-action-btn:hover { color: var(--rps2-text-hi); }
+.rps2-action-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 100px; background: var(--rps2-accent); color: var(--rps2-bg); font-size: 9.5px; font-weight: 700;
+}
+.rps2-action-btn.danger:hover { color: var(--rps2-danger); }
+
+/* Signals popover — reuses the coaching popover's visual language
+   (rps2-coaching-title / rps2-coaching-desc classes are shared) */
+.rps2-signals-wrap { position: relative; }
+.rps2-signals-popover {
+  position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%);
+  width: 200px; background: var(--rps2-bg); border: 1px solid var(--rps2-border); border-radius: 14px;
+  padding: 16px 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.3); z-index: 10;
+  animation: rps2PopIn .18s var(--rps2-ease);
+}
+.rps2-signal-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+.rps2-signal-label { font-size: 12.5px; font-weight: 600; color: var(--rps2-text-med); }
+.rps2-signal-val { font-size: 13px; font-weight: 700; color: var(--rps2-text-hi); font-variant-numeric: tabular-nums; }
+
+/* ── Response choices wrapper (ResponseChoiceCards is reused as-is) ─── */
+.rps2-choice-zone { display: flex; justify-content: center; }
+.rps2-choice-heading { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rps2-text-low); margin: 0 0 10px; }
+
+/* ── Transcript drawer ────────────────────────────────────────────────── */
+
+.rps2-transcript-backdrop {
+  position: fixed; inset: 0; z-index: 40; background: var(--rps2-scrim);
+  animation: rps2FadeIn .2s ease;
+}
+@keyframes rps2FadeIn { from { opacity: 0; } to { opacity: 1; } }
+.rps2-transcript-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(400px, 100vw);
+  background: var(--rps2-bg); border-left: 1px solid var(--rps2-border);
+  display: flex; flex-direction: column;
+  animation: rps2SlideIn .28s var(--rps2-ease);
+}
+@keyframes rps2SlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.rps2-transcript-header {
+  display: flex; align-items: center; justify-content: space-between; padding: 18px 20px;
+  border-bottom: 1px solid var(--rps2-border-soft); flex-shrink: 0;
+}
+.rps2-transcript-title { font-size: 14px; font-weight: 700; color: var(--rps2-text-hi); }
+.rps2-transcript-close {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--rps2-surface); border: none; color: var(--rps2-text-med); cursor: pointer;
+}
+.rps2-transcript-close:hover { color: var(--rps2-text-hi); }
+.rps2-transcript-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
+.rps2-msg { display: flex; flex-direction: column; gap: 4px; }
+.rps2-msg-role { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--rps2-text-low); }
+.rps2-msg.user .rps2-msg-role { color: var(--rps2-accent); }
+.rps2-msg-text { font-size: 13.5px; line-height: 1.55; color: var(--rps2-text-hi); }
+
+/* ── Session complete overlay ─────────────────────────────────────────── */
+
+.rps2-complete-overlay {
+  position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+  background: var(--rps2-scrim); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; pointer-events: none; transition: opacity .5s var(--rps2-ease);
+}
+.rps2-root[data-voice-state="complete"] .rps2-complete-overlay { opacity: 1; pointer-events: auto; }
+.rps2-complete-card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 320px; padding: 20px; }
+.rps2-complete-check {
+  width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--rps2-success-soft); color: var(--rps2-success); margin-bottom: 6px;
+}
+.rps2-complete-title { font-size: 19px; font-weight: 750; color: var(--rps2-text-hi); margin: 0; }
+.rps2-complete-trust-num { font-size: 40px; font-weight: 800; color: var(--rps2-text-hi); font-variant-numeric: tabular-nums; margin: 4px 0 0; letter-spacing: -0.02em; }
+.rps2-complete-trust-label { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rps2-text-low); }
+.rps2-complete-sub { font-size: 13px; color: var(--rps2-text-med); margin: 4px 0 12px; }
+.rps2-complete-btn {
+  background: var(--rps2-accent); color: var(--rps2-bg); border: none; border-radius: 100px;
+  padding: 12px 28px; font-size: 13.5px; font-weight: 700; cursor: pointer; transition: filter .15s ease;
+}
+.rps2-complete-btn:hover { filter: brightness(1.1); }
+
+/* ── End-session confirmation ─────────────────────────────────────────── */
+
+.rps2-confirm-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  background: var(--rps2-scrim); backdrop-filter: blur(4px); animation: rps2FadeIn .15s ease;
+}
+.rps2-confirm-modal {
+  width: min(360px, calc(100vw - 32px)); background: var(--rps2-bg); border: 1px solid var(--rps2-border);
+  border-radius: 16px; padding: 22px; text-align: center;
+  animation: rps2PopIn .18s var(--rps2-ease);
+}
+.rps2-confirm-title { font-size: 15.5px; font-weight: 700; color: var(--rps2-text-hi); margin: 0 0 8px; }
+.rps2-confirm-body { font-size: 12.5px; line-height: 1.55; color: var(--rps2-text-med); margin: 0 0 18px; }
+.rps2-confirm-actions { display: flex; gap: 10px; }
+.rps2-confirm-actions button {
+  flex: 1; padding: 10px; border-radius: 10px; font-size: 12.5px; font-weight: 650; cursor: pointer; border: 1px solid transparent;
+}
+.rps2-confirm-cancel { background: var(--rps2-surface-hi); border-color: var(--rps2-border); color: var(--rps2-text-hi); }
+.rps2-confirm-end { background: var(--rps2-danger-soft); border-color: rgba(245,128,128,0.3); color: var(--rps2-danger); }
+
+/* ── Conversation intelligence debug panel (dev-only — see
+   ConversationIntelligenceDebugPanel.jsx, import.meta.env.DEV-gated) ──── */
+
+.rps2-intel-debug {
+  position: absolute; bottom: 14px; right: 14px; z-index: 50;
+  width: 240px; max-height: 70%; overflow-y: auto;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(10,11,14,0.85); border: 1px solid rgba(255,255,255,0.12);
+  font-family: monospace; font-size: 10.5px; color: rgba(255,255,255,0.75);
+}
+.rps2-intel-debug-title {
+  display: block; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255,255,255,0.5); margin-bottom: 6px;
+}
+.rps2-intel-debug-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.rps2-intel-debug-row span:first-child { color: rgba(255,255,255,0.5); flex-shrink: 0; }
+.rps2-intel-debug-row span:last-child { text-align: right; word-break: break-word; }
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  /* Shorter scene on mobile (spec: "scene becomes shorter, avatar remains
+     visible") — same bounded-height approach as desktop, smaller numbers. */
+  /* No explicit height override here anymore — flex:1 (see .rps2-stage's
+     own rule) already gives mobile exactly the same "scene fills whatever
+     the response shelf doesn't need" behavior as desktop, without a fixed
+     vh formula that could reproduce the giant-empty-space bug at a mobile
+     aspect ratio. */
+  .rps2-topbar { top: 12px; left: 16px; gap: 8px; }
+  .rps2-back, .rps2-fullscreen-btn { width: 30px; height: 30px; }
+  .rps2-live { font-size: 10.5px; padding: 6px 10px; }
+  .rps2-camera-dock { width: 108px; aspect-ratio: 4 / 3; top: 14px; right: 16px; }
+  .rps2-npc-identity { top: 50px; left: 16px; }
+  .rps2-scenario-title { font-size: 12px; }
+  .rps2-scene-transition { margin-top: -22px; }
+  .rps2-dialogue-zone { padding: 0 16px; }
+  .rps2-dialogue-bubble { max-width: calc(100vw - 32px); padding: 12px 16px; }
+  .rps2-dialogue-text { font-size: 14.5px; }
+  .rps2-panel { padding: 14px 16px 16px; }
+  .rps2-panel-inner { gap: 8px; }
+  .rps2-trust-zone { margin-bottom: 12px; }
+  .rps2-dock { min-height: 50px; }
+  .rps2-mic-btn, .rps2-send-btn { width: 36px; height: 36px; }
+  .rps2-action-row { gap: 16px; }
+  .rps2-transcript-drawer { width: 100vw; }
+
+  /* No room to float beside the NPC on mobile — sits just above the
+     response shelf instead, compact, never over the avatar or dialogue. */
+  .rps2-nudge-stack {
+    left: 50%; top: auto; bottom: 10px; transform: translateX(-50%);
+    align-items: center; max-width: calc(100vw - 32px);
+  }
+  @keyframes rps2NudgeIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+}
+
+/* ── Recovery / loading / error states ───────────────────────────────── */
+
+/* Same dark-always commitment as the rest of this file (see the note where
+   .rps2-root's old light-theme override used to be) — the recovery/error
+   screen is still part of this same immersive session, so it stays dark
+   too rather than flashing light for a few seconds mid-reconnect. */
+.rps2-recover {
+  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px;
+  background: #0B0C0F; color: #F3F3F5;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+.rps2-recover-title { font-size: 17px; font-weight: 750; margin: 0; }
+.rps2-recover-sub { font-size: 13.5px; color: #9A9AA3; margin: 0; max-width: 360px; }
+.rps2-recover-btn {
+  margin-top: 8px; background: linear-gradient(135deg, #9B9DFF, #7A7DFF); border: none; color: #0B0C0F;
+  font-size: 13px; font-weight: 650; padding: 10px 20px; border-radius: 100px; cursor: pointer;
+}

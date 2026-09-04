@@ -1,0 +1,69 @@
+/*
+ * ResponseChoiceCardsV2.css — self-contained, prefixed `rcc2-`. Same
+ * "own dark-default token set, re-mappable by the host page" pattern as
+ * ConversationReplayV2.css.
+ */
+
+.rcc2-wrap {
+  --rcc2-bg: #0E0F13;
+  --rcc2-surface: rgba(255,255,255,0.05);
+  --rcc2-surface-hover: rgba(155,157,255,0.09);
+  --rcc2-border: rgba(255,255,255,0.1);
+  --rcc2-accent: #9B9DFF;
+  --rcc2-text-hi: #F3F3F5;
+  --rcc2-text-med: #9A9AA3;
+  --rcc2-text-low: #5C5C66;
+  --rcc2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  width: 100%; max-width: 720px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rcc2-wrap, .rcc2-wrap * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+.rcc2-prompt { text-align: center; }
+.rcc2-prompt-eyebrow {
+  margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--rcc2-accent);
+}
+.rcc2-prompt-question { margin: 4px 0 0; font-size: 15px; font-weight: 650; color: var(--rcc2-text-hi); }
+
+.rcc2-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;
+}
+@media (max-width: 720px) {
+  .rcc2-grid { grid-template-columns: 1fr; }
+}
+
+.rcc2-card {
+  position: relative; display: flex; flex-direction: column; gap: 10px; text-align: left; cursor: pointer;
+  background: var(--rcc2-surface); border: 1px solid var(--rcc2-border); border-radius: 14px;
+  padding: 16px 18px; min-height: 118px; color: var(--rcc2-text-hi); font-family: inherit;
+  transition: border-color .18s var(--rcc2-ease), background .18s var(--rcc2-ease),
+              transform .18s var(--rcc2-ease), opacity .22s var(--rcc2-ease);
+}
+.rcc2-card:hover:not(:disabled), .rcc2-card:focus-visible {
+  border-color: var(--rcc2-accent); background: var(--rcc2-surface-hover); transform: translateY(-2px);
+  outline: none;
+}
+.rcc2-card:hover:not(:disabled) .rcc2-card-arrow, .rcc2-card:focus-visible .rcc2-card-arrow { opacity: 1; transform: translateX(2px); }
+
+.rcc2-card.sending { border-color: var(--rcc2-accent); background: var(--rcc2-surface-hover); }
+.rcc2-card.faded { opacity: 0.35; transform: none; }
+.rcc2-card:disabled { cursor: default; }
+
+.rcc2-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.rcc2-card-label { font-size: 12.5px; font-weight: 700; color: var(--rcc2-text-hi); }
+.rcc2-card-arrow { color: var(--rcc2-accent); flex-shrink: 0; opacity: 0.5; transition: opacity .18s ease, transform .18s ease; }
+.rcc2-card-text { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--rcc2-text-med); font-style: italic; flex: 1; }
+
+.rcc2-card-sending {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--rcc2-bg); opacity: 0.92; border-radius: 14px;
+  font-size: 12px; font-weight: 650; color: var(--rcc2-accent);
+  animation: rcc2FadeIn 0.15s ease;
+}
+@keyframes rcc2FadeIn { from { opacity: 0; } to { opacity: 0.92; } }

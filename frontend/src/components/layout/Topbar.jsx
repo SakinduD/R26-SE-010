@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Info, Search } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import NotificationBell from '@/components/achievements/NotificationBell';
+import ActiveSessionNudge from '@/components/RPE/ActiveSessionNudge';
 
 const CRUMB_MAP = {
   '/dashboard': ['Overview', 'Dashboard'],
@@ -13,7 +14,7 @@ const CRUMB_MAP = {
   '/roleplay': ['Practice', 'Role Play'],
   '/roleplay/session': ['Practice', 'Role Play', 'Session'],
   '/roleplay/session/complete': ['Practice', 'Role Play', 'Session Complete'],
-  '/roleplay/my-sessions': ['Practice', 'My Sessions'],
+  '/roleplay/my-sessions': ['Practice', 'My Journey'],
   '/multimodal-analysis': ['Practice', 'Multimodal'],
   '/analytics-dashboard': ['Progress', 'Overview'],
   '/analytics-recommendations': ['Progress', 'Recommendations'],
@@ -79,6 +80,8 @@ export default function Topbar() {
           <span className="t-cap">Search</span>
           <kbd>⌘K</kbd>
         </button>
+
+        <ActiveSessionNudge />
 
         <div className="topbar-icons">
           <NotificationBell />

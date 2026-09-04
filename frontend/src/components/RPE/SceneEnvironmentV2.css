@@ -1,0 +1,234 @@
+/*
+ * SceneEnvironmentV2.css
+ *
+ * Self-contained, like ConversationReplayV2/ResponseChoiceCardsV2 — its own
+ * `--scn-*` token namespace, so it renders reasonably dropped into any
+ * page. Stays dark even when the app is in light theme (data-theme="light")
+ * on purpose: this is a simulated environment behind a 3D character, not
+ * app chrome, and flipping it pale would fight the avatar for focus rather
+ * than support it.
+ *
+ * All state reactivity (trust/tension/session-state/emotion) is driven by
+ * CSS custom properties and data-attributes set once per render in
+ * SceneEnvironmentV2.jsx — no JS animation loops, so changes are just a
+ * style/attribute diff plus a CSS transition, cheap even on lower-end
+ * devices.
+ */
+
+.scn-root {
+  --scn-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.scn-layers {
+  position: absolute;
+  inset: 0;
+  transition: filter 0.9s var(--scn-ease);
+}
+
+/* ── Background photo ─────────────────────────────────────────────────── */
+
+.scn-sky {
+  position: absolute;
+  inset: -2%;
+  display: block;
+  overflow: hidden;
+  transform: translate3d(calc(var(--scn-px, 0) * 3px), calc(var(--scn-py, 0) * 2px), 0);
+  transition: transform 0.4s linear;
+}
+.scn-sky-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  filter:
+    brightness(var(--scn-brightness, 0.65))
+    saturate(var(--scn-saturate, 0.85))
+    contrast(var(--scn-contrast, 1))
+    blur(var(--scn-blur, 3px));
+  animation: scnPhotoIn 0.6s var(--scn-ease) forwards;
+}
+@keyframes scnPhotoIn { to { opacity: 1; } }
+
+/* No image available, or it failed to load — neutral cinematic fallback,
+   never a broken-image icon, session keeps working either way. */
+.scn-sky-fallback {
+  background:
+    radial-gradient(120% 90% at 50% 15%, rgba(60, 70, 95, 0.14) 0%, transparent 55%),
+    linear-gradient(180deg, #12141a 0%, #0e1015 55%, #0a0c10 100%);
+}
+
+/* ── Cinematic grade — dark edges, slightly brighter center. A broad, soft
+   falloff on purpose (140%+ radius, transparent through the middle third)
+   so this never reads as a literal spotlight circle. ─────────────────── */
+
+.scn-grade {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    150% 110% at 50% 34%,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.10) 55%,
+    rgba(0, 0, 0, 0.30) 100%
+  );
+}
+
+/* ── Ambient trust light — very subtle, warms/brightens the center as
+   trust rises, cools slightly as it falls. ──────────────────────────── */
+
+.scn-light {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    50% 42% at 50% 30%,
+    rgba(255, 224, 180, calc(0.05 + (var(--scn-trust, 50) - 50) * 0.0008)) 0%,
+    transparent 68%
+  );
+  transition: background 1.2s var(--scn-ease);
+}
+.scn-root[data-session-state="speaking"] .scn-light { filter: brightness(1.12); }
+.scn-root[data-session-state="manual"] .scn-light { filter: brightness(0.97); }
+.scn-root[data-session-state="processing"] .scn-light { animation: scnPulse 4s ease-in-out infinite; }
+/* The brief mood-applied-but-not-speaking-yet beat (RolePlaySessionV2's
+   REACTION_PAUSE_MS) — a faster, more alert pulse than the longer
+   backend-wait "processing" one, reinforcing "something just landed"
+   without competing with the avatar's own mood/gesture change. */
+.scn-root[data-session-state="reacting"] .scn-light { animation: scnPulse 1.6s ease-in-out infinite; }
+.scn-root[data-session-state="complete"] .scn-light { filter: brightness(1.2); }
+@keyframes scnPulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+/* ── Avatar grounding shadow ──────────────────────────────────────────── */
+
+.scn-grounding {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  width: 42%;
+  aspect-ratio: 5 / 1;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.40) 0%, rgba(0,0,0,0.18) 45%, transparent 75%);
+  filter: blur(7px);
+}
+
+/* ── Tension vignette — on top of the base grade, tension only adds to
+   the edge darkening, never touches the center. ────────────────────── */
+
+.scn-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    130% 95% at 50% 36%,
+    transparent 42%,
+    rgba(0, 0, 0, calc(var(--scn-vignette, 0.34) + var(--scn-tension, 0) * 0.03)) 100%
+  );
+  transition: background 0.8s var(--scn-ease);
+}
+
+/* ── NPC emotion tint — extremely subtle, never a full-screen wash ─────── */
+
+.scn-emotion-tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1s var(--scn-ease), background 1s var(--scn-ease);
+}
+.scn-root[data-npc-emotion="angry"] .scn-emotion-tint {
+  background: radial-gradient(140% 100% at 50% 100%, rgba(220, 90, 70, 0.07), transparent 62%);
+  opacity: 1;
+}
+.scn-root[data-npc-emotion="frustrated"] .scn-emotion-tint {
+  background: radial-gradient(140% 100% at 50% 100%, rgba(230, 160, 80, 0.06), transparent 62%);
+  opacity: 1;
+}
+.scn-root[data-npc-emotion="skeptical"] .scn-emotion-tint {
+  background: radial-gradient(140% 100% at 50% 0%, rgba(140, 150, 200, 0.05), transparent 60%);
+  opacity: 1;
+}
+.scn-root[data-npc-emotion="sad"] .scn-emotion-tint {
+  background: radial-gradient(140% 100% at 50% 0%, rgba(120, 140, 190, 0.05), transparent 60%);
+  opacity: 1;
+}
+.scn-root[data-npc-emotion="happy"] .scn-emotion-tint {
+  background: radial-gradient(130% 100% at 50% 20%, rgba(255, 220, 160, 0.05), transparent 60%);
+  opacity: 1;
+}
+.scn-root[data-npc-emotion="surprised"] .scn-emotion-tint {
+  background: radial-gradient(130% 100% at 50% 20%, rgba(255, 235, 190, 0.04), transparent 58%);
+  opacity: 1;
+}
+
+/* ── Session-state whole-scene response — brightness-only, no color
+   flashing, no per-turn pulsing. ───────────────────────────────────── */
+
+.scn-root[data-session-state="choice"] .scn-layers { filter: brightness(1.04); }
+.scn-root[data-session-state="complete"] .scn-layers { filter: brightness(1.08) saturate(1.05); }
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .scn-sky-photo { filter:
+    brightness(var(--scn-brightness, 0.65))
+    saturate(var(--scn-saturate, 0.85))
+    contrast(var(--scn-contrast, 1))
+    blur(calc(var(--scn-blur, 3px) * 0.6));
+  }
+}
+
+/* ── Reduced motion — self-contained, in addition to RolePlaySessionV2's
+   own blanket rule, since this component is meant to be reusable outside
+   that page too. ─────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .scn-root * {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+  }
+  .scn-sky { transform: none !important; }
+}
+
+/* ── Dev-only environment debug panel (EnvironmentDebugPanel) ──────────── */
+
+.scn-debug {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(10, 11, 14, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+.scn-debug-title {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.scn-debug-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+.scn-debug-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 100px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.scn-debug-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.scn-debug-btn.active { background: #9B9DFF; border-color: #9B9DFF; color: #0B0C0F; }

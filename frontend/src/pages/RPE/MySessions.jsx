@@ -1,13 +1,24 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Swords, BarChart2, LogIn, Clock3, Trash2, RotateCcw, CheckCircle2, XCircle, MinusCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Swords, LogIn, Trash2, RotateCcw, CheckCircle2, XCircle, MinusCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import { cn } from '@/lib/utils'
 import { FEEDBACK_THEME_VARS } from '@/components/RPE/feedback/feedbackTheme'
+import PracticeJourneyHero from '@/components/RPE/journey/PracticeJourneyHero'
+import PerformanceOverview from '@/components/RPE/journey/PerformanceOverview'
+import TrustJourneyChart from '@/components/RPE/journey/TrustJourneyChart'
+import SessionDetailPanel from '@/components/RPE/journey/SessionDetailPanel'
+import PracticeFocus from '@/components/RPE/journey/PracticeFocus'
+import SessionSnapshotCard from '@/components/RPE/journey/SessionSnapshotCard'
+import GrowthMoments from '@/components/RPE/journey/GrowthMoments'
+import EmptyPracticeState from '@/components/RPE/journey/EmptyPracticeState'
+import JourneySkeleton from '@/components/RPE/journey/JourneySkeleton'
 
 const STATUS_FILTERS = ['all', 'success', 'failure', 'incomplete']
+const STATUS_FILTER_LABEL = { all: 'All', success: 'Strong', failure: 'Needs Work', incomplete: 'Not Finished' }
 const PAGE_SIZE = 8
+const TRUST_JOURNEY_WINDOW = 20 // most recent completed sessions shown on the chart — keeps it readable for accounts with a long history
 
 // `outcome: 'ended_by_user'` (and any other end_reason/outcome combo that
 // isn't a clear win/loss) means the session genuinely ended — it has real
@@ -17,25 +28,12 @@ const PAGE_SIZE = 8
 // broken/unfinished session when it isn't. Mirrors the same honest-status
 // split already made in SessionComplete.jsx.
 function sessionStatus(session) {
-  if (!session.ended_at) return { key: 'incomplete', tone: 'neutral', Icon: MinusCircle, label: 'Not Finished' }
-  if (session.end_reason === 'trust_sustained') return { key: 'success', tone: 'success', Icon: CheckCircle2, label: 'Trust Built' }
-  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  Icon: XCircle,      label: 'NPC Exited' }
-  if (session.outcome === 'success')            return { key: 'success', tone: 'success', Icon: CheckCircle2, label: 'Success' }
-  if (session.outcome === 'failure')            return { key: 'failure', tone: 'danger',  Icon: XCircle,      label: 'Needs Work' }
-  return { key: 'incomplete', tone: 'neutral', Icon: MinusCircle, label: 'Session Ended' }
-}
-
-function trustTone(v) {
-  if (v == null) return 'neutral'
-  return v >= 70 ? 'success' : v >= 40 ? 'warning' : 'danger'
-}
-
-function formatDate(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  if (!session.ended_at) return { key: 'incomplete', tone: 'neutral', Icon: MinusCircle, label: 'Not Finished', shape: 'hollow' }
+  if (session.end_reason === 'trust_sustained') return { key: 'success', tone: 'success', Icon: CheckCircle2, label: 'Trust Built', shape: 'circle' }
+  if (session.end_reason === 'npc_exit')        return { key: 'failure', tone: 'danger',  Icon: XCircle,      label: 'NPC Exited', shape: 'diamond' }
+  if (session.outcome === 'success')            return { key: 'success', tone: 'success', Icon: CheckCircle2, label: 'Success', shape: 'circle' }
+  if (session.outcome === 'failure')            return { key: 'failure', tone: 'danger',  Icon: XCircle,      label: 'Needs Work', shape: 'diamond' }
+  return { key: 'incomplete', tone: 'neutral', Icon: MinusCircle, label: 'Session Ended', shape: 'hollow' }
 }
 
 function formatDuration(startedAt, endedAt) {
@@ -50,71 +48,8 @@ function formatDuration(startedAt, endedAt) {
   return `${h}h ${m}m`
 }
 
-const DIFFICULTY_TONE = { beginner: 'success', intermediate: 'warning', advanced: 'danger' }
-
-function SessionCard({ session, scenarioInfo, onOpenFeedback, selectMode, selected, onToggleSelect }) {
-  const status = sessionStatus(session)
-  const duration = formatDuration(session.started_at, session.ended_at)
-
-  return (
-    <div
-      className={cn('session-card', status.tone, selectMode && 'selectable', selected && 'selected')}
-      onClick={() => selectMode && onToggleSelect(session.session_id)}
-    >
-      <span className="session-accent" aria-hidden />
-
-      {selectMode && (
-        <label className="session-check" onClick={(e) => e.stopPropagation()}>
-          <input type="checkbox" checked={selected} onChange={() => onToggleSelect(session.session_id)} />
-        </label>
-      )}
-
-      <div className="session-card-head">
-        <div style={{ minWidth: 0 }}>
-          <h3 className="session-title">{scenarioInfo?.title ?? session.scenario_id}</h3>
-          <div className="session-meta-row">
-            {scenarioInfo?.difficulty && <span className={cn('pill', DIFFICULTY_TONE[scenarioInfo.difficulty] ?? 'neutral')}>{scenarioInfo.difficulty}</span>}
-            <span className="session-date">{formatDate(session.started_at)}</span>
-          </div>
-        </div>
-        <span className={cn('pill', status.tone)}>
-          <status.Icon size={11} strokeWidth={2.2} /> {status.label}
-        </span>
-      </div>
-
-      {session.ended_at ? (
-        <div className="session-stats">
-          <div className="session-stat">
-            <span className="session-stat-label">Trust</span>
-            <span className={cn('session-stat-val', trustTone(session.final_trust))}>{session.final_trust ?? '—'}</span>
-          </div>
-          <div className="session-stat">
-            <span className="session-stat-label">Escalation</span>
-            <span className="session-stat-val">{session.final_escalation ?? '—'}<span className="unit">/5</span></span>
-          </div>
-          <div className="session-stat">
-            <span className="session-stat-label">Duration</span>
-            <span className="session-stat-val small">
-              {duration ? <><Clock3 size={11} strokeWidth={2} /> {duration}</> : '—'}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="session-noresult">
-          <Clock3 size={14} strokeWidth={1.8} />
-          <span>Left mid-conversation — no results recorded</span>
-        </div>
-      )}
-
-      {!selectMode && session.ended_at && (
-        <div className="session-actions">
-          <button type="button" onClick={() => onOpenFeedback(session.session_id)} className="btn-c primary">
-            <BarChart2 size={13} strokeWidth={1.8} /> View Outcome
-          </button>
-        </div>
-      )}
-    </div>
-  )
+function humanizeSkill(skill) {
+  return skill.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function buildPageList(current, total) {
@@ -182,6 +117,7 @@ export default function MySessions() {
   const [selectedIds, setSelectedIds]     = useState(() => new Set())
   const [isMutating, setIsMutating]       = useState(false)
   const [page, setPage]                   = useState(1)
+  const [selectedPointIndex, setSelectedPointIndex] = useState(null)
 
   const load = async () => {
     setIsLoading(true)
@@ -212,6 +148,7 @@ export default function MySessions() {
     setActiveView(view)
     setSelectMode(false)
     setSelectedIds(new Set())
+    setSelectedPointIndex(null)
   }
 
   const scenarioMap = useMemo(() => {
@@ -230,6 +167,135 @@ export default function MySessions() {
     sessions.forEach((s) => { counts[sessionStatus(s).key] += 1 })
     return counts
   }, [sessions])
+
+  // ── Practice Journey derived data — real data only, everything below is
+  // computed from `sessions`/`scenarios` already fetched above; no extra
+  // API calls, no fabricated values. ────────────────────────────────────
+
+  // The active-tab fetch (getMyRpeSessions(false)) already excludes
+  // trashed sessions server-side, but the journey stats (hero count,
+  // performance metrics, trust chart, practice focus, growth) should never
+  // count a recycled session even transiently (e.g. mid view-switch, or if
+  // that server-side filtering ever changes) — filtered explicitly here so
+  // the guarantee lives in this component too, not only in the backend.
+  const journeySessions = useMemo(() => sessions.filter((s) => !s.deleted_at), [sessions])
+
+  const completedSessions = useMemo(
+    () => journeySessions
+      .filter((s) => s.ended_at && s.final_trust != null)
+      .slice()
+      .sort((a, b) => new Date(a.started_at) - new Date(b.started_at)),
+    [journeySessions]
+  )
+
+  const trustJourneyPoints = useMemo(() => {
+    const windowed = completedSessions.slice(-TRUST_JOURNEY_WINDOW)
+    return windowed.map((s) => {
+      const status = sessionStatus(s)
+      const info = scenarioMap[s.scenario_id]
+      const duration = formatDuration(s.started_at, s.ended_at)
+      return {
+        sessionId: s.session_id,
+        scenarioId: s.scenario_id,
+        title: info?.title ?? s.scenario_id,
+        difficulty: info?.difficulty ?? '',
+        trust: s.final_trust,
+        tone: status.tone,
+        shape: status.shape,
+        statusLabel: status.label,
+        dateLabel: new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        durationLabel: duration,
+      }
+    })
+  }, [completedSessions, scenarioMap])
+
+  const performanceMetrics = useMemo(() => {
+    const metrics = []
+    if (journeySessions.length > 0) metrics.push({ value: journeySessions.length, label: 'Sessions' })
+
+    if (completedSessions.length > 0) {
+      const latest = completedSessions[completedSessions.length - 1]
+      metrics.push({ value: latest.final_trust, label: 'Latest Trust', tone: latest.final_trust >= 70 ? 'success' : latest.final_trust >= 40 ? 'warning' : 'danger' })
+    }
+
+    if (completedSessions.length >= 2) {
+      const first = completedSessions[0].final_trust
+      const latest = completedSessions[completedSessions.length - 1].final_trust
+      const growth = latest - first
+      metrics.push({
+        value: Math.abs(growth),
+        prefix: growth >= 0 ? '+' : '−',
+        label: 'Trust Growth',
+        tone: growth > 0 ? 'success' : growth < 0 ? 'danger' : undefined,
+      })
+    }
+
+    const skillSet = new Set()
+    journeySessions.forEach((s) => {
+      const skills = scenarioMap[s.scenario_id]?.target_skills
+      if (Array.isArray(skills)) skills.forEach((sk) => skillSet.add(sk))
+    })
+    if (skillSet.size > 0) metrics.push({ value: skillSet.size, label: 'Skills Practiced' })
+
+    return metrics
+  }, [journeySessions, completedSessions, scenarioMap])
+
+  // Each skill's count is how many of your (non-recycled) sessions were
+  // tagged with it — a practice-repetition tally, not a proficiency score.
+  // "sessions" is spelled out in the label so that reads unambiguously
+  // wherever this shows up, not just as a bare number.
+  const practiceFocusSkills = useMemo(() => {
+    const counts = {}
+    journeySessions.forEach((s) => {
+      const skills = scenarioMap[s.scenario_id]?.target_skills
+      if (!Array.isArray(skills)) return
+      skills.forEach((sk) => { counts[sk] = (counts[sk] || 0) + 1 })
+    })
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, count]) => ({ name: humanizeSkill(name), count }))
+  }, [sessions, scenarioMap])
+
+  const growthMoments = useMemo(() => {
+    if (completedSessions.length < 4) return []
+    const moments = []
+    const recentN = Math.min(3, Math.floor(completedSessions.length / 2))
+    const recent = completedSessions.slice(-recentN)
+    const earlier = completedSessions.slice(0, completedSessions.length - recentN)
+    const avg = (arr) => arr.reduce((sum, s) => sum + s.final_trust, 0) / arr.length
+    const recentAvg = Math.round(avg(recent))
+    const earlierAvg = Math.round(avg(earlier))
+    const diff = recentAvg - earlierAvg
+
+    if (Math.abs(diff) >= 3) {
+      moments.push({
+        type: diff > 0 ? 'up' : 'down',
+        title: diff > 0 ? 'Trust is trending up' : 'Trust dipped recently',
+        text: `Averaging ${recentAvg} in your last ${recentN} sessions, vs ${earlierAvg} before that.`,
+      })
+    }
+
+    const skillsIn = (arr) => {
+      const counts = {}
+      arr.forEach((s) => {
+        const skills = scenarioMap[s.scenario_id]?.target_skills
+        if (Array.isArray(skills)) skills.forEach((sk) => { counts[sk] = (counts[sk] || 0) + 1 })
+      })
+      return counts
+    }
+    const recentSkillCounts = skillsIn(recent)
+    const topRecentSkill = Object.entries(recentSkillCounts).sort((a, b) => b[1] - a[1])[0]
+    if (topRecentSkill && topRecentSkill[1] >= 2) {
+      moments.push({
+        type: 'focus',
+        title: `Recent focus: ${humanizeSkill(topRecentSkill[0])}`,
+        text: `You've practiced this in ${topRecentSkill[1]} of your last ${recentN} sessions.`,
+      })
+    }
+
+    return moments
+  }, [completedSessions, scenarioMap])
 
   // Changing tabs/filters is a deliberate jump — start back at page 1.
   useEffect(() => { setPage(1) }, [activeView, activeStatus])
@@ -278,6 +344,10 @@ export default function MySessions() {
       setSelectMode(false)
       setSelectedIds(new Set())
       await load()
+      // Trash/restore happens without leaving this page, so the Topbar's
+      // active-session pill (which otherwise only refetches on route
+      // change) needs an explicit nudge to reflect the new count now.
+      window.dispatchEvent(new Event('ez:rpe-sessions-changed'))
     } catch (err) {
       setError(err.message || 'Action failed')
     } finally {
@@ -285,133 +355,174 @@ export default function MySessions() {
     }
   }
 
+  const selectedPoint = selectedPointIndex != null ? trustJourneyPoints[selectedPointIndex] : null
+  const isTrashView = activeView === 'trash'
+
   return (
     <div className="rpe-cinema">
-      <div className="hero-band">
-        <div className="hero-inner">
-          <p className="eyebrow">Practice</p>
-          <h1 className="hero-title">Your Sessions</h1>
-          <p className="hero-sub">
-            {activeView === 'trash'
-              ? 'Sessions you\'ve removed — restore them or delete for good.'
-              : 'Review past role-play sessions and revisit your outcomes.'}
-          </p>
-        </div>
-      </div>
+      <div className="page">
 
-      <div className={cn('page', selectMode && selectedIds.size > 0 && 'page-with-actionbar')}>
+        <PracticeJourneyHero sessionCount={journeySessions.length} isTrashView={isTrashView} />
 
         {!authLoading && !isAuthenticated && (
           <div className="signin-prompt">
             <LogIn size={22} strokeWidth={1.8} />
-            <p className="signin-title">Sign in to view your session history</p>
+            <p className="signin-title">Sign in to view your practice journey</p>
             <p className="signin-sub">Session records are tied to your account.</p>
             <a href="/signin" className="btn-c primary" style={{ textDecoration: 'none' }}>Sign in</a>
           </div>
         )}
 
-        {isAuthenticated && (
+        {isAuthenticated && isLoading && <JourneySkeleton />}
+
+        {isAuthenticated && !isLoading && error && (
+          <div className="banner danger">
+            <p className="banner-title">Unable to load your practice journey.</p>
+            <p className="banner-sub">We couldn't retrieve your sessions right now.</p>
+            <button type="button" onClick={load} className="btn-c secondary" style={{ marginTop: 10 }}>Try again</button>
+          </div>
+        )}
+
+        {isAuthenticated && !isLoading && !error && (
           <>
-            <div className="toolbar">
-              <div className="seg-control">
-                <button type="button" className={cn('seg-btn', activeView === 'active' && 'active')} onClick={() => switchView('active')}>
-                  Sessions
-                </button>
-                <button type="button" className={cn('seg-btn', activeView === 'trash' && 'active')} onClick={() => switchView('trash')}>
-                  <Trash2 size={12} strokeWidth={2} /> Recycle Bin
-                </button>
-              </div>
-
-              {sessions.length > 0 && (
-                <button type="button" onClick={toggleSelectMode} className="btn-c secondary">
-                  {selectMode ? 'Cancel' : 'Select'}
-                </button>
-              )}
-            </div>
-
-            {activeView === 'active' && sessions.length > 0 && (
-              <div className="seg-control">
-                {STATUS_FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={cn('seg-btn', activeStatus === f && 'active')}
-                    onClick={() => setActiveStatus(f)}
-                  >
-                    {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({statusCounts[f]})
-                  </button>
-                ))}
-              </div>
+            {!isTrashView && sessions.length === 0 && (
+              <EmptyPracticeState onBrowse={() => navigate('/roleplay')} />
             )}
 
-            {error && (
-              <div className="banner danger">{error}</div>
-            )}
-
-            {isLoading && (
-              <div className="grid-2">
-                {[1, 2, 3, 4].map((n) => (
-                  <div key={n} className="skel-card">
-                    <div className="skel" style={{ height: 16, width: '60%', marginBottom: 10 }} />
-                    <div className="skel" style={{ height: 12, width: '40%', marginBottom: 16 }} />
-                    <div className="skel" style={{ height: 40, width: '100%' }} />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {!isLoading && !error && sessions.length === 0 && (
-              activeView === 'trash' ? (
-                <div className="empty-state">
-                  <Trash2 size={28} strokeWidth={1.6} />
-                  <p className="empty-title">Recycle bin is empty</p>
-                  <p className="empty-desc">Sessions you move to the bin will show up here.</p>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <Swords size={28} strokeWidth={1.6} />
-                  <p className="empty-title">No sessions yet</p>
-                  <p className="empty-desc">Finish a role-play scenario and it'll show up here.</p>
-                  <button type="button" onClick={() => navigate('/roleplay')} className="btn-c primary">
-                    Browse scenarios
-                  </button>
-                </div>
-              )
-            )}
-
-            {!isLoading && !error && sessions.length > 0 && filteredSessions.length === 0 && (
-              <div className="empty-state">
-                <p className="empty-title">No sessions match this filter</p>
-                <button type="button" onClick={() => setActiveStatus('all')} className="btn-c secondary">
-                  Clear filter
-                </button>
-              </div>
-            )}
-
-            {!isLoading && paginatedSessions.length > 0 && (
+            {!isTrashView && sessions.length > 0 && (
               <>
-                <div className="grid-2">
-                  {paginatedSessions.map((session) => (
-                    <SessionCard
-                      key={session.session_id}
-                      session={session}
-                      scenarioInfo={scenarioMap[session.scenario_id]}
-                      onOpenFeedback={(id) => navigate(`/roleplay/feedback/${id}`)}
-                      selectMode={selectMode}
-                      selected={selectedIds.has(session.session_id)}
-                      onToggleSelect={toggleSelect}
-                    />
-                  ))}
-                </div>
+                <PerformanceOverview metrics={performanceMetrics} />
 
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  totalItems={filteredSessions.length}
-                  onChange={setPage}
-                />
+                {trustJourneyPoints.length > 0 && (
+                  <section className="journey-section">
+                    <p className="section-eyebrow">Trust Journey</p>
+                    <h2 className="section-heading">How your trust is evolving</h2>
+                    <TrustJourneyChart
+                      sessions={trustJourneyPoints}
+                      selectedIndex={selectedPointIndex}
+                      onSelect={setSelectedPointIndex}
+                    />
+                    <SessionDetailPanel
+                      point={selectedPoint}
+                      onOpenFeedback={(id) => navigate(`/roleplay/feedback/${id}`)}
+                      onClose={() => setSelectedPointIndex(null)}
+                    />
+                  </section>
+                )}
+
+                {practiceFocusSkills.length > 0 && (
+                  <section className="journey-section">
+                    <p className="section-eyebrow">Practice Focus</p>
+                    <h2 className="section-heading">What you've been practicing</h2>
+                    <PracticeFocus skills={practiceFocusSkills} />
+                  </section>
+                )}
+
+                {growthMoments.length > 0 && (
+                  <section className="journey-section">
+                    <p className="section-eyebrow">Recent Growth</p>
+                    <h2 className="section-heading">Patterns worth noticing</h2>
+                    <GrowthMoments moments={growthMoments} />
+                  </section>
+                )}
               </>
             )}
+
+            <section className="journey-section">
+              {(sessions.length > 0 || isTrashView) && (
+                <>
+                  <p className="section-eyebrow">{isTrashView ? 'Recycle Bin' : 'Recent Sessions'}</p>
+                  <h2 className="section-heading">{isTrashView ? 'Removed sessions' : 'Every conversation you\'ve practiced'}</h2>
+                </>
+              )}
+
+              <div className="toolbar">
+                <div className="seg-control manage-toggle">
+                  <button type="button" className={cn('seg-btn', activeView === 'active' && 'active')} onClick={() => switchView('active')}>
+                    Sessions
+                  </button>
+                  <button type="button" className={cn('seg-btn', activeView === 'trash' && 'active')} onClick={() => switchView('trash')}>
+                    <Trash2 size={12} strokeWidth={2} /> Recycle Bin
+                  </button>
+                </div>
+
+                {sessions.length > 0 && (
+                  <button type="button" onClick={toggleSelectMode} className="btn-c secondary">
+                    {selectMode ? 'Cancel' : 'Select'}
+                  </button>
+                )}
+              </div>
+
+              {activeView === 'active' && sessions.length > 0 && (
+                <div className="seg-control">
+                  {STATUS_FILTERS.map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      className={cn('seg-btn', activeStatus === f && 'active')}
+                      onClick={() => setActiveStatus(f)}
+                    >
+                      {STATUS_FILTER_LABEL[f]} ({statusCounts[f]})
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {sessions.length === 0 && (
+                isTrashView ? (
+                  <div className="empty-state">
+                    <Trash2 size={28} strokeWidth={1.6} />
+                    <p className="empty-title">Recycle bin is empty</p>
+                    <p className="empty-desc">Sessions you move to the bin will show up here.</p>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <Swords size={28} strokeWidth={1.6} />
+                    <p className="empty-title">No sessions yet</p>
+                    <p className="empty-desc">Finish a role-play scenario and it'll show up here.</p>
+                    <button type="button" onClick={() => navigate('/roleplay')} className="btn-c primary">
+                      Browse scenarios
+                    </button>
+                  </div>
+                )
+              )}
+
+              {sessions.length > 0 && filteredSessions.length === 0 && (
+                <div className="empty-state">
+                  <p className="empty-title">No sessions match this filter</p>
+                  <button type="button" onClick={() => setActiveStatus('all')} className="btn-c secondary">
+                    Clear filter
+                  </button>
+                </div>
+              )}
+
+              {paginatedSessions.length > 0 && (
+                <>
+                  <div className={cn('grid-2', selectMode && selectedIds.size > 0 && 'grid-with-actionbar')}>
+                    {paginatedSessions.map((session) => (
+                      <SessionSnapshotCard
+                        key={session.session_id}
+                        session={session}
+                        status={sessionStatus(session)}
+                        scenarioInfo={scenarioMap[session.scenario_id]}
+                        onOpenFeedback={(id) => navigate(`/roleplay/feedback/${id}`)}
+                        onResumeSession={(id) => navigate(`/roleplay/session/${id}`)}
+                        selectMode={selectMode}
+                        selected={selectedIds.has(session.session_id)}
+                        onToggleSelect={toggleSelect}
+                      />
+                    ))}
+                  </div>
+
+                  <Pagination
+                    page={page}
+                    totalPages={totalPages}
+                    totalItems={filteredSessions.length}
+                    onChange={setPage}
+                  />
+                </>
+              )}
+            </section>
           </>
         )}
 
@@ -457,18 +568,11 @@ const PAGE_STYLES = `
   .rpe-cinema button{ font-family:inherit; }
   .rpe-cinema a{ color:inherit; }
 
-  .rpe-cinema .hero-band{ border-bottom:1px solid var(--border); background:radial-gradient(120% 140% at 0% 0%, rgba(124,58,237,0.08) 0%, transparent 55%), var(--surface); }
-  .rpe-cinema .hero-inner{ max-width:1024px; margin:0 auto; padding:40px 20px 32px; }
-  .rpe-cinema .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 8px; }
-  .rpe-cinema .hero-title{ font-size:29px; font-weight:800; letter-spacing:-0.01em; margin:0; }
-  .rpe-cinema .hero-sub{ font-size:13.5px; color:var(--text-med); margin:8px 0 0; }
+  .rpe-cinema .page{ max-width:1160px; margin:0 auto; padding:36px 24px 60px; display:flex; flex-direction:column; gap:32px; }
 
-  .rpe-cinema .page{ max-width:1024px; margin:0 auto; padding:28px 20px 40px; display:flex; flex-direction:column; gap:20px; }
-  /* The bulk action bar is now fixed to the viewport bottom (not inline
-     sticky) so it reads as a clearly separate floating layer instead of
-     crowding directly under the pagination row — reserve room for it only
-     while it's actually showing. */
-  .rpe-cinema .page-with-actionbar{ padding-bottom:96px; }
+  .rpe-cinema .journey-section{ display:flex; flex-direction:column; gap:16px; }
+  .rpe-cinema .section-eyebrow{ font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0; }
+  .rpe-cinema .section-heading{ font-size:21px; font-weight:750; letter-spacing:-0.01em; margin:2px 0 0; }
 
   .rpe-cinema .toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 
@@ -481,18 +585,21 @@ const PAGE_STYLES = `
   .rpe-cinema .signin-sub{ font-size:13px; margin:0 0 12px; }
 
   .rpe-cinema .seg-control{ display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:3px; gap:2px; flex-wrap:wrap; }
-  .rpe-cinema .seg-btn{ display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; cursor:pointer; color:var(--text-med); font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:8px; transition:all .2s var(--ease); }
+  .rpe-cinema .seg-control.manage-toggle{ opacity:.88; }
+  .rpe-cinema .seg-btn{ display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; cursor:pointer; color:var(--text-med); font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:8px; transition:all .2s var(--ease); min-height:32px; }
   .rpe-cinema .seg-btn:hover{ color:var(--text-hi); }
   .rpe-cinema .seg-btn.active{ background:var(--accent); color:#fff; }
 
-  .rpe-cinema .banner.danger{ background:var(--danger-glow); border:1px solid rgba(248,81,73,0.3); color:var(--danger-text, #FF9490); border-radius:12px; padding:12px 16px; font-size:13px; }
+  .rpe-cinema .banner.danger{
+    background:var(--danger-glow); border:1px solid rgba(248,81,73,0.3); color:var(--danger-text, #FF9490);
+    border-radius:14px; padding:20px 22px;
+  }
+  .rpe-cinema .banner-title{ font-size:14px; font-weight:700; margin:0; }
+  .rpe-cinema .banner-sub{ font-size:12.5px; margin:4px 0 0; opacity:.85; }
 
   .rpe-cinema .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   @media (max-width:680px){ .rpe-cinema .grid-2{ grid-template-columns:1fr; } }
-
-  .rpe-cinema .skel-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px; }
-  .rpe-cinema .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:6px; animation:cinemaShimmer 1.4s ease-in-out infinite; }
-  @keyframes cinemaShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+  .rpe-cinema .grid-with-actionbar{ padding-bottom:80px; }
 
   .rpe-cinema .empty-state{
     display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px;
@@ -503,52 +610,7 @@ const PAGE_STYLES = `
   .rpe-cinema .empty-title{ font-size:15px; font-weight:700; color:var(--text-hi); margin:6px 0 0; }
   .rpe-cinema .empty-desc{ font-size:13px; margin:0 0 10px; max-width:340px; }
 
-  .rpe-cinema .session-card{
-    position:relative; overflow:hidden; background:var(--surface); border:1px solid var(--border); border-radius:16px;
-    padding:18px 18px 18px 22px; display:flex; flex-direction:column; gap:14px;
-    box-shadow:0 8px 22px rgba(17,12,34,0.05);
-    transition:border-color .2s var(--ease), transform .2s var(--ease), box-shadow .2s var(--ease);
-  }
-  .rpe-cinema .session-card:hover{ border-color:rgba(124,58,237,0.35); transform:translateY(-2px); box-shadow:0 14px 30px rgba(17,12,34,0.09); }
-  .rpe-cinema .session-card.selectable{ cursor:pointer; padding-left:50px; }
-  .rpe-cinema .session-card.selected{ border-color:rgba(124,58,237,0.6); background:var(--accent-glow); }
-  .rpe-cinema .session-check{ position:absolute; top:18px; left:20px; display:flex; z-index:1; }
-  .rpe-cinema .session-check input{ width:17px; height:17px; accent-color:var(--accent); cursor:pointer; }
-
-  .rpe-cinema .session-accent{ position:absolute; top:0; left:0; bottom:0; width:4px; background:var(--border); }
-  .rpe-cinema .session-card.success .session-accent{ background:var(--success); }
-  .rpe-cinema .session-card.danger  .session-accent{ background:var(--danger); }
-  .rpe-cinema .session-card.neutral .session-accent{ background:var(--text-low); }
-
-  .rpe-cinema .session-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-  .rpe-cinema .session-title{ font-size:14.5px; font-weight:700; margin:0; line-height:1.3; }
-  .rpe-cinema .session-meta-row{ display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
-  .rpe-cinema .session-date{ font-size:11px; color:var(--text-low); }
-
-  .rpe-cinema .pill{ display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:650; padding:3px 10px; border-radius:100px; text-transform:capitalize; flex-shrink:0; white-space:nowrap; }
-  .rpe-cinema .pill.success{ color:var(--success); background:var(--success-glow); }
-  .rpe-cinema .pill.warning{ color:var(--warning); background:var(--warning-glow); }
-  .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
-  .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
-
-  .rpe-cinema .session-stats{ display:flex; gap:10px; }
-  .rpe-cinema .session-stat{ flex:1; background:var(--surface-hi); border:1px solid var(--border); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:2px; align-items:center; }
-  .rpe-cinema .session-stat-label{ font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text-low); }
-  .rpe-cinema .session-stat-val{ font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text-hi); }
-  .rpe-cinema .session-stat-val.small{ font-size:11.5px; display:inline-flex; align-items:center; gap:4px; }
-  .rpe-cinema .session-stat-val.success{ color:var(--success); }
-  .rpe-cinema .session-stat-val.warning{ color:var(--warning); }
-  .rpe-cinema .session-stat-val.danger{  color:var(--danger); }
-  .rpe-cinema .session-stat-val .unit{ font-size:10px; font-weight:500; color:var(--text-med); }
-
-  .rpe-cinema .session-noresult{
-    display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-low); font-style:italic;
-    background:var(--surface-hi); border-radius:10px; padding:10px 12px;
-  }
-
-  .rpe-cinema .session-actions{ display:flex; justify-content:flex-end; margin-top:auto; padding-top:2px; }
-
-  .rpe-cinema .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:650; padding:8px 15px; border-radius:9px; cursor:pointer; border:1px solid transparent; transition:filter .2s var(--ease), border-color .2s var(--ease); }
+  .rpe-cinema .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:650; padding:8px 15px; border-radius:9px; cursor:pointer; border:1px solid transparent; transition:filter .2s var(--ease), border-color .2s var(--ease); min-height:36px; }
   .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; }
   .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); }
   .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
@@ -561,7 +623,7 @@ const PAGE_STYLES = `
   .rpe-cinema .pagination-range{ font-size:12px; color:var(--text-low); }
   .rpe-cinema .pagination-controls{ display:flex; align-items:center; gap:4px; }
   .rpe-cinema .page-btn{
-    min-width:32px; height:32px; padding:0 8px; display:inline-flex; align-items:center; justify-content:center;
+    min-width:36px; height:36px; padding:0 8px; display:inline-flex; align-items:center; justify-content:center;
     background:var(--surface); border:1px solid var(--border); border-radius:9px; color:var(--text-med);
     font-size:12.5px; font-weight:650; font-variant-numeric:tabular-nums; cursor:pointer;
     transition:background .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease);
@@ -578,8 +640,13 @@ const PAGE_STYLES = `
   }
   @keyframes actionBarIn{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
   .rpe-cinema .action-bar-inner{
-    max-width:1024px; margin:0 auto; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    max-width:1160px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
   }
   .rpe-cinema .action-count{ font-size:13px; font-weight:650; color:var(--text-hi); }
   .rpe-cinema .action-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
+
+  @media (max-width:640px){
+    .rpe-cinema .page{ padding:24px 16px 48px; gap:26px; }
+    .rpe-cinema .toolbar{ flex-direction:row; overflow-x:auto; }
+  }
 `

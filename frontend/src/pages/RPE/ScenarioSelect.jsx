@@ -6,6 +6,7 @@ import { rpeService } from '@/services/rpe/rpeService'
 import { useAuth } from '@/lib/auth/context'
 import ScenarioCard from '@/components/RPE/ScenarioCard'
 import ScenarioDetailModal from '@/components/RPE/ScenarioDetailModal'
+import ActiveSessionLimitModal from '@/components/RPE/ActiveSessionLimitModal'
 import { cn } from '@/lib/utils'
 import { joyrideOptions, joyrideStyles } from '@/lib/tour/joyrideTheme'
 import { useOnceTour } from '@/lib/tour/useOnceTour'
@@ -87,6 +88,7 @@ export default function ScenarioSelect() {
   const [error, setError]                         = useState(null)
   const [showCompare, setShowCompare]             = useState(false)
   const [heroDetail, setHeroDetail]               = useState(null)
+  const [blockedSessions, setBlockedSessions]     = useState(null)
 
   useEffect(() => {
     if (!showCompare) return
@@ -251,6 +253,13 @@ export default function ScenarioSelect() {
           scenarioTitle:               response.scenario_title,
           difficulty:                  response.difficulty,
           conflictType:                response.conflict_type,
+          category:                    scenario.category,
+          // Real scenario text ("the real-life situation line", per
+          // ScenarioSummary's own field comment) — the closest honest
+          // source for "scenario objective" the backend exposes today. Set
+          // once here, never overwritten per-turn — see
+          // conversationIntelligenceV2.js's createInitialIntelligence.
+          context:                     scenario.context,
           totalTurns:                  response.total_turns,
           npcRole:                     scenario.npc_role || scenario.conflict_type,
           npcGender:                   response.npc_gender,
@@ -260,10 +269,18 @@ export default function ScenarioSelect() {
         },
       })
     } catch (err) {
-      setError(err.message || 'Failed to start session')
+      if (err.code === 'active_session_limit') {
+        setBlockedSessions(err.activeSessions)
+        setSelectedScenario(null)
+      } else {
+        setError(err.message || 'Failed to start session')
+      }
       setStartingId(null)
     }
   }
+
+  const scenarioTitleFor = (scenarioId) =>
+    allScenarios.find((s) => s.scenario_id === scenarioId)?.title || scenarioId
 
   if (planImporting) {
     return (
@@ -327,7 +344,7 @@ export default function ScenarioSelect() {
                 <Sparkles size={13} strokeWidth={1.8} /> Get a Personalized Scenario
               </button>
               <button type="button" onClick={() => navigate('/roleplay/my-sessions')} className="my-sessions-btn">
-                <History size={13} strokeWidth={1.8} /> My Sessions
+                <History size={13} strokeWidth={1.8} /> My Journey
               </button>
               {!isLoading && allScenarios.length > 0 && (
                 <button
@@ -626,6 +643,12 @@ export default function ScenarioSelect() {
         onClose={() => setSelectedScenario(null)}
         onStart={handleStart}
         isStarting={startingId === selectedScenario?.scenario_id}
+      />
+
+      <ActiveSessionLimitModal
+        sessions={blockedSessions}
+        scenarioTitle={scenarioTitleFor}
+        onClose={() => setBlockedSessions(null)}
       />
 
       <style>{`

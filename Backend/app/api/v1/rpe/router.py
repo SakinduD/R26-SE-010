@@ -57,6 +57,9 @@ rpe_apm_notify_service = RpeApmNotifyService(
 rpe_router = APIRouter()
 
 
+MAX_ACTIVE_SESSIONS = 3
+
+
 @rpe_router.post("/start-session", response_model=StartSessionResponse)
 def start_session(
     payload:      StartSessionRequest,
@@ -70,6 +73,31 @@ def start_session(
         resolved_user_id = payload.user_id or "guest"
         auth_user_id     = None
         is_authenticated = False
+
+    # Cap applies to signed-in learners only — a guest has no stable
+    # identity to track "their" sessions against in the first place (My
+    # Sessions itself is auth-only), so there's nothing to cap.
+    if auth_user_id:
+        active = rpe_session_service.get_active_sessions(auth_user_id)
+        if len(active) >= MAX_ACTIVE_SESSIONS:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "active_session_limit",
+                    "message": (
+                        f"You already have {len(active)} unfinished sessions. "
+                        "Finish or resume one before starting another."
+                    ),
+                    "active_sessions": [
+                        {
+                            "session_id":  s["session_id"],
+                            "scenario_id": s["scenario_id"],
+                            "started_at":  s["started_at"],
+                        }
+                        for s in active
+                    ],
+                },
+            )
 
     scenario = rpe_scenario_service.get_scenario(payload.scenario_id)
     if not scenario:
@@ -207,6 +235,9 @@ def session_respond(
         user_behavior = result.get("user_behavior")
         requests_deliverable = result.get("requests_deliverable", False)
         response_options     = result.get("response_options")
+        interaction_type     = result.get("interaction_type", "normal")
+        content_prompt       = result.get("content_prompt")
+        content_type         = result.get("content_type")
 
         # 3. Profanity override wins over LLM classification
         emotion: str = "frustrated" if is_profane else result["detected_emotion"]
@@ -319,10 +350,14 @@ def session_respond(
             session_complete=should_end,
             outcome=outcome,
             end_reason=end_reason if should_end else None,
-            # Never offer choice cards on the turn that ends the session —
-            # there's no next turn for a submitted document to land on.
+            # Never offer choice cards (or a content/direct input dock) on
+            # the turn that ends the session — there's no next turn for a
+            # submitted document/content to land on.
             requests_deliverable=requests_deliverable and not should_end,
             response_options=response_options if not should_end else None,
+            interaction_type=interaction_type if not should_end else "normal",
+            content_prompt=content_prompt if not should_end else None,
+            content_type=content_type if not should_end else None,
             clarity_score=live_metrics["clarity_score"],
             response_quality=live_metrics["response_quality"],
             ml_escalation_label=ml_escalation["label"] if ml_escalation else None,

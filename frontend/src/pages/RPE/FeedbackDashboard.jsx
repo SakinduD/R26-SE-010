@@ -5,7 +5,8 @@ import { RefreshCw, BarChart2, AlertTriangle, Target, TrendingUp } from 'lucide-
 
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
-import { FEEDBACK_THEME_VARS, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
+import { FEEDBACK_THEME_VARS, FEEDBACK_COMPONENT_STYLES, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
+import { outcomeBadge, outcomeIcon, escalationStatus, turnsStatus } from '@/lib/rpe/sessionOutcome'
 import FeedbackHeader from '@/components/RPE/feedback/FeedbackHeader'
 import FeedbackProgress from '@/components/RPE/feedback/FeedbackProgress'
 import FeedbackNavigation from '@/components/RPE/feedback/FeedbackNavigation'
@@ -22,43 +23,8 @@ import SessionTakeaway from '@/components/RPE/feedback/SessionTakeaway'
 
 const DIFFICULTY_TONE = { beginner: 'success', intermediate: 'warning', advanced: 'danger' }
 
-function endReasonBadge(endReason, outcome) {
-  if (endReason === 'trust_sustained')        return { tone: 'success', label: 'Trust Built'  }
-  if (endReason === 'npc_exit')               return { tone: 'danger',  label: 'NPC Exited'   }
-  if (endReason === 'max_turns_reached' && outcome === 'success') return { tone: 'accent',  label: 'Completed' }
-  if (endReason === 'max_turns_reached' && outcome === 'failure') return { tone: 'warning', label: 'Time Limit' }
-  if (outcome === 'success')                  return { tone: 'success', label: 'Success'      }
-  if (outcome === 'failure')                  return { tone: 'danger',  label: 'Needs Work'   }
-  return                                              { tone: 'neutral', label: 'Session Ended' }
-}
-
-function outcomeIcon(endReason, outcome) {
-  if (endReason === 'trust_sustained') return '🎉'
-  if (endReason === 'npc_exit')        return '💢'
-  if (endReason === 'max_turns_reached') return outcome === 'success' ? '✅' : '⏱'
-  if (outcome === 'success')           return '✅'
-  return '👋'
-}
-
 function toReadableLabel(str) {
   return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-// Escalation is the one metric here where LOWER is better — scoreStatus()
-// (used for trust/quality, where higher is better) doesn't apply to it.
-function escalationStatus(value) {
-  if (value == null) return null
-  if (value === 0) return { tone: 'success', label: 'No escalation needed' }
-  if (value <= 2)  return { tone: 'accent',  label: 'Mostly calm' }
-  if (value === 3) return { tone: 'warning', label: 'Some tension' }
-  return { tone: 'danger', label: 'Escalated' }
-}
-
-function turnsStatus(total, recommended, max) {
-  if (total == null) return null
-  if (recommended != null && total <= recommended) return { tone: 'success', label: 'Efficient' }
-  if (max != null && total >= max) return { tone: 'warning', label: 'Ran long' }
-  return { tone: 'neutral', label: 'On track' }
 }
 
 // Plain-language labels for the Watch For screen — the raw flag_type/
@@ -335,7 +301,7 @@ export default function FeedbackDashboard() {
           <p className="fb-loading-text">Analyzing your session…</p>
           <div className="fb-page"><Skeleton /></div>
         </div>
-        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
+        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_COMPONENT_STYLES}{FEEDBACK_STYLES}</style>
       </div>
     )
   }
@@ -358,7 +324,7 @@ export default function FeedbackDashboard() {
             </div>
           </div>
         </div>
-        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
+        <style>{FEEDBACK_THEME_VARS}{FEEDBACK_COMPONENT_STYLES}{FEEDBACK_STYLES}</style>
       </div>
     )
   }
@@ -366,7 +332,7 @@ export default function FeedbackDashboard() {
   const fd      = feedbackData
   const viz     = fd.viz_payload ?? {}
   const summary = viz.summary_scores ?? {}
-  const badge   = endReasonBadge(fd.end_reason, fd.outcome)
+  const badge   = outcomeBadge(fd.end_reason, fd.outcome)
   const icon    = outcomeIcon(fd.end_reason, fd.outcome)
 
   const hasWatchFor = (fd.risk_flags?.length > 0) || (fd.blind_spots?.length > 0)
@@ -461,7 +427,7 @@ export default function FeedbackDashboard() {
         )}
 
       </div>
-      <style>{FEEDBACK_THEME_VARS}{FEEDBACK_STYLES}</style>
+      <style>{FEEDBACK_THEME_VARS}{FEEDBACK_COMPONENT_STYLES}{FEEDBACK_STYLES}</style>
     </div>
   )
 }
@@ -512,19 +478,9 @@ const FEEDBACK_STYLES = `
   @media (max-width:820px){ .result-grid{ grid-template-columns:repeat(2, 1fr); } }
   @media (max-width:420px){ .result-grid{ grid-template-columns:1fr; } }
 
-  .pill{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; padding:4px 11px; border-radius:100px; text-transform:capitalize; flex-shrink:0; }
-  .pill.success{ color:var(--success); background:var(--success-glow); }
-  .pill.warning{ color:var(--warning); background:var(--warning-glow); }
-  .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
-  .pill.accent{  color:var(--accent);  background:var(--accent-glow); }
-  .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
-
   .coach-block{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
   .coach-block:first-of-type{ margin-top:22px; padding-top:0; border-top:none; }
   .coach-block-label{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-low); margin:0 0 14px; }
-
-  .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; text-transform:capitalize; }
-  .chip.accent{ color:var(--accent); background:var(--accent-glow); }
 
   .watch-list{ display:flex; flex-direction:column; gap:10px; margin-top:20px; }
   .watch-timeline{ margin-top:28px; padding-top:22px; border-top:1px solid var(--border); }
@@ -540,13 +496,6 @@ const FEEDBACK_STYLES = `
   .skel{ background:linear-gradient(90deg, var(--surface-hi) 25%, var(--border) 50%, var(--surface-hi) 75%); background-size:200% 100%; border-radius:10px; animation:cinemaShimmer 1.4s ease-in-out infinite; }
   @keyframes cinemaShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
   .fb-page{ flex:1; padding:24px 16px; max-width:1200px; margin:0 auto; width:100%; }
-
-  .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650; padding:10px 18px; border-radius:10px; cursor:pointer; border:1px solid transparent; transition:filter .2s var(--ease), border-color .2s var(--ease), transform .15s var(--ease); }
-  .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
-  .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
-  .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
-  .btn-c.secondary:hover{ border-color:var(--text-med); }
-  .btn-c.secondary:disabled{ opacity:.4; cursor:default; }
 
   @media (max-width:640px){
     .fb-stage{ padding:12px 16px 24px; }

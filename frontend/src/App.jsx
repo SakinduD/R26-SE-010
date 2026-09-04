@@ -32,6 +32,15 @@ import Settings from './pages/app/Settings'
 // RPE pages
 import ScenarioSelect from './pages/RPE/ScenarioSelect'
 import RolePlaySession from './pages/RPE/RolePlaySession'
+// V2 redesign — isolated, testable side-by-side with the original above via
+// the /roleplay/session-v2/:sessionId route below. Does not replace or
+// modify RolePlaySession/route in any way.
+import RolePlaySessionV2 from './pages/RPE/RolePlaySessionV2'
+// Dev-only visual QA harness for SceneEnvironmentV2 (no auth/session
+// needed) — statically stripped from production builds, see the route
+// registration below and the file's own header comment.
+import EnvironmentPreviewDev from './pages/RPE/EnvironmentPreviewDev'
+import SessionCompletePreviewDev from './pages/RPE/SessionCompletePreviewDev'
 import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
 import MySessions from './pages/RPE/MySessions'
@@ -71,6 +80,17 @@ export default function App() {
             {/* Auth callback - no layout chrome */}
             <Route path="/auth-callback" element={<AuthCallback />} />
 
+            {/* Dev-only visual QA harness for SceneEnvironmentV2 — outside
+                AppLayout on purpose (no auth needed), and the whole Route
+                is omitted from the tree in a production build since
+                import.meta.env.DEV is statically false there. */}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-environment-preview" element={<EnvironmentPreviewDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/session-complete-preview" element={<SessionCompletePreviewDev />} />
+            )}
+
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
@@ -107,6 +127,11 @@ export default function App() {
               {/* RPE — Practice section, lives inside the app shell with sidebar */}
               <Route path="/roleplay" element={<ScenarioSelect />} />
               <Route path="/roleplay/session/:sessionId" element={<RolePlaySession />} />
+              {/* Temporary comparison route for the V2 redesign — remove
+                  (or promote to replace the line above) once a decision is
+                  made; the original route/component are untouched either
+                  way. */}
+              <Route path="/roleplay/session-v2/:sessionId" element={<RolePlaySessionV2 />} />
               <Route path="/roleplay/session/complete" element={<SessionComplete />} />
               <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
               <Route path="/roleplay/my-sessions" element={<MySessions />} />

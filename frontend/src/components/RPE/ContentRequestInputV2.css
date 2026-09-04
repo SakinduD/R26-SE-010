@@ -1,0 +1,86 @@
+/*
+ * ContentRequestInputV2.css — self-contained, prefixed `crq2-`. Same
+ * "own dark-default token set, re-mappable by the host page" pattern as
+ * ResponseChoiceCardsV2.css/ConversationReplayV2.css — deliberately mirrors
+ * rcc2's palette values so the two interactions read as one visual family.
+ */
+
+.crq2-wrap {
+  --crq2-bg: #0E0F13;
+  --crq2-surface: rgba(255,255,255,0.05);
+  --crq2-border: rgba(255,255,255,0.1);
+  --crq2-accent: #9B9DFF;
+  --crq2-text-hi: #F3F3F5;
+  --crq2-text-med: #9A9AA3;
+  --crq2-text-low: #5C5C66;
+  --crq2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  width: 100%; max-width: 640px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crq2-wrap, .crq2-wrap * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+.crq2-prompt { text-align: center; }
+.crq2-prompt-eyebrow {
+  margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--crq2-accent);
+}
+.crq2-prompt-question { margin: 4px 0 0; font-size: 15px; font-weight: 650; color: var(--crq2-text-hi); }
+
+.crq2-field { position: relative; width: 100%; }
+.crq2-field.disabled { opacity: 0.6; }
+
+.crq2-textarea {
+  width: 100%; min-height: 96px; max-height: 220px; resize: vertical;
+  background: var(--crq2-surface); border: 1px solid var(--crq2-border); border-radius: 14px;
+  padding: 14px 16px 26px; font-family: inherit; font-size: 14px; line-height: 1.55; color: var(--crq2-text-hi);
+  transition: border-color .18s var(--crq2-ease), background .18s var(--crq2-ease);
+}
+.crq2-textarea::placeholder { color: var(--crq2-text-low); }
+.crq2-textarea:focus-visible {
+  outline: none; border-color: var(--crq2-accent); background: rgba(155,157,255,0.06);
+}
+
+.crq2-input {
+  width: 100%;
+  background: var(--crq2-surface); border: 1px solid var(--crq2-border); border-radius: 100px;
+  padding: 13px 90px 13px 18px; font-family: inherit; font-size: 14.5px; color: var(--crq2-text-hi);
+  transition: border-color .18s var(--crq2-ease), background .18s var(--crq2-ease);
+}
+.crq2-input::placeholder { color: var(--crq2-text-low); }
+.crq2-input:focus-visible {
+  outline: none; border-color: var(--crq2-accent); background: rgba(155,157,255,0.06);
+}
+
+.crq2-count {
+  position: absolute; right: 14px; bottom: 8px;
+  font-size: 10.5px; font-weight: 600; color: var(--crq2-text-low); font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.crq2-input ~ .crq2-count { right: 18px; top: 50%; bottom: auto; transform: translateY(-50%); }
+
+.crq2-actions { display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+.crq2-send {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-family: inherit;
+  background: var(--crq2-accent); border: none; border-radius: 100px; color: #0B0C0F;
+  font-size: 13px; font-weight: 700; padding: 11px 22px;
+  transition: filter .15s ease, opacity .15s ease;
+}
+.crq2-send:hover:not(:disabled) { filter: brightness(1.08); }
+.crq2-send:disabled { opacity: 0.4; cursor: default; }
+
+.crq2-cancel {
+  cursor: pointer; font-family: inherit; background: none; border: 1px solid var(--crq2-border);
+  border-radius: 100px; color: var(--crq2-text-med); font-size: 13px; font-weight: 600; padding: 11px 18px;
+}
+.crq2-cancel:hover:not(:disabled) { color: var(--crq2-text-hi); border-color: var(--crq2-text-med); }
+.crq2-cancel:disabled { opacity: 0.4; cursor: default; }
+
+@media (max-width: 720px) {
+  .crq2-input { padding-right: 76px; }
+}

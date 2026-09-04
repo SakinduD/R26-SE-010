@@ -4,76 +4,37 @@ import gsap from 'gsap'
 import { RefreshCw, Home, BarChart2 } from 'lucide-react'
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
-import { FEEDBACK_THEME_VARS, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
+import { FEEDBACK_THEME_VARS, FEEDBACK_COMPONENT_STYLES, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
 import { useGsapScope } from '@/components/RPE/feedback/useGsapScope'
 import ScoreCard from '@/components/RPE/feedback/ScoreCard'
+import OutcomeHero from '@/components/RPE/feedback/OutcomeHero'
+import {
+  outcomeBadge, outcomeIcon, outcomeExplanation, escalationStatus, turnsStatus,
+} from '@/lib/rpe/sessionOutcome'
 
-// Escalation is "lower is better", unlike trust/quality — scoreStatus()
-// doesn't apply. Same thresholds FeedbackDashboard's ResultScreen uses, so
-// this reads the same way whether you're here or on the outcome screen.
-function escalationStatus(value) {
-  if (value == null) return null
-  if (value === 0) return { tone: 'success', label: 'No escalation needed' }
-  if (value <= 2)  return { tone: 'accent',  label: 'Mostly calm' }
-  if (value === 3) return { tone: 'warning', label: 'Some tension' }
-  return { tone: 'danger', label: 'Escalated' }
-}
-
-function turnsStatus(total, recommended) {
-  if (total == null) return null
-  if (recommended != null && total <= recommended) return { tone: 'success', label: 'Efficient' }
-  return { tone: 'neutral', label: 'On track' }
-}
-
-// Always "Session Complete" as the headline — the session finishing and the
-// scenario's objective being met are two different things, and the old
-// version conflated them (e.g. titling a low-score run "Maximum Turns
-// Reached", which reads as the app failing to finish rather than the
-// objective not landing). Status/explanation carry the honest read instead,
-// separately from whether the session itself completed.
-function outcomeMeta(endReason, outcome, scenarioTitle) {
-  if (endReason === 'trust_sustained' || outcome === 'success') {
-    return {
-      variant: 'success', icon: '🎉',
-      statusLabel: 'Strong outcome', statusTone: 'success',
-      explanation: 'You built enough trust to resolve the situation.',
-    }
-  }
-  if (endReason === 'npc_exit') {
-    return {
-      variant: 'danger', icon: '💢',
-      statusLabel: 'Needs improvement', statusTone: 'danger',
-      explanation: 'The conversation ended early because of repeated inappropriate language. Your feedback below breaks down what happened and how to approach it differently.',
-    }
-  }
-  if (outcome === 'ended_by_user') {
-    return {
-      variant: 'neutral', icon: '👋',
-      statusLabel: 'Ended by you', statusTone: 'neutral',
-      explanation: 'You chose to end the conversation before it fully resolved. Review your outcome below to see where things stood.',
-    }
-  }
-  if (endReason === 'max_turns_reached') {
-    return {
-      variant: 'warning', icon: '⏱',
-      statusLabel: 'Needs improvement', statusTone: 'warning',
-      explanation: "You completed the conversation, but the core objective wasn't fully resolved by the turn limit.",
-    }
-  }
-  return {
-    variant: 'warning', icon: '👋',
-    statusLabel: 'Needs improvement', statusTone: 'warning',
-    explanation: `You completed the conversation${scenarioTitle ? ` in "${scenarioTitle}"` : ''}, but the core objective wasn't fully resolved.`,
-  }
-}
-
+/*
+ * SessionComplete — the quick transition screen right after a session ends
+ * (both V1's RolePlaySession.jsx and V2's RolePlaySessionV2.jsx navigate
+ * here with the same nav-state shape; this page is genuinely shared, there
+ * was never a separate V1/V2 split for it). One tap further is
+ * FeedbackDashboard.jsx, the full deep-dive.
+ *
+ * Redesigned to actually reuse the feedback flow's own components
+ * (OutcomeHero, ScoreCard, the shared .pill/.btn-c styles) instead of a
+ * separate hand-built hero — this and FeedbackDashboard now read the exact
+ * same outcome badge/label for the same session (see lib/rpe/sessionOutcome.js,
+ * extracted from what used to be two slightly-different copies of this
+ * logic). Visual treatment is quieter than the old version on purpose —
+ * softer glow, calmer entrance, closer to RolePlaySessionV2's restraint —
+ * this is still a transition moment, not the deep-dive itself.
+ */
 export default function SessionComplete() {
   const location = useLocation()
   const navigate = useNavigate()
   const {
     sessionId, trustScore, escalationLevel, outcome,
     scenarioTitle, currentTurn, npcRole,
-    endReason, recommendedTurns,
+    endReason, recommendedTurns, maxTurns,
   } = location.state || {}
 
   const [sessionData, setSessionData] = useState(null)
@@ -87,41 +48,37 @@ export default function SessionComplete() {
   }, [])
 
   const turns       = sessionData?.turns ?? []
-  const meta        = outcomeMeta(endReason, outcome, scenarioTitle)
+  const badge       = outcomeBadge(endReason, outcome)
+  const icon        = outcomeIcon(endReason, outcome)
+  const explanation = outcomeExplanation(endReason, outcome, scenarioTitle)
   const closingLine = turns[turns.length - 1]?.npc_response
 
   const heroRef = useGsapScope(({ instant }) => {
-    if (instant) { gsap.set('.hero-card', { opacity: 1, y: 0 }); return }
-    gsap.fromTo('.hero-card', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' })
+    if (instant) { gsap.set('.sc-hero-card', { opacity: 1, y: 0 }); return }
+    gsap.fromTo('.sc-hero-card', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' })
   }, [])
 
   return (
     <div className="rpe-cinema">
-      <div className="page" ref={(el) => { heroRef.current = el }}>
+      <div className="sc-page" ref={(el) => { heroRef.current = el }}>
 
-        <div className={cn('hero-card', meta.variant)}>
-          <div className="hero-top">
-            <div className={cn('hero-badge', meta.variant)}>
-              <div className="hero-badge-inner"><span className="hero-icon">{meta.icon}</span></div>
-            </div>
-            <div className="hero-text">
-              <div className="hero-title">Session Complete</div>
-              <span className={cn('hero-status', meta.statusTone)}>{meta.statusLabel}</span>
-            </div>
-          </div>
+        {scenarioTitle && <p className="sc-scenario-line cap">{scenarioTitle}</p>}
 
-          <p className="hero-explanation">{meta.explanation}</p>
+        <div className={cn('sc-hero-card', badge.tone)}>
+          <span className={cn('pill', badge.tone, 'sc-badge')}>{badge.label}</span>
+
+          <OutcomeHero finalTrust={trustScore} interpretation={explanation} icon={icon} />
 
           {closingLine && (
-            <div className="hero-quote">
-              <span className="hero-quote-label">{npcRole || 'NPC'} · final line</span>
-              <p className="hero-quote-text">"{closingLine}"</p>
+            <div className="sc-quote">
+              <span className="sc-quote-label">{npcRole || 'NPC'} · final line</span>
+              <p className="sc-quote-text">&ldquo;{closingLine}&rdquo;</p>
             </div>
           )}
 
-          <div className="hero-divider" />
+          <div className="sc-divider" />
 
-          <div className="hero-stats-grid">
+          <div className="sc-stats-grid">
             <ScoreCard
               label="Final Trust" value={trustScore} unit="/ 100"
               status={trustScore != null ? scoreStatus(trustScore) : null}
@@ -132,12 +89,12 @@ export default function SessionComplete() {
             />
             <ScoreCard
               label="Turns" value={currentTurn} unit={recommendedTurns ? `/ ${recommendedTurns}` : undefined}
-              status={turnsStatus(currentTurn, recommendedTurns)}
+              status={turnsStatus(currentTurn, recommendedTurns, maxTurns)}
             />
           </div>
         </div>
 
-        <div className="actions">
+        <div className="sc-actions">
           <button type="button" onClick={() => navigate(`/roleplay/feedback/${sessionId}`)} className="btn-c primary">
             <BarChart2 size={14} strokeWidth={1.8} />
             View Session Outcome
@@ -154,84 +111,63 @@ export default function SessionComplete() {
 
       </div>
 
-      <style>{FEEDBACK_THEME_VARS}{`
-        .rpe-cinema{
-          min-height:calc(100vh - 48px);
-          background:
-            radial-gradient(60% 50% at 50% 0%, rgba(124,58,237,0.10) 0%, transparent 60%),
-            var(--bg);
-          color:var(--text-hi);
-          font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
-          -webkit-font-smoothing:antialiased;
-          padding:32px 24px 48px;
-        }
-        @media (prefers-reduced-motion: reduce){
-          .rpe-cinema *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
-        }
-        .rpe-cinema .cap{ text-transform:capitalize; }
-        .rpe-cinema button{ font-family:inherit; }
-
-        .rpe-cinema .page{ max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
-
-        .rpe-cinema .hero-card{
-          padding:28px 32px; border-radius:16px;
-          background:var(--surface-hi); border:1px solid var(--border);
-        }
-        .rpe-cinema .hero-card.success{ border-color:rgba(63,185,80,0.35); box-shadow:0 20px 50px rgba(63,185,80,0.1); }
-        .rpe-cinema .hero-card.warning{ border-color:rgba(210,153,34,0.35); box-shadow:0 20px 50px rgba(210,153,34,0.1); }
-        .rpe-cinema .hero-card.danger{  border-color:rgba(248,81,73,0.35); box-shadow:0 20px 50px rgba(248,81,73,0.1); }
-        .rpe-cinema .hero-card.neutral{ border-color:rgba(124,58,237,0.35); box-shadow:0 20px 50px rgba(124,58,237,0.1); }
-
-        .rpe-cinema .hero-top{ display:flex; align-items:center; gap:18px; }
-        .rpe-cinema .hero-badge{ position:relative; width:56px; height:56px; border-radius:50%; flex-shrink:0; }
-        .rpe-cinema .hero-badge::before{ content:""; position:absolute; inset:0; border-radius:50%; animation: cinemaRingPulse 2.4s var(--ease) infinite; }
-        .rpe-cinema .hero-badge.success::before{ background:conic-gradient(from 0deg, var(--success), #6BDE85, var(--success)); }
-        .rpe-cinema .hero-badge.warning::before{ background:conic-gradient(from 0deg, var(--warning), #F0C05A, var(--warning)); }
-        .rpe-cinema .hero-badge.danger::before{  background:conic-gradient(from 0deg, var(--danger), #FF8A85, var(--danger)); }
-        .rpe-cinema .hero-badge.neutral::before{ background:conic-gradient(from 0deg, var(--accent), #9B6BFF, var(--accent)); }
-        @keyframes cinemaRingPulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
-        .rpe-cinema .hero-badge-inner{
-          position:absolute; inset:3px; border-radius:50%;
-          background:linear-gradient(160deg, var(--surface-hi), var(--surface));
-          border:1px solid var(--border);
-          display:flex; align-items:center; justify-content:center;
-        }
-        .rpe-cinema .hero-icon{ font-size:22px; line-height:1; }
-        .rpe-cinema .hero-text{ min-width:0; display:flex; flex-direction:column; gap:5px; }
-        .rpe-cinema .hero-title{ font-size:19px; font-weight:750; letter-spacing:-0.01em; }
-        .rpe-cinema .hero-status{ display:inline-flex; align-self:flex-start; font-size:11px; font-weight:700; padding:3px 10px; border-radius:100px; }
-        .rpe-cinema .hero-status.success{ color:var(--success); background:var(--success-glow); }
-        .rpe-cinema .hero-status.warning{ color:var(--warning); background:var(--warning-glow); }
-        .rpe-cinema .hero-status.danger{  color:var(--danger);  background:var(--danger-glow); }
-        .rpe-cinema .hero-status.neutral{ color:var(--accent);  background:var(--accent-glow); }
-
-        .rpe-cinema .hero-explanation{ font-size:13.5px; line-height:1.6; color:var(--text-med); margin:16px 0 0; max-width:640px; }
-
-        .rpe-cinema .hero-quote{
-          margin:16px 0 0; text-align:left;
-          border-left:2px solid rgba(124,58,237,0.5); padding-left:14px;
-        }
-        .rpe-cinema .hero-quote-label{ font-size:9.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }
-        .rpe-cinema .hero-quote-text{ font-size:13px; font-style:italic; color:var(--quote-text); margin:3px 0 0; line-height:1.55; }
-
-        .rpe-cinema .hero-divider{ height:1px; background:var(--border); margin:18px 0 16px; }
-
-        .rpe-cinema .hero-stats-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
-        @media (max-width:520px){ .rpe-cinema .hero-stats-grid{ grid-template-columns:1fr; } }
-
-        .rpe-cinema .actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; padding-top:4px; }
-        .rpe-cinema .btn-c{
-          display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650;
-          padding:10px 16px; border-radius:10px; cursor:pointer; border:1px solid transparent;
-          transition:filter .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease), transform .2s var(--ease);
-        }
-        .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
-        .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
-        .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
-        .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
-        .rpe-cinema .btn-c.ghost{ background:transparent; color:var(--text-med); }
-        .rpe-cinema .btn-c.ghost:hover{ color:var(--text-hi); background:var(--surface-hi); }
-      `}</style>
+      <style>{FEEDBACK_THEME_VARS}{FEEDBACK_COMPONENT_STYLES}{SESSION_COMPLETE_STYLES}</style>
     </div>
   )
 }
+
+// Deliberately quieter than the old version's saturated glow/spinning
+// badge ring — closer to RolePlaySessionV2's restraint (soft borders,
+// one calm accent, no competing color noise) while staying inside the
+// shared .rpe-cinema palette FeedbackDashboard also uses, so the badge/
+// pill/button colors still match exactly when the learner clicks through.
+const SESSION_COMPLETE_STYLES = `
+  .rpe-cinema{
+    min-height:calc(100vh - 48px);
+    background:var(--bg);
+    color:var(--text-hi);
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex; align-items:center; justify-content:center;
+    padding:32px 20px 48px;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .rpe-cinema *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
+  }
+  .rpe-cinema .cap{ text-transform:capitalize; }
+  .rpe-cinema button{ font-family:inherit; }
+
+  .sc-page{ width:100%; max-width:620px; margin:0 auto; display:flex; flex-direction:column; gap:18px; }
+
+  .sc-scenario-line{
+    margin:0; text-align:center; font-size:11.5px; font-weight:650;
+    letter-spacing:.04em; color:var(--text-low);
+  }
+
+  .sc-hero-card{
+    padding:32px; border-radius:18px;
+    background:var(--surface); border:1px solid var(--border);
+    display:flex; flex-direction:column; align-items:flex-start;
+  }
+  .sc-hero-card.success{ border-color:color-mix(in srgb, var(--success) 30%, var(--border)); }
+  .sc-hero-card.warning{ border-color:color-mix(in srgb, var(--warning) 30%, var(--border)); }
+  .sc-hero-card.danger{  border-color:color-mix(in srgb, var(--danger) 30%, var(--border)); }
+  .sc-hero-card.accent{  border-color:color-mix(in srgb, var(--accent) 30%, var(--border)); }
+  .sc-hero-card.neutral{ border-color:var(--border); }
+
+  .sc-badge{ margin-bottom:16px; }
+
+  .sc-quote{
+    margin:18px 0 0; text-align:left; max-width:520px;
+    border-left:2px solid var(--border); padding-left:14px;
+  }
+  .sc-quote-label{ font-size:9.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); }
+  .sc-quote-text{ font-size:13px; font-style:italic; color:var(--quote-text); margin:3px 0 0; line-height:1.55; }
+
+  .sc-divider{ height:1px; width:100%; background:var(--border); margin:22px 0 18px; }
+
+  .sc-stats-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; width:100%; }
+  @media (max-width:480px){ .sc-stats-grid{ grid-template-columns:1fr; } }
+
+  .sc-actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+`

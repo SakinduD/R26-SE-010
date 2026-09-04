@@ -325,6 +325,20 @@ export default function AppLayout() {
     return () => window.removeEventListener('ez:collapse-sidebar', handler);
   }, []);
 
+  // Immersive mode — fully hides the sidebar AND topbar (not just collapses
+  // the sidebar to its icon rail, unlike ez:collapse-sidebar above, which
+  // stays untouched for whatever already relies on it). Deliberately a
+  // separate event/state rather than reusing that one, so this can't change
+  // behavior for anything not explicitly opting into full immersion —
+  // currently only RolePlaySessionV2. detail:true enters, detail:false (or
+  // the dispatching page unmounting) exits.
+  const [immersive, setImmersive] = useState(false);
+  useEffect(() => {
+    const handler = (e) => setImmersive(!!e.detail);
+    window.addEventListener('ez:immersive-mode', handler);
+    return () => window.removeEventListener('ez:immersive-mode', handler);
+  }, []);
+
   if (isLoading) return <NavSkeleton />;
 
   const toggleSidebar = () => {
@@ -362,18 +376,20 @@ export default function AppLayout() {
   return (
     <AchievementsProvider>
       <div className="app-shell">
-        <Sidebar
-          collapsed={tourRun ? false : sidebarCollapsed}
-          onToggle={toggleSidebar}
-          forceOpenProgress={tourRun}
-        />
+        {!immersive && (
+          <Sidebar
+            collapsed={tourRun ? false : sidebarCollapsed}
+            onToggle={toggleSidebar}
+            forceOpenProgress={tourRun}
+          />
+        )}
         <div className="app-main">
-          <Topbar />
+          {!immersive && <Topbar />}
           <main className="app-content">
             <Outlet />
           </main>
         </div>
-        <BottomTabs />
+        {!immersive && <BottomTabs />}
 
         <Joyride
           key={tourKey}
