@@ -46,8 +46,7 @@ const MultimodalEngine = () => {
   const [liveSessionId, setLiveSessionId] = useState(null);
   const [isLiveStarting, setIsLiveStarting] = useState(false);
 
-  // Extra per-frame canvas drawing (the PiP timer/nudge overlay below) — a
-  // ref so useNudgeSensing's onResults callback stays stable across renders.
+  // PiP overlay drawer, kept in a ref so the sensing callback stays stable.
   const frameOverlayRef = useRef(null);
   const {
     webcamRef, canvasRef, metrics,
@@ -56,17 +55,14 @@ const MultimodalEngine = () => {
     nudges: sensedNudges,
   } = useNudgeSensing({ frameOverlayRef, showMesh });
 
-  // Sensing (camera/mic) can start before the live session record exists —
-  // the toggles are available immediately. Nudges only surface once a
-  // session is actually running, matching the original gated behaviour.
+  // Camera/mic can run before a session starts; nudges show only during one.
   const nudges = liveSessionId ? sensedNudges : [];
 
-  // Meeting audio (other participant, shared tab/system audio) — optional,
-  // used only to feed the live-mode LLM scorer alongside the user's own voice.
+  // Optional shared meeting audio (other participants), used for LLM scoring.
   const [liveMeetingAudioActive, setLiveMeetingAudioActive] = useState(false);
   const meetingAudioStreamRef = useRef(null);
 
-  // Continuous transcription (both streams -> /api/stt) for live-mode LLM scoring.
+  // Live transcripts for LLM scoring (user: Web Speech API, meeting: Whisper).
   const userTranscribeRecorderRef = useRef(null);
   const meetingTranscribeRecorderRef = useRef(null);
   const liveUserTranscriptRef = useRef([]);
@@ -82,54 +78,112 @@ const MultimodalEngine = () => {
   const [isLiveEnding, setIsLiveEnding] = useState(false);
   const [friendlyId, setFriendlyId] = useState(null);
 
-  // Picture-in-Picture (Meet-style floating mini view when the tab is minimized or
-  // switched away from). Uses the native <video> Picture-in-Picture API.
+  // Picture-in-Picture: floating mini view when the tab is hidden.
   const pipVideoRef = useRef(null);
   const pipCaptureStreamRef = useRef(null);
   const [isPipActive, setIsPipActive] = useState(false);
   const isPipActiveRef = useRef(false);
   const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
 
-  // Mirrors of state that onResults (a stable useCallback) needs to read fresh
-  // values from without being recreated every render — same pattern as showMeshRef.
+  // Ref copies of state so stable callbacks can read the latest values.
   const nudgesRef = useRef([]);
   const sessionDurationRef = useRef(0);
 
-  // Continuously transcribes a media/shared windows media stream in short
-  // self-contained, back-to-back segments
-  const startTranscriptionLoop = useCallback((stream, targetRef, recorderRef, segmentMs = 8000) => {
+  // Records an audio stream in back-to-back segments and transcribes each one.
+  // - Cuts at speech pauses so words aren't split between segments
+  // - Skips silent segments (Whisper invents text from silence)
+  // - Whisper first, Google STT (/api/stt) as fallback
+  const startTranscriptionLoop = useCallback((stream, targetRef, recorderRef, {
+    minSegmentMs = 3000,     // don't cut before this, even on a pause
+    maxSegmentMs = 15000,    // always cut by this, even mid-speech
+    pauseMs = 700,           // this much silence after speech ends a segment
+    speechRms = 0.01,        // RMS level treated as speech (0..1)
+  } = {}) => {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : 'audio/webm';
 
+    // Level meter for pause detection — analysis only, not routed to speakers.
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = AudioCtx ? new AudioCtx() : null;
+    let analyser = null;
+    let samples = null;
+    if (audioCtx) {
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      samples = new Float32Array(analyser.fftSize);
+    }
+    const currentRms = () => {
+      if (!analyser) return speechRms; // no meter: treat as always speaking
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+      return Math.sqrt(sum / samples.length);
+    };
+    const closeMeter = () => {
+      if (audioCtx && audioCtx.state !== 'closed') audioCtx.close().catch(() => {});
+    };
+
+    const transcribe = async (blob) => {
+      const prompt = targetRef.current.slice(-3).map(t => t.text).join(' ').slice(-200);
+      const whisperText = await mcaService.transcribe(blob, prompt);
+      if (whisperText !== null) return whisperText;
+
+      const res = await fetch(`${API_URL}/api/stt`, {
+        method: 'POST',
+        headers: { 'Content-Type': mimeType },
+        body: blob,
+      });
+      if (!res.ok) return '';
+      const data = await res.json();
+      return (data.transcript || '').trim();
+    };
+
     const recordSegment = () => {
-      if (!stream.active) return;
+      if (!stream.active) { closeMeter(); return; }
 
       const recorder = new MediaRecorder(stream, { mimeType });
       recorderRef.current = recorder;
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
       const segmentElapsedSeconds = sessionDurationRef.current;
+      const segmentStart = Date.now();
+      let heardSpeech = false;
+      let silenceStart = null;
+
+      const levelTimer = setInterval(() => {
+        if (recorderRef.current !== recorder || recorder.state === 'inactive') {
+          clearInterval(levelTimer);
+          return;
+        }
+        const now = Date.now();
+        if (currentRms() >= speechRms) {
+          heardSpeech = true;
+          silenceStart = null;
+        } else if (silenceStart === null) {
+          silenceStart = now;
+        }
+        const elapsed = now - segmentStart;
+        const pausedAfterSpeech = heardSpeech && silenceStart !== null && now - silenceStart >= pauseMs;
+        if ((elapsed >= minSegmentMs && pausedAfterSpeech) || elapsed >= maxSegmentMs) {
+          clearInterval(levelTimer);
+          recorder.stop();
+        }
+      }, 100);
 
       recorder.onstop = async () => {
+        clearInterval(levelTimer);
         // Torn down (externally stopped/superseded) or stream ended mid-segment.
-        if (recorderRef.current !== recorder || !stream.active) return;
+        if (recorderRef.current !== recorder || !stream.active) { closeMeter(); return; }
 
-        // Restart immediately (not after another segmentMs) so recording is
-        // back-to-back with no silent gap between segments.
+        // Restart immediately so recording is back-to-back with no gap.
         recordSegment();
 
-        if (chunks.length === 0) return;
+        if (chunks.length === 0 || !heardSpeech) return;
         const blob = new Blob(chunks, { type: mimeType });
         try {
-          const res = await fetch(`${API_URL}/api/stt`, {
-            method: 'POST',
-            headers: { 'Content-Type': mimeType },
-            body: blob,
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          const transcript = (data.transcript || '').trim();
+          const transcript = await transcribe(blob);
           if (transcript) {
             targetRef.current = [...targetRef.current, { text: transcript, elapsed_seconds: segmentElapsedSeconds }];
           }
@@ -139,18 +193,12 @@ const MultimodalEngine = () => {
       };
 
       recorder.start();
-      setTimeout(() => {
-        if (recorder.state !== 'inactive') recorder.stop();
-      }, segmentMs);
     };
 
     recordSegment();
   }, []);
 
-  // Mirror new nudges into the session log (was handleNudge's job before nudge
-  // firing moved into useNudgeSensing) and keep nudgesRef fresh for the PiP
-  // overlay. lastLoggedNudgeIdRef guards against re-logging the same nudge on
-  // every re-render of this effect.
+  // Log each new nudge once and keep nudgesRef fresh for the PiP overlay.
   const lastLoggedNudgeIdRef = useRef(null);
   useEffect(() => {
     nudgesRef.current = nudges;
@@ -170,9 +218,7 @@ const MultimodalEngine = () => {
     }
   }, [nudges]);
 
-  // liveEmotionCountsRef used to be updated inline in the WS onmessage handler
-  // (now inside useNudgeSensing); approximate the same distribution stat by
-  // watching the hook's own emotion readout instead.
+  // Count detected emotions for the session's emotion distribution.
   useEffect(() => {
     if (!metrics.emotion || metrics.emotion === 'Sensing...') return;
     const emo = metrics.emotion.toLowerCase();
@@ -183,8 +229,7 @@ const MultimodalEngine = () => {
     sessionDurationRef.current = sessionDuration;
   }, [sessionDuration]);
 
-  // Reflect the browser's own enter/exit PiP events into state (drives the "Popped
-  // Out" button label and the main-tab overlay)
+  // Sync PiP state with the browser's enter/leave events.
   useEffect(() => {
     const video = pipVideoRef.current;
     if (!video) return undefined;
@@ -253,8 +298,7 @@ const MultimodalEngine = () => {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Supplementary signal: on some platforms, minimizing the browser window fires
-    // window "blur" without (or slightly before) document.visibilitychange.
+    // Some platforms fire only "blur" when the window is minimized.
     const handleBlur = () => {
       if (document.hidden && liveSessionIdRef.current && isCameraActive && !document.pictureInPictureElement) {
         openPip(/* silent */ true);
@@ -305,15 +349,59 @@ const MultimodalEngine = () => {
     };
   }, [liveSessionId]);
 
-  // MCA's mic toggle used to do two things at once: open the nudge-sensing
-  // WS/stream (now owned by useNudgeSensing) AND record a separate continuous
-  // stream for the live-mode LLM transcript scorer. The hook owns its
-  // getUserMedia call internally, so transcription needs its own independent
-  // getUserMedia call — the same "two mic consumers, no conflict" pattern the
-  // hook is designed to support.
+  // User's voice -> text with the browser Web Speech API (like AIChatbot).
+  // Falls back to startTranscriptionLoop if the browser lacks it.
   const userTranscribeStreamRef = useRef(null);
+  const userRecognitionRef = useRef(null);
+  const userRecognitionActiveRef = useRef(false);
 
   const startUserTranscription = useCallback(async () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (!event.results[i].isFinal) continue;
+          const text = event.results[i][0].transcript.trim();
+          if (text) {
+            liveUserTranscriptRef.current = [
+              ...liveUserTranscriptRef.current,
+              { text, elapsed_seconds: sessionDurationRef.current },
+            ];
+          }
+        }
+      };
+
+      // Chrome stops after silence; restart while the mic is still on.
+      recognition.onend = () => {
+        if (userRecognitionActiveRef.current && userRecognitionRef.current === recognition) {
+          try { recognition.start(); } catch { /* already started */ }
+        }
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error === 'no-speech' || e.error === 'aborted') return;
+        console.error('[Live transcription] SpeechRecognition error:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          userRecognitionActiveRef.current = false;
+        }
+      };
+
+      userRecognitionRef.current = recognition;
+      userRecognitionActiveRef.current = true;
+      try {
+        recognition.start();
+      } catch (err) {
+        console.error('User transcription start error:', err);
+      }
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       userTranscribeStreamRef.current = stream;
@@ -324,6 +412,12 @@ const MultimodalEngine = () => {
   }, [startTranscriptionLoop]);
 
   const stopUserTranscription = useCallback(() => {
+    userRecognitionActiveRef.current = false;
+    if (userRecognitionRef.current) {
+      const recognition = userRecognitionRef.current;
+      userRecognitionRef.current = null;
+      try { recognition.stop(); } catch { /* already stopped */ }
+    }
     if (userTranscribeRecorderRef.current) {
       const recorder = userTranscribeRecorderRef.current;
       userTranscribeRecorderRef.current = null;
@@ -344,11 +438,7 @@ const MultimodalEngine = () => {
     rawToggleMic();
   }, [liveMicActive, rawToggleMic, startUserTranscription, stopUserTranscription]);
 
-  // Ref mirrors so the unmount-cleanup effect below (fixed [] deps — its
-  // closure is only ever this component's very first render) can still act
-  // on current state and call the current toggle behaviour instead of a
-  // stale one. toggleCamera/toggleLiveMic are relative toggles, not absolute
-  // stops, so calling a stale version could flip something back on.
+  // Latest state/toggles for the unmount cleanup (avoids stale closures).
   const liveMicActiveRef = useRef(false);
   const isCameraActiveRef = useRef(false);
   const toggleLiveMicRef = useRef(() => {});
@@ -358,10 +448,7 @@ const MultimodalEngine = () => {
   toggleLiveMicRef.current = toggleLiveMic;
   toggleCameraRef.current = toggleCamera;
 
-  // Session timer + latest-nudge overlay, burned directly onto the same
-  // mirrored/mesh canvas useNudgeSensing draws every frame — only while
-  // actually popped out into Picture-in-Picture. Injected via frameOverlayRef
-  // so useNudgeSensing's own onResults callback stays stable across renders.
+  // Draws the timer and latest nudge onto the camera canvas while in PiP.
   const drawPipOverlay = useCallback((canvasCtx, canvasElement) => {
     if (isPipActiveRef.current) {
       const w = canvasElement.width;
@@ -509,9 +596,7 @@ const MultimodalEngine = () => {
     frameOverlayRef.current = drawPipOverlay;
   }, [drawPipOverlay]);
 
-  // Optional: capture the "meeting" voice (other participant) via a shared
-  // tab/system audio track, so the live-mode LLM scorer can weigh both
-  // sides of the conversation.
+  // Capture meeting audio from a shared tab so both sides get scored.
   const stopMeetingAudioCapture = () => {
     setLiveMeetingAudioActive(false);
     if (meetingTranscribeRecorderRef.current) {
@@ -561,11 +646,7 @@ const MultimodalEngine = () => {
     startMeetingAudioCapture();
   };
 
-  // Unconditional, idempotent-safe teardown for both mic paths + camera.
-  // toggleCamera/toggleLiveMic are relative toggles, not absolute stops, so
-  // this only flips them when the ref-mirrored "current" value says they're
-  // still on. Stable identity (empty deps) + ref reads keep this correct even
-  // when invoked from the unmount-cleanup effect's fixed first-render closure.
+  // Turns off mic, meeting audio and camera (safe to call more than once).
   const stopAllSensing = useCallback(() => {
     if (liveMicActiveRef.current) toggleLiveMicRef.current();
     stopMeetingAudioCapture();
@@ -652,9 +733,7 @@ const MultimodalEngine = () => {
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
 
-          // Hand the finished session to the analytics module immediately, so
-          // scores, XP and the adapted training plan are ready by the time the
-          // learner lands on the feedback page. Fire-and-forget: never throws.
+          // Send the session to analytics (fire-and-forget).
           integrateCompletedSession(analyticsService, sid);
 
           const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
@@ -681,9 +760,7 @@ const MultimodalEngine = () => {
     };
   }, []);
 
-  // The <canvas> unmounts/remounts with the camera (new DOM node each time,
-  // owned by useNudgeSensing's own camera lifecycle) — clear the stale
-  // captureStream so drawPipOverlay recreates it against the new node.
+  // Camera restart creates a new canvas; drop the old PiP capture stream.
   useEffect(() => {
     if (!isCameraActive) {
       pipCaptureStreamRef.current = null;
