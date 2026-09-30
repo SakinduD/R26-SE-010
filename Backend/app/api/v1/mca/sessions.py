@@ -50,15 +50,31 @@ class TranscriptSegment(BaseModel):
     elapsed_seconds: float = 0.0
 
 
+class EmotionEvent(BaseModel):
+    emotion: str
+    confidence: Optional[float] = None
+    elapsed_seconds: float = 0.0
+
+
+class BehaviorEvent(BaseModel):
+    """One behaviour detected in one ~3 s audio chunk (not limited by the nudge cooldown)."""
+    message: str
+    category: str
+    severity: str
+    elapsed_seconds: float = 0.0
+
+
 class SessionEndRequest(BaseModel):
     nudge_log: list[NudgeEntry] = []
     result_data: Optional[dict[str, Any]] = None
     chat_turns: Optional[int] = None  # AI-mode only
     emotion_distribution: Optional[dict[str, float]] = None
     mechanical_averages: Optional[dict[str, float]] = None
-    # Live-mode only: transcribed speech used for LLM-based scoring.
+    # Live-mode only: transcribed speech + emotion changes used for LLM-based scoring.
     user_transcript: list[TranscriptSegment] = []
     meeting_transcript: list[TranscriptSegment] = []
+    emotion_timeline: list[EmotionEvent] = []
+    behavior_log: list[BehaviorEvent] = []
 
 
 class SessionResponse(BaseModel):
@@ -198,6 +214,9 @@ def end_session(
             user_transcript=[t.model_dump() for t in body.user_transcript],
             meeting_transcript=[t.model_dump() for t in body.meeting_transcript],
             duration_seconds=session.duration_seconds,
+            emotion_distribution=session.emotion_distribution,
+            emotion_timeline=[e.model_dump() for e in body.emotion_timeline],
+            behavior_log=[b.model_dump() for b in body.behavior_log],
         )
         if llm_result is not None:
             metrics["overall"] = llm_result["overall"]

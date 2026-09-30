@@ -391,7 +391,16 @@ class NudgeEngine:
         # Fairness bookkeeping for _select_nudge
         self.category_last_fired: dict[str, float] = {}
 
+        # Every behaviour detected in the latest chunk, even during cooldown.
+        # Feeds the uncapped behaviour log (for the LLMs) and lets the
+        # frontend hide on-screen nudges that no longer apply.
+        self.active_nudges: list[Nudge] = []
+
     _SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
+
+    @property
+    def active_messages(self) -> list[str]:
+        return [n.message for n in self.active_nudges]
 
     def _select_nudge(self, candidates: list[Nudge]) -> Nudge:
         """
@@ -413,22 +422,20 @@ class NudgeEngine:
 
     def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
         """
-        Runs all analyzers and returns at most one nudge — the sustained
-        candidate chosen by _select_nudge — once the global cooldown has
-        passed. Every analyzer is evaluated every chunk (not just the first
-        one that matches), so no category is silently excluded from scoring.
+        Analyses one chunk and returns at most one new nudge.
+
+        Emotion detection and every analyzer run on every chunk, so emotion
+        readings and active_messages always describe the current chunk. The
+        global cooldown only limits how often a new nudge is surfaced.
         """
         import time
         current_time = time.time()
 
-        # 1. Global Cooldown Check (Don't even try if we recently nudged)
-        if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
-            return None
+        # This chunk's face data only (None = no face / camera off), never a
+        # stale value from an earlier chunk.
+        features.visual_metrics = visual_metrics or None
 
-        if visual_metrics:
-            features.visual_metrics = visual_metrics
-
-        # 2. Emotion Inference (Only run if user is actually talking)
+        # 1. Emotion Inference (Only run if user is actually talking)
         if self.ser_analyzer and self.ser_analyzer.model and features.avg_volume > 0.015:
             try:
                 model = self.ser_analyzer.model
@@ -462,12 +469,13 @@ class NudgeEngine:
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 
-        # 3. Analyze every analyzer this chunk — do NOT stop at the first
+        # 2. Analyze every analyzer this chunk — do NOT stop at the first
         candidates: list[Nudge] = []
         for analyzer in self._analyzers:
             nudge = analyzer.analyze(features)
             if nudge:
                 candidates.append(nudge)
+        self.active_nudges = candidates
 
         if not candidates:
             # Nothing detected this chunk — clear history so an isolated
@@ -488,6 +496,11 @@ class NudgeEngine:
 
         if not sustained:
             return None # Behavior(s) detected but not yet sustained
+
+        # 3. Global cooldown: at most one new nudge per COOLDOWN_SECONDS
+        # (scoring.py's opportunity model depends on this limit).
+        if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
+            return None
 
         chosen = self._select_nudge(sustained)
         self.last_nudge_time = current_time

@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
+import { toMechanicalAverages } from '../../utils/mca/realtimeSensing';
 import clsx from 'clsx';
 
 // Research basis: 8-minute intake window per Kickmeier-Rust & Albert (2010) and Murray & Arroyo (2002)
 // for optimal cold-start adaptive learning profiling in intelligent tutoring systems.
 const SESSION_DURATION_SECONDS = 480;
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, onActiveNudges, visualStatsRef, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -66,6 +67,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
   const emotionCountsRef = useRef({});
+  // Everything detected since the user's last message (every chunk, not
+  // limited by the nudge cooldown) — sent with the next chat message.
+  const turnEmotionCountsRef = useRef({});
+  const turnBehaviorsRef = useRef({});
+  const lastEmotionRef = useRef(null); // last real emotion { emotion, confidence }
   const chatTurnsRef = useRef(0);
   const warningShownRef = useRef(false);
 
@@ -83,11 +89,6 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const currentInstanceFinalRef = useRef('');
   const recordRestartTimeoutRef = useRef(null);
   const streamRef = useRef(null);
-  const metricsRef = useRef(metrics);
-
-  useEffect(() => {
-    metricsRef.current = metrics;
-  }, [metrics]);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -176,6 +177,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         setSessionActive(true);
         nudgeLogRef.current = [];
         emotionCountsRef.current = {};
+        turnEmotionCountsRef.current = {};
+        turnBehaviorsRef.current = {};
+        lastEmotionRef.current = null;
+        visualStatsRef?.current.session.reset();
         chatTurnsRef.current = 0;
         warningShownRef.current = false;
         setSessionDuration(0);
@@ -236,11 +241,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           final_emotion: metrics.emotion
         };
 
-        const mechanicalAverages = {
-          avg_ear: metrics.ear,
-          avg_mar: metrics.mar,
-          avg_pitch: metrics.pose.pitch
-        };
+        // Face metrics averaged over the whole session (null if no face data).
+        const mechanicalAverages = visualStatsRef ? toMechanicalAverages(visualStatsRef.current.session) : null;
 
         const res = await mcaService.endSession(
           sessionId,
@@ -381,18 +383,18 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              // Send visual metrics first to enable Affect Fusion
-              if (metricsRef.current) {
-                socket.send(JSON.stringify({
-                  type: 'visual_metrics',
-                  metrics: { ear: metricsRef.current.ear, mar: metricsRef.current.mar, pose: metricsRef.current.pose },
-                  session_id: sessionId
-                }));
-              }
+              // Send visual metrics first to enable Affect Fusion: the face
+              // averaged over this same ~3 s of audio (null = no face).
+              socket.send(JSON.stringify({
+                type: 'visual_metrics',
+                metrics: visualStatsRef ? visualStatsRef.current.chunk.average() : null,
+                session_id: sessionId
+              }));
               socket.send(event.data);
             }
           };
 
+          visualStatsRef?.current.chunk.reset();
           mediaRecorder.start();
 
           if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current);
@@ -417,21 +419,35 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           const data = JSON.parse(event.data);
 
           if (data.metrics) {
-            // Update parent metrics for SVM dashboard
+            // Update parent metrics for SVM dashboard. No emotion means the
+            // learner wasn't speaking — not "Neutral".
             setMetrics(prev => ({
               ...prev,
               emotion: data.metrics.emotion
                 ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
-                : 'Neutral',
+                : 'Sensing...',
               confidence: data.metrics.confidence || 0,
               isSyncing: true
             }));
 
-            // Track distribution for scoring
+            // Track distribution for scoring, and this message's emotions
             if (data.metrics.emotion) {
               const emo = data.metrics.emotion.toLowerCase();
               emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
+              turnEmotionCountsRef.current[emo] = (turnEmotionCountsRef.current[emo] || 0) + 1;
+              lastEmotionRef.current = { emotion: emo, confidence: data.metrics.confidence || 0 };
             }
+
+            // Every behaviour detected in this chunk (ignores the nudge cooldown)
+            (data.metrics.detections || []).forEach((d) => {
+              const seen = turnBehaviorsRef.current[d.message];
+              turnBehaviorsRef.current[d.message] = seen
+                ? { ...seen, chunks: seen.chunks + 1 }
+                : { ...d, chunks: 1 };
+            });
+
+            // Hide nudges whose behaviour has stopped.
+            onActiveNudges?.(data.metrics.active_nudges);
 
             // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
             if (data.metrics.nudge) {
@@ -570,11 +586,26 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     setIsLoading(true);
     chatTurnsRef.current += 1;
 
+    // What the voice/face analysis saw while the user produced this message.
+    // Uses the last real emotion, since the user is usually silent by now.
+    const lastEmotion = lastEmotionRef.current;
+    const context = {
+      metrics: {
+        ...metrics,
+        emotion: lastEmotion ? lastEmotion.emotion : null,
+        confidence: lastEmotion ? lastEmotion.confidence : 0,
+      },
+      turn_emotions: turnEmotionCountsRef.current,
+      turn_behaviors: Object.values(turnBehaviorsRef.current),
+    };
+    turnEmotionCountsRef.current = {};
+    turnBehaviorsRef.current = {};
+
     try {
       const data = await mcaService.chat(
         userMessage,
         updatedHistory,
-        { metrics },
+        context,
         sessionId, // pass active session ID
       );
       if (!data.isSuccessful) throw new Error(data.message);

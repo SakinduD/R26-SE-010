@@ -48,12 +48,26 @@ const MultimodalEngine = () => {
 
   // PiP overlay drawer, kept in a ref so the sensing callback stays stable.
   const frameOverlayRef = useRef(null);
+
+  // Every behaviour detected during the session, chunk by chunk. Unlike the
+  // nudge log it ignores the on-screen cooldown; sent to the LLM scorer.
+  const liveBehaviorLogRef = useRef([]);
+  const logDetections = (detections) => {
+    if (!liveSessionIdRef.current) return;
+    const elapsed = sessionDurationRef.current;
+    liveBehaviorLogRef.current = [
+      ...liveBehaviorLogRef.current,
+      ...detections.map((d) => ({ ...d, elapsed_seconds: elapsed })),
+    ];
+  };
+
   const {
     webcamRef, canvasRef, metrics,
     isCameraActive, isMicActive: liveMicActive,
     toggleCamera, toggleMic: rawToggleMic, dismissNudge,
     nudges: sensedNudges,
-  } = useNudgeSensing({ frameOverlayRef, showMesh });
+    resetVisualAverages, getVisualAverages,
+  } = useNudgeSensing({ frameOverlayRef, showMesh, onDetections: logDetections });
 
   // Camera/mic can run before a session starts; nudges show only during one.
   const nudges = liveSessionId ? sensedNudges : [];
@@ -72,7 +86,11 @@ const MultimodalEngine = () => {
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
   const liveNudgeLogRef = useRef([]);
-  const liveEmotionCountsRef = useRef({}); 
+  // Voice emotion during the session: seconds per emotion, change timeline,
+  // and the emotion currently being timed.
+  const liveEmotionSecondsRef = useRef({});
+  const liveEmotionTimelineRef = useRef([]);
+  const currentEmotionRef = useRef(null); // { emotion, since: ms timestamp }
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
   const [navAlertTarget, setNavAlertTarget] = useState(null);
   const [isLiveEnding, setIsLiveEnding] = useState(false);
@@ -218,12 +236,33 @@ const MultimodalEngine = () => {
     }
   }, [nudges]);
 
-  // Count detected emotions for the session's emotion distribution.
+  // Adds the time spent in the current emotion to its running total.
+  const flushCurrentEmotion = useCallback(() => {
+    const current = currentEmotionRef.current;
+    if (!current) return;
+    const seconds = (Date.now() - current.since) / 1000;
+    liveEmotionSecondsRef.current[current.emotion] = (liveEmotionSecondsRef.current[current.emotion] || 0) + seconds;
+    currentEmotionRef.current = null;
+  }, []);
+
+  // Track how long each emotion lasts while speaking, and log every change
+  // (session only). 'Sensing...' means no speech, so that time isn't counted.
   useEffect(() => {
+    if (!liveSessionIdRef.current) return;
+    flushCurrentEmotion();
     if (!metrics.emotion || metrics.emotion === 'Sensing...') return;
-    const emo = metrics.emotion.toLowerCase();
-    liveEmotionCountsRef.current[emo] = (liveEmotionCountsRef.current[emo] || 0) + 1;
-  }, [metrics.emotion]);
+
+    const emotion = metrics.emotion.toLowerCase();
+    currentEmotionRef.current = { emotion, since: Date.now() };
+    const timeline = liveEmotionTimelineRef.current;
+    if (timeline.length && timeline[timeline.length - 1].emotion === emotion) return; // same emotion after a pause
+    liveEmotionTimelineRef.current = [
+      ...timeline,
+      { emotion, confidence: metrics.confidence, elapsed_seconds: sessionDurationRef.current },
+    ];
+    // metrics.confidence is read at the moment the emotion changes on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metrics.emotion, liveSessionId, flushCurrentEmotion]);
 
   useEffect(() => {
     sessionDurationRef.current = sessionDuration;
@@ -665,7 +704,11 @@ const MultimodalEngine = () => {
 
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
-    liveEmotionCountsRef.current = {};
+    liveBehaviorLogRef.current = [];
+    liveEmotionSecondsRef.current = {};
+    liveEmotionTimelineRef.current = [];
+    currentEmotionRef.current = null;
+    resetVisualAverages();
     liveUserTranscriptRef.current = [];
     liveMeetingTranscriptRef.current = [];
     setSessionDuration(0);
@@ -700,16 +743,19 @@ const MultimodalEngine = () => {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
+    // Close the last emotion's time before sensing stops and resets it.
+    flushCurrentEmotion();
     stopAllSensing();
     if (sid) {
       setLiveSessionId(null);
       liveSessionIdRef.current = null;
       try {
-        const total = Object.values(liveEmotionCountsRef.current).reduce((a, b) => a + b, 0);
+        // Share of session time spent in each emotion.
+        const total = Object.values(liveEmotionSecondsRef.current).reduce((a, b) => a + b, 0);
         const distribution = {};
         if (total > 0) {
-          Object.entries(liveEmotionCountsRef.current).forEach(([emo, count]) => {
-            distribution[emo.toLowerCase()] = count / total;
+          Object.entries(liveEmotionSecondsRef.current).forEach(([emo, seconds]) => {
+            distribution[emo] = seconds / total;
           });
         }
 
@@ -722,13 +768,11 @@ const MultimodalEngine = () => {
           },
           null,
           distribution,
-          {
-            avg_ear: metrics.ear,
-            avg_mar: metrics.mar,
-            avg_pitch: metrics.pose.pitch
-          },
+          getVisualAverages(),
           liveUserTranscriptRef.current,
-          liveMeetingTranscriptRef.current
+          liveMeetingTranscriptRef.current,
+          liveEmotionTimelineRef.current,
+          liveBehaviorLogRef.current
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");

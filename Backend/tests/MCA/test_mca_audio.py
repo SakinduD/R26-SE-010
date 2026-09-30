@@ -65,7 +65,8 @@ class TestMCAAudio:
             assert "metrics" in resp_data
             assert resp_data["metrics"]["emotion"] == "happy"
             assert resp_data["metrics"]["nudge_category"] == "pace"
-            
+            assert resp_data["metrics"]["active_nudges"] == []
+
             mock_extract.assert_called_once()
             mock_evaluate.assert_called_once()
 

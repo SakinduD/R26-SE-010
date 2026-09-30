@@ -1,9 +1,10 @@
+import asyncio
 import json
 import logging
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from jose import JWTError
+from fastapi.concurrency import run_in_threadpool
 
 from app.api.v1.mca.nudge_engine import AudioFeatureExtractor, NudgeEngine
 from app.core.auth import verify_jwt
@@ -29,6 +30,44 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def _analyze_chunk(nudge_engine: NudgeEngine, data: bytes, visual_metrics, user_id: str) -> dict:
+    """Decode + analyse one audio chunk (CPU-heavy; runs in a worker thread)."""
+    process_start = time.time()
+    features = _extractor.extract(data)
+
+    response: dict = {"status": "analyzed", "bytes": len(data)}
+    if not features:
+        return response
+
+    nudge = nudge_engine.evaluate(features, visual_metrics)
+    response["metrics"] = {
+        "emotion": features.emotion_label,  # None = learner not speaking
+        "confidence": features.emotion_confidence,
+        "nudge": nudge.message if nudge else None,
+        "nudge_category": nudge.category if nudge else None,
+        "nudge_severity": nudge.severity if nudge else None,
+        # Behaviours still present in this chunk (frontend hides the rest).
+        "active_nudges": nudge_engine.active_messages,
+        # Everything detected this chunk, not limited by the nudge cooldown.
+        "detections": [
+            {"message": n.message, "category": n.category, "severity": n.severity}
+            for n in nudge_engine.active_nudges
+        ],
+    }
+
+    latency_ms = (time.time() - process_start) * 1000
+    if nudge:
+        logger.info("[NUDGE] user=%s | %s | latency=%.0fms", user_id, nudge.message, latency_ms)
+    else:
+        logger.debug(
+            "chunk processed | user=%s | emotion=%s | %.0fms",
+            user_id,
+            features.emotion_label,
+            latency_ms,
+        )
+    return response
 
 
 @router.websocket("/audio-analysis")
@@ -64,14 +103,38 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
     # Per-connection NudgeEngine (no shared mutable state between users)
     nudge_engine = NudgeEngine()
 
+    # Real-time guard: only the newest chunk waits for analysis. If analysis
+    # is slower than chunks arrive, older chunks are dropped instead of
+    # queueing up, so nudges never describe what happened several chunks ago.
+    pending: dict = {"job": None}
+    job_ready = asyncio.Event()
+
+    async def analysis_worker():
+        while True:
+            await job_ready.wait()
+            job_ready.clear()
+            job, pending["job"] = pending["job"], None
+            if job is None:
+                continue
+            data, visual_metrics = job
+            response = await run_in_threadpool(_analyze_chunk, nudge_engine, data, visual_metrics, user_id)
+            await websocket.send_json(response)
+
+    worker = asyncio.create_task(analysis_worker())
+
     try:
         latest_visual_metrics = None
 
         while True:
-            message = await websocket.receive()
+            if worker.done():
+                worker.result()  # surface analysis/send errors
 
-            # Visual metrics (JSON text frame)
-            if "text" in message:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000))
+
+            # Visual metrics (JSON text frame, sent right before each audio chunk)
+            if message.get("text") is not None:
                 try:
                     payload = json.loads(message["text"])
                     if payload.get("type") == "visual_metrics":
@@ -85,45 +148,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 continue
 
             # Audio chunk (binary frame)
-            if "bytes" in message:
-                process_start = time.time()
-                data = message["bytes"]
-                features = _extractor.extract(data)
-
-                response: dict = {"status": "analyzed", "bytes": len(data)}
-
-                if features:
-                    nudge = nudge_engine.evaluate(features, latest_visual_metrics)
-
-                    response["metrics"] = {
-                        "emotion": features.emotion_label,
-                        "confidence": features.emotion_confidence,
-                        "nudge": nudge.message if nudge else None,
-                        "nudge_category": nudge.category if nudge else None,
-                        "nudge_severity": nudge.severity if nudge else None,
-                    }
-
-                    latency_ms = (time.time() - process_start) * 1000
-                    if nudge:
-                        logger.info(
-                            "[NUDGE] user=%s | %s | latency=%.0fms",
-                            user_id,
-                            nudge.message,
-                            latency_ms,
-                        )
-                    else:
-                        logger.debug(
-                            "chunk processed | user=%s | emotion=%s | %.0fms",
-                            user_id,
-                            features.emotion_label,
-                            latency_ms,
-                        )
-
-                await websocket.send_json(response)
+            if message.get("bytes") is not None:
+                if pending["job"] is not None:
+                    logger.debug("Dropping stale audio chunk | user=%s", user_id)
+                pending["job"] = (message["bytes"], latest_visual_metrics)
+                job_ready.set()
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
         logger.info("WS audio-analysis disconnected | user_id=%s", user_id)
     except Exception as e:
         logger.error("WS audio-analysis error | user_id=%s | %s", user_id, str(e))
+    finally:
+        worker.cancel()
         manager.disconnect(websocket)

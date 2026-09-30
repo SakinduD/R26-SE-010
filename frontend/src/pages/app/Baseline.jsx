@@ -7,6 +7,7 @@ import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
 import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
+import { createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
 import clsx from 'clsx';
@@ -46,6 +47,8 @@ export default function Baseline() {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
+  // Face metrics averaged per audio chunk and per session (read by AIChatbot).
+  const visualStatsRef = useRef({ chunk: createVisualAccumulator(), session: createVisualAccumulator() });
 
   const [aiSessionStarting, setAiSessionStarting] = useState(false);
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
@@ -61,12 +64,18 @@ export default function Baseline() {
       text,
       category,
       severity,
+      shownAt: id,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setNudges(prev => [newNudge, ...prev].slice(0, 5));
+    setNudges(prev => upsertNudge(prev, newNudge, 5));
     setTimeout(() => {
       setNudges(prev => prev.filter(n => n.id !== id));
     }, 10000);
+  }, []);
+
+  // Hide nudges whose behaviour the backend no longer detects.
+  const handleActiveNudges = useCallback((activeMessages) => {
+    setNudges(prev => pruneResolvedNudges(prev, activeMessages));
   }, []);
 
   // Warn on navigation if session is active
@@ -118,7 +127,11 @@ export default function Baseline() {
 
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const hasFace = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
+    if (!hasFace) {
+      visualStatsRef.current.chunk.add(null);
+      visualStatsRef.current.session.add(null);
+    } else {
       const landmarks = results.multiFaceLandmarks[0];
 
       const ear = calculateEAR(landmarks);
@@ -127,6 +140,8 @@ export default function Baseline() {
 
       const newMetrics = { ear, mar, pose };
       setMetrics(prev => ({ ...prev, ...newMetrics }));
+      visualStatsRef.current.chunk.add(newMetrics);
+      visualStatsRef.current.session.add(newMetrics);
 
       if (showMesh) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
@@ -541,6 +556,8 @@ export default function Baseline() {
               hasPermission={aiHasMicPermission}
               setHasPermission={setAiHasMicPermission}
               onNudge={handleNudge}
+              onActiveNudges={handleActiveNudges}
+              visualStatsRef={visualStatsRef}
               metrics={metrics}
               setMetrics={setMetrics}
               discardSignal={aiDiscardSignal}

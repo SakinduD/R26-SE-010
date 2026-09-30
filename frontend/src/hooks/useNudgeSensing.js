@@ -4,6 +4,7 @@ import * as cam from '@mediapipe/camera_utils'
 import * as draw from '@mediapipe/drawing_utils'
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
 import { mcaService } from '@/services/mca/mcaService'
+import { createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
 
 const NUDGE_TTL_MS = 10000
 const NUDGE_MAX = 5
@@ -24,7 +25,12 @@ const NUDGE_MAX = 5
  *     unrelated to nudge generation.
  *   - Picture-in-Picture — MCA-only UI, not part of the sensing pipeline itself.
  */
-export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false } = {}) {
+export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false, onDetections } = {}) {
+  // Optional callback with every behaviour detected per chunk (not limited by
+  // the nudge cooldown). A ref so the socket isn't rebuilt when it changes.
+  const onDetectionsRef = useRef(onDetections)
+  onDetectionsRef.current = onDetections
+
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isMicActive, setIsMicActive] = useState(false)
   // The raw mic MediaStream, exposed so a caller can feed a second, unrelated
@@ -46,8 +52,9 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
   const canvasRef = useRef(null)
   const cameraRef = useRef(null)
 
-  // Mutable mirror the WS onmessage closure reads without recreating the socket.
-  const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } })
+  // Face metrics averaged per audio chunk (sent with it) and per session.
+  const chunkVisualRef = useRef(createVisualAccumulator())
+  const sessionVisualRef = useRef(createVisualAccumulator())
 
   const mediaRecorderRef = useRef(null)
   const socketRef = useRef(null)
@@ -72,9 +79,10 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
       text,
       category,
       severity,
+      shownAt: id,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
-    setNudges((prev) => [nudge, ...prev].slice(0, NUDGE_MAX))
+    setNudges((prev) => upsertNudge(prev, nudge, NUDGE_MAX))
     setTimeout(() => {
       setNudges((prev) => prev.filter((n) => n.id !== id))
     }, NUDGE_TTL_MS)
@@ -99,7 +107,11 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     canvasCtx.scale(-1, 1)
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height)
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const hasFace = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0
+    if (!hasFace) {
+      chunkVisualRef.current.add(null)
+      sessionVisualRef.current.add(null)
+    } else {
       const landmarks = results.multiFaceLandmarks[0]
       const ear = calculateEAR(landmarks)
       const mar = calculateMAR(landmarks)
@@ -107,7 +119,8 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
 
       const newMetrics = { ear, mar, pose }
       setMetrics((prev) => ({ ...prev, ...newMetrics }))
-      metricsRef.current = { ...metricsRef.current, ...newMetrics }
+      chunkVisualRef.current.add(newMetrics)
+      sessionVisualRef.current.add(newMetrics)
 
       if (showMeshRef.current) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
@@ -146,11 +159,13 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'visual_metrics', metrics: metricsRef.current }))
+              // Face averaged over the same ~3 s as this audio (null = no face).
+              socket.send(JSON.stringify({ type: 'visual_metrics', metrics: chunkVisualRef.current.average() }))
               socket.send(event.data)
             }
           }
 
+          chunkVisualRef.current.reset()
           mediaRecorder.start()
 
           if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current)
@@ -189,14 +204,18 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
         try {
           const data = JSON.parse(event.data)
           if (data.metrics) {
+            // No emotion means the learner wasn't speaking — not "Neutral".
             setMetrics((prev) => ({
               ...prev,
               emotion: data.metrics.emotion
                 ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
-                : 'Neutral',
+                : 'Sensing...',
               confidence: data.metrics.confidence || 0,
               isSyncing: true,
             }))
+            // Hide nudges whose behaviour has stopped.
+            setNudges((prev) => pruneResolvedNudges(prev, data.metrics.active_nudges))
+            if (data.metrics.detections?.length) onDetectionsRef.current?.(data.metrics.detections)
             if (data.metrics.nudge) {
               handleNudge(data.metrics.nudge, data.metrics.nudge_category, data.metrics.nudge_severity)
             }
@@ -308,11 +327,17 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Session-wide face averages for mechanical_averages (null if no face data).
+  const resetVisualAverages = useCallback(() => sessionVisualRef.current.reset(), [])
+  const getVisualAverages = useCallback(() => toMechanicalAverages(sessionVisualRef.current), [])
+
   return {
     webcamRef,
     canvasRef,
     nudges,
     metrics,
+    resetVisualAverages,
+    getVisualAverages,
     isCameraActive,
     isMicActive,
     audioStream,
