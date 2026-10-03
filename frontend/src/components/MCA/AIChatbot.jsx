@@ -549,6 +549,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   const stopListening = (shouldSubmit = true) => {
     setIsListening(false);
     if (!shouldSubmit) isContinuousRef.current = false;
+    // Mic is off, so there is no current emotion to show.
+    setMetrics(prev => ({ ...prev, emotion: 'Sensing...', confidence: 0, isSyncing: false }));
 
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (recordRestartTimeoutRef.current) { clearTimeout(recordRestartTimeoutRef.current); recordRestartTimeoutRef.current = null; }

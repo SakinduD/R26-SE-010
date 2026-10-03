@@ -7,6 +7,24 @@ const MIN_FACE_RATIO = 0.5
 // A nudge stays visible at least this long so it can be read.
 export const NUDGE_MIN_DISPLAY_MS = 4000
 
+// Eye aspect ratio below this means the eyes are closed.
+const EYES_CLOSED_EAR = 0.2
+// Blinks last ~0.1-0.4 s; only closures longer than this count.
+const BLINK_MAX_MS = 500
+
+// Returns (ear) => true only when the eyes stay closed longer than a blink.
+export function createEyeClosureFilter() {
+  let closedSince = null
+  return (ear, now = Date.now()) => {
+    if (ear >= EYES_CLOSED_EAR) {
+      closedSince = null
+      return false
+    }
+    if (closedSince === null) closedSince = now
+    return now - closedSince >= BLINK_MAX_MS
+  }
+}
+
 // Averages EAR / MAR / head pose over many camera frames.
 export function createVisualAccumulator() {
   let totalFrames = 0

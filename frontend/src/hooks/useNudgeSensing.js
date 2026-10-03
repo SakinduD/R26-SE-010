@@ -4,7 +4,7 @@ import * as cam from '@mediapipe/camera_utils'
 import * as draw from '@mediapipe/drawing_utils'
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
 import { mcaService } from '@/services/mca/mcaService'
-import { createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
+import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
 
 const NUDGE_TTL_MS = 10000
 const NUDGE_MAX = 5
@@ -42,6 +42,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
   // Face metrics averaged per audio chunk (sent with it) and per session.
   const chunkVisualRef = useRef(createVisualAccumulator())
   const sessionVisualRef = useRef(createVisualAccumulator())
+  const eyeClosureRef = useRef(createEyeClosureFilter())
 
   const mediaRecorderRef = useRef(null)
   const socketRef = useRef(null)
@@ -104,7 +105,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
       const pose = estimateHeadPose(landmarks)
 
       const newMetrics = { ear, mar, pose }
-      setMetrics((prev) => ({ ...prev, ...newMetrics }))
+      setMetrics((prev) => ({ ...prev, ...newMetrics, eyesClosed: eyeClosureRef.current(ear) }))
       chunkVisualRef.current.add(newMetrics)
       sessionVisualRef.current.add(newMetrics)
 

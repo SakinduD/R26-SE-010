@@ -140,8 +140,10 @@ class LLMService:
                     behavioral_insight += f"Delivery issues detected while saying it: {behavior_text}. "
                 
                 # Add visual context if available
-                if "ear" in metrics:
-                    eye_state = "closed/squinting" if metrics["ear"] < 0.2 else "open"
+                # eyesClosed ignores blinks; fall back to raw EAR for older clients.
+                if "eyesClosed" in metrics or "ear" in metrics:
+                    closed = metrics["eyesClosed"] if "eyesClosed" in metrics else metrics["ear"] < 0.2
+                    eye_state = "closed/squinting" if closed else "open"
                     behavioral_insight += f"Their eyes are {eye_state}. "
                 
                 if "yaw" in pose:

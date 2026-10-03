@@ -1153,13 +1153,13 @@ const MultimodalEngine = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
-                      <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "Looking away" : "Focused"}
+                      <span className={clsx("text-[9px] font-bold", metrics.eyesClosed ? "text-destructive" : "text-success")}>
+                        {metrics.eyesClosed ? "Eyes closed" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
-                        className={clsx("h-full transition-all duration-300", metrics.ear < 0.2 ? "bg-destructive" : "bg-primary")}
+                        className={clsx("h-full transition-all duration-300", metrics.eyesClosed ? "bg-destructive" : "bg-primary")}
                         style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
                       ></div>
                     </div>
