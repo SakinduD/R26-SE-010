@@ -4,12 +4,17 @@ import librosa
 import logging
 import io
 import json
+import threading
 import traceback
 import os
 import joblib
 
 from .base_types import AudioAnalyzer, AudioFeatures, Nudge
 from .affect_fusion import AffectFusionAnalyzer
+
+# RMS above which a chunk counts as the learner speaking (same gate the
+# pitch/pace/clarity analyzers and emotion inference use).
+SPEECH_RMS_GATE = 0.015
 
 
 # Concrete Analyzers
@@ -67,11 +72,8 @@ class PitchAnalyzer(AudioAnalyzer):
 
 class PaceAnalyzer(AudioAnalyzer):
     """
-    Uses Zero-Crossing Rate (ZCR) as a proxy for speaking pace.
-    Voiced speech ZCR is typically 0.02-0.08. A sustained average above
-    0.15 across a 500ms chunk indicates rapid speech or heavy consonant use.
-    Note: ZCR conflates pace with fricative-heavy speech. Use onset detection
-    for more accurate pace measurement in future ML pipeline.
+    Zero-crossing rate as a rough pace proxy (voiced speech is ~0.02-0.08).
+    Also rises on consonant-heavy speech; onset detection would be more accurate.
     """
 
     FAST_ZCR_THRESHOLD = 0.18   # Moderated back to 0.18 for scoring baseline
@@ -91,12 +93,7 @@ class PaceAnalyzer(AudioAnalyzer):
 
 
 class ClarityAnalyzer(AudioAnalyzer):
-    """
-    Uses Spectral Centroid to detect muffled or noisy audio.
-    Human speech energy concentrates in the 1-4 kHz band.
-    Centroid below 1000 Hz = muffled/blocked mic.
-    Centroid above 4000 Hz = background noise (fan, AC, traffic).
-    """
+    """Spectral centroid: too low = muffled mic, too high = background noise."""
 
     LOW_CENTROID_HZ = 1000.0    # Picheny et al. (1985): 1 kHz lower bound of speech intelligibility band
     HIGH_CENTROID_HZ = 5000.0   # Moderated for scoring baseline
@@ -145,9 +142,8 @@ class SilenceAnalyzer(AudioAnalyzer):
 
 class SerAnalyzer(AudioAnalyzer):
     """
-    Speech Emotion Recognition (SER) Analyzer.
-    Loads whichever SER model (SVM or CNN) is marked "enabled": true in model_config.json,
-    so switching models no longer requires editing code — just flip the flags in the JSON file.
+    Speech emotion recognition. Loads the model marked "enabled" in
+    model_config.json (SVM, CNN or wav2vec2).
     """
 
     EMOTION_MAP = {
@@ -166,13 +162,22 @@ class SerAnalyzer(AudioAnalyzer):
     # Model kinds loaded via transformers (HF checkpoint dir) instead of joblib (.pkl)
     HF_MODEL_KINDS = {"wav2vec2"}
 
+    # Loaded models shared by every connection (inference is read-only), so a
+    # new WebSocket doesn't reload the model before its first chunk.
+    _cache: dict[str, tuple] = {}
+    _cache_lock = threading.Lock()
+
     def __init__(self, config_path: str = "app/models/affect_fusion/model_config.json"):
         self.model = None
         self.feature_extractor = None  # only set for HF (wav2vec2) models
         self.config_path = config_path
         self.model_path = None
         self.model_kind = None  # "svm" | "cnn" | "wav2vec2", from model_config.json key
-        self._load_model()
+        with self._cache_lock:
+            if config_path not in self._cache:
+                self._load_model()
+                self._cache[config_path] = (self.model_kind, self.model_path, self.model, self.feature_extractor)
+            self.model_kind, self.model_path, self.model, self.feature_extractor = self._cache[config_path]
 
     def _resolve_model_path(self) -> tuple[str, str]:
         """Reads model_config.json and returns (name, path) of the model marked "enabled": true."""
@@ -380,20 +385,17 @@ class NudgeEngine:
         ]
         self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
         self.last_nudge_time: float = 0.0
-        self.COOLDOWN_SECONDS: float = 10.0 # Global gap between any two nudges
-        
-        # Frontend sends ~3s clips, so a single chunk already covers the old
-        # 3-chunk/3-second sustain window. Threshold lowered accordingly to avoid requiring
-        # 9s of continuous behavior before a nudge fires.
+        self.last_nudge_severity: str = "info"
+        self.COOLDOWN_SECONDS: float = 10.0 # Global gap between nudges of equal or lower severity
+
+        # One ~3 s chunk is enough to count a behaviour as sustained.
         self.behavior_history: dict[str, int] = {}
         self.SUSTAIN_THRESHOLD = 1 # Behavior must persist for 1 chunk (~3 seconds)
 
         # Fairness bookkeeping for _select_nudge
         self.category_last_fired: dict[str, float] = {}
 
-        # Every behaviour detected in the latest chunk, even during cooldown.
-        # Feeds the uncapped behaviour log (for the LLMs) and lets the
-        # frontend hide on-screen nudges that no longer apply.
+        # Everything detected in the latest chunk, even during cooldown.
         self.active_nudges: list[Nudge] = []
 
     _SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
@@ -403,16 +405,7 @@ class NudgeEngine:
         return [n.message for n in self.active_nudges]
 
     def _select_nudge(self, candidates: list[Nudge]) -> Nudge:
-        """
-        Choose which sustained nudge to surface this chunk when multiple
-        analyzers fire at once.
-
-        Priority: highest severity first; ties broken by whichever category
-        has gone longest without being surfaced (least-recently-fired wins).
-        This keeps lower-priority categories (pace/pitch/clarity/silence)
-        from being starved indefinitely by higher-priority ones (fusion/
-        volume) that happen to sit earlier in self._analyzers.
-        """
+        """Highest severity wins; ties go to the category shown least recently."""
         def rank(n: Nudge) -> tuple:
             return (
                 self._SEVERITY_RANK.get(n.severity, 0),
@@ -421,13 +414,7 @@ class NudgeEngine:
         return max(candidates, key=rank)
 
     def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
-        """
-        Analyses one chunk and returns at most one new nudge.
-
-        Emotion detection and every analyzer run on every chunk, so emotion
-        readings and active_messages always describe the current chunk. The
-        global cooldown only limits how often a new nudge is surfaced.
-        """
+        """Analyse one chunk; return at most one new nudge. Detection always runs, the cooldown only limits nudges."""
         import time
         current_time = time.time()
 
@@ -436,7 +423,7 @@ class NudgeEngine:
         features.visual_metrics = visual_metrics or None
 
         # 1. Emotion Inference (Only run if user is actually talking)
-        if self.ser_analyzer and self.ser_analyzer.model and features.avg_volume > 0.015:
+        if self.ser_analyzer and self.ser_analyzer.model and features.avg_volume > SPEECH_RMS_GATE:
             try:
                 model = self.ser_analyzer.model
                 kind = self.ser_analyzer.model_kind
@@ -497,13 +484,16 @@ class NudgeEngine:
         if not sustained:
             return None # Behavior(s) detected but not yet sustained
 
-        # 3. Global cooldown: at most one new nudge per COOLDOWN_SECONDS
-        # (scoring.py's opportunity model depends on this limit).
+        # 3. Cooldown: one nudge per COOLDOWN_SECONDS, unless more severe than the last one.
         if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
-            return None
+            last_rank = self._SEVERITY_RANK.get(self.last_nudge_severity, 0)
+            sustained = [n for n in sustained if self._SEVERITY_RANK.get(n.severity, 0) > last_rank]
+            if not sustained:
+                return None
 
         chosen = self._select_nudge(sustained)
         self.last_nudge_time = current_time
+        self.last_nudge_severity = chosen.severity
         self.category_last_fired[chosen.category] = current_time
         self.behavior_history = {} # Reset all history after a successful nudge
         return chosen

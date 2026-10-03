@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
-import { toMechanicalAverages } from '../../utils/mca/realtimeSensing';
+import { toMechanicalAverages, toObservation } from '../../utils/mca/realtimeSensing';
 import clsx from 'clsx';
 
 // Research basis: 8-minute intake window per Kickmeier-Rust & Albert (2010) and Murray & Arroyo (2002)
@@ -52,9 +52,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   }, [startSignal, sessionActive, sessionStarting]);
 
-  // Manual stop always fires before the 8-minute mark (once the timer completes,
-  // handleEndSession runs automatically and the session is no longer active) — so a
-  // manual stop always means "discard", never "save".
+  // A manual stop is always before the 8-minute auto-end, so it discards the session.
   useEffect(() => {
     if (discardSignal && discardSignal !== lastProcessedDiscard.current) {
       lastProcessedDiscard.current = discardSignal;
@@ -66,6 +64,9 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
+  // Every analysed chunk (for scoring) and when the session started.
+  const observationLogRef = useRef([]);
+  const sessionStartMsRef = useRef(null);
   const emotionCountsRef = useRef({});
   // Everything detected since the user's last message (every chunk, not
   // limited by the nudge cooldown) — sent with the next chat message.
@@ -176,6 +177,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         setFriendlyId(session.friendly_id);
         setSessionActive(true);
         nudgeLogRef.current = [];
+        observationLogRef.current = [];
+        sessionStartMsRef.current = Date.now();
         emotionCountsRef.current = {};
         turnEmotionCountsRef.current = {};
         turnBehaviorsRef.current = {};
@@ -250,7 +253,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           resultData,
           chatTurnsRef.current,
           distribution,
-          mechanicalAverages
+          mechanicalAverages,
+          null,
+          null,
+          null,
+          null,
+          observationLogRef.current
         );
 
         if (res.id && res.status === 'completed') {
@@ -436,6 +444,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
               turnEmotionCountsRef.current[emo] = (turnEmotionCountsRef.current[emo] || 0) + 1;
               lastEmotionRef.current = { emotion: emo, confidence: data.metrics.confidence || 0 };
+            }
+
+            if (sessionStartMsRef.current) {
+              const elapsed = (Date.now() - sessionStartMsRef.current) / 1000;
+              observationLogRef.current.push(toObservation(data.metrics, elapsed));
             }
 
             // Every behaviour detected in this chunk (ignores the nudge cooldown)

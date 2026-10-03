@@ -64,6 +64,22 @@ class BehaviorEvent(BaseModel):
     elapsed_seconds: float = 0.0
 
 
+class Detection(BaseModel):
+    message: str = ""
+    category: str = ""
+    severity: Optional[str] = None
+
+
+class ChunkObservation(BaseModel):
+    """One analysed ~3 s chunk: the observation interval used by rule-based scoring."""
+    elapsed_seconds: float = 0.0
+    speaking: bool = False
+    face_visible: bool = False
+    emotion: Optional[str] = None
+    confidence: Optional[float] = None
+    detections: list[Detection] = []
+
+
 class SessionEndRequest(BaseModel):
     nudge_log: list[NudgeEntry] = []
     result_data: Optional[dict[str, Any]] = None
@@ -75,6 +91,8 @@ class SessionEndRequest(BaseModel):
     meeting_transcript: list[TranscriptSegment] = []
     emotion_timeline: list[EmotionEvent] = []
     behavior_log: list[BehaviorEvent] = []
+    # Both modes: every analysed chunk, used for rule-based scoring (not stored).
+    observation_log: list[ChunkObservation] = []
 
 
 class SessionResponse(BaseModel):
@@ -199,13 +217,13 @@ def end_session(
     session.emotion_distribution = body.emotion_distribution or {}
     session.mechanical_averages = body.mechanical_averages or {}
     
-    # Calculate multi-skill scores. This rule-based pass always runs — it's
-    # the AI-baseline scoring method, and doubles as the live-mode fallback
-    # plus the source of `diagnostics` even when the LLM path below succeeds.
+    # Rule-based scores: always computed (AI-mode score, live fallback, diagnostics).
     metrics = calculate_session_metrics(
         session.nudge_log,
         session.emotion_distribution,
-        duration_seconds=session.duration_seconds
+        duration_seconds=session.duration_seconds,
+        observation_log=[o.model_dump() for o in body.observation_log],
+        behavior_log=[b.model_dump() for b in body.behavior_log],
     )
 
     if session.session_type == "live":

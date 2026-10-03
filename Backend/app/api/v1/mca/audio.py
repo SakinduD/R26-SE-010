@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
-from app.api.v1.mca.nudge_engine import AudioFeatureExtractor, NudgeEngine
+from app.api.v1.mca.nudge_engine import SPEECH_RMS_GATE, AudioFeatureExtractor, NudgeEngine
 from app.core.auth import verify_jwt
 
 router = APIRouter()
@@ -45,6 +45,9 @@ def _analyze_chunk(nudge_engine: NudgeEngine, data: bytes, visual_metrics, user_
     response["metrics"] = {
         "emotion": features.emotion_label,  # None = learner not speaking
         "confidence": features.emotion_confidence,
+        # Whether this chunk could be observed (used by session scoring).
+        "speaking": bool(features.avg_volume > SPEECH_RMS_GATE),
+        "face_visible": features.visual_metrics is not None,
         "nudge": nudge.message if nudge else None,
         "nudge_category": nudge.category if nudge else None,
         "nudge_severity": nudge.severity if nudge else None,
@@ -100,12 +103,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
     await manager.connect(websocket)
     logger.info("WS audio-analysis connected | user_id=%s", user_id)
 
-    # Per-connection NudgeEngine (no shared mutable state between users)
-    nudge_engine = NudgeEngine()
+    # Per-connection NudgeEngine (no shared mutable state between users).
+    # Built off the event loop: the first one loads the emotion model.
+    nudge_engine = await run_in_threadpool(NudgeEngine)
 
-    # Real-time guard: only the newest chunk waits for analysis. If analysis
-    # is slower than chunks arrive, older chunks are dropped instead of
-    # queueing up, so nudges never describe what happened several chunks ago.
+    # Only the newest chunk waits for analysis; stale ones are dropped so nudges stay current.
     pending: dict = {"job": None}
     job_ready = asyncio.Event()
 

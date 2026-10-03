@@ -1,10 +1,6 @@
 """
-LLM-based scorer for MCA *live* sessions.
-
-Uses the same legacy `google.generativeai` SDK as baseline_llm.py / MCA chat.
-Never raises: any failure (no API key, bad response, network error) returns
-None so the caller can fall back to the rule-based score — a live session
-must never fail to produce a result over an LLM hiccup.
+LLM scorer for MCA live sessions. Never raises: any failure returns None so
+the caller falls back to the rule-based score.
 """
 import json
 import logging
@@ -21,12 +17,10 @@ logger = logging.getLogger("uvicorn")
 
 _settings = get_settings()
 
-# Temp visibility log: every prompt sent to (and response received from) the
-# live-session LLM scorer, appended here for local debugging. Not persisted
-# anywhere durable — safe to delete at any time.
+# Local debug log of LLM prompts and responses (safe to delete).
 _TEMP_LOG_PATH = Path(__file__).resolve().parents[2] / "scratch" / "mca_live_llm_log.txt"
 
-# remove comments
+
 def _append_temp_log(label: str, content: str) -> None:
     try:
         _TEMP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -54,8 +48,9 @@ _SYSTEM_INSTRUCTION = (
     "about 12 s). This is the complete record and is not rate-limited. Use "
     "it as the main evidence of how often and how long each behavior "
     "happened.\n"
-    "- NUDGE: the coaching tips actually shown on screen. At most one appears "
-    "every 10 s, so they undercount behavior; use them to judge whether the "
+    "- NUDGE: the user's current behavior actually shown on screen. Usually at most one "
+    "appears every 10 s (a more severe issue can appear sooner), so they "
+    "undercount behavior; use them to judge whether the "
     "learner responded to feedback (did the BEHAVIOR stop after the NUDGE?).\n"
     "Read BEHAVIOR spans together with the transcript around the same time "
     "to judge whether an issue was sustained or isolated, instead of just "
@@ -115,8 +110,7 @@ class MCALiveScorer:
         if not self.model:
             return None
         if not user_transcript and not meeting_transcript:
-            # Nothing was captured (e.g. user declined mic/meeting-audio
-            # transcription) — no basis for an LLM judgement.
+            # No speech captured, nothing for the LLM to judge.
             return None
 
         prompt = _build_prompt(
@@ -129,7 +123,6 @@ class MCALiveScorer:
             behavior_log or [],
         )
 
-        # Temp visibility log: the exact timeline text handed to the LLM.
         _append_temp_log("PROMPT", prompt)
 
         try:

@@ -54,6 +54,18 @@ export function toMechanicalAverages(accumulator) {
   return { avg_ear: avg.ear, avg_mar: avg.mar, avg_pitch: avg.pose.pitch }
 }
 
+// One analysed audio chunk, as sent to session scoring (observation_log).
+export function toObservation(metrics, elapsedSeconds) {
+  return {
+    elapsed_seconds: elapsedSeconds,
+    speaking: Boolean(metrics.speaking),
+    face_visible: Boolean(metrics.face_visible),
+    emotion: metrics.emotion || null,
+    confidence: metrics.emotion ? metrics.confidence ?? null : null,
+    detections: (metrics.detections || []).map(({ message, category }) => ({ message, category })),
+  }
+}
+
 // Adds a nudge to the top of the list, replacing an identical one on screen.
 export function upsertNudge(list, nudge, max) {
   return [nudge, ...list.filter((n) => n.text !== nudge.text)].slice(0, max)

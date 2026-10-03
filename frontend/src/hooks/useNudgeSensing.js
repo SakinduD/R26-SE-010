@@ -10,33 +10,20 @@ const NUDGE_TTL_MS = 10000
 const NUDGE_MAX = 5
 
 /**
- * Shared behavioral-sensing pipeline — camera/face-mesh, mic/nudge WebSocket,
- * and the nudge toast queue. Extracted out of MultimodalEngine.jsx so any
- * screen (MCA's live mode, RPE's role-play sessions) can open the same
- * sensing pipeline instead of a second copy.
- *
- * Deliberately NOT included here (stays in the calling screen instead):
- *   - MCA "live session" record lifecycle (mcaService.startSession/endSession,
- *     nudge_log persistence) — nudges here fire independent of any session
- *     concept; the backend socket only needs a valid token + audio, nothing
- *     about a session (confirmed against audio.py — session_id is logged,
- *     never required).
- *   - Continuous STT transcription loop — that's MCA's own scoring input,
- *     unrelated to nudge generation.
- *   - Picture-in-Picture — MCA-only UI, not part of the sensing pipeline itself.
+ * Shared sensing pipeline (camera + face mesh, mic + nudge WebSocket, nudge
+ * queue) used by MCA live mode and RPE. Session lifecycle, transcription and
+ * Picture-in-Picture stay in the calling screen.
  */
-export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false, onDetections } = {}) {
-  // Optional callback with every behaviour detected per chunk (not limited by
-  // the nudge cooldown). A ref so the socket isn't rebuilt when it changes.
+export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false, onDetections, onChunk } = {}) {
+  // Optional per-chunk callbacks, held in refs so the socket isn't rebuilt.
   const onDetectionsRef = useRef(onDetections)
   onDetectionsRef.current = onDetections
+  const onChunkRef = useRef(onChunk)
+  onChunkRef.current = onChunk
 
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isMicActive, setIsMicActive] = useState(false)
-  // The raw mic MediaStream, exposed so a caller can feed a second, unrelated
-  // recorder off the same hardware stream instead of opening its own (the
-  // pattern MCA's own transcription loop relies on) — additive only, doesn't
-  // change anything for a caller that ignores it.
+  // Raw mic stream, so callers can record from it without opening the mic again.
   const [audioStream, setAudioStream] = useState(null)
   const [nudges, setNudges] = useState([])
   const [metrics, setMetrics] = useState({
@@ -61,8 +48,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
   const audioStreamRef = useRef(null)
   const recordRestartTimeoutRef = useRef(null)
 
-  // showMesh can change every render (e.g. MCA ties it to a URL param) without
-  // destabilizing onResults — mirrored into a ref instead of a dependency.
+  // Ref so a changing showMesh doesn't recreate onResults.
   const showMeshRef = useRef(showMesh)
   useEffect(() => {
     showMeshRef.current = showMesh
@@ -134,10 +120,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
     canvasCtx.restore()
 
-    // Optional per-frame extra drawing (e.g. MultimodalEngine's Picture-in-
-    // Picture overlay) — a ref so this callback stays stable across renders
-    // instead of forcing the camera/FaceMesh effect below to tear down and
-    // restart every time the overlay's own inputs change.
+    // Optional extra drawing (e.g. PiP overlay); a ref so the camera effect isn't restarted.
     if (frameOverlayRef?.current) {
       frameOverlayRef.current(canvasCtx, canvasElement)
     }
@@ -179,11 +162,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
         startRecordingChunk()
       }
 
-      // persistMicConnection callers (RPE) keep an already-open socket alive
-      // across UI mic on/off toggles instead of reconnecting — the backend
-      // spins up a fresh NudgeEngine (which loads an ML model) per connection,
-      // so reusing one avoids paying that cost on every toggle. MCA doesn't
-      // opt in, so its behaviour (fresh socket every toggle) is unchanged.
+      // persistMicConnection (RPE): reuse the open socket across mic toggles.
       if (persistMicConnection && socketRef.current?.readyState === WebSocket.OPEN) {
         beginRecording(socketRef.current)
         return
@@ -215,6 +194,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
             }))
             // Hide nudges whose behaviour has stopped.
             setNudges((prev) => pruneResolvedNudges(prev, data.metrics.active_nudges))
+            onChunkRef.current?.(data.metrics)
             if (data.metrics.detections?.length) onDetectionsRef.current?.(data.metrics.detections)
             if (data.metrics.nudge) {
               handleNudge(data.metrics.nudge, data.metrics.nudge_category, data.metrics.nudge_severity)
@@ -229,9 +209,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
   }, [handleNudge, persistMicConnection])
 
-  // force=true always fully tears down (socket included) regardless of
-  // persistMicConnection — used on unmount, where there's no future toggle
-  // that could reuse a kept-alive socket, so keeping it open would just leak.
+  // force=true also closes a kept-alive socket (used on unmount).
   const stopAudioCapture = useCallback((force = false) => {
     setIsMicActive(false)
     if (recordRestartTimeoutRef.current) {
@@ -317,9 +295,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
   }, [isCameraActive, onResults])
 
-  // Tear everything down on unmount — force=true so a persistMicConnection
-  // caller's kept-alive socket doesn't leak; there's no future toggle left
-  // to reuse it.
+  // Tear everything down on unmount, including a kept-alive socket.
   useEffect(() => {
     return () => {
       stopAudioCapture(true)

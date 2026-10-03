@@ -40,6 +40,8 @@ class TestMCAAudio:
         mock_features = MagicMock()
         mock_features.emotion_label = "happy"
         mock_features.emotion_confidence = 0.95
+        mock_features.avg_volume = 0.05
+        mock_features.visual_metrics = {"pose": {"yaw": 0}}
         mock_extract.return_value = mock_features
         
         mock_nudge = MagicMock()
@@ -66,6 +68,8 @@ class TestMCAAudio:
             assert resp_data["metrics"]["emotion"] == "happy"
             assert resp_data["metrics"]["nudge_category"] == "pace"
             assert resp_data["metrics"]["active_nudges"] == []
+            assert resp_data["metrics"]["speaking"] is True
+            assert resp_data["metrics"]["face_visible"] is True
 
             mock_extract.assert_called_once()
             mock_evaluate.assert_called_once()

@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
 import { useNudgeSensing } from '../../hooks/useNudgeSensing';
+import { toObservation } from '../../utils/mca/realtimeSensing';
 import { mcaService } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
@@ -61,13 +62,20 @@ const MultimodalEngine = () => {
     ];
   };
 
+  // Every analysed chunk during the session, for rule-based scoring.
+  const liveObservationLogRef = useRef([]);
+  const logChunk = (chunkMetrics) => {
+    if (!liveSessionIdRef.current) return;
+    liveObservationLogRef.current.push(toObservation(chunkMetrics, sessionDurationRef.current));
+  };
+
   const {
     webcamRef, canvasRef, metrics,
     isCameraActive, isMicActive: liveMicActive,
     toggleCamera, toggleMic: rawToggleMic, dismissNudge,
     nudges: sensedNudges,
     resetVisualAverages, getVisualAverages,
-  } = useNudgeSensing({ frameOverlayRef, showMesh, onDetections: logDetections });
+  } = useNudgeSensing({ frameOverlayRef, showMesh, onDetections: logDetections, onChunk: logChunk });
 
   // Camera/mic can run before a session starts; nudges show only during one.
   const nudges = liveSessionId ? sensedNudges : [];
@@ -216,13 +224,14 @@ const MultimodalEngine = () => {
     recordSegment();
   }, []);
 
-  // Log each new nudge once and keep nudgesRef fresh for the PiP overlay.
-  const lastLoggedNudgeIdRef = useRef(null);
+  // Log each nudge once (tracks all ids, since an older nudge can return to the top),
+  // and keep nudgesRef fresh for the PiP overlay.
+  const loggedNudgeIdsRef = useRef(new Set());
   useEffect(() => {
     nudgesRef.current = nudges;
     const latest = nudges[0];
-    if (latest && lastLoggedNudgeIdRef.current !== latest.id) {
-      lastLoggedNudgeIdRef.current = latest.id;
+    if (latest && !loggedNudgeIdsRef.current.has(latest.id)) {
+      loggedNudgeIdsRef.current.add(latest.id);
       liveNudgeLogRef.current = [
         ...liveNudgeLogRef.current,
         {
@@ -704,7 +713,10 @@ const MultimodalEngine = () => {
 
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
+    // Nudges already on screen fired before the session, so don't log them.
+    loggedNudgeIdsRef.current = new Set(sensedNudges.map((n) => n.id));
     liveBehaviorLogRef.current = [];
+    liveObservationLogRef.current = [];
     liveEmotionSecondsRef.current = {};
     liveEmotionTimelineRef.current = [];
     currentEmotionRef.current = null;
@@ -772,7 +784,8 @@ const MultimodalEngine = () => {
           liveUserTranscriptRef.current,
           liveMeetingTranscriptRef.current,
           liveEmotionTimelineRef.current,
-          liveBehaviorLogRef.current
+          liveBehaviorLogRef.current,
+          liveObservationLogRef.current
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");

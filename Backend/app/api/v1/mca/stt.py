@@ -1,17 +1,8 @@
 """
-MCA live-mode speech-to-text via Whisper large-v3 (hosted on Groq).
+MCA live-mode speech-to-text: Whisper large-v3 on Groq.
 
-Used by MultimodalEngine.jsx's continuous transcription loop (user mic and
-shared meeting audio). Whisper is far more accurate than Google's
-latest_short model on conversational / meeting audio, and accepts the
-browser's audio/webm;codecs=opus segments as-is.
-
-The browser POSTs the raw audio bytes as the request body. An optional
-`prompt` query param carries the tail of the previous segment's transcript so
-Whisper keeps context (names, spelling, sentence flow) across segment cuts.
-
-Returns 503 when GROQ_API_KEY isn't configured or Groq fails, so the frontend
-can fall back to the existing Google STT endpoint (/api/stt).
+Body = raw webm/opus audio; optional `prompt` = previous transcript tail for context.
+Returns 503 if Groq is unavailable, so the frontend falls back to /api/stt.
 """
 import logging
 
