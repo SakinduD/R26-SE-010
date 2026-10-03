@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
+import { completeBaseline } from '@/lib/api/baseline';
 
 export default function Baseline() {
   const { isLoading: authLoading } = useProtectedRoute();
@@ -72,6 +73,23 @@ export default function Baseline() {
     setTimeout(() => {
       setNudges(prev => prev.filter(n => n.id !== id));
     }, 10000);
+  }, []);
+
+  // Hand the finished MCA session to the pedagogy module as this learner's baseline,
+  // which also regenerates their training plan. The MCA session itself is already saved,
+  // so a failure here only means the plan wasn't updated.
+  const handleSessionCompleted = useCallback(async (session) => {
+    try {
+      await completeBaseline(session.id);
+      toast.success("Baseline saved", {
+        description: "Your training plan now reflects this session."
+      });
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      toast.error("Couldn't use this session as your baseline", {
+        description: typeof detail === 'string' ? detail : "Your session was saved, but your training plan wasn't updated."
+      });
+    }
   }, []);
 
   // Hide nudges whose behaviour the backend no longer detects.
@@ -564,6 +582,7 @@ export default function Baseline() {
               discardSignal={aiDiscardSignal}
               startSignal={aiStartSignal}
               isCameraActive={isCameraActive}
+              onSessionCompleted={handleSessionCompleted}
               onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
                 setAiSessionActive(isActive);
                 aiSessionActiveRef.current = isActive;

@@ -10,7 +10,9 @@ import clsx from 'clsx';
 // for optimal cold-start adaptive learning profiling in intelligent tutoring systems.
 const SESSION_DURATION_SECONDS = 480;
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, onActiveNudges, visualStatsRef, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+// onSessionCompleted(session): optional, awaited after the session is saved and before the
+// redirect, so the host page can hand the completed session on (e.g. as the pedagogy baseline).
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, onActiveNudges, visualStatsRef, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange, onSessionCompleted }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -263,6 +265,14 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
         if (res.id && res.status === 'completed') {
           toast.success("AI session ended and scores calculated.");
+          if (onSessionCompleted) {
+            // The session is already saved; a failure here must not block the feedback form.
+            try {
+              await onSessionCompleted(res);
+            } catch (err) {
+              console.error("onSessionCompleted failed:", err);
+            }
+          }
           // Redirect to self-rating feedback form (same as live session)
           const redirectUrl = `/analytics/sessions/${sessionId}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           setTimeout(() => navigate(redirectUrl), 1500);
