@@ -108,17 +108,42 @@ class LLMService:
             behavioral_insight = ""
             if context:
                 metrics = context.get("metrics", {})
-                emotion = metrics.get("emotion", "Neutral")
+                emotion = metrics.get("emotion")
                 confidence = metrics.get("confidence", 0)
                 pose = metrics.get("pose", {})
-                
-                behavioral_insight = (
-                    f"\n[BEHAVIORAL INSIGHT: The user currently sounds {emotion} ({confidence*100:.0f}% confidence). "
-                )
+
+                # 'Sensing...' / missing = no speech analysed yet, not an emotion.
+                if emotion and emotion != "Sensing...":
+                    behavioral_insight = (
+                        f"\n[BEHAVIORAL INSIGHT: The user currently sounds {emotion} ({confidence*100:.0f}% confidence). "
+                    )
+                else:
+                    behavioral_insight = "\n[BEHAVIORAL INSIGHT: No voice emotion reading yet. "
+
+                # Everything detected while the user spoke this message (every
+                # ~3 s chunk, not limited by the on-screen nudge cooldown).
+                turn_emotions = context.get("turn_emotions") or {}
+                if turn_emotions:
+                    emotion_text = ", ".join(
+                        f"{emo} ({count} chunk{'s' if count != 1 else ''})"
+                        for emo, count in sorted(turn_emotions.items(), key=lambda kv: kv[1], reverse=True)
+                    )
+                    behavioral_insight += f"Voice emotion while saying this message: {emotion_text}. "
+
+                turn_behaviors = context.get("turn_behaviors") or []
+                if turn_behaviors:
+                    behavior_text = "; ".join(
+                        f"{b.get('message', '')} ({b.get('severity', 'info')}, {b.get('chunks', 1)} chunk"
+                        f"{'s' if b.get('chunks', 1) != 1 else ''})"
+                        for b in turn_behaviors
+                    )
+                    behavioral_insight += f"Delivery issues detected while saying it: {behavior_text}. "
                 
                 # Add visual context if available
-                if "ear" in metrics:
-                    eye_state = "closed/squinting" if metrics["ear"] < 0.2 else "open"
+                # eyesClosed ignores blinks; fall back to raw EAR for older clients.
+                if "eyesClosed" in metrics or "ear" in metrics:
+                    closed = metrics["eyesClosed"] if "eyesClosed" in metrics else metrics["ear"] < 0.2
+                    eye_state = "closed/squinting" if closed else "open"
                     behavioral_insight += f"Their eyes are {eye_state}. "
                 
                 if "yaw" in pose:

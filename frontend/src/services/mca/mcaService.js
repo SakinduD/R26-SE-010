@@ -58,6 +58,21 @@ export const mcaService = {
     return `${wsBase}/api/v1/mca/audio/audio-analysis?token=${encodeURIComponent(token)}`;
   },
 
+  // Live-mode speech-to-text (Whisper large-v3 via backend). Returns the
+  // transcript string, or null on failure so the caller can fall back.
+  transcribe: async (audioBlob, prompt = '') => {
+    try {
+      const response = await authClient.post(`${BASE}/stt/transcribe`, audioBlob, {
+        headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+        params: prompt ? { prompt } : {},
+      });
+      return (response.data?.transcript || '').trim();
+    } catch (error) {
+      console.warn('[mcaService:transcribe] Whisper STT failed:', error?.response?.status || error.message);
+      return null;
+    }
+  },
+
   // Session management
   startSession: async (mode = 'live') => {
     try {
@@ -69,7 +84,7 @@ export const mcaService = {
   },
 
   // End an active session and persist results.
-  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null, emotionDistribution = null, mechanicalAverages = null, userTranscript = null, meetingTranscript = null) => {
+  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null, emotionDistribution = null, mechanicalAverages = null, userTranscript = null, meetingTranscript = null, emotionTimeline = null, behaviorLog = null, observationLog = null) => {
     try {
       const body = {
         nudge_log: nudgeLog,
@@ -79,6 +94,9 @@ export const mcaService = {
         ...(mechanicalAverages ? { mechanical_averages: mechanicalAverages } : {}),
         ...(userTranscript && userTranscript.length ? { user_transcript: userTranscript } : {}),
         ...(meetingTranscript && meetingTranscript.length ? { meeting_transcript: meetingTranscript } : {}),
+        ...(emotionTimeline && emotionTimeline.length ? { emotion_timeline: emotionTimeline } : {}),
+        ...(behaviorLog && behaviorLog.length ? { behavior_log: behaviorLog } : {}),
+        ...(observationLog && observationLog.length ? { observation_log: observationLog } : {}),
       };
       const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body);
       return response.data;

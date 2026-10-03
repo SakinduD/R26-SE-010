@@ -4,33 +4,26 @@ import * as cam from '@mediapipe/camera_utils'
 import * as draw from '@mediapipe/drawing_utils'
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
 import { mcaService } from '@/services/mca/mcaService'
+import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
 
 const NUDGE_TTL_MS = 10000
 const NUDGE_MAX = 5
 
 /**
- * Shared behavioral-sensing pipeline — camera/face-mesh, mic/nudge WebSocket,
- * and the nudge toast queue. Extracted out of MultimodalEngine.jsx so any
- * screen (MCA's live mode, RPE's role-play sessions) can open the same
- * sensing pipeline instead of a second copy.
- *
- * Deliberately NOT included here (stays in the calling screen instead):
- *   - MCA "live session" record lifecycle (mcaService.startSession/endSession,
- *     nudge_log persistence) — nudges here fire independent of any session
- *     concept; the backend socket only needs a valid token + audio, nothing
- *     about a session (confirmed against audio.py — session_id is logged,
- *     never required).
- *   - Continuous STT transcription loop — that's MCA's own scoring input,
- *     unrelated to nudge generation.
- *   - Picture-in-Picture — MCA-only UI, not part of the sensing pipeline itself.
+ * Shared sensing pipeline (camera + face mesh, mic + nudge WebSocket, nudge
+ * queue) used by MCA live mode and RPE. Session lifecycle, transcription and
+ * Picture-in-Picture stay in the calling screen.
  */
-export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false } = {}) {
+export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicConnection = false, onDetections, onChunk } = {}) {
+  // Optional per-chunk callbacks, held in refs so the socket isn't rebuilt.
+  const onDetectionsRef = useRef(onDetections)
+  onDetectionsRef.current = onDetections
+  const onChunkRef = useRef(onChunk)
+  onChunkRef.current = onChunk
+
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isMicActive, setIsMicActive] = useState(false)
-  // The raw mic MediaStream, exposed so a caller can feed a second, unrelated
-  // recorder off the same hardware stream instead of opening its own (the
-  // pattern MCA's own transcription loop relies on) — additive only, doesn't
-  // change anything for a caller that ignores it.
+  // Raw mic stream, so callers can record from it without opening the mic again.
   const [audioStream, setAudioStream] = useState(null)
   const [nudges, setNudges] = useState([])
   const [metrics, setMetrics] = useState({
@@ -46,16 +39,17 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
   const canvasRef = useRef(null)
   const cameraRef = useRef(null)
 
-  // Mutable mirror the WS onmessage closure reads without recreating the socket.
-  const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } })
+  // Face metrics averaged per audio chunk (sent with it) and per session.
+  const chunkVisualRef = useRef(createVisualAccumulator())
+  const sessionVisualRef = useRef(createVisualAccumulator())
+  const eyeClosureRef = useRef(createEyeClosureFilter())
 
   const mediaRecorderRef = useRef(null)
   const socketRef = useRef(null)
   const audioStreamRef = useRef(null)
   const recordRestartTimeoutRef = useRef(null)
 
-  // showMesh can change every render (e.g. MCA ties it to a URL param) without
-  // destabilizing onResults — mirrored into a ref instead of a dependency.
+  // Ref so a changing showMesh doesn't recreate onResults.
   const showMeshRef = useRef(showMesh)
   useEffect(() => {
     showMeshRef.current = showMesh
@@ -72,9 +66,10 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
       text,
       category,
       severity,
+      shownAt: id,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
-    setNudges((prev) => [nudge, ...prev].slice(0, NUDGE_MAX))
+    setNudges((prev) => upsertNudge(prev, nudge, NUDGE_MAX))
     setTimeout(() => {
       setNudges((prev) => prev.filter((n) => n.id !== id))
     }, NUDGE_TTL_MS)
@@ -99,15 +94,20 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     canvasCtx.scale(-1, 1)
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height)
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const hasFace = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0
+    if (!hasFace) {
+      chunkVisualRef.current.add(null)
+      sessionVisualRef.current.add(null)
+    } else {
       const landmarks = results.multiFaceLandmarks[0]
       const ear = calculateEAR(landmarks)
       const mar = calculateMAR(landmarks)
       const pose = estimateHeadPose(landmarks)
 
       const newMetrics = { ear, mar, pose }
-      setMetrics((prev) => ({ ...prev, ...newMetrics }))
-      metricsRef.current = { ...metricsRef.current, ...newMetrics }
+      setMetrics((prev) => ({ ...prev, ...newMetrics, eyesClosed: eyeClosureRef.current(ear) }))
+      chunkVisualRef.current.add(newMetrics)
+      sessionVisualRef.current.add(newMetrics)
 
       if (showMeshRef.current) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
@@ -121,10 +121,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
     canvasCtx.restore()
 
-    // Optional per-frame extra drawing (e.g. MultimodalEngine's Picture-in-
-    // Picture overlay) — a ref so this callback stays stable across renders
-    // instead of forcing the camera/FaceMesh effect below to tear down and
-    // restart every time the overlay's own inputs change.
+    // Optional extra drawing (e.g. PiP overlay); a ref so the camera effect isn't restarted.
     if (frameOverlayRef?.current) {
       frameOverlayRef.current(canvasCtx, canvasElement)
     }
@@ -146,11 +143,13 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'visual_metrics', metrics: metricsRef.current }))
+              // Face averaged over the same ~3 s as this audio (null = no face).
+              socket.send(JSON.stringify({ type: 'visual_metrics', metrics: chunkVisualRef.current.average() }))
               socket.send(event.data)
             }
           }
 
+          chunkVisualRef.current.reset()
           mediaRecorder.start()
 
           if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current)
@@ -164,11 +163,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
         startRecordingChunk()
       }
 
-      // persistMicConnection callers (RPE) keep an already-open socket alive
-      // across UI mic on/off toggles instead of reconnecting — the backend
-      // spins up a fresh NudgeEngine (which loads an ML model) per connection,
-      // so reusing one avoids paying that cost on every toggle. MCA doesn't
-      // opt in, so its behaviour (fresh socket every toggle) is unchanged.
+      // persistMicConnection (RPE): reuse the open socket across mic toggles.
       if (persistMicConnection && socketRef.current?.readyState === WebSocket.OPEN) {
         beginRecording(socketRef.current)
         return
@@ -189,14 +184,19 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
         try {
           const data = JSON.parse(event.data)
           if (data.metrics) {
+            // No emotion means the learner wasn't speaking — not "Neutral".
             setMetrics((prev) => ({
               ...prev,
               emotion: data.metrics.emotion
                 ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
-                : 'Neutral',
+                : 'Sensing...',
               confidence: data.metrics.confidence || 0,
               isSyncing: true,
             }))
+            // Hide nudges whose behaviour has stopped.
+            setNudges((prev) => pruneResolvedNudges(prev, data.metrics.active_nudges))
+            onChunkRef.current?.(data.metrics)
+            if (data.metrics.detections?.length) onDetectionsRef.current?.(data.metrics.detections)
             if (data.metrics.nudge) {
               handleNudge(data.metrics.nudge, data.metrics.nudge_category, data.metrics.nudge_severity)
             }
@@ -210,9 +210,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
   }, [handleNudge, persistMicConnection])
 
-  // force=true always fully tears down (socket included) regardless of
-  // persistMicConnection — used on unmount, where there's no future toggle
-  // that could reuse a kept-alive socket, so keeping it open would just leak.
+  // force=true also closes a kept-alive socket (used on unmount).
   const stopAudioCapture = useCallback((force = false) => {
     setIsMicActive(false)
     if (recordRestartTimeoutRef.current) {
@@ -298,9 +296,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     }
   }, [isCameraActive, onResults])
 
-  // Tear everything down on unmount — force=true so a persistMicConnection
-  // caller's kept-alive socket doesn't leak; there's no future toggle left
-  // to reuse it.
+  // Tear everything down on unmount, including a kept-alive socket.
   useEffect(() => {
     return () => {
       stopAudioCapture(true)
@@ -308,11 +304,17 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Session-wide face averages for mechanical_averages (null if no face data).
+  const resetVisualAverages = useCallback(() => sessionVisualRef.current.reset(), [])
+  const getVisualAverages = useCallback(() => toMechanicalAverages(sessionVisualRef.current), [])
+
   return {
     webcamRef,
     canvasRef,
     nudges,
     metrics,
+    resetVisualAverages,
+    getVisualAverages,
     isCameraActive,
     isMicActive,
     audioStream,

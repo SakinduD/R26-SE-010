@@ -18,7 +18,7 @@ cp .env.example .env
 # Edit .env and fill in DATABASE_URL and GEMINI_API_KEY
 
 # Start the server
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 ```
 
 Test the health endpoint:

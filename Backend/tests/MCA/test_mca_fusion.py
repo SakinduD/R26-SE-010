@@ -98,3 +98,52 @@ def test_nudge_engine_cooldown_and_sustain():
     
     # Chunk 3: should return None due to cooldown
     assert engine.evaluate(features) is None
+
+
+class _FakeSer:
+    """Stands in for SerAnalyzer: always predicts 'angry'."""
+    model = object()
+    model_kind = "svm"
+    EMOTION_MAP = {3: "angry"}
+
+    def analyze(self, features):
+        return None
+
+
+def test_emotion_detected_during_cooldown():
+    engine = NudgeEngine(analyzers=[VolumeAnalyzer()])
+    fake = _FakeSer()
+    fake.model = MagicMock()
+    fake.model.predict.return_value = [3]
+    del fake.model.predict_proba
+    engine.ser_analyzer = fake
+    engine.last_nudge_time = 10**12  # deep inside the cooldown
+
+    features = _mock_features(emotion_label=None, volume=0.05, feature_vector=MagicMock())
+    assert engine.evaluate(features) is None  # no new nudge during cooldown...
+    assert features.emotion_label == "angry"  # ...but emotion is still detected
+
+
+def test_active_messages_track_current_chunk_during_cooldown():
+    engine = NudgeEngine(analyzers=[VolumeAnalyzer()])
+    engine.last_nudge_time = 10**12  # deep inside the cooldown
+
+    engine.evaluate(_mock_features(volume=0.3))  # too loud
+    assert engine.active_messages == ["Strong volume! Try a conversational tone."]
+
+    engine.evaluate(_mock_features(volume=0.05))  # normal volume again
+    assert engine.active_messages == []
+
+
+def test_fusion_rules_skip_chunk_without_face():
+    tense_face = {"pose": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0}, "mar": 0.05, "ear": 0.3}
+
+    # With a tense face, the stressed-tone rule fires.
+    engine = NudgeEngine(analyzers=[AffectFusionAnalyzer()])
+    assert engine.evaluate(_mock_features(emotion_label="angry"), tense_face) is not None
+
+    # Same voice, but no face in this chunk: old face data must not be reused.
+    engine = NudgeEngine(analyzers=[AffectFusionAnalyzer()])
+    features = _mock_features(emotion_label="angry", visual_metrics=tense_face)
+    assert engine.evaluate(features, None) is None
+    assert engine.active_messages == []

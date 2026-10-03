@@ -50,15 +50,49 @@ class TranscriptSegment(BaseModel):
     elapsed_seconds: float = 0.0
 
 
+class EmotionEvent(BaseModel):
+    emotion: str
+    confidence: Optional[float] = None
+    elapsed_seconds: float = 0.0
+
+
+class BehaviorEvent(BaseModel):
+    """One behaviour detected in one ~3 s audio chunk (not limited by the nudge cooldown)."""
+    message: str
+    category: str
+    severity: str
+    elapsed_seconds: float = 0.0
+
+
+class Detection(BaseModel):
+    message: str = ""
+    category: str = ""
+    severity: Optional[str] = None
+
+
+class ChunkObservation(BaseModel):
+    """One analysed ~3 s chunk: the observation interval used by rule-based scoring."""
+    elapsed_seconds: float = 0.0
+    speaking: bool = False
+    face_visible: bool = False
+    emotion: Optional[str] = None
+    confidence: Optional[float] = None
+    detections: list[Detection] = []
+
+
 class SessionEndRequest(BaseModel):
     nudge_log: list[NudgeEntry] = []
     result_data: Optional[dict[str, Any]] = None
     chat_turns: Optional[int] = None  # AI-mode only
     emotion_distribution: Optional[dict[str, float]] = None
     mechanical_averages: Optional[dict[str, float]] = None
-    # Live-mode only: transcribed speech used for LLM-based scoring.
+    # Live-mode only: transcribed speech + emotion changes used for LLM-based scoring.
     user_transcript: list[TranscriptSegment] = []
     meeting_transcript: list[TranscriptSegment] = []
+    emotion_timeline: list[EmotionEvent] = []
+    behavior_log: list[BehaviorEvent] = []
+    # Both modes: every analysed chunk, used for rule-based scoring (not stored).
+    observation_log: list[ChunkObservation] = []
 
 
 class SessionResponse(BaseModel):
@@ -183,13 +217,13 @@ def end_session(
     session.emotion_distribution = body.emotion_distribution or {}
     session.mechanical_averages = body.mechanical_averages or {}
     
-    # Calculate multi-skill scores. This rule-based pass always runs — it's
-    # the AI-baseline scoring method, and doubles as the live-mode fallback
-    # plus the source of `diagnostics` even when the LLM path below succeeds.
+    # Rule-based scores: always computed (AI-mode score, live fallback, diagnostics).
     metrics = calculate_session_metrics(
         session.nudge_log,
         session.emotion_distribution,
-        duration_seconds=session.duration_seconds
+        duration_seconds=session.duration_seconds,
+        observation_log=[o.model_dump() for o in body.observation_log],
+        behavior_log=[b.model_dump() for b in body.behavior_log],
     )
 
     if session.session_type == "live":
@@ -198,6 +232,9 @@ def end_session(
             user_transcript=[t.model_dump() for t in body.user_transcript],
             meeting_transcript=[t.model_dump() for t in body.meeting_transcript],
             duration_seconds=session.duration_seconds,
+            emotion_distribution=session.emotion_distribution,
+            emotion_timeline=[e.model_dump() for e in body.emotion_timeline],
+            behavior_log=[b.model_dump() for b in body.behavior_log],
         )
         if llm_result is not None:
             metrics["overall"] = llm_result["overall"]
