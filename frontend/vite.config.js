@@ -18,4 +18,10 @@ export default defineConfig({
     // its own relative imports resolve correctly.
     exclude: ["@met4citizen/talkinghead"],
   },
+  test: {
+    // Only files that opt in by name, so a stray fixture is never run as a
+    // suite. The default `node` environment is enough: these cover plain
+    // functions, and adding jsdom would pull in a dependency nothing needs yet.
+    include: ["src/**/*.test.js", "src/**/*.test.jsx"],
+  },
 })
