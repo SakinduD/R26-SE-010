@@ -68,6 +68,23 @@ describe('normalizeMcaSessionNudges', () => {
     })
   })
 
+  describe('category mapping', () => {
+    // MCA's PitchAnalyzer reports voice pitch in Hz (F0), and grouping that with
+    // volume is deliberate - the backend scores speech_volume_score from
+    // {"volume", "pitch"}. It is only head-pose pitch that must never land here,
+    // and that arrives as a face measurement, which is no longer turned into a
+    // nudge at all.
+    it('keeps a real voice-pitch cue in the volume group', () => {
+      const [nudge] = normalizeMcaSessionNudges({
+        nudge_log: [
+          { message: 'High energy! Ensure it matches your topic.', category: 'pitch', severity: 'info' },
+        ],
+      })
+
+      expect(nudge.nudge_category).toBe('volume')
+    })
+  })
+
   describe('other session data', () => {
     it('still reports detected emotions', () => {
       const [nudge] = normalizeMcaSessionNudges({
