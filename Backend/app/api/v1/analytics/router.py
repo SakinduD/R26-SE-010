@@ -764,7 +764,10 @@ def get_user_mentoring_recommendations(
                 recommendations = [
                     MentoringRecommendationItem(
                         priority=rec.priority,
-                        skill_area=rec.skill_area,
+                        # Through the same gate generation uses. 35 rows predate it
+                        # and carry names like "multimodal clarity" that appear on no
+                        # screen; served from cache they bypassed it entirely.
+                        skill_area=llm_mentoring_service._normalise_skill_area(rec.skill_area),
                         title=rec.title,
                         reason=rec.reason or rec.description,
                         detail=rec.detail or "",
@@ -855,7 +858,10 @@ def get_session_mentoring_recommendations(
                 recommendations = [
                     MentoringRecommendationItem(
                         priority=rec.priority,
-                        skill_area=rec.skill_area,
+                        # Through the same gate generation uses. 35 rows predate it
+                        # and carry names like "multimodal clarity" that appear on no
+                        # screen; served from cache they bypassed it entirely.
+                        skill_area=llm_mentoring_service._normalise_skill_area(rec.skill_area),
                         title=rec.title,
                         reason=rec.reason or rec.description,
                         detail=rec.detail or "",

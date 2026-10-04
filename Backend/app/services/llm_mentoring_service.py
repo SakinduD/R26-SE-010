@@ -678,7 +678,9 @@ def _call_openai_session_mentoring(evidence_bundle: dict[str, Any]) -> list[Ment
             response.raise_for_status()
         parsed = _parse_openai_json(response.json())
         items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
-        return _coerce_recommendations(items, source="llm")
+        return _coerce_recommendations(
+            items, source="llm", severities=_severity_by_skill(evidence_bundle)
+        )
     except Exception:
         return None
 
@@ -793,7 +795,9 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
             response.raise_for_status()
         parsed = _parse_openai_json(response.json())
         items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
-        return _coerce_recommendations(items, source="llm")
+        return _coerce_recommendations(
+            items, source="llm", severities=_severity_by_skill(evidence_bundle)
+        )
     except Exception:
         return None
 
@@ -964,10 +968,32 @@ def _normalise_skill_area(value: Any) -> str | None:
     return None
 
 
+def _severity_by_skill(evidence_bundle: dict[str, Any]) -> dict[str, str]:
+    """Blind-spot severity per skill, as the detector reported it."""
+    out: dict[str, str] = {}
+    for spot in evidence_bundle.get("blind_spots") or []:
+        skill = _normalise_skill_area(spot.get("skill_area"))
+        severity = str(spot.get("severity") or "").lower()
+        if skill and severity in PRIORITY_WEIGHT:
+            out[skill] = severity
+    return out
+
+
 def _coerce_recommendations(
     raw_items: list[dict[str, Any]],
     source: str,
+    severities: dict[str, str] | None = None,
 ) -> list[MentoringRecommendationItem]:
+    """Turn the model's JSON into items, with priority taken from the evidence.
+
+    `severities` maps a skill to the severity blind_spot_service computed for it.
+    Where one exists it wins, because the model was re-deciding a question that
+    is already settled: the same 12-point gap came back `medium` on one run and
+    `low` on the next, while the Blind Spots page - reading the same detector -
+    said `low` both times. Two pages disagreeing about one session is worse than
+    either answer, and the detector's is the one with a rule behind it.
+    """
+    severities = severities or {}
     items: list[MentoringRecommendationItem] = []
     for raw in raw_items:
         priority = str(raw.get("priority", "medium")).lower()
@@ -981,10 +1007,19 @@ def _coerce_recommendations(
         reason = _sanitize_mentoring_text(str(raw.get("reason") or detail).strip())
         if _contains_impossible_score_text(title, reason, detail, next_action):
             continue
+        skill_area = _normalise_skill_area(raw.get("skill_area"))
+        measured = severities.get(skill_area or "")
+        if measured and measured != priority:
+            logger.info(
+                "Mentoring priority for %s: model said %s, detector says %s",
+                skill_area, priority, measured,
+            )
+            priority = measured
+
         items.append(
             MentoringRecommendationItem(
                 priority=priority,
-                skill_area=_normalise_skill_area(raw.get("skill_area")),
+                skill_area=skill_area,
                 title=title,
                 reason=reason,
                 detail=detail,
