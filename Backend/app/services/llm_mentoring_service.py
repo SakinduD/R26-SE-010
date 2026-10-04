@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +12,8 @@ from app.config import get_settings
 from app.db.database import SessionLocal
 from app.models.analytics import MentoringRecommendation
 from app.models.analytics import FeedbackEntry
+from app.models.personality_profile import PersonalityProfile
+from app.models.training_plan import TrainingPlan
 from app.schemas.analytics import (
     MentoringRecommendationItem,
     MentoringRecommendationResult,
@@ -230,6 +233,92 @@ def _tracked_skill_scores(averages: dict[str, float]) -> dict[str, float]:
     return scores
 
 
+def _as_uuid(value) -> uuid.UUID | None:
+    """The pedagogy tables key on a UUID column; this service passes strings."""
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _pedagogy_profile(db: Session, user_id: str) -> dict[str, Any] | None:
+    """What adaptive pedagogy has decided about how this learner is taught.
+
+    Advice is written for one person, so how it is said matters as much as what
+    it says. The pedagogy module has already worked that out - tone, pacing,
+    complexity, feedback style - and recommendations that ignore it hand the
+    learner the same words everyone else gets, in a register that module
+    specifically decided would not land for them.
+
+    Read-only, and never fatal: a learner with no plan yet simply gets advice
+    written to the default voice rather than no advice at all.
+    """
+    key = _as_uuid(user_id)
+    if key is None:
+        return None
+
+    profile: dict[str, Any] = {}
+
+    try:
+        # One row per learner - the pedagogy module filters on user alone.
+        plan = db.query(TrainingPlan).filter(TrainingPlan.user_id == key).first()
+    except Exception:
+        logger.exception("Could not read the training plan for mentoring (user %s)", user_id)
+        db.rollback()
+        plan = None
+
+    if plan is not None:
+        strategy = plan.strategy_json if isinstance(plan.strategy_json, dict) else {}
+        profile.update(
+            {
+                # A scenario domain - "job_interview" - not one of the four
+                # tracked skills. Named for what it is, because reading it as a
+                # skill silently matches nothing: on this database every plan
+                # carries the same value and none of it is a skill name.
+                "practice_domain": plan.skill,
+                "difficulty": plan.difficulty,
+                "tone": strategy.get("tone"),
+                "pacing": strategy.get("pacing"),
+                "complexity": strategy.get("complexity"),
+                "feedback_style": strategy.get("feedback_style"),
+                # Pedagogy fills this only once a baseline exists, so it is
+                # empty for most learners. Filtered to skills this component
+                # reports on, or ordering by it would be ordering by nothing.
+                "priority_skills": [
+                    skill
+                    for skill in (strategy.get("priority_skills") or [])
+                    if skill in _TRACKED_SKILLS
+                ][:4],
+            }
+        )
+
+    try:
+        traits = (
+            db.query(PersonalityProfile)
+            .filter(PersonalityProfile.user_id == key)
+            .first()
+        )
+    except Exception:
+        logger.exception("Could not read the personality profile for mentoring (user %s)", user_id)
+        db.rollback()
+        traits = None
+
+    if traits is not None:
+        # Rounded: the model is being asked to pick a register, not to do
+        # arithmetic on a trait score.
+        profile["traits"] = {
+            "openness": round(traits.openness),
+            "conscientiousness": round(traits.conscientiousness),
+            "extraversion": round(traits.extraversion),
+            "agreeableness": round(traits.agreeableness),
+            "neuroticism": round(traits.neuroticism),
+        }
+
+    return {k: v for k, v in profile.items() if v not in (None, [], {})} or None
+
+
 def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
     try:
         aggregate = data_aggregation_service.get_user_aggregate(db, user_id, limit)
@@ -275,6 +364,7 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
 
     return {
         "user_id": user_id,
+        "pedagogy": _pedagogy_profile(db, user_id),
         "summary": {
             "session_count": aggregate.scores.metric_count if aggregate else 0,
             # Two different numbers, and only one of them means anything to the
@@ -353,7 +443,34 @@ _EVIDENCE_GLOSSARY = (
     "risk_level ranking how much that matters. "
     "latest_feedback: the learner's own words, with sentiment as the model read "
     "them - 'mixed' means the reflection holds a positive and a negative "
-    "judgement at once, which is not the same as neutral."
+    "judgement at once, which is not the same as neutral. "
+    "pedagogy: how the adaptive-pedagogy module has decided this learner should "
+    "be taught. feedback_style, tone, pacing and complexity describe the "
+    "register that was chosen for them; difficulty is 1-10 on their current "
+    "plan; practice_domain is the scenario it rehearses and priority_skills "
+    "are the skills it targets, empty until a baseline exists; "
+    "traits are OCEAN scores out of 100. It is absent for a learner who has no "
+    "plan yet."
+)
+
+# How to use the pedagogy block. Separate from the quality rules because it
+# governs delivery rather than substance: the evidence decides what to say, this
+# decides how to say it and which skill to say it about first.
+_PERSONALISATION_RULES = (
+    "Write for this learner, not a generic one. When a pedagogy block is "
+    "present, match its feedback_style: 'encouraging' means lead with what is "
+    "working before the correction, 'blunt' means state the problem first "
+    "without softening, 'balanced' means neither. Match its complexity too - "
+    "'simple' means one concrete step per recommendation and no jargon. "
+    "If priority_skills are set, order recommendations so those skills come "
+    "first where the evidence supports it; never invent a finding about them "
+    "that the evidence does not show. practice_domain is the scenario they are "
+    "rehearsing, not a skill - use it to make a next_action concrete, never as "
+    "the subject of a recommendation. "
+    "Use difficulty to pitch the next_action: a learner at 2 needs a smaller "
+    "step than one at 9. "
+    "Never name the pedagogy fields, the traits or their scores in the output. "
+    "They change how you write, not what the learner reads about themselves."
 )
 
 # What separates a recommendation worth reading from filler.
@@ -422,7 +539,15 @@ _VOICE_RULES = (
 )
 
 _SHARED_PROMPT_RULES = (
-    _EVIDENCE_GLOSSARY + " " + _QUALITY_RULES + " " + _BOUNDARY_RULES + " " + _VOICE_RULES
+    _EVIDENCE_GLOSSARY
+    + " "
+    + _QUALITY_RULES
+    + " "
+    + _BOUNDARY_RULES
+    + " "
+    + _VOICE_RULES
+    + " "
+    + _PERSONALISATION_RULES
 )
 
 
@@ -479,6 +604,7 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "session_id": session_id,
+        "pedagogy": _pedagogy_profile(db, user_id),
         "summary": summary_data,
         # Same reasoning as the user-scope collector: the four skills the
         # learner sees, not the metric columns underneath them. Left as raw
@@ -764,7 +890,35 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
             )
         )
 
-    return sorted(items, key=lambda item: PRIORITY_WEIGHT[item.priority], reverse=True)
+    # Priority first, then the plan. The fallback cannot change its register the
+    # way the model can, but it can still put the skill the learner is actually
+    # working on at the top - and since the list is truncated before it is
+    # shown, ordering is what decides whether that skill is seen at all.
+    focus = _pedagogy_focus_order(evidence_bundle.get("pedagogy"))
+    return sorted(
+        items,
+        key=lambda item: (
+            PRIORITY_WEIGHT[item.priority],
+            -focus.get(item.skill_area, len(focus)),
+        ),
+        reverse=True,
+    )
+
+
+def _pedagogy_focus_order(pedagogy: dict[str, Any] | None) -> dict[str, int]:
+    """Skills the learner's plan is working on, best first, as a rank lookup.
+
+    Reads priority_skills only. The plan's own `skill` column is a scenario
+    domain, so ranking by it would compare "job_interview" against
+    "speech_fluency" and quietly order nothing.
+    """
+    if not pedagogy:
+        return {}
+    ranks: dict[str, int] = {}
+    for position, skill in enumerate(pedagogy.get("priority_skills") or []):
+        if skill and skill not in ranks:
+            ranks[skill] = position
+    return ranks
 
 
 # Every metric column that feeds a tracked skill, mapped to the skill a learner

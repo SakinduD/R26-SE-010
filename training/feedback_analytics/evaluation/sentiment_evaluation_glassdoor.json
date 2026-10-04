@@ -3,7 +3,7 @@
   "dataset_name": "Glassdoor Job Reviews",
   "dataset_path": "D:\\SLIIT\\Y4S1\\RP_Project\\R26-SE-010\\training\\feedback_analytics\\datasets\\raw\\glassdoor_reviews.csv",
   "rows_used": 72000,
-  "trained_at": "2026-08-19T11:12:47.256389+00:00",
+  "trained_at": "2026-10-04T09:08:55.726740+00:00",
   "text_preprocessing": [
     "lowercase",
     "html_unescape",
@@ -51,7 +51,7 @@
       "weighted_precision": 0.8862,
       "weighted_recall": 0.8856,
       "weighted_f1": 0.8851,
-      "training_seconds": 2.5277
+      "training_seconds": 3.2329
     },
     {
       "classifier_name": "logistic_regression",
@@ -60,7 +60,7 @@
       "weighted_precision": 0.8821,
       "weighted_recall": 0.8805,
       "weighted_f1": 0.88,
-      "training_seconds": 2.8628
+      "training_seconds": 3.4365
     },
     {
       "classifier_name": "naive_bayes",
@@ -69,7 +69,7 @@
       "weighted_precision": 0.8611,
       "weighted_recall": 0.8611,
       "weighted_f1": 0.861,
-      "training_seconds": 1.1342
+      "training_seconds": 1.271
     }
   ],
   "evaluation": {
@@ -112,7 +112,7 @@
     },
     "classifier_name": "linear_svm",
     "model_type": "TF-IDF + Linear SVM",
-    "training_seconds": 2.5277,
+    "training_seconds": 3.2329,
     "train_rows": 57600,
     "test_rows": 14400,
     "label_distribution": {
