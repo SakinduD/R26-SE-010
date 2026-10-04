@@ -7,6 +7,7 @@ import * as cam from '@mediapipe/camera_utils';
 import * as draw from '@mediapipe/drawing_utils';
 import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
+import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
 import clsx from 'clsx';
@@ -21,11 +22,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
+import { completeBaseline } from '@/lib/api/baseline';
 
 export default function Baseline() {
   const { isLoading: authLoading } = useProtectedRoute();
   const navigate = useNavigate();
-  const [showMesh, setShowMesh] = useState(true);
+  const [showMesh, setShowMesh] = useState(false);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
@@ -46,6 +48,9 @@ export default function Baseline() {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraRef = useRef(null);
+  // Face metrics averaged per audio chunk and per session (read by AIChatbot).
+  const visualStatsRef = useRef({ chunk: createVisualAccumulator(), session: createVisualAccumulator() });
+  const eyeClosureRef = useRef(createEyeClosureFilter());
 
   const [aiSessionStarting, setAiSessionStarting] = useState(false);
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
@@ -61,12 +66,35 @@ export default function Baseline() {
       text,
       category,
       severity,
+      shownAt: id,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setNudges(prev => [newNudge, ...prev].slice(0, 5));
+    setNudges(prev => upsertNudge(prev, newNudge, 5));
     setTimeout(() => {
       setNudges(prev => prev.filter(n => n.id !== id));
     }, 10000);
+  }, []);
+
+  // Hand the finished MCA session to the pedagogy module as this learner's baseline,
+  // which also regenerates their training plan. The MCA session itself is already saved,
+  // so a failure here only means the plan wasn't updated.
+  const handleSessionCompleted = useCallback(async (session) => {
+    try {
+      await completeBaseline(session.id);
+      toast.success("Baseline saved", {
+        description: "Your training plan now reflects this session."
+      });
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      toast.error("Couldn't use this session as your baseline", {
+        description: typeof detail === 'string' ? detail : "Your session was saved, but your training plan wasn't updated."
+      });
+    }
+  }, []);
+
+  // Hide nudges whose behaviour the backend no longer detects.
+  const handleActiveNudges = useCallback((activeMessages) => {
+    setNudges(prev => pruneResolvedNudges(prev, activeMessages));
   }, []);
 
   // Warn on navigation if session is active
@@ -118,7 +146,11 @@ export default function Baseline() {
 
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const hasFace = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
+    if (!hasFace) {
+      visualStatsRef.current.chunk.add(null);
+      visualStatsRef.current.session.add(null);
+    } else {
       const landmarks = results.multiFaceLandmarks[0];
 
       const ear = calculateEAR(landmarks);
@@ -126,7 +158,9 @@ export default function Baseline() {
       const pose = estimateHeadPose(landmarks);
 
       const newMetrics = { ear, mar, pose };
-      setMetrics(prev => ({ ...prev, ...newMetrics }));
+      setMetrics(prev => ({ ...prev, ...newMetrics, eyesClosed: eyeClosureRef.current(ear) }));
+      visualStatsRef.current.chunk.add(newMetrics);
+      visualStatsRef.current.session.add(newMetrics);
 
       if (showMesh) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
@@ -201,9 +235,9 @@ export default function Baseline() {
             key={nudge.id}
             className={clsx(
               "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
-              nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
-                nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
-                  "bg-primary/95 border-white/20 text-white",
+              nudge.severity === 'critical' ? "bg-[var(--nudge-critical-bg)] border-white/30 text-white" :
+                nudge.severity === 'warning' ? "bg-[var(--nudge-warning-bg)] border-white/30 text-white" :
+                  "bg-[var(--nudge-info-bg)] border-white/20 text-white",
               index > 0 && "scale-90 opacity-40 hover:opacity-100"
             )}
           >
@@ -349,22 +383,22 @@ export default function Baseline() {
                 </div>
 
                 {/* Persistent Control Bar */}
-                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface/80 border border-border-subtle rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface border border-border-default rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
                   <div className="flex items-center gap-6 flex-1 justify-start">
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Video</span>
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Video</span>
                       <div className="flex items-center gap-2.5">
-                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")} />
-                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-muted-foreground/40")}>
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-t-tertiary")}>
                           {isCameraActive ? "Active" : "Disabled"}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-60">Audio</span>
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Audio</span>
                       <div className="flex items-center gap-2.5">
-                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", aiMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-muted-foreground/30")} />
-                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", aiMicActive ? "text-info" : "text-muted-foreground/40")}>
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", aiMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", aiMicActive ? "text-info" : "text-t-tertiary")}>
                           {aiMicActive ? "Active" : "Disabled"}
                         </span>
                       </div>
@@ -406,7 +440,7 @@ export default function Baseline() {
                       onClick={toggleCamera}
                       className={clsx(
                         "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                        isCameraActive ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        isCameraActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
@@ -416,7 +450,7 @@ export default function Baseline() {
                       onClick={() => setAiMicActive(!aiMicActive)}
                       className={clsx(
                         "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                        aiMicActive ? "bg-info/10 border-info/40 text-info shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                        aiMicActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <Mic size={14} className={clsx(aiMicActive && "animate-pulse")} />
@@ -427,7 +461,7 @@ export default function Baseline() {
                         onClick={() => setShowMesh(!showMesh)}
                         className={clsx(
                           "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
-                          showMesh ? "bg-primary/10 border-primary/40 text-primary shadow-inner" : "bg-muted/20 border-border text-muted-foreground hover:bg-muted/40"
+                          showMesh ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                         )}
                       >
                         <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
@@ -466,13 +500,13 @@ export default function Baseline() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
-                      <span className={clsx("text-[9px] font-bold", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "Looking away" : "Focused"}
+                      <span className={clsx("text-[9px] font-bold", metrics.eyesClosed ? "text-destructive" : "text-success")}>
+                        {metrics.eyesClosed ? "Eyes closed" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
-                        className={clsx("h-full transition-all duration-300", metrics.ear < 0.2 ? "bg-destructive" : "bg-primary")}
+                        className={clsx("h-full transition-all duration-300", metrics.eyesClosed ? "bg-destructive" : "bg-primary")}
                         style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
                       ></div>
                     </div>
@@ -541,11 +575,14 @@ export default function Baseline() {
               hasPermission={aiHasMicPermission}
               setHasPermission={setAiHasMicPermission}
               onNudge={handleNudge}
+              onActiveNudges={handleActiveNudges}
+              visualStatsRef={visualStatsRef}
               metrics={metrics}
               setMetrics={setMetrics}
               discardSignal={aiDiscardSignal}
               startSignal={aiStartSignal}
               isCameraActive={isCameraActive}
+              onSessionCompleted={handleSessionCompleted}
               onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
                 setAiSessionActive(isActive);
                 aiSessionActiveRef.current = isActive;

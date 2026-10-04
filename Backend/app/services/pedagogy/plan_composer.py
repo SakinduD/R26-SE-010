@@ -137,6 +137,27 @@ def _article(noun: str) -> str:
     return "an" if noun[:1].lower() in "aeiou" else "a"
 
 
+def _title_hint(domain: str, role: str, target_skills: list[str]) -> str:
+    """
+    "<Domain> with a <Role>" is a reasonable mechanical placeholder for a
+    real domain — RPE's own prose step later refines it with an LLM-written
+    title (see rpe_plan_import_service.py) — but this exact string is also
+    shown as-is on the training-plan page before that refinement ever runs.
+    When intent_parser.py's domain classification already fell through to
+    its "other" catch-all (its own LLM call failed and the keyword-only
+    parse matched nothing), the placeholder degrades to "Other with a
+    <role>" — meaningless to a learner, and shipped as the plan's title, not
+    just an internal fallback. target_skills is populated regardless of
+    whether domain classification succeeded, so anchor to the skill instead
+    of the domain word whenever the domain itself is this uninformative.
+    """
+    role_bit = f"{_article(role)} {role}"
+    if domain != "other":
+        return f"{domain.replace('_', ' ').title()} with {role_bit}"
+    skill_label = target_skills[0].replace("_", " ").title() if target_skills else "Difficult Conversation"
+    return f"{skill_label} Practice with {role_bit}"
+
+
 def _round2(value: float) -> float:
     return round(value, 2)
 
@@ -442,10 +463,7 @@ def compose_plan(
     )
 
     blueprint = ScenarioBlueprint(
-        title_hint=(
-            f"{intent.domain.replace('_', ' ').title()} with "
-            f"{_article(intent.counterpart_role)} {intent.counterpart_role}"
-        ),
+        title_hint=_title_hint(intent.domain, intent.counterpart_role, target_skills),
         medium=_DOMAIN_MEDIUM.get(intent.domain, "video_call"),
         setting=setting,
         situation_summary=(

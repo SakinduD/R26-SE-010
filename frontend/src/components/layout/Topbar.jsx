@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Info, Search } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import NotificationBell from '@/components/achievements/NotificationBell';
+import ActiveSessionNudge from '@/components/RPE/ActiveSessionNudge';
 
 const CRUMB_MAP = {
   '/dashboard': ['Overview', 'Dashboard'],
@@ -13,7 +14,7 @@ const CRUMB_MAP = {
   '/roleplay': ['Practice', 'Role Play'],
   '/roleplay/session': ['Practice', 'Role Play', 'Session'],
   '/roleplay/session/complete': ['Practice', 'Role Play', 'Session Complete'],
-  '/roleplay/my-sessions': ['Practice', 'My Sessions'],
+  '/roleplay/my-sessions': ['Practice', 'My Journey'],
   '/multimodal-analysis': ['Practice', 'Multimodal'],
   '/analytics-dashboard': ['Progress', 'Overview'],
   '/analytics-recommendations': ['Progress', 'Recommendations'],
@@ -33,6 +34,7 @@ function getCrumbs(pathname) {
   if (CRUMB_MAP[pathname]) return CRUMB_MAP[pathname];
 
   // Parameterised routes: try the longest matching prefix
+  if (pathname.startsWith('/roleplay/session/')) return ['Practice', 'Role Play', 'Session'];
   if (pathname.startsWith('/roleplay/feedback')) return ['Practice', 'Role Play', 'Feedback'];
   if (pathname.startsWith('/analytics/users/')) {
     if (pathname.endsWith('/skill-twin')) return ['Progress', 'Skill Twin'];
@@ -79,9 +81,16 @@ export default function Topbar() {
           <kbd>⌘K</kbd>
         </button>
 
+        <ActiveSessionNudge />
+
         <div className="topbar-icons">
           <NotificationBell />
-          <button className="icon-btn" aria-label="Help" type="button">
+          <button
+            className="icon-btn"
+            aria-label="Help"
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('ez:start-tour'))}
+          >
             <Info size={14} strokeWidth={1.6} />
           </button>
         </div>

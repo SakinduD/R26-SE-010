@@ -33,6 +33,7 @@ from app.schemas.training_plan import (
     SkillVocabularyOut,
     TrainingPlanListOut,
     TrainingPlanSummaryOut,
+    UpdateGeneratedTitleIn,
     UpdatePlanStatusIn,
 )
 from app.services.pedagogy import plan_service
@@ -276,3 +277,32 @@ def get_scenario_brief(
     plan_service.mark_consumed(plan, db)
     logger.info("Scenario brief for plan %s served to RPE", plan.id)
     return brief
+
+
+@router.patch("/{plan_id}/generated-title")
+def update_generated_title(
+    plan_id: uuid.UUID,
+    body: UpdateGeneratedTitleIn,
+    x_service_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    RPE calls this once it has generated a scenario from this plan and
+    written a final, LLM-refined title (see rpe_plan_import_service.py) —
+    keeps the Training Plan page's title in sync with what the generated
+    scenario, and every session played from it, actually calls itself,
+    instead of leaving blueprint.title_hint's mechanical "<Domain> with a
+    <Role>" placeholder displayed forever.
+
+    Service-token only (no Bearer-JWT path, unlike GET .../scenario-brief) —
+    this is an internal RPE->APM sync call a learner's own session should
+    never be able to trigger directly for an arbitrary plan_id.
+    """
+    settings = get_settings()
+    if not x_service_token or x_service_token != settings.apm_service_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Service-Token required",
+        )
+    plan_service.update_title_hint(plan_id, body.title, db)
+    return {"ok": True}

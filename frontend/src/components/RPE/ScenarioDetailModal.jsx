@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
-import { X, Loader2, ChevronRight, CheckCircle, AlertTriangle, Clock, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { X, Loader2, ChevronRight, CheckCircle, AlertTriangle, Clock, Sparkles, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NPC_AVATAR_OPTIONS } from '@/lib/rpe/npcAvatars'
 
 const DIFFICULTY_TONE = {
   beginner:     'success',
@@ -9,6 +10,36 @@ const DIFFICULTY_TONE = {
 }
 
 export default function ScenarioDetailModal({ scenario, onClose, onStart, isStarting }) {
+  // Defaults to whichever avatar matches the scenario's own npc_gender —
+  // the same pick RolePlaySession would randomize to if this screen were
+  // skipped entirely — but every option is always selectable regardless of
+  // gender, since the whole point of this screen is letting the learner
+  // override a default that doesn't match what they want.
+  const defaultAvatarId = useMemo(
+    () => NPC_AVATAR_OPTIONS.find((a) => a.gender === scenario?.npc_gender)?.id ?? NPC_AVATAR_OPTIONS[0].id,
+    [scenario?.scenario_id]
+  )
+  // With 16 avatars now in the pool, a flat grid got long to scan — this
+  // opens pre-filtered to whichever gender the scenario's own default
+  // matches (same signal as defaultAvatarId above), with "All" one tap away
+  // for a learner who deliberately wants to cross over.
+  const defaultGenderFilter = useMemo(
+    () => (scenario?.npc_gender === 'female' ? 'female' : 'male'),
+    [scenario?.scenario_id]
+  )
+  const [avatarId, setAvatarId] = useState(defaultAvatarId)
+  const [customName, setCustomName] = useState('')
+  const [genderFilter, setGenderFilter] = useState(defaultGenderFilter)
+
+  // Reset the picker to this scenario's own default whenever a *different*
+  // scenario opens — without this, switching from one detail view straight
+  // to another would carry the previous scenario's picks along with it.
+  useEffect(() => {
+    setAvatarId(defaultAvatarId)
+    setCustomName('')
+    setGenderFilter(defaultGenderFilter)
+  }, [scenario?.scenario_id, defaultAvatarId, defaultGenderFilter])
+
   useEffect(() => {
     if (!scenario) return
     const handleKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -22,6 +53,14 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
   const recommendedTurns = scenario.recommended_turns ?? scenario.turns
   const maxTurns         = scenario.max_turns ?? recommendedTurns
   const diffTone         = DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral'
+  const selectedAvatar   = NPC_AVATAR_OPTIONS.find((a) => a.id === avatarId) ?? NPC_AVATAR_OPTIONS[0]
+  const filteredAvatars  = genderFilter === 'all'
+    ? NPC_AVATAR_OPTIONS
+    : NPC_AVATAR_OPTIONS.filter((a) => a.gender === genderFilter)
+
+  const handleStart = () => {
+    onStart(scenario, { avatarId: selectedAvatar.id, npcName: customName.trim() || selectedAvatar.label })
+  }
 
   return (
     <div className="rpe-modal-backdrop" onClick={onClose}>
@@ -116,11 +155,55 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
             </div>
 
           </div>
+
+          <section className="info-block avatar-picker-block">
+            <div className="avatar-picker-header">
+              <p className="block-label">Not who you pictured? Change it</p>
+              <div className="gender-toggle" role="group" aria-label="Filter avatars by gender">
+                {['all', 'male', 'female'].map((g) => (
+                  <button
+                    type="button"
+                    key={g}
+                    className={cn('gender-toggle-btn', genderFilter === g && 'active')}
+                    onClick={() => setGenderFilter(g)}
+                    aria-pressed={genderFilter === g}
+                  >
+                    {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="avatar-picker">
+              {filteredAvatars.map((a) => (
+                <button
+                  type="button"
+                  key={a.id}
+                  className={cn('avatar-option', avatarId === a.id && 'selected')}
+                  onClick={() => setAvatarId(a.id)}
+                >
+                  {a.photo && <img src={a.photo} alt="" className="avatar-option-photo" />}
+                  <span className="avatar-option-label">{a.label}</span>
+                  {avatarId === a.id && <span className="avatar-option-check"><Check size={11} strokeWidth={2.5} /></span>}
+                </button>
+              ))}
+            </div>
+            <label className="avatar-name-field">
+              <span className="avatar-name-label">Name them (optional)</span>
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder={selectedAvatar.label}
+                maxLength={40}
+                className="avatar-name-input"
+              />
+            </label>
+          </section>
         </div>
 
         <div className="modal-footer">
           <button type="button" onClick={onClose} className="cancel-btn">Cancel</button>
-          <button type="button" onClick={() => onStart(scenario)} disabled={isStarting} className="start-btn">
+          <button type="button" onClick={handleStart} disabled={isStarting} className="start-btn">
             {isStarting
               ? <><Loader2 size={14} strokeWidth={1.8} className="spin" /> Starting…</>
               : <><ChevronRight size={14} strokeWidth={1.8} /> Enter Simulation</>}
@@ -152,6 +235,7 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
           background:var(--bg-card); border:1px solid var(--border); border-radius:18px;
           max-width:840px; width:100%; max-height:88vh; overflow-y:auto;
+          scrollbar-width:none; -ms-overflow-style:none;
           box-shadow:0 30px 70px rgba(0,0,0,0.5);
           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
           color:var(--text-hi);
@@ -159,12 +243,18 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
           animation: rpeModalIn .3s cubic-bezier(0.22,1,0.36,1) forwards;
         }
         @keyframes rpeModalIn{ to{ opacity:1; transform:none; } }
-        .rpe-modal::-webkit-scrollbar{ width:8px; }
-        .rpe-modal::-webkit-scrollbar-thumb{ background:var(--bg-card-hi); border-radius:100px; }
+        .rpe-modal::-webkit-scrollbar{ display:none; }
 
         .rpe-modal .modal-header{
           position:sticky; top:0; z-index:1;
-          background:linear-gradient(90deg, rgba(124,58,237,0.08), var(--bg-card));
+          /* Solid, not a gradient into transparency — this is a sticky header
+             over scrolling content, and a gradient stop like
+             rgba(124,58,237,0.08) is still ~92% see-through, so scrolled
+             body text showed through it. background-color is the opaque
+             base; background-image layers the same subtle accent tint on
+             top without ever losing full coverage. */
+          background-color:var(--bg-card);
+          background-image:linear-gradient(90deg, rgba(124,58,237,0.08), transparent);
           border-bottom:1px solid var(--border);
           padding:20px 30px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
           border-radius:18px 18px 0 0;
@@ -232,6 +322,47 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
         .rpe-modal .opening-text{ font-size:13px; font-style:italic; color:var(--text-hi); margin:0; }
 
         .rpe-modal .evaluated-note{ font-size:11.5px; color:var(--text-low); margin:12px 0 0; }
+
+        .rpe-modal .avatar-picker-block{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+        .rpe-modal .avatar-picker-header{
+          display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:9px;
+        }
+        .rpe-modal .avatar-picker-header .block-label{ margin:0; }
+        .rpe-modal .gender-toggle{
+          display:inline-flex; background:var(--bg-card-hi); border:1px solid var(--border); border-radius:9px; padding:2px;
+        }
+        .rpe-modal .gender-toggle-btn{
+          background:none; border:none; cursor:pointer; color:var(--text-med);
+          font-size:11.5px; font-weight:650; padding:5px 12px; border-radius:7px;
+          transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .gender-toggle-btn:hover:not(.active){ color:var(--text-hi); }
+        .rpe-modal .gender-toggle-btn.active{ background:var(--accent); color:#fff; }
+        .rpe-modal .avatar-picker{ display:flex; gap:10px; flex-wrap:wrap; }
+        .rpe-modal .avatar-option{
+          position:relative; display:flex; flex-direction:column; align-items:center; gap:8px;
+          width:88px; padding:12px 8px 10px; border-radius:12px; cursor:pointer;
+          background:var(--bg-card-hi); border:1.5px solid var(--border);
+          transition:border-color .2s ease, background .2s ease, transform .2s ease;
+        }
+        .rpe-modal .avatar-option:hover{ border-color:var(--text-med); transform:translateY(-1px); }
+        .rpe-modal .avatar-option.selected{ border-color:var(--accent); background:var(--accent-glow); }
+        .rpe-modal .avatar-option-photo{
+          width:52px; height:52px; border-radius:50%; object-fit:cover; border:1px solid var(--border);
+        }
+        .rpe-modal .avatar-option-label{ font-size:12px; font-weight:650; color:var(--text-hi); }
+        .rpe-modal .avatar-option-check{
+          position:absolute; top:6px; right:6px; width:17px; height:17px; border-radius:50%;
+          background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
+        }
+        .rpe-modal .avatar-name-field{ display:flex; flex-direction:column; gap:6px; margin-top:16px; max-width:280px; }
+        .rpe-modal .avatar-name-label{ font-size:11.5px; font-weight:650; color:var(--text-med); }
+        .rpe-modal .avatar-name-input{
+          font-size:13.5px; padding:9px 12px; border-radius:9px; border:1px solid var(--border);
+          background:var(--bg-card-hi); color:var(--text-hi); font-family:inherit;
+        }
+        .rpe-modal .avatar-name-input::placeholder{ color:var(--text-low); }
+        .rpe-modal .avatar-name-input:focus{ outline:none; border-color:var(--accent); }
 
         .rpe-modal .chip-list{ display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
         .rpe-modal .chip-list li{

@@ -55,7 +55,8 @@ _DOMAIN_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("networking", ("network", "conference", "introduce myself", "small talk")),
     ("team_collaboration", ("team", "standup", "stand-up", "retro",
                             "retrospective", "sprint", "colleague", "peer",
-                            "cross-functional")),
+                            "cross-functional", "co worker", "coworker",
+                            "co-worker")),
 ]
 
 _COUNTERPART_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
@@ -64,7 +65,8 @@ _COUNTERPART_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("direct report", ("report", "junior", "mentee", "new hire", "my team member")),
     ("interviewer", ("interviewer", "hiring manager", "panel")),
     ("stakeholder", ("stakeholder", "exec", "executive", "vp", "product owner")),
-    ("teammate", ("teammate", "peer", "colleague", "co-worker", "coworker")),
+    ("teammate", ("teammate", "peer", "colleague", "co-worker", "coworker",
+                 "co worker")),
 ]
 
 _DISPOSITION_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [

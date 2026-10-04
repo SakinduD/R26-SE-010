@@ -19,6 +19,9 @@ class ScenarioSummary(BaseModel):
 class StartSessionRequest(BaseModel):
     scenario_id: str
     user_id:     str | None = None
+    # Learner-chosen override from the scenario's "view details" screen —
+    # None means "use the scenario's own npc_role", same as before this existed.
+    npc_name:    str | None = None
 
 
 class StartSessionResponse(BaseModel):
@@ -32,6 +35,8 @@ class StartSessionResponse(BaseModel):
     max_turns:         int
     is_authenticated:  bool = False
     failure_escalation_threshold: int | None = None
+    npc_gender:        str = "male"   # "male" | "female" — see rpe_scenario_service.derive_npc_gender
+    npc_name:          str = ""       # effective name in use for this session — custom or scenario.npc_role
 
 
 class RespondRequest(BaseModel):
@@ -64,6 +69,14 @@ class RespondResponse(BaseModel):
     end_reason:       str | None = None
     requests_deliverable: bool = False
     response_options:     list[ResponseOptionOut] | None = None
+    # interaction_type is the richer replacement for requests_deliverable —
+    # see rpe_llm_service.InteractionType. requests_deliverable/response_options
+    # stay populated exactly as before (interaction_type == "deliverable_choice"
+    # is equivalent to the old requests_deliverable == True) so any caller
+    # still reading only the old fields keeps working unchanged.
+    interaction_type: str = "normal"
+    content_prompt:   str | None = None    # content_request/direct_input only
+    content_type:     str | None = None    # paragraph|section|evidence|filename|number|short_text|long_text
     clarity_score:     float | None = None     # live per-turn heuristic — see RpeNlpService._score_turn
     response_quality:  float | None = None
     # Advisory-only ML escalation read on this turn's user_input — see
@@ -107,6 +120,7 @@ class ScenarioDetail(BaseModel):
     target_skills:     list[str] = []
     difficulty_weight: float = 1.0
     category:          str = "Difficult Conversations"
+    npc_gender:        str = "male"   # "male" | "female" — see rpe_scenario_service.derive_npc_gender
 
 
 class ApaRecommendRequest(BaseModel):

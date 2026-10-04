@@ -9,6 +9,6 @@
   },
   "wav2vec2": {
     "enabled": true,
-    "path": "app/models/affect_fusion/wav2vec2_ser_finetuned/final_model"
+    "path": "app/models/affect_fusion/wav2vec2_ser_finetuned"
   }
 }

@@ -36,6 +36,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S = 8.0
 
 
+def _article(noun: str) -> str:
+    return "an" if noun[:1].lower() in "aeiou" else "a"
+
+
+def _fallback_title(mapped: dict) -> str:
+    """
+    Last-resort title when generate_scenario_prose() didn't return one (any
+    LLM failure there degrades to this rather than a hard error). The
+    mechanical "<Domain> with a <Role>" hint built as blueprint.title_hint
+    (plan_composer.py) is normally fine, but degrades badly whenever domain
+    classification itself already fell through to intent_parser.py's "other"
+    catch-all (e.g. its own Gemini call failed and the keyword-only parse
+    matched nothing) — "Other with a colleague" tells a learner nothing, and
+    stacking two silent fallbacks back to back is exactly how that title got
+    shipped. target_skills is always populated regardless of whether domain
+    classification succeeded, so anchor to the skill instead of the domain
+    word whenever the domain hint would be this uninformative.
+    """
+    hint = mapped["title"]
+    if not hint.lower().startswith("other "):
+        return hint
+
+    role = mapped["npc_role"]
+    skills = mapped["apa_metadata"]["target_skills"]
+    skill_label = skills[0].replace("_", " ").title() if skills else "Difficult Conversation"
+    return f"{skill_label} Practice with {_article(role)} {role}"
+
+
 class PlanImportError(Exception):
     """Raised when the brief can't be fetched or a scenario can't be built."""
 
@@ -72,6 +100,32 @@ async def fetch_scenario_brief(plan_id: str) -> ScenarioGenerationBrief:
     return ScenarioGenerationBrief.model_validate(resp.json())
 
 
+async def sync_plan_title(plan_id: str, title: str) -> None:
+    """
+    PATCH the plan's title_hint to match the scenario's final generated
+    title — otherwise the Training Plan page keeps showing the mechanical
+    "<Domain> with a <Role>" placeholder forever while the generated
+    scenario (and every session played from it) shows a different, more
+    specific name. Best-effort and silent on failure: a title cosmetic sync
+    must never be able to fail scenario generation itself, so this is called
+    after the scenario file is already written, and any error here only
+    gets logged.
+    """
+    settings = get_settings()
+    base_url = settings.rpe_base_url.rstrip("/")
+    url = f"{base_url}/api/v1/apa/training-plan/{plan_id}/generated-title"
+
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as client:
+            await client.patch(
+                url,
+                json={"title": title},
+                headers={"X-Service-Token": settings.apm_service_token},
+            )
+    except httpx.RequestError as exc:
+        logger.warning("Failed to sync generated title back to plan %s: %s", plan_id, exc)
+
+
 def _compress_personality(persona) -> str:
     """counterpart_persona -> RPE's adjective-string npc_personality style."""
     bits = [persona.disposition, persona.communication_style]
@@ -97,8 +151,10 @@ def map_brief_to_scenario(brief: ScenarioGenerationBrief) -> dict:
     """
     Pure, deterministic mapping: ScenarioGenerationBrief -> the dict shape
     persisted as app/models/rpe/scenarios/*.json. No LLM here — opening_npc_line
-    is left as an empty-string placeholder for the caller to fill in via
-    rpe_llm_service.generate_scenario_prose(); everything else is final.
+    is left as an empty-string placeholder, and title/context are only the
+    mechanical "<Domain> with a <Role>" hint and the raw brief text, for the
+    caller to refine via rpe_llm_service.generate_scenario_prose(); everything
+    else is final.
 
     Scale conversion (verified against rpe_emotion_service.update_escalation's
     clamp and rpe_scenario_service.py's own default, both max(...,5)):
@@ -185,15 +241,25 @@ def build_prose_prompt(brief: ScenarioGenerationBrief, mapped: dict) -> str:
         f"You are writing the opening moment of a workplace roleplay training scenario.\n\n"
         f"Situation: {mapped['context']}\n"
         f"NPC: {persona.role}, {mapped['npc_personality']}\n"
+        f"Difficulty: {mapped['difficulty']}\n"
         f"Triggering event (an event, NOT a line to paste in verbatim): {blueprint.trigger_event}\n\n"
         f"The scenario must be able to contain these moments over the course of the conversation:\n{beats}\n\n"
         f"Hard content rules — never violate these:\n{constraints}\n\n"
         f"Write:\n"
-        f"1. opening_npc_line — the NPC's actual first spoken line, in character, 1-3 sentences, "
-        f"consistent with the triggering event but original dialogue, not a paraphrase of it.\n"
-        f"2. context — a short third-person scene-setting paragraph (2-4 sentences) a game master "
+        f"1. title — a short, specific scenario name (3-6 words) a learner would see on a card in a "
+        f"practice library and want to click. Name the actual tension or stakes of THIS situation, not "
+        f"a generic label like 'Conflict with a Colleague' or 'Difficult Conversation'. No quotation "
+        f"marks, no clickbait punctuation, title case.\n"
+        f"2. opening_npc_line — the NPC's actual first spoken line, in character. Keep it short and "
+        f"plain, the way a real person actually opens a tense conversation, not a corporate memo — "
+        f"no throat-clearing, no stacking three clauses to set up context the scene itself already "
+        f"establishes. Scale the length to the difficulty: beginner scenarios get one short, direct "
+        f"sentence; intermediate/advanced scenarios may use up to two short sentences only if the "
+        f"situation genuinely needs it. Never more than two sentences. Original dialogue consistent "
+        f"with the triggering event, not a paraphrase of it.\n"
+        f"3. context — a short third-person scene-setting paragraph (2-4 sentences) a game master "
         f"would read before the scene starts. No dialogue in it.\n\n"
-        f'Respond ONLY with valid JSON: {{"opening_npc_line": string, "context": string}}'
+        f'Respond ONLY with valid JSON: {{"title": string, "opening_npc_line": string, "context": string}}'
     )
 
 
@@ -213,7 +279,9 @@ async def generate_and_persist_scenario(plan_id: str) -> str:
         prompt,
         trigger_event=brief.blueprint.trigger_event,
         situation_summary=brief.blueprint.situation_summary,
+        fallback_title=mapped["title"],  # the mechanical "<Domain> with a <Role>" hint
     )
+    mapped["title"] = prose.title or _fallback_title(mapped)
     mapped["opening_npc_line"] = prose.opening_npc_line
     mapped["context"] = prose.context or mapped["context"]
 
@@ -221,4 +289,7 @@ async def generate_and_persist_scenario(plan_id: str) -> str:
     path = SCENARIOS_DIR / f"{scenario_id}.json"
     path.write_text(json.dumps(mapped, indent=2))
     logger.info("Generated RPE scenario %s from plan %s", scenario_id, plan_id)
+
+    await sync_plan_title(plan_id, mapped["title"])
+
     return scenario_id

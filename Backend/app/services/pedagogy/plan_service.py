@@ -636,6 +636,34 @@ def mark_consumed(
     return plan
 
 
+def update_title_hint(
+    plan_id: uuid.UUID, title: str, db: Session
+) -> Optional[PersonalisedTrainingPlan]:
+    """
+    Sync the plan's displayed title to the scenario's final, LLM-refined
+    title once RPE has actually generated one (rpe_plan_import_service.py).
+    Without this, title_hint stays the mechanical "<Domain> with a <Role>"
+    placeholder forever on the Training Plan page, while the generated
+    scenario — and every session played from it — shows a different, more
+    specific name: the exact "scenario name mismatch" this closes.
+
+    Best-effort by design: returns None rather than raising if the plan
+    can't be found, since a cosmetic title sync should never be able to fail
+    scenario generation itself (the caller treats this the same way).
+    """
+    plan = (
+        db.query(PersonalisedTrainingPlan)
+        .filter(PersonalisedTrainingPlan.id == plan_id)
+        .first()
+    )
+    if plan is None:
+        return None
+    plan.title_hint = title[:200]
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
 def skill_vocabulary() -> list[str]:
     """RPE's fixed 11-skill vocabulary, sorted for a stable frontend list."""
     return sorted(RPE_SKILL_VOCABULARY)

@@ -112,6 +112,12 @@ class UpdatePlanStatusIn(BaseModel):
     action: str  # "activate" | "archive"
 
 
+class UpdateGeneratedTitleIn(BaseModel):
+    """PATCH /apa/training-plan/{plan_id}/generated-title — RPE calls this."""
+
+    title: str
+
+
 class PersonalisedTrainingPlanOut(BaseModel):
     """The learner-facing training plan. See the module docstring on naming."""
 

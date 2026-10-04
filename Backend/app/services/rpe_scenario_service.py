@@ -1,9 +1,29 @@
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = BASE_DIR / "models" / "rpe" / "scenarios"
+
+
+def derive_npc_gender(scenario_id: str) -> str:
+    """
+    "male" | "female", stable per scenario_id — used by the frontend to pick
+    a matching profile picture for the NPC.
+
+    No scenario (hand-authored or generated from a Training Plan brief) ever
+    carries an actual gender for its NPC — role titles like "Aggressive
+    Manager" are gender-neutral by design, and APM's CounterpartPersona
+    contract has no such field either. Rather than forcing a meaningless
+    "real" gender out of an LLM or hand-editing every scenario file, this
+    derives a stable pick from the id itself: same scenario always shows the
+    same NPC face across replays, deterministic and file-format-agnostic, so
+    it covers every existing scenario and every future generated one for
+    free — no data migration, nothing that can drift out of sync.
+    """
+    digest = hashlib.md5(scenario_id.encode()).hexdigest()
+    return "male" if int(digest, 16) % 2 == 0 else "female"
 
 _DEFAULT_APA: dict = {
     "target_skills": [],
@@ -107,7 +127,16 @@ class RpeScenarioService:
     def get_scenario(self, scenario_id: str) -> Scenario | None:
         return self._scenarios.get(scenario_id)
 
-    def list_all(self) -> list[dict]:
+    def list_all(self, current_user_id: str | None = None) -> list[dict]:
+        """
+        Hand-authored scenarios are shared library content — everyone sees
+        them. Generated ones are tied to whoever's Training Plan produced
+        them (apa_metadata.recommended_for_profile, set from the plan's
+        user_id in rpe_plan_import_service.map_brief_to_scenario) and must
+        only show up for that same user, never for other users or guests —
+        otherwise every learner's "Personalized for you" tab fills up with
+        everyone else's generated scenarios too.
+        """
         return [
             {
                 "scenario_id":       s.scenario_id,
@@ -124,6 +153,8 @@ class RpeScenarioService:
                 "category":          s.category,
             }
             for s in self._scenarios.values()
+            if not s.apa_metadata.get("plan_generated")
+            or s.apa_metadata.get("recommended_for_profile") == current_user_id
         ]
 
     def get_by_difficulty(self, level: str) -> list[dict]:

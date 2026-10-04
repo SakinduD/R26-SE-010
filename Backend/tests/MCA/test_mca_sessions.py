@@ -98,6 +98,46 @@ class TestMCASessions:
         assert session_obj.status == "completed"
         assert session_obj.overall_score == 85
 
+    def _observation_log(self):
+        quiet = {"message": "A bit quiet. Projecting helps engagement.", "category": "volume", "severity": "warning"}
+        return [
+            {"elapsed_seconds": 3 * i, "speaking": True, "face_visible": True,
+             "emotion": "neutral", "confidence": 0.9,
+             "detections": [quiet] if i % 2 else []}
+            for i in range(40)
+        ]
+
+    def test_end_ai_session_uses_interval_scoring(self, client, db_session):
+        user = _make_user(db_session)
+        session_id = self._call(client, db_session, user.id, "post", "/mca/sessions/start", json={"mode": "ai"}).json()["id"]
+
+        resp = self._call(client, db_session, user.id, "post", f"/mca/sessions/{session_id}/end", json={
+            "nudge_log": [{"message": "A bit quiet. Projecting helps engagement.", "category": "volume", "severity": "warning"}],
+            "emotion_distribution": {"neutral": 1.0},
+            "observation_log": self._observation_log(),
+            "chat_turns": 4,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skill_scores"]["vocal_command"] == 50     # half the speaking chunks were quiet
+        assert data["skill_scores"]["speech_fluency"] >= 95
+        assert data["score_diagnostics"]["scoring_method"] == "rule_based"
+        assert data["score_diagnostics"]["evidence_source"] == "observation_log"
+        assert data["nudge_summary"] == {"Critical": 0, "Warning": 1, "Info": 0}
+
+    @patch("app.api.v1.mca.sessions.mca_live_scorer.score", return_value=None)
+    def test_live_fallback_uses_interval_scoring(self, _mock_score, client, db_session):
+        user = _make_user(db_session)
+        session_id = self._call(client, db_session, user.id, "post", "/mca/sessions/start", json={"mode": "live"}).json()["id"]
+
+        resp = self._call(client, db_session, user.id, "post", f"/mca/sessions/{session_id}/end", json={
+            "observation_log": self._observation_log(),
+        })
+        data = resp.json()
+        assert data["score_diagnostics"]["scoring_method"] == "rule_based_fallback"
+        assert data["score_diagnostics"]["evidence_source"] == "observation_log"
+        assert data["skill_scores"]["vocal_command"] == 50
+
     def test_discard_session(self, client, db_session):
         user = _make_user(db_session)
         resp_start = self._call(client, db_session, user.id, "post", "/mca/sessions/start", json={"mode": "ai"})

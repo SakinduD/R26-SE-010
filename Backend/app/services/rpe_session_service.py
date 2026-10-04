@@ -82,6 +82,7 @@ class RpeSessionService:
         scenario_id:  str,
         user_id:      str,
         auth_user_id: str | None = None,
+        npc_name:     str | None = None,
     ) -> SessionState:
         scenario = self._scenario_service.get_scenario(scenario_id)
         if not scenario:
@@ -101,6 +102,12 @@ class RpeSessionService:
         )
         self._sessions[session_id] = state
 
+        # A learner-chosen name for the NPC, set once at session start from
+        # the "view details" screen — falls back to the scenario's own role
+        # label so every existing session (no override ever offered) behaves
+        # exactly as before. Read back every turn in router.py's
+        # session_respond so the LLM stays consistent about its own name for
+        # the life of the conversation.
         payload: dict = {
             "session_id":        session_id,
             "scenario_id":       scenario_id,
@@ -108,6 +115,7 @@ class RpeSessionService:
             "auth_user_id":      auth_user_id,
             "started_at":        started_at,
             "opening_npc_line":  scenario.opening_npc_line,
+            "npc_name":          npc_name or scenario.npc_role,
             "emotion_history":   ["calm"],
             "trust_history":     [50],
             "turns":             [],
@@ -256,36 +264,74 @@ class RpeSessionService:
 
         return False, None
 
-    def log_turn(self, session_id: str, turn_data: dict) -> None:
-        """Append a completed turn to both Supabase and JSON."""
+    def log_turn(
+        self,
+        session_id: str,
+        turn_data: dict,
+        current_emotion_history: list[str] | None = None,
+        current_trust_history:   list[int] | None = None,
+    ) -> tuple[list[str], list[int]]:
+        """
+        Append a completed turn to both Supabase and JSON. Returns the
+        updated (emotion_history, trust_history) so the caller never has to
+        re-fetch the session just to read them back.
+
+        Pass current_emotion_history/current_trust_history when the caller
+        already has the pre-turn arrays (router.py's session_respond always
+        does, from its own earlier get_session() call this same turn) —
+        skips a redundant SELECT that would otherwise just re-read data
+        already in scope. Omit them and this reads the current arrays
+        itself first (Supabase if configured, else the JSON file), for any
+        future caller that doesn't already have them on hand.
+        """
+        emotion     = turn_data.get("emotion", "calm")
+        trust_score = turn_data.get("trust_score", 50)
         sb = _get_supabase()
+
+        if current_emotion_history is not None and current_trust_history is not None:
+            emotion_history = list(current_emotion_history)
+            trust_history   = list(current_trust_history)
+        else:
+            session_row = None
+            if sb:
+                try:
+                    session_row = (
+                        sb.table("rpe_sessions")
+                        .select("emotion_history, trust_history")
+                        .eq("session_id", session_id)
+                        .single()
+                        .execute()
+                    ).data
+                except Exception as exc:
+                    logger.warning("log_turn: Supabase history fetch failed, using JSON: %s", exc)
+            if session_row:
+                emotion_history = session_row.get("emotion_history") or ["calm"]
+                trust_history   = session_row.get("trust_history")   or [50]
+            else:
+                try:
+                    json_data = self._read_json(session_id)
+                except Exception:
+                    json_data = {}
+                emotion_history = json_data.get("emotion_history") or ["calm"]
+                trust_history   = json_data.get("trust_history")   or [50]
+
+        emotion_history.append(emotion)
+        trust_history.append(trust_score)
+
         if sb:
             try:
-                # Insert into rpe_turns
                 sb.table("rpe_turns").insert({
                     "session_id":       session_id,
                     "turn":             turn_data["turn"],
                     "user_input":       turn_data.get("user_input", ""),
                     "npc_response":     turn_data.get("npc_response", ""),
-                    "emotion":          turn_data.get("emotion", "calm"),
-                    "trust_score":      turn_data.get("trust_score", 50),
+                    "emotion":          emotion,
+                    "trust_score":      trust_score,
                     "escalation_level": turn_data.get("escalation_level", 0),
                     "user_behavior":    turn_data.get("user_behavior"),
                     "created_at":       datetime.now(timezone.utc).isoformat(),
                 }).execute()
 
-                # Update running history arrays in rpe_sessions
-                session_row = (
-                    sb.table("rpe_sessions")
-                    .select("emotion_history, trust_history")
-                    .eq("session_id", session_id)
-                    .single()
-                    .execute()
-                ).data or {}
-                emotion_history = session_row.get("emotion_history") or ["calm"]
-                trust_history   = session_row.get("trust_history")   or [50]
-                emotion_history.append(turn_data.get("emotion", "calm"))
-                trust_history.append(turn_data.get("trust_score", 50))
                 sb.table("rpe_sessions").update({
                     "emotion_history": emotion_history,
                     "trust_history":   trust_history,
@@ -296,6 +342,8 @@ class RpeSessionService:
 
         # Always write JSON fallback
         self._log_turn_json(session_id, turn_data)
+
+        return emotion_history, trust_history
 
     def get_session(self, session_id: str) -> dict:
         """
@@ -342,57 +390,159 @@ class RpeSessionService:
         Return sessions for the given Supabase auth UUID, newest first.
         trashed=False (default) returns the active list (deleted_at IS NULL);
         trashed=True returns the recycle bin (deleted_at IS NOT NULL).
+
+        Every other read path in this service (get_session, get_state) tries
+        Supabase then falls back to the session's JSON file — this one
+        didn't, even though _persist_session's own contract is "log and
+        swallow" on a Supabase insert failure specifically so a session is
+        never lost just because that write hiccuped. The result: a session
+        whose Supabase row never landed was still fully playable and
+        reviewable via its JSON file (direct link, feedback screen — both
+        go through get_session), but permanently invisible in My Sessions,
+        the one list view with no fallback at all. Topped up from JSON here
+        for parity with the rest of the class.
+
+        set_sessions_deleted writes deleted_at to both Supabase and the
+        session's JSON file (see there), so a JSON-only session has a real
+        trashed state too — merged in below for whichever bucket (active vs
+        trash) it actually belongs to, same as the Supabase rows.
         """
         sb = _get_supabase()
-        if not sb:
-            return []
-        try:
-            query = (
-                sb.table("rpe_sessions")
-                .select(
-                    "session_id, scenario_id, started_at, ended_at,"
-                    "outcome, end_reason, final_trust,"
-                    "final_escalation, recommended_turns, deleted_at"
+        rows: list[dict] = []
+        if sb:
+            try:
+                query = (
+                    sb.table("rpe_sessions")
+                    .select(
+                        "session_id, scenario_id, started_at, ended_at,"
+                        "outcome, end_reason, final_trust,"
+                        "final_escalation, recommended_turns, deleted_at"
+                    )
+                    .eq("auth_user_id", auth_user_id)
                 )
-                .eq("auth_user_id", auth_user_id)
-            )
-            query = query.not_.is_("deleted_at", "null") if trashed else query.is_("deleted_at", "null")
-            result = query.order("started_at", desc=True).execute()
-            return result.data or []
-        except Exception as exc:
-            logger.error("RPE get_user_sessions error: %s", exc)
-            return []
+                query = query.not_.is_("deleted_at", "null") if trashed else query.is_("deleted_at", "null")
+                result = query.order("started_at", desc=True).execute()
+                rows = result.data or []
+            except Exception as exc:
+                logger.error("RPE get_user_sessions error: %s", exc)
+
+        known_ids = {row["session_id"] for row in rows}
+        rows.extend(
+            row for row in self._json_sessions_for_user(auth_user_id, trashed)
+            if row["session_id"] not in known_ids
+        )
+        rows.sort(key=lambda row: row.get("started_at") or "", reverse=True)
+
+        return rows
+
+    def get_active_sessions(self, auth_user_id: str) -> list[dict]:
+        """
+        This user's unfinished sessions (ended_at IS NULL), newest first —
+        what "resume one of your in-progress sessions" and the active-
+        session cap both need. Just get_user_sessions filtered down, so it
+        inherits the same Supabase+JSON coverage.
+        """
+        return [row for row in self.get_user_sessions(auth_user_id, trashed=False) if not row.get("ended_at")]
+
+    def _json_sessions_for_user(self, auth_user_id: str, trashed: bool) -> list[dict]:
+        """Same summary shape as the Supabase select above, read off disk."""
+        out: list[dict] = []
+        for path in LOGS_DIR.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("auth_user_id") != auth_user_id:
+                continue
+            if bool(data.get("deleted_at")) != trashed:
+                continue
+            out.append({
+                "session_id":        data.get("session_id"),
+                "scenario_id":       data.get("scenario_id"),
+                "started_at":        data.get("started_at"),
+                "ended_at":          data.get("ended_at"),
+                "outcome":           data.get("outcome"),
+                "end_reason":        data.get("end_reason"),
+                "final_trust":       data.get("final_trust"),
+                "final_escalation":  data.get("final_escalation"),
+                "recommended_turns": data.get("recommended_turns"),
+                "deleted_at":        data.get("deleted_at"),
+            })
+        return out
 
     def set_sessions_deleted(self, auth_user_id: str, session_ids: list[str], deleted: bool) -> None:
         """
         Move sessions into/out of the recycle bin (soft delete). Scoped to
         the caller's own auth_user_id so one user can never touch another's
         sessions — powers both the trash and restore actions.
+
+        Writes deleted_at to both Supabase and each session's own JSON file.
+        JSON-only sessions (Supabase insert never landed — see get_session's
+        fallback) previously couldn't be trashed at all: the Supabase UPDATE
+        silently matched zero rows, the JSON file was never touched, and the
+        session kept reappearing as "active" forever — including counting
+        against MAX_ACTIVE_SESSIONS in router.py, so a learner could delete
+        a stuck session and still be blocked from starting a new one by that
+        exact session. JSON writes are best-effort per id — a missing file
+        for a Supabase-backed session_id is expected and skipped.
         """
-        sb = _get_supabase()
-        if not sb or not session_ids:
+        if not session_ids:
             return
-        try:
-            value = datetime.now(timezone.utc).isoformat() if deleted else None
-            sb.table("rpe_sessions").update({"deleted_at": value}) \
-                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
-        except Exception as exc:
-            logger.error("RPE set_sessions_deleted error: %s", exc)
+        value = datetime.now(timezone.utc).isoformat() if deleted else None
+
+        sb = _get_supabase()
+        if sb:
+            try:
+                sb.table("rpe_sessions").update({"deleted_at": value}) \
+                    .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+            except Exception as exc:
+                logger.error("RPE set_sessions_deleted error: %s", exc)
+
+        for session_id in session_ids:
+            path = LOGS_DIR / f"{session_id}.json"
+            if not path.exists():
+                continue
+            try:
+                data = self._read_json(session_id)
+                if data.get("auth_user_id") != auth_user_id:
+                    continue
+                data["deleted_at"] = value
+                self._write_json(session_id, data)
+            except Exception as exc:
+                logger.error("JSON set_sessions_deleted failed for %s: %s", session_id, exc)
 
     def purge_sessions(self, auth_user_id: str, session_ids: list[str]) -> None:
         """
         Permanently delete sessions (must already be in the recycle bin, but
         scoping is by ownership, not trash state — the frontend only ever
         offers this from the bin). rpe_turns rows cascade via the FK.
+
+        Also removes each session's JSON file, for the same JSON-only-session
+        reason as set_sessions_deleted above — otherwise "permanently delete"
+        wasn't actually permanent for a session with no Supabase row.
         """
-        sb = _get_supabase()
-        if not sb or not session_ids:
+        if not session_ids:
             return
-        try:
-            sb.table("rpe_sessions").delete() \
-                .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
-        except Exception as exc:
-            logger.error("RPE purge_sessions error: %s", exc)
+
+        sb = _get_supabase()
+        if sb:
+            try:
+                sb.table("rpe_sessions").delete() \
+                    .eq("auth_user_id", auth_user_id).in_("session_id", session_ids).execute()
+            except Exception as exc:
+                logger.error("RPE purge_sessions error: %s", exc)
+
+        for session_id in session_ids:
+            path = LOGS_DIR / f"{session_id}.json"
+            if not path.exists():
+                continue
+            try:
+                data = self._read_json(session_id)
+                if data.get("auth_user_id") != auth_user_id:
+                    continue
+                path.unlink()
+            except Exception as exc:
+                logger.error("JSON purge_sessions failed for %s: %s", session_id, exc)
 
     # ── Supabase helpers ──────────────────────────────────────────────────────
 
@@ -407,6 +557,7 @@ class RpeSessionService:
                     "user_id":           payload["user_id"],
                     "started_at":        payload["started_at"],
                     "opening_npc_line":  payload["opening_npc_line"],
+                    "npc_name":          payload["npc_name"],
                     "emotion_history":   payload["emotion_history"],
                     "trust_history":     payload["trust_history"],
                     "ended_at":          None,
@@ -472,6 +623,7 @@ class RpeSessionService:
             "auth_user_id":      row.get("auth_user_id"),
             "started_at":        row["started_at"],
             "opening_npc_line":  row.get("opening_npc_line", ""),
+            "npc_name":          row.get("npc_name"),
             "turns":             turns,
             "emotion_history":   row.get("emotion_history") or ["calm"],
             "trust_history":     row.get("trust_history")   or [50],

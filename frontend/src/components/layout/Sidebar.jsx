@@ -30,9 +30,11 @@ import logoMark from '@/assets/brand/logo-mark.png';
 function SidebarLink({ to, icon: Icon, label, collapsed = false }) {
   const { pathname } = useLocation();
   const isActive = pathname === to;
+  const linkId = `sb-link-${to.replace(/\//g, '-').replace(/^-/, '').replace(/-+$/, '')}` || 'sb-link-home';
   return (
     <Link
       to={to}
+      id={linkId}
       className="sb-link"
       data-active={isActive}
       title={collapsed ? label : undefined}
@@ -48,7 +50,7 @@ function SidebarLink({ to, icon: Icon, label, collapsed = false }) {
   );
 }
 
-export default function Sidebar({ collapsed = false, onToggle }) {
+export default function Sidebar({ collapsed = false, onToggle, forceOpenProgress = false }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -56,8 +58,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const analyticsActive = pathname.startsWith('/analytics');
   const [analyticsOpen, setAnalyticsOpen] = useState(true);
   useEffect(() => {
-    if (analyticsActive) setAnalyticsOpen(true);
-  }, [analyticsActive]);
+    if (analyticsActive || forceOpenProgress) setAnalyticsOpen(true);
+  }, [analyticsActive, forceOpenProgress]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -77,7 +79,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         </Link>
         {!collapsed && <span className="sb-brand-text">EmpowerZ</span>}
         <div style={{ flex: 1 }} />
-        {!collapsed && (
+        {!collapsed && !forceOpenProgress && (
           <button
             className="icon-btn"
             onClick={onToggle}
@@ -88,7 +90,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           </button>
         )}
       </div>
-      {collapsed && (
+      {collapsed && !forceOpenProgress && (
         <button
           className="icon-btn"
           style={{ alignSelf: 'center', marginBottom: 8 }}
@@ -109,8 +111,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         <div className="sb-section-label">Learn</div>
         <SidebarLink to="/survey" icon={ClipboardList} label="Assessment" collapsed={collapsed} />
         <SidebarLink to="/baseline" icon={Mic} label="Baseline" collapsed={collapsed} />
-        <SidebarLink to="/training-plan" icon={Brain} label="Training Plan" collapsed={collapsed} />
         <SidebarLink to="/training-plan/new" icon={Target} label="New Plan" collapsed={collapsed} />
+        <SidebarLink to="/training-plan" icon={Brain} label="Training Plan" collapsed={collapsed} />
 
         {/* Practice */}
         <div className="sb-section-label">Practice</div>
@@ -123,7 +125,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           style={collapsed ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
         >
           <span>Progress</span>
-          {!collapsed && (
+          {!collapsed && !forceOpenProgress && (
             <button
               type="button"
               className="icon-btn"

@@ -105,6 +105,31 @@ export default function Settings() {
                 checked={keyboardHints}
                 onChange={setKeyboardHints}
               />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 16,
+                  padding: '12px 0',
+                  borderBottom: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="fg" style={{ fontSize: 14, fontWeight: 500 }}>Dashboard Tour</div>
+                  <div className="t-cap" style={{ marginTop: 2 }}>Replay the guided tour through the dashboard and progress pages.</div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('ez:start-tour'));
+                    toast.success('Tour restarted!');
+                  }}
+                >
+                  Restart Tour
+                </Button>
+              </div>
             </div>
           )}
 

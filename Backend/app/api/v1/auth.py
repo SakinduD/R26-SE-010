@@ -78,9 +78,15 @@ def signup(body: SignUpRequest, db: Session = Depends(get_db)) -> AuthResponse:
     except Exception as exc:
         db.rollback()
         logger.error("Failed to persist user after Supabase signup: %s", exc)
+        # Clean up the Supabase auth entry so the email can be re-registered
+        try:
+            admin.auth.admin.delete_user(str(user_id))
+            logger.info("Rolled back Supabase auth user %s after DB failure", user_id)
+        except Exception as cleanup_exc:
+            logger.error("Failed to clean up Supabase auth user after DB failure: %s", cleanup_exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User created in auth but profile save failed",
+            detail="Signup failed — please try again",
         )
 
     # Sign in immediately to return tokens
@@ -185,4 +191,25 @@ def password_reset(body: PasswordResetRequest) -> dict[str, str]:
 @router.get("/me", status_code=status.HTTP_200_OK, response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     """Return the authenticated user's profile."""
+    return UserResponse.model_validate(current_user)
+
+
+@router.patch("/me/tour-seen", status_code=status.HTTP_200_OK, response_model=UserResponse)
+def mark_tour_seen(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    """Mark the onboarding tour as seen for the current user."""
+    if not current_user.has_seen_tour:
+        current_user.has_seen_tour = True
+        try:
+            db.commit()
+            db.refresh(current_user)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Failed to mark tour as seen: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not update tour status",
+            )
     return UserResponse.model_validate(current_user)
