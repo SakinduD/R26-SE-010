@@ -152,16 +152,23 @@ _CONTACTS = (
 
 # One sentence, and not about the learner: it says what this page is, and leaves
 # the reading of their own situation to them.
+# Wording follows the reviewing counsellor's recommendation of 27 August 2026:
+# acknowledge briefly, point to someone the learner trusts or to a qualified
+# professional, and offer no therapeutic, diagnostic or clinical advice. Naming
+# the kinds of people worth talking to matters - a helpline number alone reads as
+# a crisis response, which overstates most of what this detector catches.
 _MESSAGE = {
     "urgent": (
         "This page is about presentation practice and nothing else. If you are "
-        "going through something harder than that, please talk to someone now. "
-        "These lines are free and confidential."
+        "going through something harder than that, please talk to someone now - "
+        "someone you trust, a doctor or counsellor, or one of these lines. They "
+        "are free and confidential."
     ),
     "support": (
         "This page only has advice about practising a skill. If something bigger "
-        "than that is weighing on you, these people are free to talk to, and "
-        "confidential."
+        "than that is weighing on you, someone you trust is a better place to "
+        "take it - a doctor, a counsellor, or your institution's student support "
+        "service. These lines are free and confidential too."
     ),
 }
 
