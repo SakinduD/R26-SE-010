@@ -13,5 +13,8 @@ Module layout:
   adapter            — ONLY scale-conversion site (0-100 <-> 0-1)
   scenario_selector  — async: RPE library + Gemini fallback
   orchestrator       — wires everything together (DB + RPE + LLM)
-  analytics_writer   — isolated, feature-flagged analytics population
+
+APM never writes to the analytics tables. The analytics module reports on
+multimodal sessions only and hands its learner signal back to APM as a pull
+(analytics_feedback_loop_service, read by plan_service).
 """

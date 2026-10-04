@@ -32,6 +32,15 @@ from app.models.user import User
 
 _NOW = datetime.now(timezone.utc)
 
+# What MCA stores for a finished session: 0-100 integer skill scores, MCA's SER labels.
+_MCA_SKILL_SCORES = {
+    "vocal_command": 68,
+    "speech_fluency": 72,
+    "presence_engagement": 79,
+    "emotional_regulation": 61,
+}
+_MCA_EMOTIONS = {"neutral": 0.55, "happy": 0.30, "fearful": 0.15}
+
 
 def _make_user(db: Session, email: str | None = None) -> User:
     uid = uuid.uuid4()
@@ -69,6 +78,9 @@ def _make_mca_session(
     db: Session,
     user: User,
     status: str = "completed",
+    skill_scores: dict | None = None,
+    emotion_distribution: dict | None = None,
+    overall_score: int = 74,
 ) -> SessionResult:
     session = SessionResult(
         user_id=user.id,
@@ -77,9 +89,9 @@ def _make_mca_session(
         started_at=_NOW,
         ended_at=_NOW,
         duration_seconds=62,
-        overall_score=74,
-        skill_scores={"vocal_command": 0.68, "presence_engagement": 0.79},
-        emotion_distribution={"calm": 0.55, "confident": 0.30, "anxious": 0.15},
+        overall_score=overall_score,
+        skill_scores=dict(_MCA_SKILL_SCORES) if skill_scores is None else skill_scores,
+        emotion_distribution=dict(_MCA_EMOTIONS) if emotion_distribution is None else emotion_distribution,
     )
     db.add(session)
     db.commit()
@@ -241,7 +253,7 @@ class TestBaselineComplete:
         )
         assert snap is not None
         assert snap.mca_session_id == mca_id_str
-        assert snap.skill_scores == {"vocal_command": 0.68, "presence_engagement": 0.79}
+        assert snap.skill_scores == _MCA_SKILL_SCORES
 
     def test_baseline_complete_triggers_plan_regeneration(
         self, client: TestClient, db_session: Session
@@ -345,8 +357,8 @@ class TestGetMyBaseline:
         snap = BaselineSnapshot(
             user_id=user.id,
             mca_session_id=str(uuid.uuid4()),
-            skill_scores={"vocal_command": 0.72},
-            emotion_distribution={"calm": 0.80, "anxious": 0.20},
+            skill_scores={"vocal_command": 72},
+            emotion_distribution={"neutral": 0.80, "fearful": 0.20},
             overall_score=81.0,
             duration_seconds=70,
             created_at=_NOW,
@@ -366,4 +378,115 @@ class TestGetMyBaseline:
         assert data["user_id"] == str(user.id)
         assert data["overall_score"] == pytest.approx(81.0)
         assert data["duration_seconds"] == 70
-        assert data["skill_scores"] == {"vocal_command": 0.72}
+        assert data["skill_scores"] == {"vocal_command": 72}
+
+
+# ---------------------------------------------------------------------------
+# Redo, session quality, history and the stored learner profile
+# ---------------------------------------------------------------------------
+
+
+def _call(client: TestClient, user: User, method: str, path: str, **kwargs):
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        return getattr(client, method)(f"/api/v1/apa{path}", **kwargs)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+class TestBaselineRedoAndProfile:
+    def test_redo_keeps_existing_plan(self, client: TestClient, db_session: Session):
+        """A redo recalculates the profile only; the plan is not regenerated."""
+        user = _make_user(db_session)
+        _make_profile(db_session, user)
+        first, second = _make_mca_session(db_session, user), _make_mca_session(db_session, user)
+        plan = _make_plan(db_session, user)
+        first_id, second_id, plan_id = str(first.id), str(second.id), str(plan.id)
+
+        mock = AsyncMock(return_value=plan)
+        with patch("app.services.pedagogy.orchestrator.generate_training_plan", new=mock):
+            first_resp = _call(client, user, "post", "/baseline/complete", json={"mca_session_id": first_id})
+            redo_resp = _call(client, user, "post", "/baseline/complete", json={"mca_session_id": second_id})
+
+        assert first_resp.json()["plan_regenerated"] is True
+        assert redo_resp.status_code == 201
+        assert redo_resp.json()["plan_regenerated"] is False
+        assert redo_resp.json()["plan_id"] == plan_id
+        mock.assert_awaited_once()
+
+    def test_first_real_baseline_after_skip_builds_plan(self, client: TestClient, db_session: Session):
+        """A skipped baseline is not a baseline: the first real one still builds the plan."""
+        user = _make_user(db_session)
+        _make_profile(db_session, user)
+        db_session.add(BaselineSnapshot(
+            user_id=user.id, mca_session_id="skipped", created_at=_NOW, updated_at=_NOW,
+        ))
+        db_session.commit()
+        mca_id = str(_make_mca_session(db_session, user).id)
+        plan = _make_plan(db_session, user)
+
+        mock = AsyncMock(return_value=plan)
+        with patch("app.services.pedagogy.orchestrator.generate_training_plan", new=mock):
+            resp = _call(client, user, "post", "/baseline/complete", json={"mca_session_id": mca_id})
+
+        assert resp.status_code == 201
+        assert resp.json()["plan_regenerated"] is True
+        mock.assert_awaited_once()
+
+    def test_session_that_observed_nothing_is_rejected_with_reason(
+        self, client: TestClient, db_session: Session
+    ):
+        """Every skill at the neutral 50, no emotion, no nudges → 422 the learner can read."""
+        user = _make_user(db_session)
+        _make_profile(db_session, user)
+        empty = _make_mca_session(
+            db_session, user,
+            skill_scores={k: 50 for k in _MCA_SKILL_SCORES}, emotion_distribution={}, overall_score=50,
+        )
+
+        resp = _call(client, user, "post", "/baseline/complete", json={"mca_session_id": str(empty.id)})
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"].startswith("This session ran 62 seconds")
+        assert _call(client, user, "get", "/baseline/history").json() == []
+        assert _call(client, user, "get", "/baseline/me").status_code == 404
+
+    def test_history_is_empty_before_any_baseline(self, client: TestClient, db_session: Session):
+        user = _make_user(db_session)
+        resp = _call(client, user, "get", "/baseline/history")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_learner_profile_requires_survey(self, client: TestClient, db_session: Session):
+        user = _make_user(db_session)
+        assert _call(client, user, "get", "/learner-profile/me").status_code == 404
+
+    def test_learner_profile_without_baseline_comes_from_ocean(
+        self, client: TestClient, db_session: Session
+    ):
+        user = _make_user(db_session)
+        _make_profile(db_session, user)
+
+        data = _call(client, user, "get", "/learner-profile/me").json()
+
+        assert data["source_mca_session_id"] is None
+        assert data["baseline"]["has_baseline"] is False
+        assert data["ocean"]["neuroticism"] == pytest.approx(70.0)
+
+    def test_learner_profile_follows_survey_retake(self, client: TestClient, db_session: Session):
+        """A stored profile computed from old OCEAN scores is recalculated on read."""
+        user = _make_user(db_session)
+        user_id = user.id
+        _make_profile(db_session, user)
+        before = _call(client, user, "get", "/learner-profile/me").json()
+
+        # The request closed the session, so re-load the row before editing it.
+        db_session.query(PersonalityProfile).filter(
+            PersonalityProfile.user_id == user_id
+        ).one().neuroticism = 20.0
+        db_session.commit()
+        after = _call(client, user, "get", "/learner-profile/me").json()
+
+        assert before["strategy"]["tone"] == "gentle"
+        assert after["ocean"]["neuroticism"] == pytest.approx(20.0)
+        assert after["strategy"]["tone"] == "challenging"

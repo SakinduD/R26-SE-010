@@ -24,7 +24,7 @@ the existing never-raises fallback chain below.
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -193,9 +193,13 @@ async def select_scenarios(
     llm: GeminiClient,
     *,
     user_id: str,
+    weak_skills: Optional[list[str]] = None,
 ) -> ScenarioSelectionResult:
     """
     Hybrid scenario selection. Never raises.
+
+    weak_skills: the learner profile's weak skills (baseline-aware). When
+    omitted they are inferred from OCEAN alone.
 
     Returns:
       ScenarioSelectionResult with generation_source set to whichever path
@@ -203,7 +207,8 @@ async def select_scenarios(
       and the orchestrator should mark generation_status='scenario_failed'.
     """
     rationale: list[str] = []
-    weak_skills = infer_weak_skills(profile, strategy)
+    if weak_skills is None:
+        weak_skills = infer_weak_skills(profile, strategy)
     difficulty_label = difficulty_int_to_label(difficulty)
     rationale.append(
         f"Inferred weak_skills={weak_skills or '[]'}; "

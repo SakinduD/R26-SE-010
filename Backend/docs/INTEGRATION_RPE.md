@@ -208,8 +208,8 @@ curl -X POST http://localhost:8000/api/v1/apa/session-feedback \
 - **`coaching_advice` is required.** Pydantic will reject the payload if this field is absent.
   Send at minimum `{"overall_rating": "", "summary": "", "advice": [], "strengths": [], "focus_areas": []}`.
 - **Difficulty stays within 1 – 10.** APM clamps automatically.
-- **Analytics are written automatically.** Every `session-feedback` call writes to
-  `session_metrics` and `feedback_entries` via `analytics_writer`. No extra RPE action needed.
+- **Session feedback does not reach the analytics tables.** The analytics module reports on
+  multimodal sessions only; APM keeps role-play results in its own adjustment history.
 
 ---
 

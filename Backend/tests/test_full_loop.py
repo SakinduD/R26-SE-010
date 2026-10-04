@@ -65,10 +65,11 @@ _ALEX_OCEAN = dict(
     agreeableness=55.0, neuroticism=70.0,
 )
 
-# Baseline evidence: high stress, low confidence, weak assertiveness
+# Baseline evidence as MCA stores it (0-100 scores, MCA emotion labels):
+# high stress, low confidence, weak vocal command
 _ALEX_BASELINE = dict(
-    skill_scores={"assertiveness": 0.25, "boundary_setting": 0.30, "emotional_regulation": 0.35},
-    emotion_distribution={"anxious": 0.45, "nervous": 0.27, "calm": 0.18, "neutral": 0.10},
+    skill_scores={"vocal_command": 25, "speech_fluency": 30, "presence_engagement": 45, "emotional_regulation": 35},
+    emotion_distribution={"fearful": 0.45, "sad": 0.27, "neutral": 0.18, "happy": 0.10},
     overall_score=38,
     duration_seconds=210,
 )
@@ -149,11 +150,8 @@ class TestFullAdaptiveLoop:
         from unittest.mock import MagicMock, patch as _patch
         mock_settings = MagicMock()
         mock_settings.apm_service_token = self._SERVICE_TOKEN
-        mock_settings.apm_write_analytics = False
 
-        with _patch("app.api.v1.pedagogy.get_settings", return_value=mock_settings), \
-             _patch("app.services.pedagogy.analytics_writer.write_session_metrics"), \
-             _patch("app.services.pedagogy.analytics_writer.write_feedback_entries"):
+        with _patch("app.api.v1.pedagogy.get_settings", return_value=mock_settings):
             return client.post(
                 "/api/v1/apa/session-feedback",
                 json=fb.model_dump(),
@@ -236,8 +234,8 @@ class TestFullAdaptiveLoop:
         bl = plan.baseline_summary_json
         assert bl["has_baseline"] is True
         assert bl["stress_indicator"] == pytest.approx(0.72, abs=0.01)
-        # calm=0.18 + neutral=0.10 → 0.28  (confident/calm/happy/neutral set)
-        assert bl["confidence_indicator"] == pytest.approx(0.28, abs=0.01)
+        # happy=0.10 is the only confidence label
+        assert bl["confidence_indicator"] == pytest.approx(0.10, abs=0.01)
 
         # Brief should now reflect baseline evidence
         assert plan.brief_json["has_baseline_evidence"] is True
@@ -245,7 +243,8 @@ class TestFullAdaptiveLoop:
         # Priority skills from baseline weak scores
         strat = plan.strategy_json
         assert len(strat["priority_skills"]) >= 1
-        assert "assertiveness" in strat["priority_skills"]
+        assert strat["priority_skills"][0] == "vocal_command"
+        assert strat["npc_personality"] == "warm_supportive"
 
     # ------------------------------------------------------------------
     # Step 3 — session-feedback (failure → difficulty drops)
@@ -284,10 +283,10 @@ class TestFullAdaptiveLoop:
             user_id=str(user.id),
             outcome="failure",
             final_trust=20,
-            final_escalation=3,
+            final_escalation=4,  # RPE escalation is 0-5
             total_turns=5,
             coaching_advice=CoachingAdvice(
-                overall_rating="poor",
+                overall_rating="needs_work",
                 summary="Struggled under pressure.",
                 advice=["Stay calm"],
                 strengths=[],

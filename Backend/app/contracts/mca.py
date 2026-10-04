@@ -24,10 +24,17 @@ NudgeSeverity = Literal["info", "warning", "critical"]
 
 
 class McaNudge(BaseModel):
-    """One live coaching nudge from MCA's audio analyser."""
+    """
+    One live coaching nudge from MCA's audio analyser: the `metrics` object of
+    an audio WebSocket frame whose nudge_category is set. Extra frame fields
+    (speaking, detections, ...) are ignored.
 
-    emotion: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    emotion is None when the learner wasn't speaking in that chunk; MCA then
+    sends confidence 0.0, which is not an emotion reading.
+    """
+
+    emotion: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     nudge: str | None = None
     nudge_category: NudgeCategory
     nudge_severity: NudgeSeverity

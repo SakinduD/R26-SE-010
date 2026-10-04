@@ -38,7 +38,7 @@ GOAL_TEXT_MAX = 500
 
 def _validate_focus_skills(skills: Optional[list[str]]) -> Optional[list[str]]:
     """
-    Reject anything outside RPE's fixed 11-skill vocabulary. Raising here
+    Reject anything outside RPE's fixed skill vocabulary. Raising here
     surfaces as a 422 carrying the allowed list, which is what the frontend
     multi-select needs to self-correct.
     """

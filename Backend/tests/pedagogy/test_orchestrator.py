@@ -12,6 +12,7 @@ import pytest
 
 from app.contracts.rpe import CoachingAdvice, FeedbackResponse, TurnMetric
 from app.services.pedagogy import orchestrator
+from app.services.pedagogy.learner_profile_service import compute_profile
 from app.services.pedagogy.types import OceanScores, TeachingStrategy
 
 FAKE_USER_ID = uuid.uuid4()
@@ -63,10 +64,10 @@ def _make_fb(outcome: str = "success") -> FeedbackResponse:
         turn_metrics=[
             TurnMetric(
                 turn=1,
-                assertiveness_score=0.7 if outcome == "success" else 0.2,
-                empathy_score=0.6,
-                clarity_score=0.8,
-                response_quality=0.75 if outcome == "success" else 0.2,
+                assertiveness_score=7.0 if outcome == "success" else 2.0,  # RPE: 0-10
+                empathy_score=6.0,
+                clarity_score=8.0,
+                response_quality=7.5 if outcome == "success" else 2.0,
             )
         ],
         coaching_advice=CoachingAdvice(overall_rating="good", summary="OK"),
@@ -129,8 +130,9 @@ async def test_generate_training_plan_creates_plan():
     # Patch _load_ocean and _load_plan to simplify
     with (
         patch.object(orchestrator, "_load_ocean", return_value=INTRO_SCORES),
+        patch.object(orchestrator, "_load_learner_profile",
+                     return_value=compute_profile(INTRO_SCORES, None)),
         patch.object(orchestrator, "_load_plan", return_value=None),
-        patch("app.services.pedagogy.analytics_writer.write_skill_predictions"),
     ):
         rpe2 = AsyncMock()
         rpe2.recommend_scenarios.side_effect = Exception("down")
@@ -172,8 +174,6 @@ async def test_apply_session_feedback_updates_plan():
 
     with (
         patch.object(orchestrator, "_load_plan", return_value=intro_plan),
-        patch("app.services.pedagogy.analytics_writer.write_session_metrics"),
-        patch("app.services.pedagogy.analytics_writer.write_feedback_entries"),
     ):
         db = MagicMock()
         await orchestrator.apply_session_feedback(FAKE_USER_ID, _make_fb("failure"), db)
@@ -189,8 +189,6 @@ async def test_apply_session_feedback_success_raises_difficulty():
 
     with (
         patch.object(orchestrator, "_load_plan", return_value=extro_plan),
-        patch("app.services.pedagogy.analytics_writer.write_session_metrics"),
-        patch("app.services.pedagogy.analytics_writer.write_feedback_entries"),
     ):
         db = MagicMock()
         fb = FeedbackResponse(
@@ -199,7 +197,7 @@ async def test_apply_session_feedback_success_raises_difficulty():
             outcome="success", final_trust=90, final_escalation=0,
             total_turns=5,
             turn_metrics=[
-                TurnMetric(turn=i, assertiveness_score=0.9, empathy_score=0.9, clarity_score=0.9, response_quality=0.9)
+                TurnMetric(turn=i, assertiveness_score=9.0, empathy_score=9.0, clarity_score=9.0, response_quality=9.0)
                 for i in range(1, 6)
             ],
             coaching_advice=CoachingAdvice(overall_rating="excellent", summary="Great"),

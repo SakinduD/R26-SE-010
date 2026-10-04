@@ -4,10 +4,9 @@ The MCA session is produced through the real MCA API (start -> end), so the
 baseline endpoint receives exactly what MCA stores: 0-100 integer skill scores
 and MCA's emotion labels. Only training-plan generation (Gemini / RPE) is mocked.
 
-The xfail(strict=True) tests are acceptance tests for pedagogy-side fixes listed
-in Backend/docs/MCA_Pedagogy_Integration_Issues.pdf. They fail today by design;
-when the fix lands they XPASS, strict mode turns that into a failure, and the
-marker should be removed.
+TestPedagogyReadsMcaBaseline holds the acceptance tests for the pedagogy-side
+fixes listed in Backend/docs/MCA_Pedagogy_Integration_Issues.pdf (P1-P4).
+They were xfail(strict=True) until the fixes landed.
 """
 import uuid
 from datetime import datetime, timezone
@@ -144,7 +143,6 @@ class TestBaselineHandoffNegative:
 # Acceptance tests for the pedagogy-side fixes (see the PDF)
 
 class TestPedagogyReadsMcaBaseline:
-    @pytest.mark.xfail(strict=True, reason="Pedagogy issue 2: skill scores are 0-100 but the weak-skill threshold is 0.4")
     def test_weak_mca_skill_becomes_priority(self, api, learner, finish_mca_session, db_session):
         session = finish_mca_session(learner, _speaking(n=100, quiet_every=10))  # quiet in 90% of chunks
         assert session["skill_scores"]["vocal_command"] < 40
@@ -153,7 +151,6 @@ class TestPedagogyReadsMcaBaseline:
         strategy = optimize_strategy(_MID_OCEAN, baseline=_baseline_summary(db_session, learner))
         assert "vocal_command" in strategy.priority_skills
 
-    @pytest.mark.xfail(strict=True, reason="Pedagogy issue 4: missing emotion data is read as confidence 0")
     def test_no_emotion_data_does_not_force_supportive_persona(self, api, learner, finish_mca_session, db_session):
         session = finish_mca_session(learner, _speaking(emotion=None))  # no emotion readings at all
         api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]})
@@ -163,19 +160,16 @@ class TestPedagogyReadsMcaBaseline:
         assert optimize_strategy(_MID_OCEAN, baseline=summary).npc_personality == \
             optimize_strategy(_MID_OCEAN, baseline=None).npc_personality
 
-    @pytest.mark.xfail(strict=True, reason="Pedagogy issue 5: stress labels don't include MCA's angry/disgust")
     def test_mca_negative_emotions_count_as_stress(self, api, learner, finish_mca_session, db_session):
         session = finish_mca_session(learner, _speaking(), {"angry": 0.7, "disgust": 0.3})
         api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]})
         assert _baseline_summary(db_session, learner).stress_indicator > 0.6
 
-    @pytest.mark.xfail(strict=True, reason="Pedagogy issue 5: 'neutral' is counted as confidence")
     def test_neutral_voice_is_not_full_confidence(self, api, learner, finish_mca_session, db_session):
         session = finish_mca_session(learner, _speaking(), {"neutral": 1.0})
         api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]})
         assert _baseline_summary(db_session, learner).confidence_indicator < 1.0
 
-    @pytest.mark.xfail(strict=True, reason="Pedagogy issue 6: /baseline/complete skips the session-quality filter")
     def test_session_that_observed_nothing_is_rejected(self, api, learner, finish_mca_session):
         session = finish_mca_session(learner, [])  # nothing observed: every skill is 50
         assert api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]}).status_code == 422

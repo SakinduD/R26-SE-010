@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.services.pedagogy.strategy_optimizer import (
+    is_high_stress,
+    is_low_confidence,
+    weak_baseline_skills,
+)
 from app.services.pedagogy.types import (
     BaselineSummary,
     OceanScores,
@@ -111,24 +116,23 @@ def _ocean_drivers(scores: OceanScores) -> list[str]:
 def _baseline_drivers(baseline: BaselineSummary) -> list[str]:
     drivers: list[str] = []
 
-    if baseline.stress_indicator is not None and baseline.stress_indicator > 0.6:
+    if is_high_stress(baseline):
         pct = int(baseline.stress_indicator * 100)
         drivers.append(
             f"Measured baseline stress ({pct}%) → tone softened an additional step"
         )
 
-    if baseline.confidence_indicator is not None and baseline.confidence_indicator < 0.3:
+    if is_low_confidence(baseline):
         pct = int(baseline.confidence_indicator * 100)
         drivers.append(
             f"Low measured confidence ({pct}%) → NPC set to warm/supportive"
         )
 
-    if baseline.skill_scores:
-        weak = [k for k, v in baseline.skill_scores.items() if v < 0.4]
-        if weak:
-            drivers.append(
-                f"Baseline session identified weak areas: {', '.join(weak)}"
-            )
+    weak = weak_baseline_skills(baseline)
+    if weak:
+        drivers.append(
+            f"Baseline session identified weak areas: {', '.join(weak)}"
+        )
 
     return drivers
 

@@ -8,9 +8,10 @@ adapter, brief_generator) rather than reimplementing any of them.
 
 Pipeline (POST /apa/training-plan/generate):
     1. Load PersonalityProfile     → PersonalityProfileMissing if absent (409)
-    2. Load BaselineSnapshot + recent session history
+    2. Load the stored learner profile (OCEAN + baseline) + recent session history
     3. Parse intent
-    4. Strategy + difficulty; recalibrate via dynamic_adjuster when history exists
+    4. Strategy + difficulty from the profile; recalibrate via dynamic_adjuster
+       when history exists
     5. Target skills = weak skills ∪ intent focus skills, ranked, RPE-constrained
     6. Compose (pure)
     7. Persist and return
@@ -31,7 +32,6 @@ from app.contracts.training_plan import (
 )
 from app.core.llm_client import GeminiClient
 from app.models.analytics import AnalyticsSessionMetric
-from app.models.baseline_snapshot import BaselineSnapshot
 from app.models.personality_profile import PersonalityProfile
 from app.models.training_plan import PersonalisedTrainingPlan, TrainingPlan
 from app.schemas.training_plan import (
@@ -39,20 +39,15 @@ from app.schemas.training_plan import (
     LearnerIntent,
     PersonalisedTrainingPlanOut,
 )
-from app.services.pedagogy import intent_parser, plan_composer
+from app.services.pedagogy import intent_parser, learner_profile_service, plan_composer
 from app.services.pedagogy.adapter import (
     RPE_SKILL_VOCABULARY,
     difficulty_int_to_label,
-    infer_weak_skills,
     to_rpe_profile,
 )
-from app.services.pedagogy.baseline_summarizer import summarize as summarize_baseline
 from app.services.pedagogy.brief_generator import generate_brief
-from app.services.pedagogy.dda_engine import initial_difficulty
 from app.services.pedagogy.dynamic_adjuster import adjust
-from app.services.pedagogy.strategy_optimizer import optimize_strategy
 from app.services.pedagogy.types import (
-    BaselineSummary,
     OceanScores,
     PerformanceSignal,
     TeachingStrategy,
@@ -107,15 +102,6 @@ def _load_ocean(user_id: uuid.UUID, db: Session) -> OceanScores:
     )
 
 
-def _load_baseline(user_id: uuid.UUID, db: Session) -> BaselineSummary:
-    snapshot = (
-        db.query(BaselineSnapshot)
-        .filter(BaselineSnapshot.user_id == user_id)
-        .first()
-    )
-    return summarize_baseline(snapshot)
-
-
 def _load_recent_metrics(
     user_id: uuid.UUID, db: Session
 ) -> list[AnalyticsSessionMetric]:
@@ -142,17 +128,25 @@ def _signal_from_metrics(
     if not scored:
         return None
 
-    def _mean(attr: str) -> float:
-        values = [
-            getattr(m, attr) for m in scored if getattr(m, attr, None) is not None
-        ]
+    def _mean(*columns: str) -> float:
+        """Mean of the first non-null column per row, in preference order."""
+        values = []
+        for m in scored:
+            value = next(
+                (getattr(m, c) for c in columns if getattr(m, c, None) is not None), None
+            )
+            if value is not None:
+                values.append(value)
         if not values:
             return 0.5
         return max(0.0, min(1.0, (sum(values) / len(values)) / _METRIC_SCALE))
 
+    # Analytics rows hold multimodal (MCA) sessions only; role-play columns such
+    # as response_quality_score are always empty. Each channel reads the column
+    # analytics fills for the matching MCA skill (analytics_integration_service).
     overall = _mean("overall_score")
-    engagement = _mean("response_quality_score")
-    confidence = _mean("confidence_score")
+    engagement = _mean("eye_contact_score", "confidence_score")       # presence_engagement
+    confidence = _mean("speech_volume_score", "professionalism_score")  # vocal_command
 
     if overall >= _OUTCOME_SUCCESS_AT:
         outcome = "success"
@@ -165,9 +159,10 @@ def _signal_from_metrics(
         engagement_score=engagement,
         confidence_score=confidence,
         objective_completion_rate=overall,
-        # Analytics metrics carry no direct stress channel; low clarity under
-        # pressure is the closest stored proxy.
-        stress_level=max(0.0, min(1.0, 1.0 - _mean("clarity_score"))),
+        # Low emotional regulation (MCA) is the closest stored stress proxy.
+        stress_level=max(
+            0.0, min(1.0, 1.0 - _mean("emotional_control_score", "empathy_score"))
+        ),
         outcome=outcome,
     )
 
@@ -237,7 +232,7 @@ def _rank_target_skills(
     strategy: TeachingStrategy,
 ) -> list[str]:
     """
-    Merge and rank target skills, strictly inside RPE's 11-skill vocabulary.
+    Merge and rank target skills, strictly inside RPE's skill vocabulary.
 
     Ranking, highest priority first:
       1. Skills the learner asked for that APM independently flagged as weak
@@ -351,7 +346,8 @@ async def _build_plan_body(
     Never raises except PersonalityProfileMissing — every LLM path degrades.
     """
     ocean = _load_ocean(user_id, db)
-    baseline = _load_baseline(user_id, db)
+    learner = learner_profile_service.get_current(user_id, db, ocean=ocean)
+    baseline = learner.baseline
     metrics = _load_recent_metrics(user_id, db)
 
     levels = plan_composer.ocean_levels(ocean)
@@ -367,8 +363,8 @@ async def _build_plan_body(
             llm=llm,
         )
 
-    strategy = optimize_strategy(ocean, baseline=baseline)
-    difficulty, _rationale = initial_difficulty(ocean, baseline=baseline)
+    strategy = learner.strategy
+    difficulty = learner.difficulty
 
     # Prefer the analytics module's longitudinal learner profile — it knows the
     # direction of travel, not just the recent average. Fall back to averaging
@@ -401,7 +397,7 @@ async def _build_plan_body(
     else:
         pedagogy_source = "ocean_baseline"
 
-    weak_skills = infer_weak_skills(ocean, strategy, baseline)
+    weak_skills = learner.weak_skills
     target_skills = _rank_target_skills(
         weak_skills, list(intent.desired_focus_skills), strategy
     )
@@ -665,7 +661,7 @@ def update_title_hint(
 
 
 def skill_vocabulary() -> list[str]:
-    """RPE's fixed 11-skill vocabulary, sorted for a stable frontend list."""
+    """RPE's fixed skill vocabulary, sorted for a stable frontend list."""
     return sorted(RPE_SKILL_VOCABULARY)
 
 

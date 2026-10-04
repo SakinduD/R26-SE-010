@@ -3,10 +3,10 @@
 Real MCA sessions (via the MCA API) and real plan generation; only role-play
 scenario selection (RPE + LLM) is mocked.
 
-The xfail(strict=True) tests are acceptance tests for task P8 in
+TestBaselineRedoAcceptance holds the acceptance tests for task P8 in
 Backend/docs/MCA_Pedagogy_Integration_Issues.pdf: on a redo, keep every
 baseline and recalculate the personalised learner profile, leaving existing
-training plans untouched. Remove each marker once the behaviour is implemented.
+training plans untouched. They were xfail(strict=True) until P8 landed.
 """
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -93,7 +93,6 @@ class TestBaselineRedoPositive:
 
 
 class TestBaselineRedoAcceptance:
-    @pytest.mark.xfail(strict=True, reason="P8: baselines are overwritten; no history is kept")
     def test_every_baseline_is_kept(self, api, learner, do_baseline):
         first, _ = do_baseline(learner)
         second, _ = do_baseline(learner, quiet_every=2)
@@ -101,7 +100,6 @@ class TestBaselineRedoAcceptance:
         assert resp.status_code == 200
         assert [b["mca_session_id"] for b in resp.json()] == [second["id"], first["id"]]  # newest first
 
-    @pytest.mark.xfail(strict=True, reason="P8: a redo regenerates the training plan (resets skill and difficulty)")
     def test_redo_leaves_training_plan_untouched(self, learner, do_baseline, db_session):
         do_baseline(learner)
         # The learner picks a skill and earns harder difficulty in role-plays.
@@ -113,7 +111,6 @@ class TestBaselineRedoAcceptance:
         do_baseline(learner, quiet_every=2)
         assert _plan_state(_plan(db_session, learner)) == before
 
-    @pytest.mark.xfail(strict=True, reason="P8: no stored learner profile is recalculated on redo")
     def test_redo_recalculates_learner_profile(self, api, learner, do_baseline):
         first, _ = do_baseline(learner)
         resp = api(learner, "get", _PROFILE)

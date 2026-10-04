@@ -377,28 +377,34 @@ def test_the_guard_fails_open_when_the_table_is_missing(client):
 
 # ------------------------------------------- the other way role-play data got in
 
-def test_the_apm_analytics_writer_is_off_by_default():
+def test_apm_has_no_analytics_writer():
     """The endpoint guard was not the whole boundary, and this is the rest of it.
 
-    `pedagogy/analytics_writer` writes AnalyticsSessionMetric, FeedbackEntry and
-    SkillPrediction rows with the ORM directly. Nothing it does passes through
-    this component's integration endpoint, so the 409 guard there never saw it.
-    It is what actually put the two role-play rows on a 114-session history, and
-    what put three predictions about trust_building, assertiveness and
-    political_awareness - none of them skills tracked here - into the
-    predictions table under this component's own model_version string.
+    `pedagogy/analytics_writer` used to write AnalyticsSessionMetric,
+    FeedbackEntry and SkillPrediction rows with the ORM directly. Nothing it did
+    passed through this component's integration endpoint, so the 409 guard there
+    never saw it. It is what actually put the two role-play rows on a
+    114-session history, and what put three predictions about trust_building,
+    assertiveness and political_awareness - none of them skills tracked here -
+    into the predictions table under this component's own model_version string.
 
-    It is feature-flagged, so the boundary is drawn by leaving the flag off
-    rather than by changing a line of APM code. This asserts the default, which
-    is the part a future edit could quietly reverse.
+    It was first held back by a feature flag defaulting to off. APM has since
+    removed the writer and the flag entirely; this asserts neither comes back.
     """
+    import importlib.util
+
     from app.config import Settings
 
-    assert Settings.model_fields["apm_write_analytics"].default is False
+    assert importlib.util.find_spec("app.services.pedagogy.analytics_writer") is None
+    assert "apm_write_analytics" not in Settings.model_fields
 
 
-def test_the_writer_does_nothing_while_that_default_stands(db_session):
-    """The flag is read through one predicate; this is the predicate."""
-    from app.services.pedagogy import analytics_writer
+def test_no_pedagogy_module_creates_analytics_rows():
+    """APM may read analytics (the learner-signal pull) but never write to it."""
+    from pathlib import Path
 
-    assert analytics_writer._analytics_enabled() is False
+    pedagogy = Path(__file__).resolve().parents[2] / "app" / "services" / "pedagogy"
+    for source in pedagogy.glob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        for model in ("AnalyticsSessionMetric(", "FeedbackEntry", "SkillPrediction"):
+            assert model not in text, f"{source.name} references {model}"

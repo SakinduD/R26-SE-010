@@ -22,18 +22,14 @@ from app.contracts.mca import McaNudge
 from app.contracts.rpe import FeedbackResponse
 from app.core.llm_client import GeminiClient
 from app.core.rpe_client import RpeClient
-from app.models.baseline_snapshot import BaselineSnapshot
 from app.models.personality_profile import PersonalityProfile
 from app.models.training_plan import AdjustmentHistory, TrainingPlan
-from app.services.pedagogy import analytics_writer
+from app.services.pedagogy import learner_profile_service
 from app.services.pedagogy.aggregator import PerformanceAggregator
-from app.services.pedagogy.baseline_summarizer import summarize as summarize_baseline
 from app.services.pedagogy.brief_generator import generate_brief
-from app.services.pedagogy.dda_engine import initial_difficulty
 from app.services.pedagogy.dynamic_adjuster import adjust
 from app.services.pedagogy.scenario_selector import select_scenarios
-from app.services.pedagogy.strategy_optimizer import optimize_strategy
-from app.services.pedagogy.types import BaselineSummary, OceanScores, TeachingStrategy
+from app.services.pedagogy.types import LearnerProfile, OceanScores, TeachingStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +59,11 @@ def _load_plan(user_id: uuid.UUID, db: Session) -> Optional[TrainingPlan]:
     )
 
 
-def _load_baseline_summary(user_id: uuid.UUID, db: Session) -> BaselineSummary:
-    """Return a BaselineSummary for the user; has_baseline=False if none exists."""
-    snapshot = (
-        db.query(BaselineSnapshot)
-        .filter(BaselineSnapshot.user_id == user_id)
-        .first()
-    )
-    return summarize_baseline(snapshot)
+def _load_learner_profile(
+    user_id: uuid.UUID, db: Session, scores: OceanScores
+) -> LearnerProfile:
+    """The stored personalised profile (OCEAN + current baseline), refreshed if stale."""
+    return learner_profile_service.get_current(user_id, db, ocean=scores)
 
 
 async def generate_training_plan(
@@ -84,8 +77,9 @@ async def generate_training_plan(
     Generate (or regenerate) a training plan for the user.
 
     Raises ValueError if no PersonalityProfile exists for the user.
-    When a BaselineSnapshot exists for the user, the plan is adjusted to
-    reflect measured vocal/emotional evidence from the baseline session.
+    Strategy, difficulty and weak skills come from the learner's stored
+    personalised profile (learner_profile_service), which already reflects
+    measured vocal/emotional evidence from the current baseline session.
     """
     scores = _load_ocean(user_id, db)
     if scores is None:
@@ -93,17 +87,18 @@ async def generate_training_plan(
             f"No personality profile for user {user_id}. Submit the survey first."
         )
 
-    baseline = _load_baseline_summary(user_id, db)
+    learner = _load_learner_profile(user_id, db, scores)
+    baseline = learner.baseline
     if baseline.has_baseline:
         logger.info(
-            "Baseline available for user %s (stress=%.2f, confidence=%.2f)",
+            "Baseline available for user %s (stress=%s, confidence=%s)",
             user_id,
-            baseline.stress_indicator or 0.0,
-            baseline.confidence_indicator or 0.0,
+            baseline.stress_indicator,
+            baseline.confidence_indicator,
         )
 
-    strategy = optimize_strategy(scores, baseline=baseline)
-    difficulty, _rationale = initial_difficulty(scores, baseline=baseline)
+    strategy = learner.strategy
+    difficulty = learner.difficulty
     brief = generate_brief(scores, strategy, baseline, difficulty)
 
     now = datetime.now(timezone.utc)
@@ -149,6 +144,7 @@ async def generate_training_plan(
         rpe=rpe,
         llm=llm,
         user_id=str(user_id),
+        weak_skills=learner.weak_skills,
     )
 
     plan.primary_scenario_json = result.primary_scenario
@@ -162,8 +158,6 @@ async def generate_training_plan(
     plan.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(plan)
-
-    analytics_writer.write_skill_predictions(str(user_id), plan, db)
 
     return plan
 
@@ -210,9 +204,6 @@ async def apply_session_feedback(
     plan.updated_at = now
     db.commit()
     db.refresh(plan)
-
-    analytics_writer.write_session_metrics(fb, db)
-    analytics_writer.write_feedback_entries(fb, db)
 
     return plan
 

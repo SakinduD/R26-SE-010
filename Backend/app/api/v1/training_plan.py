@@ -88,7 +88,7 @@ def get_skill_vocabulary(
     current_user: User = Depends(get_current_user),
 ) -> SkillVocabularyOut:
     """
-    RPE's fixed 11-skill vocabulary, so the frontend multi-select cannot drift
+    RPE's fixed skill vocabulary, so the frontend multi-select cannot drift
     from adapter.RPE_SKILL_VOCABULARY.
     """
     skills = plan_service.skill_vocabulary()
