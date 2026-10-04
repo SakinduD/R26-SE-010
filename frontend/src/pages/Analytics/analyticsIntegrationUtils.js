@@ -223,13 +223,12 @@ export function normalizeMcaSessionNudges(session) {
     nudge_severity: entry.severity || 'info',
   }))
 
-  const mechanicalEntries = Object.entries(session.mechanical_averages || {}).map(([key, value]) => ({
-    emotion: session.dominant_emotion || null,
-    confidence: normalizeConfidence(value),
-    nudge: `Multimodal ${humanizeKey(key)} average was ${formatValue(value)}.`,
-    nudge_category: normalizeCategory(key),
-    nudge_severity: Number(value) < 50 ? 'warning' : 'info',
-  }))
+  // mechanical_averages is deliberately not turned into nudges. It holds raw face
+  // measurements - eye and mouth aspect ratios and head pitch - which are distance
+  // ratios below 1, not scores out of 100. The severity rule used here read them as
+  // scores, so every one fell under 50 and every session with the camera on sent
+  // three warnings that described nothing. MCA already sends the detected problems
+  // in nudge_log and the scored skills in skill_scores.
 
   const emotionEntries = Object.entries(session.emotion_distribution || {}).map(([emotion, value]) => ({
     emotion,
@@ -252,7 +251,7 @@ export function normalizeMcaSessionNudges(session) {
       ]
       : []
 
-  return [...nudgeEntries, ...mechanicalEntries, ...emotionEntries, ...overallEntry]
+  return [...nudgeEntries, ...emotionEntries, ...overallEntry]
 }
 
 // Extract the accurate per-skill scores the MCA engine already computed.
