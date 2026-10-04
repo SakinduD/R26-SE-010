@@ -1,6 +1,6 @@
 {
   "model_version": "ml-predictive-behavioral-analytics-v1",
-  "trained_at": "2026-08-20T15:14:30.875991+00:00",
+  "trained_at": "2026-10-04T09:12:49.773429+00:00",
   "dataset_path": "training\\feedback_analytics\\datasets\\processed\\predictive_training_dataset.csv",
   "data_source": "kaggle_employee_performance_evaluation_transformed",
   "row_count": 5000,
@@ -94,7 +94,7 @@
       "rmse": 4.586,
       "r2": 0.7204,
       "cv_rmse": 4.5561,
-      "training_seconds": 0.0152
+      "training_seconds": 0.0131
     },
     {
       "model_name": "gradient_boosting_regressor",
@@ -105,7 +105,7 @@
       "rmse": 4.7096,
       "r2": 0.7051,
       "cv_rmse": 4.6659,
-      "training_seconds": 3.2538
+      "training_seconds": 2.9322
     },
     {
       "model_name": "random_forest_regressor",
@@ -116,7 +116,7 @@
       "rmse": 4.8499,
       "r2": 0.6873,
       "cv_rmse": 4.7858,
-      "training_seconds": 14.127
+      "training_seconds": 13.6754
     },
     {
       "model_name": "linear_regression",
@@ -127,7 +127,7 @@
       "rmse": 4.5875,
       "r2": 0.7202,
       "cv_rmse": 4.5551,
-      "training_seconds": 0.0456
+      "training_seconds": 0.0143
     }
   ],
   "classification_model_comparison": [
@@ -145,7 +145,7 @@
         "low",
         "medium"
       ],
-      "training_seconds": 4.741
+      "training_seconds": 4.1546
     },
     {
       "model_name": "gradient_boosting_classifier",
@@ -161,7 +161,7 @@
         "low",
         "medium"
       ],
-      "training_seconds": 10.6092
+      "training_seconds": 10.2811
     },
     {
       "model_name": "logistic_regression",
@@ -177,7 +177,7 @@
         "low",
         "medium"
       ],
-      "training_seconds": 0.1129
+      "training_seconds": 0.0992
     }
   ]
 }

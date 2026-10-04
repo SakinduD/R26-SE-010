@@ -78,7 +78,7 @@ def analyze_feedback_text(text: str, model_path: str | Path | None = None) -> Fe
     return FeedbackSentimentResult(
         text=prediction["text"],
         cleaned_text=prediction["cleaned_text"],
-        sentiment=prediction["sentiment"],
+        sentiment=str(prediction["sentiment"]),
         confidence=prediction["confidence"],
         sentiment_score=prediction["sentiment_score"],
         class_probabilities=prediction["class_probabilities"],
