@@ -121,17 +121,28 @@ class ClarityAnalyzer(AudioAnalyzer):
 
 class SilenceAnalyzer(AudioAnalyzer):
     """
-    Detects prolonged near-silence, which may indicate hesitation.
-    Threshold raised from 0.00005 to 0.0001 to account for the
-    browser MediaRecorder noise floor which is rarely truly zero.
+    Detects a hesitation: a near-silent chunk straight after the learner was
+    speaking. Room noise alone sits in the same RMS range, so near-silence
+    before the learner has spoken (session start, idle mic) is not a pause.
+    Fires once per pause; the learner must speak again to re-arm it.
     """
 
     SILENCE_THRESHOLD = 0.008  # accounts for higher noise floors
 
+    def __init__(self):
+        self._was_speaking = False
+
     def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
+        v = features.avg_volume
+        if v > SPEECH_RMS_GATE:
+            self._was_speaking = True
+            return None
+
         # Only trigger if there was *some* noise but very low (true hesitation)
         # and ignore if completely silent (standby)
-        if 0.001 < features.avg_volume < self.SILENCE_THRESHOLD:
+        is_pause = self._was_speaking and 0.001 < v < self.SILENCE_THRESHOLD
+        self._was_speaking = False
+        if is_pause:
             return Nudge(
                 message="Take your time! Pauses help gather ideas.",
                 category="silence",
