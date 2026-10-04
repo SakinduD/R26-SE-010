@@ -142,17 +142,39 @@ class TestClarityAnalyzerNegative:
 # SilenceAnalyzer
 
 class TestSilenceAnalyzerPositive:
-    def test_near_silence_is_a_hesitation(self):
-        nudge = SilenceAnalyzer().analyze(_features(volume=0.004))
+    def test_near_silence_after_speech_is_a_hesitation(self):
+        analyzer = SilenceAnalyzer()
+        analyzer.analyze(_features(volume=0.05))
+        nudge = analyzer.analyze(_features(volume=0.004))
         assert nudge is not None
         assert nudge.category == "silence"
+
+    def test_rearms_after_speaking_again(self):
+        analyzer = SilenceAnalyzer()
+        for _ in range(2):
+            analyzer.analyze(_features(volume=0.05))
+            assert analyzer.analyze(_features(volume=0.004)) is not None
 
 
 class TestSilenceAnalyzerNegative:
     def test_complete_silence_is_standby_not_hesitation(self):
         # NEGATIVE: RMS <= 0.001 is a muted/idle mic (standby), not a
         # learner pausing mid-thought, so no hesitation nudge.
-        assert SilenceAnalyzer().analyze(_features(volume=0.0005)) is None
+        analyzer = SilenceAnalyzer()
+        analyzer.analyze(_features(volume=0.05))
+        assert analyzer.analyze(_features(volume=0.0005)) is None
+
+    def test_room_noise_before_speaking_is_not_a_pause(self):
+        # NEGATIVE: at session start the mic only hears room noise, which is
+        # in the same RMS range as a pause. The learner hasn't spoken yet.
+        assert SilenceAnalyzer().analyze(_features(volume=0.004)) is None
+
+    def test_long_silence_fires_once(self):
+        # NEGATIVE: one pause gets one nudge, not one per quiet chunk.
+        analyzer = SilenceAnalyzer()
+        analyzer.analyze(_features(volume=0.05))
+        assert analyzer.analyze(_features(volume=0.004)) is not None
+        assert analyzer.analyze(_features(volume=0.004)) is None
 
     def test_normal_speech_is_not_silence(self):
         # NEGATIVE: the learner is speaking, so there is no silence.
