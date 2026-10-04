@@ -109,15 +109,46 @@ def test_baseline_high_stress_softens_tone_regardless_of_N():
 
 
 def test_baseline_low_confidence_overrides_npc_choice():
-    """confidence_indicator < 0.3 must force npc to warm_supportive."""
+    """confidence_indicator < 0.3 with real stress must force npc to warm_supportive."""
     scores = OceanScores(
         openness=50, conscientiousness=75, extraversion=75, agreeableness=20, neuroticism=25
     )
     no_baseline = optimize_strategy(scores)
     assert no_baseline.npc_personality != "warm_supportive"  # confirm OCEAN drives demanding NPC
 
-    with_baseline = optimize_strategy(scores, baseline=_baseline(confidence_indicator=0.2))
+    with_baseline = optimize_strategy(
+        scores, baseline=_baseline(confidence_indicator=0.2, stress_indicator=0.4)
+    )
     assert with_baseline.npc_personality == "warm_supportive"
+
+
+def test_neutral_voice_does_not_force_supportive_npc():
+    """A calm, neutral session (no happy, no stress) must not read as low confidence."""
+    scores = OceanScores(
+        openness=50, conscientiousness=75, extraversion=75, agreeableness=20, neuroticism=25
+    )
+    result = optimize_strategy(
+        scores, baseline=_baseline(confidence_indicator=0.0, stress_indicator=0.0)
+    )
+    assert result.npc_personality == optimize_strategy(scores).npc_personality
+
+
+def test_missing_emotion_data_skips_emotion_rules():
+    """None indicators (no emotion recorded) must leave tone and NPC as OCEAN set them."""
+    scores = OceanScores(
+        openness=50, conscientiousness=75, extraversion=75, agreeableness=20, neuroticism=25
+    )
+    result = optimize_strategy(scores, baseline=_baseline())
+    expected = optimize_strategy(scores)
+    assert (result.tone, result.npc_personality) == (expected.tone, expected.npc_personality)
+
+
+def test_priority_skills_are_weakest_first():
+    result = optimize_strategy(
+        _MID_RANGE,
+        baseline=_baseline(skill_scores={"speech_fluency": 0.35, "vocal_command": 0.2, "presence_engagement": 0.9}),
+    )
+    assert result.priority_skills == ["vocal_command", "speech_fluency"]
 
 
 def test_baseline_low_skill_score_appears_in_priority_skills():

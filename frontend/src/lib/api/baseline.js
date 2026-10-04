@@ -14,7 +14,8 @@ export async function completeBaseline(mcaSessionId) {
   const resp = await authClient.post('/api/v1/apa/baseline/complete', {
     mca_session_id: mcaSessionId,
   })
-  return resp.data // { baseline: BaselineSnapshotOut, plan_id }
+  // plan_regenerated is false on a redo: only the learner profile was recalculated
+  return resp.data // { baseline: BaselineSnapshotOut, plan_id, plan_regenerated }
 }
 
 export async function skipBaseline() {

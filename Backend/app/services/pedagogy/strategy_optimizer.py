@@ -18,8 +18,13 @@ Baseline rules (only active when baseline.has_baseline is True)
 These fire AFTER all OCEAN rules, so they can soften an already-derived
 strategy based on measured vocal/emotional evidence:
   stress_indicator > 0.6  → tone steps softer by one level
-  confidence_indicator < 0.3 → npc overridden to warm_supportive
+  confidence_indicator < 0.3 AND stress_indicator >= 0.3
+                          → npc overridden to warm_supportive
   skill_scores has any value < 0.4 → those skill names added to priority_skills
+
+The confidence rule also needs negative affect: MCA's confidence is the share
+of "happy", so a calm, neutral-voiced session has confidence 0 without being
+anxious. Missing emotion data (indicators None) skips both emotion rules.
 """
 from __future__ import annotations
 
@@ -40,6 +45,35 @@ from app.services.pedagogy.types import (
 
 LOW = 40
 HIGH = 60
+
+# Baseline thresholds (all on the 0-1 scale of BaselineSummary)
+HIGH_STRESS = 0.6
+LOW_CONFIDENCE = 0.3
+LOW_CONFIDENCE_MIN_STRESS = 0.3
+WEAK_SKILL_BELOW = 0.4
+
+
+def is_high_stress(baseline: BaselineSummary) -> bool:
+    si = baseline.stress_indicator
+    return si is not None and si > HIGH_STRESS
+
+
+def is_low_confidence(baseline: BaselineSummary) -> bool:
+    """Little positive affect AND real negative affect — not just a neutral voice."""
+    ci = baseline.confidence_indicator
+    si = baseline.stress_indicator
+    return (
+        ci is not None and si is not None
+        and ci < LOW_CONFIDENCE and si >= LOW_CONFIDENCE_MIN_STRESS
+    )
+
+
+def weak_baseline_skills(baseline: Optional[BaselineSummary]) -> list[str]:
+    """Measured skills below WEAK_SKILL_BELOW, weakest first."""
+    if baseline is None or not baseline.has_baseline or not baseline.skill_scores:
+        return []
+    weak = [(v, k) for k, v in baseline.skill_scores.items() if v < WEAK_SKILL_BELOW]
+    return [k for _, k in sorted(weak)]
 
 
 def optimize_strategy(
@@ -66,8 +100,9 @@ def optimize_strategy(
 
     Additional baseline rules (fire only when baseline.has_baseline is True):
       stress_indicator > 0.6       → tone steps softer one level
-      confidence_indicator < 0.3   → npc forced to warm_supportive
-      skill_scores[k] < 0.4        → k added to priority_skills
+      confidence_indicator < 0.3 and stress_indicator >= 0.3
+                                   → npc forced to warm_supportive
+      skill_scores[k] < 0.4        → k added to priority_skills (weakest first)
     """
     # mid-range defaults
     tone: Tone = "direct"
@@ -169,7 +204,7 @@ def optimize_strategy(
         si = baseline.stress_indicator
         ci = baseline.confidence_indicator
 
-        if si is not None and si > 0.6:
+        if is_high_stress(baseline):
             # Soften tone one step (gentle is the floor — no-op if already there)
             idx = TONE_ORDER.index(tone)
             softer = TONE_ORDER[max(0, idx - 1)]
@@ -186,17 +221,15 @@ def optimize_strategy(
                     f"tone already at floor ({tone!r}), no change"
                 )
 
-        if ci is not None and ci < 0.3:
+        if is_low_confidence(baseline):
             rationale.append(
-                f"baseline confidence_indicator={ci:.2f} < 0.3 → "
-                "npc overridden to warm_supportive"
+                f"baseline confidence_indicator={ci:.2f} < 0.3 with "
+                f"stress_indicator={si:.2f} → npc overridden to warm_supportive"
             )
             npc = "warm_supportive"
 
         if baseline.skill_scores:
-            priority_skills = [
-                k for k, v in baseline.skill_scores.items() if v < 0.4
-            ]
+            priority_skills = weak_baseline_skills(baseline)
             if priority_skills:
                 rationale.append(
                     f"baseline skill_scores has weak areas "

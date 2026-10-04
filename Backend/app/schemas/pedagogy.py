@@ -13,7 +13,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.contracts.mca import McaNudge
-from app.services.pedagogy.types import TeachingStrategy
+from app.services.pedagogy.types import BaselineSummary, OceanScores, TeachingStrategy
 
 
 class TrainingPlanOut(BaseModel):
@@ -61,3 +61,18 @@ class GeneratePlanIn(BaseModel):
 
 class LiveSignalIn(BaseModel):
     nudges: list[McaNudge]
+
+
+class LearnerProfileOut(BaseModel):
+    """GET /apa/learner-profile/me — the stored personalised profile."""
+
+    user_id: uuid.UUID
+    source_mca_session_id: Optional[str] = None
+    ocean: OceanScores
+    baseline: BaselineSummary
+    strategy: TeachingStrategy
+    difficulty: int
+    difficulty_rationale: list[str]
+    priority_skills: list[str]
+    weak_skills: list[str]
+    computed_at: datetime

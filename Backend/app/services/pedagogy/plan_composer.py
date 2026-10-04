@@ -272,6 +272,8 @@ def _required_beats(intent: LearnerIntent, target_skills: list[str]) -> list[str
                           "counterpart's constraint before pressing their own",
         "political_awareness": "An unstated stakeholder interest surfaces that "
                                "the learner must read and navigate",
+        "empathy": "The counterpart reveals a personal pressure behind their "
+                   "position that the learner can acknowledge",
     }
 
     seen: set[str] = set()
@@ -307,6 +309,7 @@ def _success_criteria(target_skills: list[str], intent: LearnerIntent) -> list[s
         "client_management": "Learner acknowledges the concern before defending the work",
         "trust_building": "Learner reflects the counterpart's constraint back accurately",
         "political_awareness": "Learner surfaces the unstated stakeholder interest",
+        "empathy": "Learner names the counterpart's feeling or pressure before responding to it",
     }
     for skill in target_skills:
         text = per_skill.get(skill)

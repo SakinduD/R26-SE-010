@@ -89,9 +89,19 @@ def test_high_stress_indicator_adds_driver():
 
 def test_low_confidence_indicator_adds_driver():
     brief = generate_brief(
-        _MID_SCORES, _MID_STRATEGY, _baseline(confidence_indicator=0.2), 5
+        _MID_SCORES, _MID_STRATEGY,
+        _baseline(confidence_indicator=0.2, stress_indicator=0.4), 5
     )
     assert any("confidence" in d.lower() for d in brief.drivers)
+
+
+def test_neutral_voice_adds_no_confidence_driver():
+    # A calm, neutral session has no "happy" share but no stress either.
+    brief = generate_brief(
+        _MID_SCORES, _MID_STRATEGY,
+        _baseline(confidence_indicator=0.0, stress_indicator=0.0), 5
+    )
+    assert not any("confidence" in d.lower() for d in brief.drivers)
 
 
 def test_baseline_weak_skills_add_driver():

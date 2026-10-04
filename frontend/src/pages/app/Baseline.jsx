@@ -75,14 +75,17 @@ export default function Baseline() {
     }, 10000);
   }, []);
 
-  // Hand the finished MCA session to the pedagogy module as this learner's baseline,
-  // which also regenerates their training plan. The MCA session itself is already saved,
-  // so a failure here only means the plan wasn't updated.
+  // Hand the finished MCA session to the pedagogy module as this learner's baseline.
+  // The first baseline builds the training plan; a redo only updates the learner
+  // profile, and the plan picks it up when regenerated. The MCA session itself is
+  // already saved, so a failure here only means pedagogy didn't take it.
   const handleSessionCompleted = useCallback(async (session) => {
     try {
-      await completeBaseline(session.id);
+      const result = await completeBaseline(session.id);
       toast.success("Baseline saved", {
-        description: "Your training plan now reflects this session."
+        description: result?.plan_regenerated === false
+          ? "Your learner profile is updated. Regenerate your training plan to use it."
+          : "Your training plan now reflects this session."
       });
     } catch (err) {
       const detail = err?.response?.data?.detail;

@@ -351,7 +351,7 @@ def test_active_returns_404_when_none(client, db_session):
     assert resp.status_code == 404
 
 
-def test_skill_vocabulary_returns_the_eleven_rpe_skills(client, db_session):
+def test_skill_vocabulary_returns_the_rpe_skills(client, db_session):
     uid = _make_user(db_session, tag="vocab")
 
     try:
@@ -362,7 +362,7 @@ def test_skill_vocabulary_returns_the_eleven_rpe_skills(client, db_session):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] == 11
+    assert body["count"] == len(RPE_SKILL_VOCABULARY)
     assert set(body["skills"]) == set(RPE_SKILL_VOCABULARY)
 
 
