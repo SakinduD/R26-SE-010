@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import * as cam from '@mediapipe/camera_utils';
@@ -10,6 +10,7 @@ import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuris
 import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
+import { hasCaptureConsent } from '@/components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -225,6 +226,9 @@ export default function Baseline() {
   };
 
   if (authLoading) return null;
+
+  // No sensing without consent — send direct visits to the consent screen first.
+  if (!hasCaptureConsent('baseline')) return <Navigate to="/baseline/consent" replace />;
 
   return (
     <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">

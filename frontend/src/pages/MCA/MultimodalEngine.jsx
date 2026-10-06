@@ -9,6 +9,7 @@ import { mcaService } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
 import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
+import CaptureConsent, { hasCaptureConsent, saveCaptureConsent } from '../../components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -39,7 +40,29 @@ function wrapCanvasText(ctx, text, maxWidth) {
   return lines;
 }
 
+// Live mode is gated behind the capture consent screen; the sensing page
+// (and its camera/mic hooks) only mounts once the user has agreed.
 const MultimodalEngine = () => {
+  const navigate = useNavigate();
+  const [consented, setConsented] = useState(() => hasCaptureConsent('live'));
+
+  if (!consented) {
+    return (
+      <CaptureConsent
+        mode="live"
+        onAccept={() => {
+          saveCaptureConsent('live');
+          setConsented(true);
+        }}
+        onDecline={() => navigate('/dashboard')}
+      />
+    );
+  }
+
+  return <LiveSensingSession />;
+};
+
+const LiveSensingSession = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const showMesh = searchParams.get('mesh') === 'true';
