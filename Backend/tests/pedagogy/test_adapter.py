@@ -23,16 +23,16 @@ EXTROVERT = OceanScores(
 
 def test_difficulty_int_to_label_beginner():
     assert difficulty_int_to_label(1) == "beginner"
-    assert difficulty_int_to_label(3) == "beginner"
+    assert difficulty_int_to_label(4) == "beginner"
 
 
 def test_difficulty_int_to_label_intermediate():
-    assert difficulty_int_to_label(4) == "intermediate"
-    assert difficulty_int_to_label(6) == "intermediate"
+    assert difficulty_int_to_label(5) == "intermediate"
+    assert difficulty_int_to_label(7) == "intermediate"
 
 
 def test_difficulty_int_to_label_advanced():
-    assert difficulty_int_to_label(7) == "advanced"
+    assert difficulty_int_to_label(8) == "advanced"
     assert difficulty_int_to_label(10) == "advanced"
 
 

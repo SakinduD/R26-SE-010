@@ -225,7 +225,10 @@ async def select_scenarios(
             rpe_profile
         )
         rationale.append(f"RPE returned {len(summaries)} candidate scenarios")
-    except RpeClientError as exc:
+    except Exception as exc:
+        # The contract above is "never raises", so anything the client can throw
+        # has to land here, not only RpeClientError: a transport, parsing or
+        # validation error must still leave the learner with a scenario.
         rationale.append(
             f"RPE recommend failed: {exc} — trying Gemini-only fallback"
         )
@@ -246,7 +249,9 @@ async def select_scenarios(
     for s in summaries:
         try:
             detail = await rpe.get_scenario_detail(s.scenario_id)
-        except RpeClientError as exc:
+        except Exception as exc:
+            # Same reason as above: a missing detail degrades the score, it does
+            # not abort the selection.
             logger.debug("scenario_detail %s failed: %s", s.scenario_id, exc)
             detail = None
         score = _score_scenario(
