@@ -67,5 +67,6 @@ MCA_Scoring_Methodology.docx
 .claude/launch.json
 /Backend/app/models/rpe/scenarios
 *.md
+!Backend/tests/pedagogy/_trace/*.md
 Backend/.env.example
 Backend/.env.example
