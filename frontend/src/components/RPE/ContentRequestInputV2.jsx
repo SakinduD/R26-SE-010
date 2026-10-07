@@ -28,6 +28,15 @@ import './ContentRequestInputV2.css'
  *   paragraph | section | evidence | long_text  -> textarea
  *   filename  | number  | short_text            -> single-line input
  *
+ * RPE V2 immersion pass: this component is now reached only for the
+ * `direct_input` interaction (short_text/filename/number — the single-line
+ * branch). The old `content_request` interaction, which used to drive the
+ * textarea branch, is normalized to `verbal_handoff` upstream in
+ * interaction.js and no longer renders this component at all — the
+ * textarea types are kept, unreached, for a possible future dedicated
+ * artifact-assessment flow (see interaction.js's header comment), not
+ * deleted since this component itself still works correctly if reused.
+ *
  * Props: prompt, contentType, onSubmit(text), onCancel?, disabled?, maxLength?
  */
 

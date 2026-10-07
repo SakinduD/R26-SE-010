@@ -43,6 +43,10 @@ transformers==4.40.0
 torch==2.2.2
 datasets==2.19.0
 
+# RPE NPC voice — see app/services/tts/providers/chirp3_provider.py
+# Chirp 3 HD — Google Cloud TTS via Application Default Credentials
+google-cloud-texttospeech==2.37.0
+
 # Dev / test
 pytest==8.3.3
 pytest-asyncio==0.24.0

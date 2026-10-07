@@ -2,9 +2,21 @@ import axios from 'axios';
 import { API_URL } from '../config';
 import { clearTokens, getTokens, setTokens } from '../auth/storage';
 
+// 45s: RPE's session-respond can legitimately chain two sequential LLM
+// calls on one turn — the main NPC dialogue call and, from turn 5 onward,
+// should_conversation_end()'s classify_conversation_end() check — each
+// independently bounded to 15s (see rpe_llm_service.py's OpenAI httpx
+// client and _get_groq_client's own timeout). Worst case that's ~30s of
+// real, legitimate LLM time before any DB/processing overhead; the
+// original 30s here left zero margin and was itself observed firing on a
+// real double-LLM-call turn. Without SOME cap a stalled request still
+// hangs forever with no error to catch and no way to retry — that was the
+// original problem this timeout fixed; 45s keeps that guarantee while
+// actually clearing the legitimate worst case.
 export const authClient = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 45000,
 });
 
 export default authClient;

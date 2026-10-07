@@ -43,6 +43,8 @@ import SessionSignals from '@/components/RPE/v2/SessionSignals'
 import SessionCompleteOverlay from '@/components/RPE/v2/SessionCompleteOverlay'
 import EndConfirmModal from '@/components/RPE/v2/EndConfirmModal'
 import { prefersReducedMotion } from '@/components/RPE/feedback/feedbackTheme'
+import { synthesizeNpcSpeech } from '@/services/rpe/ttsService'
+import { USE_MANAGED_TTS } from '@/lib/rpe/ttsConfig'
 import './RolePlaySessionV2.css'
 
 /*
@@ -72,15 +74,17 @@ const ANIMATION_TO_GESTURE = {
   thumbsUp: 'thumbup', thumbsDown: 'thumbdown', shrug: 'shrug',
   openHandPause: 'handup', pointing: 'index', handsClasped: 'namaste', wave: '👋',
 }
-// Generic, contentType-derived transcript label for a content_request/
-// direct_input submission — see handleSubmitContent below. Deliberately
-// generic rather than a fabricated specific title (e.g. never invents
-// "Section 5.3 — Instrumentation Plan"); the frontend only knows the kind
-// of thing that was asked for, not what it's actually about.
+// Generic, contentType-derived transcript label for a direct_input
+// submission — see handleSubmitContent below. Only filename/number/
+// short_text are reachable now: content_request (paragraph/section/
+// evidence/long_text) no longer renders ContentRequestInputV2 at all — see
+// interaction.js's verbal_handoff normalization — so those labels would be
+// dead code; trimmed rather than left unreachable. Deliberately generic
+// rather than a fabricated specific title (e.g. never invents "Section 5.3
+// — Instrumentation Plan"); the frontend only knows the kind of thing that
+// was asked for, not what it's actually about.
 const CONTENT_TYPE_LABEL = {
-  paragraph: 'Paragraph provided', section: 'Section provided', evidence: 'Evidence provided',
-  long_text: 'Content provided', filename: 'Filename provided', number: 'Figure provided',
-  short_text: 'Value provided',
+  filename: 'Filename provided', number: 'Figure provided', short_text: 'Value provided',
 }
 // The pause between the NPC's mood/gesture changing and the line actually
 // starting — long enough to read as "I heard you and I'm reacting", short
@@ -197,10 +201,13 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
     return initial
   })
   // Single source of truth for "what does the learner do right now" —
-  // { type: 'normal' } | { type: 'deliverable_choice', options } |
-  // { type: 'content_request'|'direct_input', contentType, prompt }.
+  // { type: 'normal' } | { type: 'commitment_choice', options } |
+  // { type: 'verbal_handoff', target, artifactStatus, prompt } |
+  // { type: 'direct_input', contentType, prompt, target, artifactStatus }.
   // Set from resolveInteraction(response) after every turn; see that
-  // function for why this replaced a plain choiceOptions boolean/array.
+  // function for why this replaced a plain choiceOptions boolean/array, and
+  // for why verbal_handoff (normal VoiceDock/text, no special panel) is a
+  // distinct type from direct_input (still gets ContentRequestInputV2).
   const [interaction, setInteraction] = useState({ type: 'normal' })
   const [liveTrust, setLiveTrust] = useState(50)
   const [liveTension, setLiveTension] = useState(0)
@@ -278,8 +285,13 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
     return new Promise((resolve) => {
       if (!text) { resolve(); return }
       const head = headRef.current
+      const speakCalledAt = performance.now() // T8-ish: right after the NPC's dialogue text became known
 
-      const startSpeaking = () => {
+      // Google TTS (head.speakText, which fetches /api/gtts itself) or, with
+      // no avatar at all, the browser's own SpeechSynthesis. This is what
+      // startSpeaking() below falls back to whenever the managed (Chirp3)
+      // path isn't used or fails.
+      const speakViaGoogleOrBrowser = () => {
         if (head) {
           setNpcSpeaking(true)
           head.speakText(text)
@@ -293,6 +305,64 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         utterance.onend = () => { setNpcSpeaking(false); resolve() }
         utterance.onerror = () => { setNpcSpeaking(false); resolve() }
         window.speechSynthesis.speak(utterance)
+      }
+
+      // Managed-TTS path (backend TTSManager -> Chirp 3 HD, server-side):
+      // kicked off immediately (right here, not inside startSpeaking below)
+      // so the network+synthesis latency runs concurrently with the
+      // mood/reaction-pause beat and any other work happening before
+      // startSpeaking() actually runs, instead of being added on top of
+      // it. Backend applies the speech performance layer — pacing/pauses
+      // from emotion — before synthesis. npcGender picks which of the two
+      // configured Chirp3 voices is used (see chirp3_provider.py).
+      // speakAudio() does NOT decode for us — it assigns r.audio straight
+      // to an AudioBufferSourceNode's .buffer, so it must already be a
+      // real AudioBuffer, not the raw WAV ArrayBuffer the backend returns
+      // (confirmed by reading playAudio()/speakAudio() in talkinghead.mjs
+      // — an undecoded ArrayBuffer throws "Failed to convert value to
+      // 'AudioBuffer'"). head.audioCtx is the same AudioContext instance
+      // TalkingHead itself uses to actually play it. The .catch(() => {})
+      // below only silences the "unhandled rejection" console warning that
+      // would otherwise fire before startSpeaking gets a chance to await
+      // (and really handle) this same promise.
+      const ttsPrepared = (head && USE_MANAGED_TTS)
+        ? synthesizeNpcSpeech({ text, emotion: emotion ?? 'neutral', gender: npcGender })
+            .then(async (result) => ({ ...result, decodedAudio: await head.audioCtx.decodeAudioData(result.audioBuffer) }))
+        : null
+      ttsPrepared?.catch(() => {})
+
+      // speakAudio() and speakText() both just push onto the same internal
+      // speechQueue, so speakMarker() right after works identically either
+      // way for the completion signal. Any failure (every backend provider
+      // failed, network, decode) falls straight through to Google/browser —
+      // never blocks the session (see rpe_tts_router.py's health/error
+      // contract).
+      const startSpeaking = async () => {
+        if (ttsPrepared) {
+          try {
+            const result = await ttsPrepared
+            setNpcSpeaking(true)
+            if (import.meta.env.DEV) {
+              // T15 — dialogue-known -> speakAudio() call. Covers the
+              // reaction-pause overlap (~450ms, hidden not added) plus the
+              // TTS fetch/decode already logged separately by ttsService.js.
+              console.log('[RPE latency] dialogue-known -> speakAudio()', `${Math.round(performance.now() - speakCalledAt)}ms`)
+            }
+            head.speakAudio({
+              audio: result.decodedAudio,
+              words: result.words,
+              wtimes: result.wtimes,
+              wdurations: result.wdurations,
+            })
+            head.speakMarker(() => { setNpcSpeaking(false); resolve() })
+            return
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn('[TTS] managed synthesis failed, falling back to Google TTS:', err)
+            }
+          }
+        }
+        speakViaGoogleOrBrowser()
       }
 
       // Reaction beat — only when there's a real emotion to react to (the
@@ -322,7 +392,7 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
 
       startSpeaking()
     })
-  }, [])
+  }, [npcGender])
 
   const speakOpeningLine = useCallback(() => {
     if (openingSpokenRef.current) return
@@ -339,8 +409,19 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
     setUserInput('')
     setIsLoading(true)
 
+    // Latency instrumentation (DEV only) — T1 (this call) through T8
+    // (response received). The gap between this and the backend's own
+    // [RPE latency] total_ms log line (router.py) is network transit +
+    // FastAPI/auth overhead outside the timed span; both together cover
+    // the "user submits -> NPC dialogue known" half of the voice pipeline.
+    // The other half (TTS) is already timed separately in ttsService.js's
+    // own DEV [TTS] log.
+    const t1 = performance.now()
     try {
       const response = await rpeService.sendTurn(sessionId, input)
+      if (import.meta.env.DEV) {
+        console.log('[RPE latency] session-respond round-trip', `${Math.round(performance.now() - t1)}ms`, `turn=${response.turn}`)
+      }
       setCurrentTurn(response.turn)
 
       // Snapshot "going in" values before anything below overwrites them —
@@ -406,11 +487,15 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
         const resolved = resolveInteraction(response)
         setInteraction(resolved)
-        // Only 'normal' turns get the mic back — deliverable_choice/
-        // content_request/direct_input render their own interaction UI
-        // instead (see the voiceState/render section below), and STT is a
-        // poor fit for dictating a document/filename/exact figures anyway.
-        if (resolved.type === 'normal') autoStartMic()
+        // 'normal' and 'verbal_handoff' both use the plain VoiceDock, so
+        // both auto-restart the mic — a learner asked for a status update
+        // mid-conversation shouldn't have to reach for a button just
+        // because the NPC's ask happened to be about an artifact (see
+        // interaction.js's verbal_handoff rationale). commitment_choice/
+        // direct_input render their own interaction UI instead (see the
+        // voiceState/render section below), and STT is a poor fit for
+        // picking a card or dictating a filename/exact figures anyway.
+        if (resolved.type === 'normal' || resolved.type === 'verbal_handoff') autoStartMic()
       }
     } catch (err) {
       // Never fake an NPC reply for a transport/backend failure — the NPC
@@ -444,14 +529,14 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
     handleSendWithText(option.text, option.label, 'choice')
   }, [handleSendWithText])
 
-  // content_request/direct_input submit — same pipeline as a choice pick,
-  // the only difference is where the text came from (the user typed/pasted
-  // it themselves, not a suggested reply). CONTENT_TYPE_LABEL is a generic,
-  // type-derived transcript tag ("Paragraph provided") — never a fabricated
-  // specific title, since the frontend has no way to know what the content
-  // actually is about. Same "don't clear interaction pre-emptively" reasoning
-  // as handleChooseOption — a failed submit leaves the textarea's own typed
-  // text untouched (ContentRequestInputV2 never unmounts) instead of losing it.
+  // direct_input submit — same pipeline as a choice pick, the only
+  // difference is where the text came from (the user typed it themselves,
+  // not a suggested reply). CONTENT_TYPE_LABEL is a generic, type-derived
+  // transcript tag ("Filename provided") — never a fabricated specific
+  // title, since the frontend has no way to know what the content actually
+  // is about. Same "don't clear interaction pre-emptively" reasoning as
+  // handleChooseOption — a failed submit leaves the input's own typed text
+  // untouched (ContentRequestInputV2 never unmounts) instead of losing it.
   const handleSubmitContent = useCallback((text) => {
     const label = CONTENT_TYPE_LABEL[interaction.contentType] || 'Content provided'
     handleSendWithText(text, label, 'content')
@@ -546,6 +631,28 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
       if (lastRecoveredTurn.user_behavior) {
         setIntelligence((prev) => ({ ...prev, userIntent: lastRecoveredTurn.user_behavior }))
       }
+      // conversation_state IS persisted per turn (see turn_data in
+      // router.py and rpe_session_service.log_turn) — restore the last
+      // turn's own tracked objective/phase/memory exactly as the live
+      // session had it, same principle as user_behavior above. Absent on
+      // an older session logged before this field existed — left alone,
+      // same as a fresh session (null/empty, never guessed).
+      const recoveredState = lastRecoveredTurn.conversation_state
+      if (recoveredState) {
+        setIntelligence((prev) => ({
+          ...prev,
+          npcObjective: recoveredState.npc_objective ?? prev.npcObjective,
+          phase: recoveredState.conversation_phase ?? prev.phase,
+          memory: {
+            commitments: recoveredState.commitments ?? [],
+            unresolvedItems: recoveredState.unresolved_items ?? [],
+            agreedDeadlines: recoveredState.agreed_deadlines ?? [],
+            requestedItems: recoveredState.requested_items ?? [],
+            userConstraints: recoveredState.user_constraints ?? [],
+            recentTopics: recoveredState.recent_topics ?? [],
+          },
+        }))
+      }
       openingSpokenRef.current = true
     } else {
       setMessages([{ role: 'npc', message: openingNpcLine }])
@@ -594,6 +701,15 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
   // clear `interaction` before sending, so on failure (isLoading back to
   // false, interaction untouched) voiceState naturally falls back to
   // 'choice'/'content' again — the exact same cards/input, not a fresh copy.
+  //
+  // verbal_handoff is deliberately NOT one of the special-panel branches
+  // here — it falls through to 'manual', the exact same normal VoiceDock/
+  // text path as ordinary conversation. That's the whole point of the RPE
+  // V2 immersion pass this replaced content_request's blocking form with:
+  // the NPC can still ask for a report/evidence/paragraph, but the learner
+  // talks about it instead of filling in a textarea. direct_input keeps
+  // its existing compact single-line input — a short literal fact (a time,
+  // a name) was never the "form in the middle of a conversation" problem.
   const voiceState = sessionComplete
     ? 'complete'
     : npcSpeaking
@@ -602,28 +718,31 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         ? 'reacting'
         : isLoading
           ? 'processing'
-          : interaction.type === 'deliverable_choice'
+          : interaction.type === 'commitment_choice'
             ? 'choice'
-            : interaction.type === 'content_request' || interaction.type === 'direct_input'
+            : interaction.type === 'direct_input'
               ? 'content'
               : 'manual'
 
   // Which interaction panel renders — kept separate from voiceState/
   // conversationState (the STATE LABEL) on purpose: interaction.type is
   // what's actually pending, independent of whether a submission for it is
-  // currently mid-flight. See the voiceState comment above for why.
-  const showChoicePanel = interaction.type === 'deliverable_choice'
-  const showContentPanel = interaction.type === 'content_request' || interaction.type === 'direct_input'
+  // currently mid-flight. See the voiceState comment above for why
+  // verbal_handoff isn't listed here either.
+  const showChoicePanel = interaction.type === 'commitment_choice'
+  const showContentPanel = interaction.type === 'direct_input'
 
   // The single label ConversationStateIndicatorV2 shows — refines voiceState
   // with a couple of signals it doesn't carry (mic/transcript state) rather
   // than introducing a second state machine; 'manual' is the only bucket
   // that needs splitting further (ready vs listening vs transcribing vs a
-  // captured-but-unsent response sitting in the box).
+  // captured-but-unsent response sitting in the box). voiceState === 'content'
+  // only ever happens for direct_input now (see voiceState above) —
+  // verbal_handoff is 'manual', same as ordinary conversation.
   const conversationState = voiceState === 'manual'
     ? (isListening ? 'listening' : isTranscribing ? 'transcribing' : userInput.trim() ? 'review' : 'ready')
     : voiceState === 'content'
-      ? (interaction.type === 'direct_input' ? 'directInput' : 'content')
+      ? 'directInput'
       : voiceState === 'complete'
         ? null
         : voiceState
@@ -667,7 +786,7 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         {devToolsOpen && ENABLE_CINEMATIC_ENVIRONMENT && (
           <EnvironmentDebugPanel value={environmentOverride} onChange={setEnvironmentOverride} />
         )}
-        {devToolsOpen && <ConversationIntelligenceDebugPanel intelligence={intelligence} />}
+        {devToolsOpen && <ConversationIntelligenceDebugPanel intelligence={intelligence} interaction={interaction} />}
 
         <div className={cn('rps2-avatar-layer', npcSpeaking && 'rps2-speaking')}>
           <TalkingHeadAvatar
@@ -770,7 +889,14 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
           {showChoicePanel ? (
             <div className="rps2-panel-inner">
               <div className="rps2-choice-zone">
+                {/* key={currentTurn} — same reason as ContentRequestInputV2
+                    below: without it, two commitment_choice turns in a row
+                    reuse the same instance, and sendingIndex (reset only on
+                    submitFailed) stays stuck on the previously-picked card
+                    after a *successful* choice, showing it permanently
+                    "Sending…". */}
                 <ResponseChoiceCardsV2
+                  key={currentTurn}
                   options={interaction.options}
                   onChoose={handleChooseOption}
                   submitFailed={!!sendError}
@@ -780,7 +906,21 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
           ) : showContentPanel ? (
             <div className="rps2-panel-inner">
               <div className="rps2-choice-zone">
+                {/* key={currentTurn} — same idiom as NPCDialogue above.
+                    Without it, a second direct_input turn in a row (the
+                    only interaction type still rendered here — see
+                    verbal_handoff in interaction.js) reuses the same
+                    instance, and its internal
+                    `submitting` state (set true right before onSubmit,
+                    only ever reset on submitFailed — see that component's
+                    own comment) stays stuck true forever after a
+                    *successful* submit, showing "Sending…" on a request
+                    that was never sent. currentTurn only changes on a real
+                    new turn (set alongside interaction, never touched on
+                    failure), so a failed submit still keeps the same key
+                    and the typed text survives for retry. */}
                 <ContentRequestInputV2
+                  key={currentTurn}
                   prompt={interaction.prompt}
                   contentType={interaction.contentType}
                   onSubmit={handleSubmitContent}

@@ -63,7 +63,7 @@ export default function ActiveSessionLimitModal({ sessions, scenarioTitle, onClo
                 key={s.session_id}
                 type="button"
                 className="asl-item"
-                onClick={() => navigate(`/roleplay/session/${s.session_id}`)}
+                onClick={() => navigate(`/roleplay/session-v2/${s.session_id}`)}
               >
                 <div className="asl-item-icon"><Clock3 size={16} strokeWidth={1.8} /></div>
                 <div className="asl-item-text">

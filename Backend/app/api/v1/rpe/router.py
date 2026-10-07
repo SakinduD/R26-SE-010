@@ -1,5 +1,10 @@
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.config import get_settings
 from app.core.auth import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.schemas.rpe import (
@@ -21,6 +26,7 @@ from app.services.rpe_coaching_service   import RpeCoachingService
 from app.services.rpe_emotion_service    import RpeEmotionService
 from app.services              import rpe_escalation_ml_service
 from app.services.rpe_feedback_service   import RpeFeedbackService
+from app.services              import rpe_llm_debug
 from app.services.rpe_nlp_service        import RpeNlpService
 from app.services.rpe_npc_service        import RpeNpcService
 from app.services              import rpe_plan_import_service
@@ -28,6 +34,8 @@ from app.services.rpe_predictive_service import RpePredictiveService
 from app.services.rpe_scenario_service   import RpeScenarioService, derive_npc_gender
 from app.services.rpe_session_service    import RpeSessionService
 from app.services.rpe_viz_service        import RpeVizService
+
+logger = logging.getLogger(__name__)
 
 rpe_scenario_service   = RpeScenarioService()
 rpe_scenario_service.load_all()
@@ -196,15 +204,34 @@ def session_respond(
     payload:      RespondRequest,
     current_user: User | None = Depends(get_current_user_optional),
 ) -> RespondResponse:
+    # Latency instrumentation (DEV only — see the single summary line logged
+    # at the bottom of this function). T-labels match the RPE voice latency
+    # optimization pass's own naming: T2 = backend receives the request
+    # (here, since FastAPI has already parsed the body by this point),
+    # T3-T5 = the NPC LLM call collapsed into one span (this codebase makes
+    # one non-streaming httpx/SDK call — there is no real "first byte"
+    # without switching to streaming, see the optimization report's
+    # streaming-investigation section), T6-T7 = end-detection LLM call,
+    # T8 = response about to be returned to the frontend.
+    t2 = time.time()
+    timings: dict[str, float] = {}
+
+    def _mark(label: str, since: float) -> float:
+        now = time.time()
+        timings[label] = round((now - since) * 1000)
+        return now
+
     try:
         state = rpe_session_service.get_state(payload.session_id)
         if not state:
             raise HTTPException(status_code=404, detail=f"Session '{payload.session_id}' not found.")
 
+        t = time.time()
         try:
             session_data = rpe_session_service.get_session(payload.session_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
+        t = _mark("get_session_ms", t)
 
         prior_turns: list[dict]     = session_data.get("turns", [])
         opening_npc_line: str       = session_data.get("opening_npc_line", "")
@@ -212,6 +239,14 @@ def session_respond(
         emotion_history: list[str]  = session_data.get("emotion_history", ["calm"])
         current_trust: int          = trust_history[-1] if trust_history else 50
         current_esc: int            = prior_turns[-1]["escalation_level"] if prior_turns else 0
+        # Conversation Intelligence — the previous turn's own tracked state,
+        # fed back into the prompt so the NPC evolves it instead of
+        # regenerating from nothing (see rpe_npc_service._format_conversation_state).
+        # None on the opening turn, or for an older turn logged before this
+        # field existed — both handled the same way (prompt says "opening turn").
+        prior_conversation_state: dict | None = (
+            prior_turns[-1].get("conversation_state") if prior_turns else None
+        )
 
         scenario = rpe_scenario_service.get_scenario(state.scenario_id)
 
@@ -219,6 +254,9 @@ def session_respond(
         is_profane: bool = rpe_emotion_service.is_profanity(payload.user_input)
 
         # 2. Combined NPC response + emotion + animation (OpenAI or Groq, per USE_OPENAI)
+        # T3-T5 collapsed into one span — see this function's own docstring-
+        # style comment at the top for why (no streaming today).
+        t = time.time()
         result       = rpe_npc_service.generate_response(
             user_input       = payload.user_input,
             opening_npc_line = opening_npc_line,
@@ -229,7 +267,10 @@ def session_respond(
             trust_score      = current_trust,
             escalation_level = current_esc,
             npc_behaviour    = scenario.npc_behaviour,
+            prior_conversation_state = prior_conversation_state,
+            session_id       = payload.session_id,
         )
+        t = _mark("llm_dialogue_ms", t)
         npc_response  = result["npc_response"]
         animation     = result.get("animation")
         user_behavior = result.get("user_behavior")
@@ -238,6 +279,7 @@ def session_respond(
         interaction_type     = result.get("interaction_type", "normal")
         content_prompt       = result.get("content_prompt")
         content_type         = result.get("content_type")
+        conversation_state   = result.get("conversation_state") or {}
 
         # 3. Profanity override wins over LLM classification
         emotion: str = "frustrated" if is_profane else result["detected_emotion"]
@@ -249,7 +291,9 @@ def session_respond(
         # Advisory-only ML escalation read — never feeds into new_trust/new_esc
         # or anything derived from them; best-effort, returns None on any
         # failure so a missing/broken model can never break a live turn.
+        t = time.time()
         ml_escalation = rpe_escalation_ml_service.predict_escalation(payload.user_input)
+        t = _mark("ml_escalation_ms", t)
 
         turn_number = rpe_session_service.advance_turn(payload.session_id)
         turn_data = {
@@ -260,16 +304,51 @@ def session_respond(
             "trust_score":      new_trust,
             "escalation_level": new_esc,
             "user_behavior":    user_behavior,
+            # Conversation Intelligence — persisted so the NEXT turn's
+            # prior_conversation_state (above) and session recovery both
+            # have it (see rpe_session_service.log_turn/_get_session_supabase
+            # and the frontend's recoveredTurns handling).
+            "conversation_state": conversation_state,
         }
-        # log_turn already has this turn's pre-state on hand from the fetch
-        # above, so it returns the updated histories directly instead of us
-        # re-fetching the whole session just to read trust_history back.
-        emotion_history, trust_history = rpe_session_service.log_turn(
-            payload.session_id,
-            turn_data,
-            current_emotion_history = emotion_history,
-            current_trust_history   = trust_history,
-        )
+        # log_turn (Supabase write) and should_conversation_end (LLM call,
+        # from turn 5+) are independent of each other's result — neither
+        # reads anything the other produces — but were previously run
+        # sequentially. Measured baseline: log_turn ~200-730ms, end_detection
+        # ~400-1500ms once it actually calls Groq (turn 5+); run
+        # concurrently, the wall-clock cost is max(the two) instead of
+        # their sum. Both are still awaited below before anything that
+        # needs their results (should_end_session needs trust_history from
+        # log_turn; the outer if/else needs llm_should_end).
+        # Temporary per-branch timers (in addition to the outer wall-clock
+        # mark below) — proves the parallelization is actually overlapping
+        # the two calls (wall_ms << log_turn_ms + end_detection_ms) rather
+        # than accidentally serializing them, independent of whatever
+        # absolute network conditions are doing to either call's own
+        # duration on a given run.
+        def _timed_log_turn():
+            t0 = time.time()
+            result = rpe_session_service.log_turn(
+                payload.session_id, turn_data,
+                current_emotion_history=emotion_history, current_trust_history=trust_history,
+            )
+            return result, round((time.time() - t0) * 1000)
+
+        def _timed_end_detection():
+            t0 = time.time()
+            result = rpe_npc_service.should_conversation_end(
+                session_turns=prior_turns, npc_response=npc_response, user_input=payload.user_input,
+            )
+            return result, round((time.time() - t0) * 1000)
+
+        t = time.time()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            log_turn_future = executor.submit(_timed_log_turn)
+            end_detection_future = executor.submit(_timed_end_detection)
+            (emotion_history, trust_history), log_turn_solo_ms = log_turn_future.result()
+            (llm_should_end, llm_end_reason), end_detection_solo_ms = end_detection_future.result()
+        t = _mark("log_turn_and_end_detection_parallel_ms", t)
+        timings["log_turn_solo_ms"] = log_turn_solo_ms
+        timings["end_detection_solo_ms"] = end_detection_solo_ms
 
         # Live per-turn clarity/quality for the session sidebar meters — the
         # same pure local heuristic (word count + keyword matching, no LLM
@@ -277,13 +356,6 @@ def session_respond(
         # screen, just run once here so it's available while the user is
         # still talking instead of only after the session ends.
         live_metrics = rpe_nlp_service._score_turn(turn_data)
-
-        # LLM-based end detection: exit-intent keywords / natural resolution.
-        llm_should_end, llm_end_reason = rpe_npc_service.should_conversation_end(
-            session_turns = prior_turns,
-            npc_response  = npc_response,
-            user_input    = payload.user_input,
-        )
 
         outcome: str | None = None
         if llm_should_end:
@@ -339,6 +411,25 @@ def session_respond(
                 payload.session_id, outcome, new_trust, new_esc, end_reason
             )
 
+        # T8 — response about to leave the backend. DEV-only, single
+        # structured line so it's easy to grep/aggregate across many turns
+        # for p50/p95 without spamming the log at INFO on every request.
+        # logger.warning, not .info — this app has no logging handler
+        # configured for INFO (confirmed: .info() calls never reached the
+        # console at all; only WARNING+ gets Python's default lastResort
+        # handler), and adding real logging config is out of scope here.
+        total_ms = round((time.time() - t2) * 1000)
+        if get_settings().app_env == "development":
+            solo_sum = (timings.get("log_turn_solo_ms") or 0) + (timings.get("end_detection_solo_ms") or 0)
+            logger.warning(
+                "[RPE latency] turn=%s total_ms=%s get_session=%s llm_dialogue=%s "
+                "ml_escalation=%s parallel_wall=%s (log_turn_solo=%s end_detection_solo=%s sum_would_be=%s)",
+                turn_number, total_ms,
+                timings.get("get_session_ms"), timings.get("llm_dialogue_ms"),
+                timings.get("ml_escalation_ms"), timings.get("log_turn_and_end_detection_parallel_ms"),
+                timings.get("log_turn_solo_ms"), timings.get("end_detection_solo_ms"), solo_sum,
+            )
+
         return RespondResponse(
             npc_response=npc_response,
             emotion=emotion,
@@ -362,6 +453,14 @@ def session_respond(
             response_quality=live_metrics["response_quality"],
             ml_escalation_label=ml_escalation["label"] if ml_escalation else None,
             ml_escalation_confidence=ml_escalation["confidence"] if ml_escalation else None,
+            npc_objective=conversation_state.get("npc_objective"),
+            conversation_phase=conversation_state.get("conversation_phase"),
+            unresolved_items=conversation_state.get("unresolved_items") or [],
+            commitments=conversation_state.get("commitments") or [],
+            agreed_deadlines=conversation_state.get("agreed_deadlines") or [],
+            requested_items=conversation_state.get("requested_items") or [],
+            user_constraints=conversation_state.get("user_constraints") or [],
+            recent_topics=conversation_state.get("recent_topics") or [],
         )
     except HTTPException:
         raise
@@ -543,3 +642,53 @@ def purge_sessions(
     """Permanently delete sessions — irreversible, cascades to their turns."""
     rpe_session_service.purge_sessions(str(current_user.id), payload.session_ids)
     return {"status": "purged", "count": len(payload.session_ids)}
+
+
+# ── LLM Payload Inspector (DEV only — see rpe_llm_debug.py) ──────────────
+# Gated on settings.debug, not auth: this is structural/quantitative data
+# (char counts, token estimates, hashes) about the app's own prompt
+# construction, never raw learner text — see rpe_llm_debug.py's module
+# docstring. Every route here 404s outside settings.debug, so production
+# exposes nothing — no debug payload data, not even an empty-shaped 200.
+
+def _require_debug_mode() -> None:
+    if not rpe_llm_debug.debug_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+
+
+@rpe_router.get("/llm/debug/latest")
+def llm_debug_latest() -> dict:
+    _require_debug_mode()
+    record = rpe_llm_debug.get_latest()
+    if not record:
+        raise HTTPException(status_code=404, detail="No LLM turns captured yet this process.")
+    return rpe_llm_debug.public_view(record)
+
+
+@rpe_router.get("/llm/debug/session/{session_id}")
+def llm_debug_session(session_id: str) -> dict:
+    _require_debug_mode()
+    captures = rpe_llm_debug.get_session_captures(session_id)
+    if not captures:
+        raise HTTPException(status_code=404, detail=f"No captured LLM turns for session '{session_id}'.")
+    return {
+        "session_id": session_id,
+        "turns": [rpe_llm_debug.public_view(r) for r in captures],
+    }
+
+
+@rpe_router.get("/llm/debug/sessions")
+def llm_debug_sessions() -> dict:
+    """Session ids with at least one captured turn still in memory —
+    lets the DEV inspector page offer a session picker without the caller
+    needing to already know a session id."""
+    _require_debug_mode()
+    return {"session_ids": rpe_llm_debug.list_sessions()}
+
+
+@rpe_router.get("/llm/debug/providers")
+def llm_debug_providers() -> dict:
+    """Section 20 — provider comparison, aggregated on read across every
+    session still held in memory (see rpe_llm_debug.get_provider_comparison)."""
+    _require_debug_mode()
+    return {"providers": rpe_llm_debug.get_provider_comparison()}

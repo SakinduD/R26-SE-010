@@ -329,6 +329,10 @@ class RpeSessionService:
                     "trust_score":      trust_score,
                     "escalation_level": turn_data.get("escalation_level", 0),
                     "user_behavior":    turn_data.get("user_behavior"),
+                    # Conversation Intelligence — compact structured state
+                    # (objective/phase/unresolved items/etc.), not a prompt
+                    # or transcript dump. See rpe_npc_service.generate_response.
+                    "conversation_state": turn_data.get("conversation_state"),
                     "created_at":       datetime.now(timezone.utc).isoformat(),
                 }).execute()
 
@@ -612,6 +616,10 @@ class RpeSessionService:
                 "trust_score":      t.get("trust_score", 50),
                 "escalation_level": t.get("escalation_level", 0),
                 "user_behavior":    t.get("user_behavior"),
+                # None for any turn logged before this column existed —
+                # handled the same as an opening turn (see
+                # rpe_npc_service._format_conversation_state).
+                "conversation_state": t.get("conversation_state"),
             }
             for t in raw_turns
         ]

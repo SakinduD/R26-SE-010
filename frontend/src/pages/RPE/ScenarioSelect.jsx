@@ -246,7 +246,12 @@ export default function ScenarioSelect() {
         isAuthenticated && user ? user.id : null,
         customization?.npcName
       )
-      navigate(`/roleplay/session/${response.session_id}`, {
+      // session-v2 is the default landing page for a freshly started
+      // session — V1 (RolePlaySession.jsx, /roleplay/session/:id) is left
+      // fully intact and still directly reachable, just no longer where a
+      // new session lands. The state below matches exactly what
+      // RolePlaySessionV2Inner destructures from navState.
+      navigate(`/roleplay/session-v2/${response.session_id}`, {
         state: {
           sessionId:                   response.session_id,
           openingNpcLine:              response.opening_npc_line,

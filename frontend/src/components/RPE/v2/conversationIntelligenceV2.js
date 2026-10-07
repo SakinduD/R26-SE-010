@@ -15,14 +15,16 @@
  *       session instead.
  *
  * IMPORTANT — read before extending this file:
- * The current backend (Backend/app/schemas/rpe.py RespondResponse, checked
- * 2026 during this pass) does NOT expose npc_objective, conversation_phase,
- * scenario "intent"/"scoring" fields, or any structured memory (unresolved
- * items, commitments, deadlines). normalizeTurnResponse() checks for them
- * anyway (future-proofing, per the spec's own "if available" framing) but
- * they will be `null`/empty today, always. Nothing here fabricates a
- * plausible-looking value to fill that gap — see each function's own
- * comment for exactly what it does and does not do.
+ * The backend (Backend/app/schemas/rpe.py RespondResponse) exposes real
+ * conversation-intelligence fields as of the RPE V2 backend conversation-
+ * intelligence pass: npc_objective, conversation_phase, unresolved_items,
+ * commitments, agreed_deadlines, requested_items, user_constraints,
+ * recent_topics — all produced by the SAME LLM call that generates the
+ * NPC's dialogue (see rpe_npc_service.generate_response), evolved turn
+ * over turn from the model's own prior-turn state, never guessed here.
+ * An older/pre-existing session may still return these as null/[] (logged
+ * before the field existed) — normalizeTurnResponse() treats that exactly
+ * like "not present", never invents a value to fill the gap.
  */
 
 // ── Per-turn normalization ─────────────────────────────────────────────
@@ -73,9 +75,6 @@ export function normalizeTurnResponse(response) {
     tension: response.escalation_level ?? null,
     clarity: response.clarity_score ?? null,
     interactionType: response.interaction_type ?? (response.requests_deliverable ? 'deliverable_choice' : 'normal'),
-    // Forward-compatible only — no current backend field for either. Real
-    // the moment the backend adds npc_objective/conversation_phase to
-    // RespondResponse; null until then.
     npcObjective: response.npc_objective ?? response.objective ?? null,
     conversationPhaseFromBackend: response.conversation_phase ?? response.phase ?? null,
     completion: !!response.session_complete,
@@ -83,6 +82,18 @@ export function normalizeTurnResponse(response) {
     outcome: response.outcome ?? null,
     userIntent: passThroughUserIntent(response.user_behavior),
     communicationQuality: bucketCommunicationQuality(response.response_quality, response.clarity_score),
+    // Real backend arrays (see this file's header) — always arrays, never
+    // null, so advanceIntelligence below can fold them in unconditionally.
+    // An older session/response with no such field yet reads as empty,
+    // same as "nothing tracked" — not fabricated, just absent.
+    memory: {
+      commitments: response.commitments ?? [],
+      unresolvedItems: response.unresolved_items ?? [],
+      agreedDeadlines: response.agreed_deadlines ?? [],
+      requestedItems: response.requested_items ?? [],
+      userConstraints: response.user_constraints ?? [],
+      recentTopics: response.recent_topics ?? [],
+    },
   }
 }
 
@@ -143,13 +154,10 @@ export function isSimilarToPriorNpcLine(text, priorNpcLines, threshold = 0.6) {
 
 // ── Memory scaffolding ───────────────────────────────────────────────────
 
-// All arrays start (and, today, always stay) empty — there is no
-// structured backend field for any of these yet (no per-turn "requested
-// items", "agreed deadline", etc. — see the file header). This shape
-// exists so a future backend field can be folded in with a one-line change
-// to advanceIntelligence() below, without the frontend ever having
-// heuristically guessed at commitments/deadlines/constraints from raw
-// dialogue text in the meantime (which the spec explicitly rules out).
+// The starting (pre-first-turn) shape — real per-turn values now come from
+// normalized.memory (see normalizeTurnResponse above) and are folded in by
+// advanceIntelligence below. This function is still what session start
+// seeds `memory` with, before any turn has happened.
 export function createEmptyMemory() {
   return {
     commitments: [],
@@ -191,7 +199,14 @@ export function advanceIntelligence(prev, {
 }) {
   if (!normalized) return prev
 
-  const phase = derivePhase({ turnNumber, completion: normalized.completion, outcome: normalized.outcome })
+  // Structural fallback (opening/resolution/closing, derived from turn
+  // count/completion) only for whenever the backend doesn't supply a real
+  // phase — an older session, or a turn the model wasn't confident about
+  // (see rpe_npc_service's own "don't force a phase" instruction). The
+  // real backend value — the model's own read of the actual conversation
+  // shape (clarification/commitment/constraint/negotiation/escalation
+  // included, not just these three structural ones) — always wins when present.
+  const structuralPhase = derivePhase({ turnNumber, completion: normalized.completion, outcome: normalized.outcome })
 
   return {
     // Never overwritten by a turn — the whole point of section 2.
@@ -199,7 +214,7 @@ export function advanceIntelligence(prev, {
     // Real only once the backend exposes it; otherwise stays null forever,
     // which is the honest state rather than a guess.
     npcObjective: normalized.npcObjective ?? prev.npcObjective,
-    phase: phase ?? prev.phase,
+    phase: normalized.conversationPhaseFromBackend ?? structuralPhase ?? prev.phase,
     userIntent: normalized.userIntent,
     communicationQuality: normalized.communicationQuality,
     relationshipImpact: {
@@ -208,10 +223,14 @@ export function advanceIntelligence(prev, {
       clarity: computeDirection(priorClarity, normalized.clarity),
     },
     emotionTransition: { from: priorNpcEmotion ?? null, to: normalized.emotion ?? priorNpcEmotion ?? null },
-    // Always empty today — see createEmptyMemory()'s own comment. Folded in
-    // here (rather than left as a static constant) so a future backend
-    // field slots in without touching the reducer's call sites.
-    memory: prev.memory,
+    // Real backend arrays (normalized.memory — see normalizeTurnResponse)
+    // replace the previous turn's outright, since the backend itself
+    // already evolved them (removed resolved items, added new ones — see
+    // rpe_npc_service._format_conversation_state) rather than this layer
+    // trying to diff/merge two snapshots itself. Falls back to whatever
+    // was already there only if this turn's response carried no memory at
+    // all (e.g. an older cached response shape), never to an empty reset.
+    memory: normalized.memory ?? prev.memory,
     isRepeatedNpcLine: normalized.npcText ? isSimilarToPriorNpcLine(normalized.npcText, priorNpcLines || []) : false,
   }
 }

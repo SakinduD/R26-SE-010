@@ -85,6 +85,22 @@ class RespondResponse(BaseModel):
     # escalation_level's 0-5.
     ml_escalation_label:      int | None = None
     ml_escalation_confidence: float | None = None
+    # Conversation Intelligence — structured NPC memory, so the NPC tracks
+    # one continuous conversation instead of isolated replies. See
+    # rpe_llm_service.ConversationPhase and rpe_npc_service.generate_response's
+    # own docstring for exactly how these are produced (same LLM call as
+    # everything else above, evolved turn over turn — never a second scoring
+    # engine, never overwrites trust_score/escalation_level/clarity_score).
+    # All default-safe (null/empty) so older clients and older sessions
+    # (logged before this field existed) keep working unchanged.
+    npc_objective:      str | None = None
+    conversation_phase: str | None = None
+    unresolved_items:   list[str] = []
+    commitments:        list[str] = []
+    agreed_deadlines:   list[str] = []
+    requested_items:    list[str] = []
+    user_constraints:   list[str] = []
+    recent_topics:      list[str] = []
 
 
 class SessionSummaryResponse(BaseModel):

@@ -41,6 +41,13 @@ import RolePlaySessionV2 from './pages/RPE/RolePlaySessionV2'
 // registration below and the file's own header comment.
 import EnvironmentPreviewDev from './pages/RPE/EnvironmentPreviewDev'
 import SessionCompletePreviewDev from './pages/RPE/SessionCompletePreviewDev'
+// Dev-only Chirp3/Google/browser TTS provider comparison harness —
+// no avatar, no auth. See the file's own header comment.
+import TtsTestDev from './pages/RPE/TtsTestDev'
+// Dev-only LLM Payload Inspector — see that file's own header comment.
+// No auth, no session needed to view; reads the backend's DEV-only
+// per-turn capture (Backend/app/services/rpe_llm_debug.py).
+import LlmPayloadInspectorDev from './pages/RPE/LlmPayloadInspectorDev'
 import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
 import MySessions from './pages/RPE/MySessions'
@@ -89,6 +96,12 @@ export default function App() {
             )}
             {import.meta.env.DEV && (
               <Route path="/dev/session-complete-preview" element={<SessionCompletePreviewDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-tts-test" element={<TtsTestDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-llm-payload" element={<LlmPayloadInspectorDev />} />
             )}
 
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
