@@ -38,6 +38,15 @@ authClient.interceptors.response.use(
   async (error) => {
     const original = error.config;
 
+    // Do not intercept 401s on the signin or signup endpoints themselves!
+    // Otherwise, a wrong password causes a forced page reload to /signin, erasing the error message.
+    if (
+      original.url?.includes('/signin') ||
+      original.url?.includes('/signup')
+    ) {
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       const tokens = getTokens();
