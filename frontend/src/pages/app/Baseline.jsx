@@ -29,6 +29,10 @@ export default function Baseline() {
   const { isLoading: authLoading } = useProtectedRoute();
   const navigate = useNavigate();
   const [showMesh, setShowMesh] = useState(false);
+  const showMeshRef = useRef(showMesh);
+  useEffect(() => {
+    showMeshRef.current = showMesh;
+  }, [showMesh]);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [aiMicActive, setAiMicActive] = useState(false);
   const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
@@ -167,7 +171,7 @@ export default function Baseline() {
       visualStatsRef.current.chunk.add(newMetrics);
       visualStatsRef.current.session.add(newMetrics);
 
-      if (showMesh) {
+      if (showMeshRef.current) {
         draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
           color: "#06B6D4",
           lineWidth: 0.5,
@@ -178,7 +182,7 @@ export default function Baseline() {
       }
     }
     canvasCtx.restore();
-  }, [showMesh]);
+  }, []);
 
   useEffect(() => {
     let faceMeshModel = null;
