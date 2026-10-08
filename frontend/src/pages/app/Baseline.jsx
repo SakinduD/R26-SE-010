@@ -44,7 +44,8 @@ export default function Baseline() {
     pose: { yaw: 0, pitch: 0, roll: 0 },
     emotion: 'Sensing...',
     confidence: 0,
-    isSyncing: false
+    isSyncing: false,
+    modelKind: 'unknown'
   });
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -485,9 +486,11 @@ export default function Baseline() {
                   <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
                   Processed on your device
                 </div>
-                <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
-                  Multimodal Analysis
-                </div>
+                {metrics.modelKind && metrics.modelKind !== 'unknown' && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
+                    Model: {metrics.modelKind === 'wav2vec2' ? 'Transformer' : metrics.modelKind === 'cnn' ? 'CNN' : 'SVM'}
+                  </div>
+                )}
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
                     Tracking: {showMesh ? "Visual" : "Background"}
