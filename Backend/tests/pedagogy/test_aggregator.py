@@ -17,12 +17,12 @@ def _make_fb(**kwargs) -> FeedbackResponse:
         final_escalation=1,
         total_turns=3,
         turn_metrics=[
-            TurnMetric(
+            TurnMetric(  # RPE scores turns 0-10
                 turn=1,
-                assertiveness_score=0.7,
-                empathy_score=0.6,
-                clarity_score=0.8,
-                response_quality=0.75,
+                assertiveness_score=7.0,
+                empathy_score=6.0,
+                clarity_score=8.0,
+                response_quality=7.5,
             )
         ],
         coaching_advice=CoachingAdvice(overall_rating="good", summary="OK"),
@@ -71,8 +71,38 @@ def test_rpe_low_trust_lowers_confidence():
 
 
 def test_rpe_high_escalation_raises_stress():
-    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(final_escalation=4))
+    # RPE escalation is 0-5; 5 is the ceiling.
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(final_escalation=5))
     assert signal.stress_level >= 0.9
+
+
+def test_rpe_escalation_is_read_on_its_0_to_5_scale():
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(final_escalation=3))
+    assert signal.stress_level == pytest.approx(0.6)
+
+
+def test_rpe_turn_scores_are_read_on_their_0_to_10_scale():
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(turn_metrics=[
+        TurnMetric(turn=1, assertiveness_score=2, empathy_score=2, clarity_score=5, response_quality=3.0),
+        TurnMetric(turn=2, assertiveness_score=6, empathy_score=3, clarity_score=9, response_quality=5.0),
+    ]))
+    assert signal.engagement_score == pytest.approx(0.4)
+
+
+def test_rpe_zero_trust_is_not_read_as_missing():
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(final_trust=0))
+    assert signal.confidence_score == pytest.approx(0.0)
+
+
+def test_rpe_missing_trust_is_neutral():
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(final_trust=None))
+    assert signal.confidence_score == pytest.approx(0.5)
+
+
+def test_rpe_ended_by_user_maps_to_partial():
+    signal = PerformanceAggregator.from_rpe_feedback(_make_fb(outcome="ended_by_user"))
+    assert signal.outcome == "partial"
+    assert signal.objective_completion_rate == pytest.approx(0.5)
 
 
 def test_rpe_high_severity_flags_raise_stress():
@@ -141,3 +171,38 @@ def test_mca_all_values_in_range():
     for attr in ("engagement_score", "confidence_score", "objective_completion_rate", "stress_level"):
         v = getattr(signal, attr)
         assert 0.0 <= v <= 1.0, f"{attr}={v} out of [0, 1]"
+
+
+# --- real MCA audio frames (issue 7) ---
+
+# The `metrics` object of an MCA audio WebSocket frame (app/api/v1/mca/audio.py)
+# for a chunk where the learner was silent but a nudge fired.
+_SILENT_NUDGE_FRAME = {
+    "emotion": None,
+    "confidence": 0.0,
+    "speaking": False,
+    "face_visible": True,
+    "nudge": "Long silence. Try to keep the conversation going.",
+    "nudge_category": "silence",
+    "nudge_severity": "info",
+    "active_nudges": [],
+    "detections": [],
+}
+
+
+def test_real_mca_frame_without_emotion_is_accepted():
+    nudge = McaNudge(**_SILENT_NUDGE_FRAME)
+    assert nudge.emotion is None
+    assert nudge.nudge_category == "silence"
+
+
+def test_silent_frames_do_not_drag_confidence_down():
+    """Frames without an emotion reading carry confidence 0.0, which is not a reading."""
+    nudges = [McaNudge(**_SILENT_NUDGE_FRAME), _make_nudge(confidence=0.8)]
+    signal = PerformanceAggregator.from_mca_nudges(nudges)
+    assert signal.confidence_score == pytest.approx(0.8)
+
+
+def test_no_emotion_readings_give_neutral_confidence():
+    signal = PerformanceAggregator.from_mca_nudges([McaNudge(**_SILENT_NUDGE_FRAME)])
+    assert signal.confidence_score == pytest.approx(0.5)

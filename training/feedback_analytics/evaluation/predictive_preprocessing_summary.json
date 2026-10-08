@@ -8,9 +8,9 @@
   "merged_employee_records": 5000,
   "final_processed_rows": 5000,
   "risk_distribution": {
-    "low": 147,
-    "medium": 3312,
-    "high": 1541
+    "low": 891,
+    "medium": 3681,
+    "high": 428
   },
   "original_rating_distribution": {
     "Low": 15000

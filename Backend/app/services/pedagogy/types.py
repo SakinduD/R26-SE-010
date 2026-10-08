@@ -79,12 +79,30 @@ class BaselineSummary(BaseModel):
     """
 
     has_baseline: bool
-    skill_scores: Optional[dict[str, float]] = None
+    skill_scores: Optional[dict[str, float]] = None  # MCA skill → 0-1 (MCA stores 0-100)
     dominant_emotions: Optional[list[str]] = None   # top-3 by frequency
-    stress_indicator: Optional[float] = None         # 0-1, sum of anxious/fearful/etc.
-    confidence_indicator: Optional[float] = None     # 0-1, sum of calm/confident/etc.
+    stress_indicator: Optional[float] = None         # 0-1 share of angry/fearful/sad/disgust; None = no emotion data
+    confidence_indicator: Optional[float] = None     # 0-1 share of happy; None = no emotion data
     duration_seconds: Optional[int] = None
-    raw_overall_score: Optional[float] = None
+    raw_overall_score: Optional[float] = None        # MCA overall, 0-100
+
+
+class LearnerProfile(BaseModel):
+    """
+    The personalised profile pedagogy derives from the OCEAN survey plus the
+    current baseline. Recalculated on every baseline (first or redo) and
+    stored, so plan generation and the role-play recommender read one
+    consistent view instead of recomputing it each time.
+    """
+
+    source_mca_session_id: Optional[str] = None
+    ocean: OceanScores
+    baseline: BaselineSummary
+    strategy: TeachingStrategy
+    difficulty: int = Field(ge=1, le=10)
+    difficulty_rationale: list[str] = Field(default_factory=list)
+    priority_skills: list[str] = Field(default_factory=list)  # weak MCA skills
+    weak_skills: list[str] = Field(default_factory=list)      # RPE vocabulary
 
 
 class PerformanceSignal(BaseModel):

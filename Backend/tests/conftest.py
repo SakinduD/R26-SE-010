@@ -1,3 +1,12 @@
+import sys
+from pathlib import Path
+
+# The training pipelines live outside Backend/, in the repo-root `training/`
+# package. Tests cover them too, so the root has to be importable here.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

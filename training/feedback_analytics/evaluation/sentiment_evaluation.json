@@ -1,9 +1,9 @@
 {
   "model_version": "tfidf-sentiment-model-comparison-v1",
   "dataset_name": "Sentiment140",
-  "dataset_path": "..\\training\\feedback_analytics\\datasets\\raw\\sentiment140.csv",
+  "dataset_path": "training\\feedback_analytics\\datasets\\raw\\sentiment140.csv",
   "rows_used": 50000,
-  "trained_at": "2026-05-04T17:27:43.675390+00:00",
+  "trained_at": "2026-10-04T09:08:06.036252+00:00",
   "text_preprocessing": [
     "lowercase",
     "html_unescape",
@@ -39,7 +39,7 @@
       "weighted_precision": 0.7801,
       "weighted_recall": 0.7801,
       "weighted_f1": 0.7801,
-      "training_seconds": 1.6934
+      "training_seconds": 1.6872
     },
     {
       "classifier_name": "linear_svm",
@@ -48,7 +48,7 @@
       "weighted_precision": 0.7773,
       "weighted_recall": 0.7773,
       "weighted_f1": 0.7773,
-      "training_seconds": 1.9998
+      "training_seconds": 1.9061
     },
     {
       "classifier_name": "naive_bayes",
@@ -57,7 +57,7 @@
       "weighted_precision": 0.7767,
       "weighted_recall": 0.7766,
       "weighted_f1": 0.7766,
-      "training_seconds": 1.3745
+      "training_seconds": 1.3468
     }
   ],
   "evaluation": {
@@ -94,7 +94,7 @@
     },
     "classifier_name": "logistic_regression",
     "model_type": "TF-IDF + Logistic Regression",
-    "training_seconds": 1.6934,
+    "training_seconds": 1.6872,
     "train_rows": 40000,
     "test_rows": 10000,
     "label_distribution": {

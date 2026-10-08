@@ -196,12 +196,32 @@ def build_kaggle_employee_performance_dataset(
         )
 
         employee_noise = random.Random(int(employee_id)).gauss(0, 4.5)
+        # The score-like weights are normalised to sum to 1.0 on purpose.
+        #
+        # They used to be 0.42 + 0.13 + 0.17 + 0.08 + 0.08 = 0.88, which quietly
+        # made the target a 12% shrinkage of the learner's current standing
+        # rather than a projection of it. Averaged over the dataset the target
+        # sat 10.5 points below current_score, and the gap widened the better
+        # somebody was doing - so the model learned, correctly, that everybody
+        # always declines. Every forecast it produced was a decline, for every
+        # learner, forever, whatever their trend actually was.
+        #
+        # With the weights summing to one the target is a reweighting of where
+        # the learner stands, and the terms below it - sentiment, slope, blind
+        # spots - are what move the forecast up or down from there. Which is
+        # what those terms were meant to do.
+        score_weights = (0.42, 0.13, 0.17, 0.08, 0.08)
+        weight_total = sum(score_weights)
+        weighted_position = (
+            (current_score * score_weights[0])
+            + (average_feedback_rating * score_weights[1])
+            + (engagement_score * score_weights[2])
+            + (structured_score * score_weights[3])
+            + (audio_score * score_weights[4])
+        ) / weight_total
+
         target_next_score = _clamp(
-            (current_score * 0.42)
-            + (average_feedback_rating * 0.13)
-            + (engagement_score * 0.17)
-            + (structured_score * 0.08)
-            + (audio_score * 0.08)
+            weighted_position
             + (sentiment_score * 5.5)
             + (trend_slope * 1.15)
             - (blind_spot_count * 4.5)

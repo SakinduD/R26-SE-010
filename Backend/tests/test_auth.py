@@ -3,7 +3,17 @@ Critical-path tests for the auth endpoints.
 
 Supabase calls are mocked so the suite runs without real credentials.
 JWT verification uses a real HS256 encode/decode cycle with a test secret.
+
+The verifier fetches Supabase's JWKS over the network and decodes with the key
+it finds there - it no longer reads the shared secret, which is now kept in
+settings for reference only. These tests signed an HS256 token with that secret
+and had nothing to verify it against, so they failed with a 503 whenever the
+JWKS fetch timed out and would have failed with a 401 even when it did not.
+
+`stub_jwks` supplies a one-key JWKS carrying the same symmetric secret. That
+keeps the encode/decode cycle real while removing the network from a unit test.
 """
+import base64
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,12 +23,27 @@ import pytest
 from fastapi.testclient import TestClient
 from jose import jwt
 
+import app.core.auth as core_auth
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 TEST_JWT_SECRET = "test-secret-do-not-use-in-production"
 TEST_USER_ID = str(uuid.uuid4())
 TEST_EMAIL = "auth_test@example.com"
 TEST_PASSWORD = "securepass123"
+
+
+@pytest.fixture(autouse=True)
+def stub_jwks():
+    """Serve the test secret as a JWKS key instead of calling Supabase."""
+    key = {
+        "kty": "oct",
+        "kid": "test-key",
+        "alg": "HS256",
+        "k": base64.urlsafe_b64encode(TEST_JWT_SECRET.encode()).rstrip(b"=").decode(),
+    }
+    with patch.object(core_auth, "_get_jwks", return_value=[key]):
+        yield
 
 
 def _make_token(

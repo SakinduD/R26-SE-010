@@ -19,17 +19,38 @@ import AuthCallback from './pages/auth/AuthCallback'
 
 // Protected app pages
 import Baseline from './pages/app/Baseline'
+import BaselineConsent from './pages/app/BaselineConsent'
 import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
 import TrainingPlan from './pages/app/TrainingPlan'
+import TrainingPlanNew from './pages/app/TrainingPlanNew'
+import TrainingPlanDetail from './pages/app/TrainingPlanDetail'
+import Styleguide from './pages/app/Styleguide'
+import Settings from './pages/app/Settings'
 
 // RPE pages
-import RPELayout from './pages/RPE/RPELayout'
 import ScenarioSelect from './pages/RPE/ScenarioSelect'
 import RolePlaySession from './pages/RPE/RolePlaySession'
+// V2 redesign — isolated, testable side-by-side with the original above via
+// the /roleplay/session-v2/:sessionId route below. Does not replace or
+// modify RolePlaySession/route in any way.
+import RolePlaySessionV2 from './pages/RPE/RolePlaySessionV2'
+// Dev-only visual QA harness for SceneEnvironmentV2 (no auth/session
+// needed) — statically stripped from production builds, see the route
+// registration below and the file's own header comment.
+import EnvironmentPreviewDev from './pages/RPE/EnvironmentPreviewDev'
+import SessionCompletePreviewDev from './pages/RPE/SessionCompletePreviewDev'
+// Dev-only Chirp3/Google/browser TTS provider comparison harness —
+// no avatar, no auth. See the file's own header comment.
+import TtsTestDev from './pages/RPE/TtsTestDev'
+// Dev-only LLM Payload Inspector — see that file's own header comment.
+// No auth, no session needed to view; reads the backend's DEV-only
+// per-turn capture (Backend/app/services/rpe_llm_debug.py).
+import LlmPayloadInspectorDev from './pages/RPE/LlmPayloadInspectorDev'
 import SessionComplete from './pages/RPE/SessionComplete'
 import FeedbackDashboard from './pages/RPE/FeedbackDashboard'
+import MySessions from './pages/RPE/MySessions'
 
 // Existing feature pages
 import MultimodalEngine from './pages/MCA/MultimodalEngine'
@@ -38,6 +59,7 @@ import AnalyticsDashboard from './pages/Analytics/AnalyticsDashboard'
 import AnalyticsRecommendations from './pages/Analytics/AnalyticsRecommendations'
 import BlindSpotDetail from './pages/Analytics/BlindSpotDetail'
 import FeedbackForm from './pages/Analytics/FeedbackForm'
+import GamifiedProgress from './pages/Analytics/GamifiedProgress'
 import PostSessionReport from './pages/Analytics/PostSessionReport'
 import PredictiveAnalytics from './pages/Analytics/PredictiveAnalytics'
 import ProgressTrendsDetail from './pages/Analytics/ProgressTrendsDetail'
@@ -65,13 +87,33 @@ export default function App() {
             {/* Auth callback - no layout chrome */}
             <Route path="/auth-callback" element={<AuthCallback />} />
 
+            {/* Dev-only visual QA harness for SceneEnvironmentV2 — outside
+                AppLayout on purpose (no auth needed), and the whole Route
+                is omitted from the tree in a production build since
+                import.meta.env.DEV is statically false there. */}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-environment-preview" element={<EnvironmentPreviewDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/session-complete-preview" element={<SessionCompletePreviewDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-tts-test" element={<TtsTestDev />} />
+            )}
+            {import.meta.env.DEV && (
+              <Route path="/dev/rpe-llm-payload" element={<LlmPayloadInspectorDev />} />
+            )}
+
             {/* Protected app routes (AppLayout checks auth + renders nav) */}
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/survey" element={<Survey />} />
               <Route path="/survey/results" element={<SurveyResults />} />
+              <Route path="/baseline/consent" element={<BaselineConsent />} />
               <Route path="/baseline" element={<Baseline />} />
               <Route path="/training-plan" element={<TrainingPlan />} />
+              <Route path="/training-plan/new" element={<TrainingPlanNew />} />
+              <Route path="/training-plan/:planId" element={<TrainingPlanDetail />} />
               <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
               <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
               <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
@@ -86,24 +128,27 @@ export default function App() {
               <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
               <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
               <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
+              <Route path="/analytics-journey" element={<GamifiedProgress />} />
+              <Route path="/analytics/users/:userId/journey" element={<GamifiedProgress />} />
               <Route path="/analytics-session-report" element={<PostSessionReport />} />
               <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
-            </Route>
+              {/* Settings — Phase 6.10 */}
+              <Route path="/settings" element={<Settings />} />
+              {/* Styleguide — every component in every state, used during redesign */}
+              <Route path="/styleguide" element={<Styleguide />} />
 
-            {/* RPE routes - all share the RPELayout navbar */}
-            <Route element={<RPELayout />}>
+              {/* RPE — Practice section, lives inside the app shell with sidebar */}
               <Route path="/roleplay" element={<ScenarioSelect />} />
-              <Route path="/roleplay/session" element={<RolePlaySession />} />
+              <Route path="/roleplay/session/:sessionId" element={<RolePlaySession />} />
+              {/* Temporary comparison route for the V2 redesign — remove
+                  (or promote to replace the line above) once a decision is
+                  made; the original route/component are untouched either
+                  way. */}
+              <Route path="/roleplay/session-v2/:sessionId" element={<RolePlaySessionV2 />} />
               <Route path="/roleplay/session/complete" element={<SessionComplete />} />
               <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
-              <Route
-                path="/roleplay/my-sessions"
-                element={
-                  <div className="py-16 text-center text-muted-foreground text-sm">
-                    My Sessions - coming soon
-                  </div>
-                }
-              />
+              <Route path="/roleplay/my-sessions" element={<MySessions />} />
+              <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
             </Route>
 
             {/* Legacy / feature routes (unchanged) */}
@@ -117,7 +162,6 @@ export default function App() {
                 </div>
               }
             />
-            <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
           </Routes>
         </div>
       </AuthProvider>

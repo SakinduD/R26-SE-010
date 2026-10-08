@@ -23,22 +23,32 @@ from app.api.dependencies import get_db
 from app.config import get_settings
 from app.contracts.rpe import FeedbackResponse
 from app.core.auth import get_current_user, verify_jwt
-from app.core.llm_client import get_llm_client
+from app.core.llm_client import get_apm_llm_client
 from app.core.rpe_client import get_rpe_client
 from app.models.baseline_snapshot import BaselineSnapshot
 from app.models.personality_profile import PersonalityProfile
 from app.models.session_result import SessionResult
 from app.models.training_plan import AdjustmentHistory, TrainingPlan
 from app.models.user import User
-from app.schemas.baseline import BaselineCompleteIn, BaselineCompleteOut, BaselineSnapshotOut
+from app.schemas.baseline import (
+    BaselineChatIn,
+    BaselineChatOut,
+    BaselineCompleteIn,
+    BaselineCompleteOut,
+    BaselineHistoryOut,
+    BaselineSnapshotOut,
+)
+from app.services import mca_session_quality_service
+from app.services.baseline_llm import baseline_llm_service
 from app.schemas.pedagogy import (
     AdjustmentHintOut,
     AdjustmentHistoryEntryOut,
     GeneratePlanIn,
+    LearnerProfileOut,
     LiveSignalIn,
     TrainingPlanOut,
 )
-from app.services.pedagogy import orchestrator
+from app.services.pedagogy import learner_profile_service, orchestrator
 from app.services.pedagogy.dda_engine import initial_difficulty
 from app.services.pedagogy.strategy_optimizer import optimize_strategy
 from app.services.pedagogy.types import OceanScores, TeachingStrategy
@@ -48,6 +58,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Adaptive Pedagogy"])
 
 _bearer_opt = HTTPBearer(auto_error=False)
+
+# BaselineSnapshot.mca_session_id of a learner who skipped the baseline.
+SKIPPED_BASELINE_ID = "skipped"
 
 
 def _plan_to_out(plan: TrainingPlan) -> TrainingPlanOut:
@@ -82,7 +95,7 @@ async def generate_plan(
 ) -> TrainingPlanOut:
     """Generate (or regenerate) a personalised training plan for the current user."""
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(
             current_user.id, db, rpe, llm, skill=body.skill
@@ -214,16 +227,21 @@ async def complete_baseline(
     db: Session = Depends(get_db),
 ) -> BaselineCompleteOut:
     """
-    Ingest a completed MCA session as the user's voice baseline, then (re-)generate
-    their training plan so it is immediately baseline-aware.
+    Ingest a completed MCA session as the user's voice baseline and recalculate
+    their personalised learner profile from it.
 
     Steps:
       a. Require an existing PersonalityProfile (survey must be done first).
       b. Look up the SessionResult by mca_session_id; enforce ownership.
-      c. Validate session.status == 'completed'.
-      d. Upsert BaselineSnapshot (one row per user).
-      e. Trigger orchestrator.generate_training_plan.
-      f. Return snapshot + plan_id.
+      c. Validate session.status == 'completed', and that the session
+         observed something (422 with the reason otherwise).
+      d. Upsert BaselineSnapshot (the current baseline) and append the
+         baseline to BaselineHistory.
+      e. Recalculate and store the learner profile (OCEAN + new baseline).
+      f. First baseline only: generate the training plan. On a redo the
+         existing plan keeps its skill, difficulty, strategy and progress;
+         it picks up the new profile when the learner regenerates it.
+      g. Return snapshot + plan_id + plan_regenerated.
     """
     # a. Personality profile must exist
     profile = (
@@ -265,7 +283,15 @@ async def complete_baseline(
             detail=f"MCA session status is '{mca_session.status}'; expected 'completed'.",
         )
 
-    # d. Upsert BaselineSnapshot
+    # ... and must have observed something: an empty session scores every skill 50.
+    reason = mca_session_quality_service.rejection_reason(mca_session)
+    if reason:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=reason[:1].upper() + reason[1:],
+        )
+
+    # d. Upsert BaselineSnapshot, keep every baseline in BaselineHistory
     now = datetime.now(timezone.utc)
     overall: Optional[float] = (
         float(mca_session.overall_score) if mca_session.overall_score is not None else None
@@ -276,6 +302,7 @@ async def complete_baseline(
         .filter(BaselineSnapshot.user_id == current_user.id)
         .first()
     )
+    is_redo = snapshot is not None and snapshot.mca_session_id != SKIPPED_BASELINE_ID
     if snapshot is None:
         snapshot = BaselineSnapshot(
             user_id=current_user.id,
@@ -296,13 +323,29 @@ async def complete_baseline(
         snapshot.duration_seconds = mca_session.duration_seconds
         snapshot.updated_at = now
 
+    learner_profile_service.append_baseline_history(snapshot, db)
     db.commit()
     db.refresh(snapshot)
-    logger.info("BaselineSnapshot upserted for user %s", current_user.id)
+    logger.info("BaselineSnapshot upserted for user %s (redo=%s)", current_user.id, is_redo)
 
-    # e. Trigger plan (re-)generation
+    # e. Recalculate the personalised learner profile
+    learner_profile_service.recalculate(current_user.id, db)
+
+    # f. Build the training plan on the first baseline only
+    if is_redo:
+        plan = (
+            db.query(TrainingPlan)
+            .filter(TrainingPlan.user_id == current_user.id)
+            .first()
+        )
+        return BaselineCompleteOut(
+            baseline=BaselineSnapshotOut.model_validate(snapshot),
+            plan_id=plan.id if plan else None,
+            plan_regenerated=False,
+        )
+
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(current_user.id, db, rpe, llm)
     except ValueError as exc:
@@ -311,6 +354,7 @@ async def complete_baseline(
     return BaselineCompleteOut(
         baseline=BaselineSnapshotOut.model_validate(snapshot),
         plan_id=plan.id,
+        plan_regenerated=True,
     )
 
 
@@ -331,6 +375,45 @@ def get_my_baseline(
             detail="No baseline snapshot found. POST /apa/baseline/complete first.",
         )
     return BaselineSnapshotOut.model_validate(snapshot)
+
+
+@router.get("/baseline/history", response_model=list[BaselineHistoryOut])
+def get_my_baseline_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[BaselineHistoryOut]:
+    """Every baseline the current user has submitted, newest first (empty if none)."""
+    return [
+        BaselineHistoryOut.model_validate(entry)
+        for entry in learner_profile_service.list_baseline_history(current_user.id, db)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Personalised learner profile (OCEAN + current baseline)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/learner-profile/me", response_model=LearnerProfileOut)
+def get_my_learner_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LearnerProfileOut:
+    """
+    The current user's personalised profile: baseline summary, teaching
+    strategy, recommended difficulty and priority / weak skills, derived from
+    the OCEAN survey and the latest baseline. 404 until the survey is done.
+    """
+    try:
+        profile = learner_profile_service.get_current(current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    record = learner_profile_service.get_record(current_user.id, db)
+    return LearnerProfileOut(
+        user_id=current_user.id,
+        computed_at=record.computed_at,
+        **profile.model_dump(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +438,7 @@ async def baseline_skip(
     Returns 404 if no PersonalityProfile exists (survey must be done first).
     """
     rpe = get_rpe_client()
-    llm = get_llm_client()
+    llm = get_apm_llm_client()
     try:
         plan = await orchestrator.generate_training_plan(
             current_user.id, db, rpe, llm, skill=body.skill
@@ -363,6 +446,101 @@ async def baseline_skip(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return _plan_to_out(plan)
+
+
+# ---------------------------------------------------------------------------
+# Baseline skip (slash path) — records a minimal snapshot then generates plan
+# ---------------------------------------------------------------------------
+
+
+@router.post("/baseline/skip", response_model=BaselineCompleteOut, status_code=201)
+async def baseline_skip_with_snapshot(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BaselineCompleteOut:
+    """
+    Record a skipped baseline, then generate a training plan.
+
+    Unlike POST /apa/baseline-skip (hyphen), this writes a BaselineSnapshot row
+    with mca_session_id='skipped' so the frontend can distinguish "never started"
+    from "explicitly skipped".  A real completed snapshot is never overwritten.
+    """
+    profile = (
+        db.query(PersonalityProfile)
+        .filter(PersonalityProfile.user_id == current_user.id)
+        .first()
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No personality profile found. Complete the survey first.",
+        )
+
+    now = datetime.now(timezone.utc)
+    snapshot = (
+        db.query(BaselineSnapshot)
+        .filter(BaselineSnapshot.user_id == current_user.id)
+        .first()
+    )
+    if snapshot is None:
+        snapshot = BaselineSnapshot(
+            user_id=current_user.id,
+            mca_session_id=SKIPPED_BASELINE_ID,
+            skill_scores=None,
+            emotion_distribution=None,
+            overall_score=None,
+            duration_seconds=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(snapshot)
+    elif snapshot.mca_session_id == SKIPPED_BASELINE_ID:
+        snapshot.updated_at = now
+    # If a real session exists, leave it untouched
+
+    db.commit()
+    db.refresh(snapshot)
+    logger.info("BaselineSnapshot (skipped) upserted for user %s", current_user.id)
+
+    rpe = get_rpe_client()
+    llm = get_apm_llm_client()
+    try:
+        plan = await orchestrator.generate_training_plan(current_user.id, db, rpe, llm)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return BaselineCompleteOut(
+        baseline=BaselineSnapshotOut.model_validate(snapshot),
+        plan_id=plan.id,
+        plan_regenerated=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Baseline chat — guided LLM conversation during baseline session
+# ---------------------------------------------------------------------------
+
+
+@router.post("/baseline/chat", response_model=BaselineChatOut)
+async def baseline_chat(
+    body: BaselineChatIn,
+    current_user: User = Depends(get_current_user),
+) -> BaselineChatOut:
+    """
+    Thin LLM chat for the guided baseline voice session.
+
+    Uses a baseline assessor persona distinct from the MCA chat persona.
+    Returns should_end=True when turn >= 5 so the frontend can end the session.
+    """
+    response_text = await baseline_llm_service.get_response(
+        prompt=body.message,
+        history=body.history,
+        context=body.context,
+    )
+    return BaselineChatOut(
+        response=response_text,
+        should_end=body.turn >= 5,
+    )
 
 
 # ---------------------------------------------------------------------------

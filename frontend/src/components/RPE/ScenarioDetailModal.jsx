@@ -1,22 +1,44 @@
-import { useState, useEffect } from 'react'
-import { X, Loader2, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, Clock, Zap } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { X, Loader2, ChevronRight, CheckCircle, AlertTriangle, Clock, Sparkles, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NPC_AVATAR_OPTIONS } from '@/lib/rpe/npcAvatars'
 
-const DIFFICULTY_STYLES = {
-  beginner:     'bg-emerald-100 text-emerald-700',
-  intermediate: 'bg-amber-100 text-amber-700',
-  advanced:     'bg-red-100 text-red-700',
-}
-
-const getDifficultyLabel = (weight) => {
-  if (weight <= 1.0) return 'Easy start'
-  if (weight <= 1.5) return 'Moderate'
-  if (weight <= 2.0) return 'Challenging'
-  return 'Expert'
+const DIFFICULTY_TONE = {
+  beginner:     'success',
+  intermediate: 'warning',
+  advanced:     'danger',
 }
 
 export default function ScenarioDetailModal({ scenario, onClose, onStart, isStarting }) {
-  const [showThresholds, setShowThresholds] = useState(false)
+  // Defaults to whichever avatar matches the scenario's own npc_gender —
+  // the same pick RolePlaySession would randomize to if this screen were
+  // skipped entirely — but every option is always selectable regardless of
+  // gender, since the whole point of this screen is letting the learner
+  // override a default that doesn't match what they want.
+  const defaultAvatarId = useMemo(
+    () => NPC_AVATAR_OPTIONS.find((a) => a.gender === scenario?.npc_gender)?.id ?? NPC_AVATAR_OPTIONS[0].id,
+    [scenario?.scenario_id]
+  )
+  // With 16 avatars now in the pool, a flat grid got long to scan — this
+  // opens pre-filtered to whichever gender the scenario's own default
+  // matches (same signal as defaultAvatarId above), with "All" one tap away
+  // for a learner who deliberately wants to cross over.
+  const defaultGenderFilter = useMemo(
+    () => (scenario?.npc_gender === 'female' ? 'female' : 'male'),
+    [scenario?.scenario_id]
+  )
+  const [avatarId, setAvatarId] = useState(defaultAvatarId)
+  const [customName, setCustomName] = useState('')
+  const [genderFilter, setGenderFilter] = useState(defaultGenderFilter)
+
+  // Reset the picker to this scenario's own default whenever a *different*
+  // scenario opens — without this, switching from one detail view straight
+  // to another would carry the previous scenario's picks along with it.
+  useEffect(() => {
+    setAvatarId(defaultAvatarId)
+    setCustomName('')
+    setGenderFilter(defaultGenderFilter)
+  }, [scenario?.scenario_id, defaultAvatarId, defaultGenderFilter])
 
   useEffect(() => {
     if (!scenario) return
@@ -27,236 +49,382 @@ export default function ScenarioDetailModal({ scenario, onClose, onStart, isStar
 
   if (!scenario) return null
 
-  const skills    = scenario.target_skills ?? scenario.apa_metadata?.target_skills ?? []
-  const traits    = scenario.apa_metadata?.big_five_relevance ?? []
-  const weight    = scenario.difficulty_weight ?? scenario.apa_metadata?.difficulty_weight ?? 1.0
-  const criteria  = scenario.success_criteria ?? {}
-  const behaviour = scenario.npc_behaviour ?? {}
-  const trustThr  = behaviour.trust_thresholds ?? {}
-  const escThr    = behaviour.escalation_thresholds ?? {}
+  const skills           = scenario.target_skills ?? scenario.apa_metadata?.target_skills ?? []
+  const recommendedTurns = scenario.recommended_turns ?? scenario.turns
+  const maxTurns         = scenario.max_turns ?? recommendedTurns
+  const diffTone         = DIFFICULTY_TONE[scenario.difficulty] ?? 'neutral'
+  const selectedAvatar   = NPC_AVATAR_OPTIONS.find((a) => a.id === avatarId) ?? NPC_AVATAR_OPTIONS[0]
+  const filteredAvatars  = genderFilter === 'all'
+    ? NPC_AVATAR_OPTIONS
+    : NPC_AVATAR_OPTIONS.filter((a) => a.gender === genderFilter)
+
+  const handleStart = () => {
+    onStart(scenario, { avatarId: selectedAvatar.id, npcName: customName.trim() || selectedAvatar.label })
+  }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card rounded-2xl shadow-2xl border border-border max-w-lg w-full max-h-[88vh] overflow-y-auto custom-scrollbar"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal header with gradient */}
-        <div className="sticky top-0 bg-gradient-to-r from-primary/8 to-card border-b border-border px-6 py-4 rounded-t-2xl flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-foreground leading-snug">{scenario.title}</h2>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              <span className={cn(
-                'rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize',
-                DIFFICULTY_STYLES[scenario.difficulty] ?? 'bg-slate-100 text-slate-600'
-              )}>
-                {scenario.difficulty}
+    <div className="rpe-modal-backdrop" onClick={onClose}>
+      <div className="rpe-modal" onClick={(e) => e.stopPropagation()}>
+
+        <div className="modal-header">
+          <div className="header-text">
+            <h2 className="modal-title">{scenario.title}</h2>
+            <div className="header-pills">
+              <span className={cn('diff-badge', diffTone)}>
+                <span className="dot" />{scenario.difficulty}
               </span>
-              <span className="bg-muted text-muted-foreground text-xs rounded-full px-2.5 py-0.5 font-medium">
-                {scenario.conflict_type}
-              </span>
+              {scenario.is_generated && (
+                <span className="pill accent"><Sparkles size={10} strokeWidth={2} /> Personalized</span>
+              )}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <X size={16} />
+          <button type="button" onClick={onClose} className="close-btn" aria-label="Close">
+            <X size={16} strokeWidth={1.8} />
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5">
+        <div className="modal-body">
+          <div className="modal-grid">
 
-          {/* Situation */}
-          {scenario.context && (
-            <section>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-                What's the situation?
-              </p>
-              <p className="text-sm text-foreground leading-relaxed">{scenario.context}</p>
-            </section>
-          )}
-
-          {/* NPC Profile */}
-          <section className="rounded-lg border border-border bg-muted/40 p-4">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-              You'll be talking to
-            </p>
-            <p className="font-semibold text-foreground">{scenario.npc_role}</p>
-            {scenario.npc_personality && (
-              <p className="text-sm text-muted-foreground italic mt-0.5">{scenario.npc_personality}</p>
-            )}
-            {scenario.opening_npc_line && (
-              <div className="mt-3 bg-slate-900 rounded-lg px-3 py-2.5 border-l-[3px] border-primary/60">
-                <p className="text-[10px] text-slate-400 mb-1 uppercase tracking-widest">Opening line</p>
-                <p className="text-sm text-slate-200 italic">"{scenario.opening_npc_line}"</p>
-              </div>
-            )}
-          </section>
-
-          {/* Skills */}
-          {(skills.length > 0 || traits.length > 0) && (
-            <section>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
-                Skills you'll practice
-              </p>
-              {skills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {skills.map((s) => (
-                    <span key={s} className="bg-accent text-accent-foreground text-xs rounded-full px-3 py-1 font-medium">
-                      {s.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {traits.length > 0 && (
-                <div>
-                  <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-widest">Big Five relevance</p>
-                  <div className="flex flex-wrap gap-1">
-                    {traits.map((t) => (
-                      <span key={t} className="bg-secondary/10 text-secondary text-xs rounded-full px-2.5 py-0.5 capitalize font-medium">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* Session info */}
-          <section>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-              Session Info
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Recommended</p>
-                <p className="text-sm font-semibold text-foreground">{scenario.recommended_turns ?? scenario.turns} turns</p>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Maximum</p>
-                <p className="text-sm font-semibold text-foreground">{scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)} turns</p>
-              </div>
-              {criteria.min_trust_score != null && (
-                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Min Trust</p>
-                  <p className="text-sm font-semibold text-emerald-600">{criteria.min_trust_score}</p>
-                </div>
-              )}
-              {criteria.max_escalation_level != null && (
-                <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">Max Escalation</p>
-                  <p className="text-sm font-semibold text-amber-600">{criteria.max_escalation_level}/5</p>
-                </div>
-              )}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5">
-              <Zap size={11} className="text-primary fill-current" />
-              <span className="text-xs font-semibold text-primary">{getDifficultyLabel(weight)}</span>
-            </div>
-          </section>
-
-          {/* How does this session end? */}
-          {(() => {
-            const ec = scenario.end_conditions ?? {}
-            const successThreshold  = ec.success_trust_threshold     ?? 70
-            const consecutiveTurns  = ec.success_consecutive_turns    ?? 2
-            const failureEscalation = ec.failure_escalation_threshold ?? 5
-            const maxT = scenario.max_turns ?? (scenario.recommended_turns ?? scenario.turns)
-            return (
-              <section>
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-                  How does this session end?
-                </p>
-                <div className="space-y-2">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 flex items-start gap-2.5">
-                    <CheckCircle className="text-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground">
-                      Build trust above <span className="font-semibold">{successThreshold}</span> for{' '}
-                      <span className="font-semibold">{consecutiveTurns}</span> consecutive turns
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 flex items-start gap-2.5">
-                    <XCircle className="text-red-500 w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground">
-                      Escalation reaches <span className="font-semibold">{failureEscalation}/5</span> — the NPC walks out
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted/50 px-3 py-2.5 flex items-start gap-2.5">
-                    <Clock className="text-muted-foreground w-4 h-4 mt-0.5 shrink-0" />
-                    <p className="text-sm text-muted-foreground">
-                      Maximum of <span className="font-semibold text-foreground">{maxT}</span> turns — scored on final trust and escalation
-                    </p>
-                  </div>
-                </div>
+            <div className="col col-story">
+              <section className="info-block">
+                <p className="block-label">Situation</p>
+                {scenario.context
+                  ? <p className="block-text">{scenario.context}</p>
+                  : <div className="block-skel" />}
               </section>
-            )
-          })()}
 
-          {/* NPC Behaviour thresholds — collapsible */}
-          {(Object.keys(trustThr).length > 0 || Object.keys(escThr).length > 0) && (
-            <section>
-              <button
-                onClick={() => setShowThresholds((v) => !v)}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium"
-              >
-                {showThresholds ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                {showThresholds ? 'Hide NPC thresholds' : 'Show NPC thresholds'}
-              </button>
-              {showThresholds && (
-                <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-2">
-                  {Object.keys(trustThr).length > 0 && (
-                    <div>
-                      <p className="font-semibold text-foreground mb-1">Trust thresholds</p>
-                      {Object.entries(trustThr).map(([k, v]) => (
-                        <div key={k} className="flex justify-between py-0.5">
-                          <span className="capitalize">{k}</span>
-                          <span className="font-medium text-foreground">{v}</span>
-                        </div>
-                      ))}
+              <section className="info-block">
+                <p className="block-label">The Roles</p>
+                {scenario.npc_role ? (
+                  <>
+                    <div className="role-row">
+                      <span className="role-label">You</span>
+                      <span className="role-val">The employee in this conversation</span>
                     </div>
-                  )}
-                  {Object.keys(escThr).length > 0 && (
-                    <div>
-                      <p className="font-semibold text-foreground mb-1">Escalation thresholds</p>
-                      {Object.entries(escThr).map(([k, v]) => (
-                        <div key={k} className="flex justify-between py-0.5">
-                          <span className="capitalize">{k}</span>
-                          <span className="font-medium text-foreground">{v}</span>
-                        </div>
-                      ))}
+                    <div className="role-row">
+                      <span className="role-label">Them</span>
+                      <span className="role-val">
+                        <b>{scenario.npc_role}</b>{scenario.npc_personality ? `, ${scenario.npc_personality}` : ''}
+                      </span>
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : <div className="block-skel" />}
+              </section>
+
+              {scenario.opening_npc_line && (
+                <section className="opening-line">
+                  <p className="opening-text">"{scenario.opening_npc_line}"</p>
+                </section>
               )}
-            </section>
-          )}
+            </div>
 
+            <div className="col col-practice">
+              <section className="info-block">
+                <p className="block-label">What You'll Practice</p>
+                {skills.length > 0 ? (
+                  <ul className="chip-list">
+                    {skills.map((s) => (
+                      <li key={s}><CheckCircle size={13} strokeWidth={2} /> {s.replace(/_/g, ' ')}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="block-text">General workplace conversation practice.</p>
+                )}
+              </section>
+
+              <section className="info-block">
+                <p className="block-label">How It Works</p>
+                <ul className="plain-list">
+                  <li>
+                    <Clock size={14} strokeWidth={2} />
+                    Usually about <b>{recommendedTurns}</b> exchanges
+                    {maxTurns > recommendedTurns && <> (up to <b>{maxTurns}</b> if you need more time)</>}
+                  </li>
+                  <li>
+                    <CheckCircle size={14} strokeWidth={2} className="tone-success" />
+                    Ends well once you've built solid, lasting trust with them
+                  </li>
+                  <li>
+                    <AlertTriangle size={14} strokeWidth={2} className="tone-warning" />
+                    Tension may rise along the way, that's expected, and it won't cut the conversation short
+                  </li>
+                </ul>
+                <p className="evaluated-note">What's evaluated: trust, tone, and how the conversation resolves</p>
+              </section>
+            </div>
+
+          </div>
+
+          <section className="info-block avatar-picker-block">
+            <div className="avatar-picker-header">
+              <p className="block-label">Not who you pictured? Change it</p>
+              <div className="gender-toggle" role="group" aria-label="Filter avatars by gender">
+                {['all', 'male', 'female'].map((g) => (
+                  <button
+                    type="button"
+                    key={g}
+                    className={cn('gender-toggle-btn', genderFilter === g && 'active')}
+                    onClick={() => setGenderFilter(g)}
+                    aria-pressed={genderFilter === g}
+                  >
+                    {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="avatar-picker">
+              {filteredAvatars.map((a) => (
+                <button
+                  type="button"
+                  key={a.id}
+                  className={cn('avatar-option', avatarId === a.id && 'selected')}
+                  onClick={() => setAvatarId(a.id)}
+                >
+                  {a.photo && <img src={a.photo} alt="" className="avatar-option-photo" />}
+                  <span className="avatar-option-label">{a.label}</span>
+                  {avatarId === a.id && <span className="avatar-option-check"><Check size={11} strokeWidth={2.5} /></span>}
+                </button>
+              ))}
+            </div>
+            <label className="avatar-name-field">
+              <span className="avatar-name-label">Name them (optional)</span>
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder={selectedAvatar.label}
+                maxLength={40}
+                className="avatar-name-input"
+              />
+            </label>
+          </section>
         </div>
 
-        {/* Footer */}
-        <div className="sticky bottom-0 flex gap-3 justify-end px-6 py-4 bg-card border-t border-border rounded-b-2xl">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onStart(scenario)}
-            disabled={isStarting}
-            className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm shadow-primary/25"
-          >
+        <div className="modal-footer">
+          <button type="button" onClick={onClose} className="cancel-btn">Cancel</button>
+          <button type="button" onClick={handleStart} disabled={isStarting} className="start-btn">
             {isStarting
-              ? <><Loader2 size={14} className="animate-spin" /> Starting…</>
-              : <><ChevronRight size={14} /> Start Scenario</>}
+              ? <><Loader2 size={14} strokeWidth={1.8} className="spin" /> Starting…</>
+              : <><ChevronRight size={14} strokeWidth={1.8} /> Enter Simulation</>}
           </button>
         </div>
       </div>
+
+      <style>{`
+        .rpe-modal-backdrop{
+          position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
+          background:var(--modal-backdrop, rgba(6,8,12,0.72)); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+        }
+        :root[data-theme="light"] .rpe-modal-backdrop{ --modal-backdrop: rgba(36,30,56,0.35); }
+        .rpe-modal{
+          --bg-card:      #161B22;
+          --bg-card-hi:   #21262D;
+          --border:       #30363D;
+          --accent:       #7C3AED;
+          --accent-glow:  rgba(124,58,237,0.15);
+          --success:      #3FB950;
+          --success-glow: rgba(63,185,80,0.12);
+          --warning:      #D29922;
+          --warning-glow: rgba(210,153,34,0.12);
+          --danger:       #F85149;
+          --danger-glow:  rgba(248,81,73,0.12);
+          --text-hi:      #F0F6FC;
+          --text-med:     #8B949E;
+          --text-low:     #484F58;
+
+          background:var(--bg-card); border:1px solid var(--border); border-radius:18px;
+          max-width:840px; width:100%; max-height:88vh; overflow-y:auto;
+          scrollbar-width:none; -ms-overflow-style:none;
+          box-shadow:0 30px 70px rgba(0,0,0,0.5);
+          font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+          color:var(--text-hi);
+          opacity:0; transform:translateY(16px) scale(0.98);
+          animation: rpeModalIn .3s cubic-bezier(0.22,1,0.36,1) forwards;
+        }
+        @keyframes rpeModalIn{ to{ opacity:1; transform:none; } }
+        .rpe-modal::-webkit-scrollbar{ display:none; }
+
+        .rpe-modal .modal-header{
+          position:sticky; top:0; z-index:1;
+          /* Solid, not a gradient into transparency — this is a sticky header
+             over scrolling content, and a gradient stop like
+             rgba(124,58,237,0.08) is still ~92% see-through, so scrolled
+             body text showed through it. background-color is the opaque
+             base; background-image layers the same subtle accent tint on
+             top without ever losing full coverage. */
+          background-color:var(--bg-card);
+          background-image:linear-gradient(90deg, rgba(124,58,237,0.08), transparent);
+          border-bottom:1px solid var(--border);
+          padding:20px 30px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+          border-radius:18px 18px 0 0;
+        }
+        .rpe-modal .header-text{ flex:1; min-width:0; }
+        .rpe-modal .modal-title{ font-size:18px; font-weight:750; line-height:1.35; margin:0; }
+        .rpe-modal .header-pills{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:9px; }
+        .rpe-modal .close-btn{
+          flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--text-med);
+          padding:6px; border-radius:8px; display:flex; transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .close-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
+
+        .rpe-modal .modal-body{ padding:26px 30px; }
+
+        .rpe-modal .diff-badge{
+          display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:650;
+          padding:3px 10px; border-radius:100px; text-transform:capitalize; flex-shrink:0; white-space:nowrap;
+          background:var(--bg-card-hi); border:1px solid var(--border); color:var(--text-med);
+        }
+        .rpe-modal .diff-badge .dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+        .rpe-modal .diff-badge.success .dot{ background:var(--success); }
+        .rpe-modal .diff-badge.warning .dot{ background:var(--warning); }
+        .rpe-modal .diff-badge.danger  .dot{ background:var(--danger); }
+        .rpe-modal .diff-badge.neutral .dot{ background:var(--text-low); }
+
+        .rpe-modal .pill{
+          display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:650;
+          padding:3px 10px; border-radius:100px; text-transform:capitalize;
+        }
+        .rpe-modal .pill.accent{ color:var(--accent); background:var(--accent-glow); text-transform:none; }
+
+        .rpe-modal .modal-grid{ display:grid; grid-template-columns:1.15fr 1fr; gap:0 36px; }
+        .rpe-modal .col{ display:flex; flex-direction:column; }
+        .rpe-modal .col-story{ padding-right:36px; border-right:1px solid var(--border); }
+
+        .rpe-modal .info-block{ margin-bottom:22px; }
+        .rpe-modal .info-block:last-child{ margin-bottom:0; }
+        .rpe-modal .block-label{
+          font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+          color:var(--accent); margin:0 0 9px;
+        }
+        .rpe-modal .block-text{ font-size:13.5px; line-height:1.65; color:var(--quote-text, #C9D1D9); margin:0; }
+
+        .rpe-modal .block-skel{
+          height:14px; width:82%; border-radius:5px;
+          background:linear-gradient(90deg, var(--bg-card-hi) 25%, var(--border) 50%, var(--bg-card-hi) 75%);
+          background-size:200% 100%; animation: rpeModalShimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes rpeModalShimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+
+        .rpe-modal .role-row{ display:flex; align-items:baseline; gap:10px; margin:0 0 7px; }
+        .rpe-modal .role-row:last-child{ margin-bottom:0; }
+        .rpe-modal .role-label{
+          flex-shrink:0; width:44px; font-size:10px; font-weight:700; letter-spacing:.06em;
+          text-transform:uppercase; color:var(--text-low);
+        }
+        .rpe-modal .role-val{ font-size:13.5px; color:var(--quote-text, #C9D1D9); line-height:1.55; }
+        .rpe-modal .role-val b{ color:var(--text-hi); }
+
+        .rpe-modal .opening-line{
+          margin-top:auto; background:var(--bg-card-hi); border-radius:10px; padding:12px 14px;
+          border-left:3px solid rgba(124,58,237,0.6);
+        }
+        .rpe-modal .opening-text{ font-size:13px; font-style:italic; color:var(--text-hi); margin:0; }
+
+        .rpe-modal .evaluated-note{ font-size:11.5px; color:var(--text-low); margin:12px 0 0; }
+
+        .rpe-modal .avatar-picker-block{ margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+        .rpe-modal .avatar-picker-header{
+          display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:9px;
+        }
+        .rpe-modal .avatar-picker-header .block-label{ margin:0; }
+        .rpe-modal .gender-toggle{
+          display:inline-flex; background:var(--bg-card-hi); border:1px solid var(--border); border-radius:9px; padding:2px;
+        }
+        .rpe-modal .gender-toggle-btn{
+          background:none; border:none; cursor:pointer; color:var(--text-med);
+          font-size:11.5px; font-weight:650; padding:5px 12px; border-radius:7px;
+          transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .gender-toggle-btn:hover:not(.active){ color:var(--text-hi); }
+        .rpe-modal .gender-toggle-btn.active{ background:var(--accent); color:#fff; }
+        .rpe-modal .avatar-picker{ display:flex; gap:10px; flex-wrap:wrap; }
+        .rpe-modal .avatar-option{
+          position:relative; display:flex; flex-direction:column; align-items:center; gap:8px;
+          width:88px; padding:12px 8px 10px; border-radius:12px; cursor:pointer;
+          background:var(--bg-card-hi); border:1.5px solid var(--border);
+          transition:border-color .2s ease, background .2s ease, transform .2s ease;
+        }
+        .rpe-modal .avatar-option:hover{ border-color:var(--text-med); transform:translateY(-1px); }
+        .rpe-modal .avatar-option.selected{ border-color:var(--accent); background:var(--accent-glow); }
+        .rpe-modal .avatar-option-photo{
+          width:52px; height:52px; border-radius:50%; object-fit:cover; border:1px solid var(--border);
+        }
+        .rpe-modal .avatar-option-label{ font-size:12px; font-weight:650; color:var(--text-hi); }
+        .rpe-modal .avatar-option-check{
+          position:absolute; top:6px; right:6px; width:17px; height:17px; border-radius:50%;
+          background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
+        }
+        .rpe-modal .avatar-name-field{ display:flex; flex-direction:column; gap:6px; margin-top:16px; max-width:280px; }
+        .rpe-modal .avatar-name-label{ font-size:11.5px; font-weight:650; color:var(--text-med); }
+        .rpe-modal .avatar-name-input{
+          font-size:13.5px; padding:9px 12px; border-radius:9px; border:1px solid var(--border);
+          background:var(--bg-card-hi); color:var(--text-hi); font-family:inherit;
+        }
+        .rpe-modal .avatar-name-input::placeholder{ color:var(--text-low); }
+        .rpe-modal .avatar-name-input:focus{ outline:none; border-color:var(--accent); }
+
+        .rpe-modal .chip-list{ display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+        .rpe-modal .chip-list li{
+          display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600;
+          color:var(--text-hi); text-transform:capitalize; background:var(--bg-card-hi);
+          border:1px solid var(--border); border-radius:100px; padding:5px 12px 5px 10px;
+        }
+        .rpe-modal .chip-list li svg{ flex-shrink:0; color:var(--accent); }
+
+        .rpe-modal .plain-list{ display:flex; flex-direction:column; gap:9px; margin:0; padding:0; list-style:none; }
+        .rpe-modal .plain-list li{
+          display:flex; align-items:flex-start; gap:8px; font-size:13.5px; line-height:1.5; color:var(--text-hi);
+        }
+        .rpe-modal .plain-list li svg{ flex-shrink:0; margin-top:2px; color:var(--accent); }
+        .rpe-modal .plain-list li svg.tone-success{ color:var(--success); }
+        .rpe-modal .plain-list li svg.tone-warning{ color:var(--warning); }
+        .rpe-modal .plain-list li b{ color:var(--text-hi); }
+
+        .rpe-modal .modal-footer{
+          position:sticky; bottom:0; display:flex; gap:10px; justify-content:flex-end;
+          padding:18px 30px; background:var(--bg-card); border-top:1px solid var(--border); border-radius:0 0 18px 18px;
+        }
+        .rpe-modal .cancel-btn{
+          background:none; border:none; cursor:pointer; color:var(--text-med); font-size:13px; font-weight:600;
+          padding:9px 16px; border-radius:9px; transition:background .2s ease, color .2s ease;
+        }
+        .rpe-modal .cancel-btn:hover{ background:var(--bg-card-hi); color:var(--text-hi); }
+        .rpe-modal .start-btn{
+          display:inline-flex; align-items:center; gap:7px; border:none; cursor:pointer;
+          background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff;
+          font-size:13px; font-weight:650; padding:9px 18px; border-radius:10px;
+          transition:filter .2s ease;
+        }
+        .rpe-modal .start-btn:hover:not(:disabled){ filter:brightness(1.08); }
+        .rpe-modal .start-btn:disabled{ opacity:.55; cursor:default; }
+        .rpe-modal .spin{ animation:rpeModalSpin .75s linear infinite; }
+        @keyframes rpeModalSpin{ to{ transform:rotate(360deg); } }
+
+        @media (max-width:640px){
+          .rpe-modal .modal-grid{ grid-template-columns:1fr; gap:22px 0; }
+          .rpe-modal .col-story{ padding-right:0; padding-bottom:22px; border-right:none; border-bottom:1px solid var(--border); }
+        }
+
+        :root[data-theme="light"] .rpe-modal{
+          --bg-card:      #FFFFFF;
+          --bg-card-hi:   #EFEAFB;
+          --border:       #D9CFF5;
+          --accent:       #6B3FD6;
+          --accent-glow:  rgba(107,63,214,0.12);
+          --success:      #1E8E4A;
+          --success-glow: rgba(30,142,74,0.12);
+          --warning:      #B4790E;
+          --warning-glow: rgba(180,121,14,0.14);
+          --danger:       #D93B32;
+          --danger-glow:  rgba(217,59,50,0.12);
+          --text-hi:      #241E38;
+          --text-med:     #5E5678;
+          --text-low:     #8D84A8;
+          --quote-text:   #3A3352;
+          box-shadow:0 20px 50px rgba(36,30,56,0.18);
+        }
+      `}</style>
     </div>
   )
 }

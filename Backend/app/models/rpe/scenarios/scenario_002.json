@@ -31,9 +31,16 @@
     }
   },
   "apa_metadata": {
-    "target_skills": ["assertiveness", "conflict_resolution", "professional_communication"],
-    "big_five_relevance": ["agreeableness", "conscientiousness"],
+    "target_skills": [
+      "assertiveness",
+      "conflict_resolution"
+    ],
+    "big_five_relevance": [
+      "agreeableness",
+      "conscientiousness"
+    ],
     "recommended_for_profile": null,
     "difficulty_weight": 1.0
-  }
+  },
+  "category": "Conflict"
 }

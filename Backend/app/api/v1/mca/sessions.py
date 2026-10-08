@@ -20,6 +20,7 @@ from app.core.auth import get_current_user
 from app.models.session_result import SessionResult
 from app.models.user import User
 from app.api.v1.mca.scoring import calculate_session_metrics
+from app.services.mca_live_scorer import mca_live_scorer
 
 router = APIRouter()
 
@@ -41,6 +42,42 @@ class NudgeEntry(BaseModel):
     category: str
     severity: str
     timestamp: Optional[str] = None
+    elapsed_seconds: Optional[float] = None  # seconds since session start (live mode)
+
+
+class TranscriptSegment(BaseModel):
+    text: str
+    elapsed_seconds: float = 0.0
+
+
+class EmotionEvent(BaseModel):
+    emotion: str
+    confidence: Optional[float] = None
+    elapsed_seconds: float = 0.0
+
+
+class BehaviorEvent(BaseModel):
+    """One behaviour detected in one ~3 s audio chunk (not limited by the nudge cooldown)."""
+    message: str
+    category: str
+    severity: str
+    elapsed_seconds: float = 0.0
+
+
+class Detection(BaseModel):
+    message: str = ""
+    category: str = ""
+    severity: Optional[str] = None
+
+
+class ChunkObservation(BaseModel):
+    """One analysed ~3 s chunk: the observation interval used by rule-based scoring."""
+    elapsed_seconds: float = 0.0
+    speaking: bool = False
+    face_visible: bool = False
+    emotion: Optional[str] = None
+    confidence: Optional[float] = None
+    detections: list[Detection] = []
 
 
 class SessionEndRequest(BaseModel):
@@ -49,6 +86,13 @@ class SessionEndRequest(BaseModel):
     chat_turns: Optional[int] = None  # AI-mode only
     emotion_distribution: Optional[dict[str, float]] = None
     mechanical_averages: Optional[dict[str, float]] = None
+    # Live-mode only: transcribed speech + emotion changes used for LLM-based scoring.
+    user_transcript: list[TranscriptSegment] = []
+    meeting_transcript: list[TranscriptSegment] = []
+    emotion_timeline: list[EmotionEvent] = []
+    behavior_log: list[BehaviorEvent] = []
+    # Both modes: every analysed chunk, used for rule-based scoring (not stored).
+    observation_log: list[ChunkObservation] = []
 
 
 class SessionResponse(BaseModel):
@@ -66,6 +110,7 @@ class SessionResponse(BaseModel):
     emotion_distribution: Optional[dict[str, Any]] = None
     nudge_summary: Optional[dict[str, Any]] = None
     skill_scores: Optional[dict[str, Any]] = None
+    score_diagnostics: Optional[dict[str, Any]] = None
     mechanical_averages: Optional[dict[str, Any]] = None
     friendly_id: Optional[str] = None
 
@@ -86,6 +131,7 @@ class SessionResponse(BaseModel):
             emotion_distribution=session.emotion_distribution,
             nudge_summary=session.nudge_summary,
             skill_scores=session.skill_scores,
+            score_diagnostics=session.score_diagnostics,
             mechanical_averages=session.mechanical_averages,
             friendly_id=session.friendly_id,
         )
@@ -111,9 +157,16 @@ def start_session(
         friendly_id=generate_friendly_id(body.mode),
         started_at=datetime.now(timezone.utc),
     )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    try:
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create session: {exc}",
+        )
     return SessionResponse.from_orm(session)
 
 
@@ -144,7 +197,11 @@ def end_session(
     now = datetime.now(timezone.utc)
     session.ended_at = now
     session.status = "completed"
-    session.duration_seconds = int((now - session.started_at).total_seconds())
+    
+    started = session.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    session.duration_seconds = int((now - started).total_seconds())
     session.nudge_log = [n.model_dump() for n in body.nudge_log]
     
     # Calculate nudge_summary
@@ -160,14 +217,38 @@ def end_session(
     session.emotion_distribution = body.emotion_distribution or {}
     session.mechanical_averages = body.mechanical_averages or {}
     
-    # Calculate multi-skill scores
+    # Rule-based scores: always computed (AI-mode score, live fallback, diagnostics).
     metrics = calculate_session_metrics(
-        session.nudge_log, 
+        session.nudge_log,
         session.emotion_distribution,
-        duration_seconds=session.duration_seconds
+        duration_seconds=session.duration_seconds,
+        observation_log=[o.model_dump() for o in body.observation_log],
+        behavior_log=[b.model_dump() for b in body.behavior_log],
     )
+
+    if session.session_type == "live":
+        llm_result = mca_live_scorer.score(
+            nudge_log=session.nudge_log,
+            user_transcript=[t.model_dump() for t in body.user_transcript],
+            meeting_transcript=[t.model_dump() for t in body.meeting_transcript],
+            duration_seconds=session.duration_seconds,
+            emotion_distribution=session.emotion_distribution,
+            emotion_timeline=[e.model_dump() for e in body.emotion_timeline],
+            behavior_log=[b.model_dump() for b in body.behavior_log],
+        )
+        if llm_result is not None:
+            metrics["overall"] = llm_result["overall"]
+            metrics["breakdown"] = llm_result["breakdown"]
+            metrics["diagnostics"]["scoring_method"] = "llm"
+            metrics["diagnostics"]["llm_rationale"] = llm_result["rationale"]
+        else:
+            metrics["diagnostics"]["scoring_method"] = "rule_based_fallback"
+    else:
+        metrics["diagnostics"]["scoring_method"] = "rule_based"
+
     session.overall_score = metrics["overall"]
     session.skill_scores = metrics["breakdown"]
+    session.score_diagnostics = metrics["diagnostics"]
     
     # Determine dominant emotion
     if session.emotion_distribution:
@@ -176,9 +257,53 @@ def end_session(
     if body.chat_turns is not None:
         session.chat_turns = body.chat_turns
 
-    db.commit()
-    db.refresh(session)
+    try:
+        db.commit()
+        db.refresh(session)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save session results: {exc}",
+        )
     return SessionResponse.from_orm(session)
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def discard_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Discard an active MCA session without persisting any results.
+
+    Only "active" sessions can be discarded.
+    """
+    session: Optional[SessionResult] = db.get(SessionResult, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+
+    if session.status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only active sessions can be discarded (status is '{session.status}')",
+        )
+
+    try:
+        db.delete(session)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to discard session: {exc}",
+        )
+    return None
 
 
 @router.get("/", response_model=list[SessionResponse])
@@ -188,7 +313,7 @@ def list_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return the authenticated user's MCA sessions, newest first."""
+    """Return the authenticated user's MCA sessions, newest first (paginated)."""
     sessions = (
         db.query(SessionResult)
         .filter(SessionResult.user_id == current_user.id)
@@ -198,3 +323,35 @@ def list_sessions(
         .all()
     )
     return [SessionResponse.from_orm(s) for s in sessions]
+
+
+@router.get("/me", response_model=list[SessionResponse])
+def get_my_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all MCA sessions for the currently authenticated user, newest first."""
+    sessions = (
+        db.query(SessionResult)
+        .filter(SessionResult.user_id == current_user.id)
+        .order_by(SessionResult.started_at.desc())
+        .all()
+    )
+    return [SessionResponse.from_orm(s) for s in sessions]
+
+@router.get("/{session_id}", response_model=SessionResponse)
+def get_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a single MCA session by ID, if it belongs to the authenticated user."""
+    session: Optional[SessionResult] = db.get(SessionResult, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your session")
+
+    return SessionResponse.from_orm(session)

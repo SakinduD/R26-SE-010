@@ -10,7 +10,7 @@ from time import perf_counter
 import joblib
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -72,6 +72,21 @@ def main() -> None:
         "regression_target": summary.regression_target,
         "classification_target": summary.classification_target,
         "risk_distribution": summary.risk_distribution,
+        # The range each feature was actually trained on. Serving code clamps to
+        # these before predicting: a linear model asked about a value 79 standard
+        # deviations outside anything it has seen is not predicting, it is
+        # extrapolating, and on this feature set that is worth tens of points.
+        # session_count, blind_spot_count and engagement_score all grow without
+        # bound as a learner uses the platform, so every experienced learner
+        # eventually leaves the range - which makes this a serving concern, not
+        # an edge case.
+        "feature_ranges": {
+            column: {
+                "min": round(float(x[:, index].min()), 4),
+                "max": round(float(x[:, index].max()), 4),
+            }
+            for index, column in enumerate(FEATURE_COLUMNS)
+        },
         "selected_regressor": best_regressor_name,
         "selected_classifier": best_classifier_name,
         "selection_rule": "lowest RMSE for regression, highest weighted F1 for classification",
@@ -172,6 +187,16 @@ def train_regressors(x: np.ndarray, y: np.ndarray, random_state: int):
     )
     candidates = {
         "linear_regression": Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())]),
+        # Ridge exists here because ordinary least squares cannot cope with this
+        # feature set. current_score is built as previous_score + trend_slope +
+        # noise, so those three columns are very nearly linearly dependent, and
+        # OLS answers that with enormous opposing coefficients - 1846, -1904,
+        # -452 against 1-3 for everything else. On the test split they cancel,
+        # because the same dependency holds there; on a real learner whose three
+        # values do not line up exactly they do not, and the prediction lands
+        # hundreds of points out and clamps to 0 or 100. Regularisation is the
+        # textbook answer to collinearity and costs almost nothing here.
+        "ridge_regression": Pipeline([("scaler", StandardScaler()), ("model", Ridge(alpha=10.0))]),
         "random_forest_regressor": RandomForestRegressor(
             n_estimators=180,
             random_state=random_state,
@@ -188,10 +213,12 @@ def train_regressors(x: np.ndarray, y: np.ndarray, random_state: int):
         rmse = mean_squared_error(y_test, predictions) ** 0.5
         cv = KFold(n_splits=5, shuffle=True, random_state=random_state)
         cv_rmse = (-cross_val_score(model, x, y, cv=cv, scoring="neg_root_mean_squared_error")).mean()
+        stability = _out_of_range_rate(model, x_test)
         results.append(
             {
                 "model_name": name,
                 "task": "next_score_regression",
+                "out_of_range_rate": stability,
                 "mae": round(float(mean_absolute_error(y_test, predictions)), 4),
                 "mse": round(float(mean_squared_error(y_test, predictions)), 4),
                 "rmse": round(float(rmse), 4),
@@ -202,9 +229,30 @@ def train_regressors(x: np.ndarray, y: np.ndarray, random_state: int):
         )
         trained[name] = model
 
-    results.sort(key=lambda item: (item["rmse"], item["cv_rmse"]))
+    # Accuracy alone chose the model that breaks in production. Test RMSE cannot
+    # see an extrapolation failure, because the test split shares the training
+    # split's collinearity - the very thing that hides it. So a model that
+    # answers off the 0-100 scale when its inputs are nudged is ranked below one
+    # that stays on it, and RMSE only decides between the survivors.
+    results.sort(key=lambda item: (item["out_of_range_rate"], item["rmse"], item["cv_rmse"]))
     best_name = results[0]["model_name"]
     return results, best_name, trained[best_name]
+
+
+def _out_of_range_rate(model, x_test) -> float:
+    """How often small input perturbations push the prediction off the score scale.
+
+    A next-session score is a number between 0 and 100. A model that returns
+    values outside that when its inputs move slightly is not making a small
+    error, it has stopped describing the quantity at all.
+    """
+    rng = np.random.default_rng(0)
+    sample = np.asarray(x_test, dtype=float)[:400]
+    if sample.size == 0:
+        return 0.0
+    jittered = sample + rng.normal(0.0, 1.0, size=sample.shape)
+    predictions = model.predict(jittered)
+    return round(float(np.mean((predictions < 0) | (predictions > 100))), 4)
 
 
 def train_classifiers(x: np.ndarray, y: np.ndarray, label_encoder: LabelEncoder, random_state: int):
@@ -330,6 +378,7 @@ def write_comparison_csv(output_path: Path, regression_rows: list[dict], classif
         fieldnames = [
             "model_name",
             "task",
+            "out_of_range_rate",
             "mae",
             "mse",
             "rmse",

@@ -31,9 +31,18 @@
     }
   },
   "apa_metadata": {
-    "target_skills": ["boundary_setting", "professional_assertiveness", "self_advocacy"],
-    "big_five_relevance": ["conscientiousness", "neuroticism", "extraversion"],
+    "target_skills": [
+      "boundary_setting",
+      "assertiveness",
+      "self_advocacy"
+    ],
+    "big_five_relevance": [
+      "conscientiousness",
+      "neuroticism",
+      "extraversion"
+    ],
     "recommended_for_profile": null,
     "difficulty_weight": 2.5
-  }
+  },
+  "category": "Assertiveness"
 }

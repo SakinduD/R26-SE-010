@@ -31,9 +31,18 @@
     }
   },
   "apa_metadata": {
-    "target_skills": ["client_management", "emotional_regulation", "accountability"],
-    "big_five_relevance": ["neuroticism", "agreeableness"],
+    "target_skills": [
+      "client_management",
+      "emotional_regulation",
+      "accountability",
+      "empathy"
+    ],
+    "big_five_relevance": [
+      "neuroticism",
+      "agreeableness"
+    ],
     "recommended_for_profile": null,
     "difficulty_weight": 1.5
-  }
+  },
+  "category": "Client Management"
 }

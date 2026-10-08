@@ -1,0 +1,72 @@
+{
+  "scenario_id": "plan_3a29fa59-6b22-4bf8-a828-f298735767e0",
+  "title": "Salary Increment Discussion with Finance Manager",
+  "difficulty": "intermediate",
+  "conflict_type": "other",
+  "npc_role": "manager",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a challenging teaching tone at slow pacing, wants to Protect their own priorities in the other situation and Be seen as reasonable by anyone who hears about this later",
+  "context": "The learner, a senior analyst, has scheduled a brief meeting with the finance manager to request a salary increase. The finance manager is neutral but focused on maintaining departmental budget constraints. The conversation begins with the manager raising the budget issue, putting the learner on the spot to justify their request while balancing professional assertiveness and self\u2011advocacy.",
+  "opening_npc_line": "I understand you want to talk about a raise, but we have a strict budget ceiling this quarter.",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 70,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 3
+  },
+  "success_criteria": {
+    "min_trust_score": 45,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 70,
+      "neutral": 50,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 3,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "assertiveness",
+      "professional_communication",
+      "self_advocacy"
+    ],
+    "big_five_relevance": [],
+    "recommended_for_profile": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+    "difficulty_weight": 1.0,
+    "plan_generated": {
+      "plan_id": "3a29fa59-6b22-4bf8-a828-f298735767e0",
+      "plan_version": 1,
+      "required_beats": [
+        "The counterpart states their position on the other issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "The counterpart applies pressure that the learner must hold their ground against at least once",
+        "A moment requiring the learner to restate something complex clearly and concisely",
+        "A moment where the learner's own contribution or constraint goes unacknowledged unless they raise it"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising assertiveness or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

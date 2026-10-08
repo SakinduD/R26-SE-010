@@ -1,9 +1,25 @@
 """
-SQLAlchemy models for APM persistence — TrainingPlan and AdjustmentHistory.
+SQLAlchemy models for APM persistence.
 
-TrainingPlan is upserted: one row per user (UNIQUE on user_id).
-AdjustmentHistory is append-only and powers the "see how the plan changed"
-demo view.
+Three tables, three distinct jobs — do not conflate them:
+
+  TrainingPlan (training_plans)
+      The user's *adaptive state*: current teaching strategy, current
+      difficulty, and the RPE scenario currently recommended. Upserted —
+      exactly one row per user (UNIQUE on user_id). Maintained by
+      orchestrator.generate_training_plan / apply_session_feedback.
+
+  AdjustmentHistory (adjustment_history)
+      Append-only log of every strategy/difficulty change, powering the
+      "see how the plan changed" view.
+
+  PersonalisedTrainingPlan (personalised_training_plans)
+      A *goal-conditioned* plan: the learner describes a workplace situation
+      they want to practise and APM composes a build spec for RPE's scenario
+      generator. Many rows per user, versioned and status-tracked; served by
+      /apa/training-plan/*. It does not duplicate TrainingPlan — plan_service
+      consumes the adaptive state above for the latest recalibrated strategy
+      and difficulty.
 """
 from __future__ import annotations
 
@@ -15,6 +31,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -156,4 +173,89 @@ class AdjustmentHistory(Base):
 
     plan: Mapped["TrainingPlan"] = relationship(
         "TrainingPlan", back_populates="history"
+    )
+
+
+class PersonalisedTrainingPlan(Base):
+    """
+    A goal-conditioned training plan — the complete input contract for RPE's
+    scenario generator.
+
+    Unlike TrainingPlan above, rows are never overwritten: regenerating
+    archives the old row and inserts a new one with plan_version + 1, so the
+    learner keeps a history of what they asked to practise.
+
+    The JSONB blobs mirror the Pydantic models in app/contracts/training_plan.py
+    and app/schemas/training_plan.py, validated in both directions.
+    """
+
+    __tablename__ = "personalised_training_plans"
+    __table_args__ = (
+        CheckConstraint(
+            "difficulty BETWEEN 1 AND 10",
+            name="ck_personalised_plans_difficulty_range",
+        ),
+        CheckConstraint(
+            "plan_version >= 1",
+            name="ck_personalised_plans_version_positive",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'active', 'consumed', 'archived')",
+            name="ck_personalised_plans_status",
+        ),
+        Index("ix_personalised_plans_user_status", "user_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    plan_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active"
+    )
+
+    # Denormalised for list/filter queries; authoritative copies live in the blobs.
+    domain: Mapped[str] = mapped_column(String(40), nullable=False)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
+    title_hint: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    intent: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
+    blueprint: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
+    pedagogy: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
+    adaptation: Mapped[dict] = mapped_column(json_column_type(), nullable=False)
+    inputs_snapshot: Mapped[dict] = mapped_column(
+        json_column_type(), nullable=False, default=dict
+    )
+    generation_sources: Mapped[dict] = mapped_column(
+        json_column_type(), nullable=False, default=dict
+    )
+
+    target_skills: Mapped[list[str]] = mapped_column(
+        json_column_type(), nullable=False, default=list
+    )
+    personalisation_brief: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Stamped when RPE fetches the brief; status is left alone so RPE may retry.
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

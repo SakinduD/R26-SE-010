@@ -1,15 +1,15 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import ModeSwitcher from '../../components/MCA/ModeSwitcher';
-import AIChatbot from '../../components/MCA/AIChatbot';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import * as faceMesh from '@mediapipe/face_mesh';
-import * as cam from '@mediapipe/camera_utils';
-import * as draw from '@mediapipe/drawing_utils';
-import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
-import { calculateEAR, calculateMAR, estimateHeadPose } from '../../utils/mca/heuristics';
+import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
+import { useNudgeSensing } from '../../hooks/useNudgeSensing';
+import { toObservation } from '../../utils/mca/realtimeSensing';
 import { mcaService } from '../../services/mca/mcaService';
+import { API_URL } from '../../lib/config';
+import { analyticsService } from '../../services/analytics/analyticsService';
+import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
+import CaptureConsent, { hasCaptureConsent, saveCaptureConsent } from '../../components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -22,287 +22,707 @@ import {
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog";
 
+// word-wrap for canvas text — canvas has no native text-wrapping
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = '';
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (currentLine && ctx.measureText(testLine).width > maxWidth) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+// Live mode is gated behind the capture consent screen; the sensing page
+// (and its camera/mic hooks) only mounts once the user has agreed.
 const MultimodalEngine = () => {
+  const navigate = useNavigate();
+  const [consented, setConsented] = useState(() => hasCaptureConsent('live'));
+
+  if (!consented) {
+    return (
+      <CaptureConsent
+        mode="live"
+        onAccept={() => {
+          saveCaptureConsent('live');
+          setConsented(true);
+        }}
+        onDecline={() => navigate('/dashboard')}
+      />
+    );
+  }
+
+  return <LiveSensingSession />;
+};
+
+const LiveSensingSession = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const activeMode = searchParams.get('mode') || 'live';
-  const showMesh = searchParams.get('mesh') !== 'false';
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [liveMicActive, setLiveMicActive] = useState(false);
-  const [liveHasMicPermission, setLiveHasMicPermission] = useState(false);
-  const [aiMicActive, setAiMicActive] = useState(false);
-  const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
-  const [aiStopSignal, setAiStopSignal] = useState(0);
-  const [aiStartSignal, setAiStartSignal] = useState(0);
-  const [aiSessionActive, setAiSessionActive] = useState(false);
-  const aiSessionActiveRef = useRef(false);
-  const [nudges, setNudges] = useState([]); // State for coaching nudges stack
-  const [metrics, setMetrics] = useState({
-    ear: 0,
-    mar: 0,
-    pose: { yaw: 0, pitch: 0, roll: 0 },
-    emotion: 'Sensing...',
-    confidence: 0,
-    isSyncing: false
-  });
-  const webcamRef = useRef(null);
-  const canvasRef = useRef(null);
-  const cameraRef = useRef(null);
-  const showMeshRef = useRef(showMesh);
+  const showMesh = searchParams.get('mesh') === 'true';
 
-  // Keep a mutable ref of latest metrics for the WebSocket closure
-  const metricsRef = useRef({ ear: 0, mar: 0, pose: { yaw: 0, pitch: 0, roll: 0 } });
-
-  // Audio Streaming Refs
-  const mediaRecorderRef = useRef(null);
-  const socketRef = useRef(null);
-  const audioStreamRef = useRef(null);
-  const recordRestartTimeoutRef = useRef(null);
-
-  // Live session tracking
   const [liveSessionId, setLiveSessionId] = useState(null);
+  const [isLiveStarting, setIsLiveStarting] = useState(false);
+
+  // PiP overlay drawer, kept in a ref so the sensing callback stays stable.
+  const frameOverlayRef = useRef(null);
+
+  // Every behaviour detected during the session, chunk by chunk. Unlike the
+  // nudge log it ignores the on-screen cooldown; sent to the LLM scorer.
+  const liveBehaviorLogRef = useRef([]);
+  const logDetections = (detections) => {
+    if (!liveSessionIdRef.current) return;
+    const elapsed = sessionDurationRef.current;
+    liveBehaviorLogRef.current = [
+      ...liveBehaviorLogRef.current,
+      ...detections.map((d) => ({ ...d, elapsed_seconds: elapsed })),
+    ];
+  };
+
+  // Every analysed chunk during the session, for rule-based scoring.
+  const liveObservationLogRef = useRef([]);
+  const logChunk = (chunkMetrics) => {
+    if (!liveSessionIdRef.current) return;
+    liveObservationLogRef.current.push(toObservation(chunkMetrics, sessionDurationRef.current));
+  };
+
+  const {
+    webcamRef, canvasRef, metrics,
+    isCameraActive, isMicActive: liveMicActive,
+    toggleCamera, toggleMic: rawToggleMic, dismissNudge,
+    nudges: sensedNudges,
+    resetVisualAverages, getVisualAverages,
+  } = useNudgeSensing({ frameOverlayRef, showMesh, onDetections: logDetections, onChunk: logChunk });
+
+  // Camera/mic can run before a session starts; nudges show only during one.
+  const nudges = liveSessionId ? sensedNudges : [];
+
+  // Optional shared meeting audio (other participants), used for LLM scoring.
+  const [liveMeetingAudioActive, setLiveMeetingAudioActive] = useState(false);
+  const meetingAudioStreamRef = useRef(null);
+
+  // Live transcripts for LLM scoring (user: Web Speech API, meeting: Whisper).
+  const userTranscribeRecorderRef = useRef(null);
+  const meetingTranscribeRecorderRef = useRef(null);
+  const liveUserTranscriptRef = useRef([]);
+  const liveMeetingTranscriptRef = useRef([]);
+
   const liveSessionIdRef = useRef(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const sessionTimerRef = useRef(null);
   const liveNudgeLogRef = useRef([]);
-  const liveEmotionCountsRef = useRef({}); // Track distribution for scoring
-  const activeModeRef = useRef(activeMode);
-  const [aiSessionStarting, setAiSessionStarting] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
+  // Voice emotion during the session: seconds per emotion, change timeline,
+  // and the emotion currently being timed.
+  const liveEmotionSecondsRef = useRef({});
+  const liveEmotionTimelineRef = useRef([]);
+  const currentEmotionRef = useRef(null); // { emotion, since: ms timestamp }
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
-  const [pendingModeSwitch, setPendingModeSwitch] = useState(null);
-  const [isLiveStarting, setIsLiveStarting] = useState(false);
+  const [navAlertTarget, setNavAlertTarget] = useState(null);
   const [isLiveEnding, setIsLiveEnding] = useState(false);
-  const [aiSessionEnding, setAiSessionEnding] = useState(false);
   const [friendlyId, setFriendlyId] = useState(null);
 
-  const handleModeChangeRequest = (mode, executeSwitch) => {
-    if (liveSessionIdRef.current || (activeModeRef.current === 'ai' && aiSessionActiveRef.current)) {
-      setPendingModeSwitch(() => executeSwitch);
-      setIsAlertOpen(true);
-    } else {
-      executeSwitch();
+  // Picture-in-Picture: floating mini view when the tab is hidden.
+  const pipVideoRef = useRef(null);
+  const pipCaptureStreamRef = useRef(null);
+  const [isPipActive, setIsPipActive] = useState(false);
+  const isPipActiveRef = useRef(false);
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
+
+  // Ref copies of state so stable callbacks can read the latest values.
+  const nudgesRef = useRef([]);
+  const sessionDurationRef = useRef(0);
+
+  // Records an audio stream in back-to-back segments and transcribes each one.
+  // - Cuts at speech pauses so words aren't split between segments
+  // - Skips silent segments (Whisper invents text from silence)
+  // - Whisper first, Google STT (/api/stt) as fallback
+  const startTranscriptionLoop = useCallback((stream, targetRef, recorderRef, {
+    minSegmentMs = 3000,     // don't cut before this, even on a pause
+    maxSegmentMs = 15000,    // always cut by this, even mid-speech
+    pauseMs = 700,           // this much silence after speech ends a segment
+    speechRms = 0.01,        // RMS level treated as speech (0..1)
+  } = {}) => {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+
+    // Level meter for pause detection — analysis only, not routed to speakers.
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = AudioCtx ? new AudioCtx() : null;
+    let analyser = null;
+    let samples = null;
+    if (audioCtx) {
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      samples = new Float32Array(analyser.fftSize);
     }
-  };
-
-  const handleConfirmModeSwitch = () => {
-    // Force-end live session without second confirmation
-    if (liveSessionIdRef.current) realEndLiveSession();
-
-    // For AI mode, the cleanup function in AIChatbot now handles formal end on unmount
-    if (pendingModeSwitch) pendingModeSwitch();
-
-    setIsAlertOpen(false);
-    setPendingModeSwitch(null);
-  };
-
-  const handleCancelModeSwitch = () => {
-    setIsAlertOpen(false);
-    setPendingModeSwitch(null);
-  };
-
-  useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
-
-  const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
-    // Only fire nudges if a Live Session is active (AI session is managed locally in AIChatbot)
-    if (activeModeRef.current === 'live' && !liveSessionIdRef.current) return;
-
-    const id = Date.now();
-    const newNudge = {
-      id,
-      text,
-      category,
-      severity,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const currentRms = () => {
+      if (!analyser) return speechRms; // no meter: treat as always speaking
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+      return Math.sqrt(sum / samples.length);
     };
-    setNudges(prev => [newNudge, ...prev].slice(0, 5));
-    // Accumulate for session persistence
-    liveNudgeLogRef.current = [
-      ...liveNudgeLogRef.current,
-      { message: text, category, severity, timestamp: newNudge.timestamp }
-    ];
+    const closeMeter = () => {
+      if (audioCtx && audioCtx.state !== 'closed') audioCtx.close().catch(() => {});
+    };
 
-    // Auto-disappear after 8 seconds
-    setTimeout(() => {
-      setNudges(prev => prev.filter(n => n.id !== id));
-    }, 8000);
-  }, []);
+    const transcribe = async (blob) => {
+      const prompt = targetRef.current.slice(-3).map(t => t.text).join(' ').slice(-200);
+      const whisperText = await mcaService.transcribe(blob, prompt);
+      if (whisperText !== null) return whisperText;
 
-  // Update ref when showMesh changes
-  useEffect(() => {
-    showMeshRef.current = showMesh;
-  }, [showMesh]);
+      const res = await fetch(`${API_URL}/api/stt`, {
+        method: 'POST',
+        headers: { 'Content-Type': mimeType },
+        body: blob,
+      });
+      if (!res.ok) return '';
+      const data = await res.json();
+      return (data.transcript || '').trim();
+    };
 
-  const onResults = useCallback((results) => {
-    if (!webcamRef.current || !webcamRef.current.video || !canvasRef.current) return;
+    const recordSegment = () => {
+      if (!stream.active) { closeMeter(); return; }
 
-    const videoWidth = webcamRef.current.video.videoWidth;
-    const videoHeight = webcamRef.current.video.videoHeight;
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorderRef.current = recorder;
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      const segmentElapsedSeconds = sessionDurationRef.current;
+      const segmentStart = Date.now();
+      let heardSpeech = false;
+      let silenceStart = null;
 
-    // Only update canvas dimensions if they changed to prevent flickering
-    if (canvasRef.current.width !== videoWidth) canvasRef.current.width = videoWidth;
-    if (canvasRef.current.height !== videoHeight) canvasRef.current.height = videoHeight;
+      const levelTimer = setInterval(() => {
+        if (recorderRef.current !== recorder || recorder.state === 'inactive') {
+          clearInterval(levelTimer);
+          return;
+        }
+        const now = Date.now();
+        if (currentRms() >= speechRms) {
+          heardSpeech = true;
+          silenceStart = null;
+        } else if (silenceStart === null) {
+          silenceStart = now;
+        }
+        const elapsed = now - segmentStart;
+        const pausedAfterSpeech = heardSpeech && silenceStart !== null && now - silenceStart >= pauseMs;
+        if ((elapsed >= minSegmentMs && pausedAfterSpeech) || elapsed >= maxSegmentMs) {
+          clearInterval(levelTimer);
+          recorder.stop();
+        }
+      }, 100);
 
-    const canvasElement = canvasRef.current;
-    const canvasCtx = canvasElement.getContext("2d");
+      recorder.onstop = async () => {
+        clearInterval(levelTimer);
+        // Torn down (externally stopped/superseded) or stream ended mid-segment.
+        if (recorderRef.current !== recorder || !stream.active) { closeMeter(); return; }
 
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        // Restart immediately so recording is back-to-back with no gap.
+        recordSegment();
 
-    // Always draw the raw camera feed first
-    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-    // Stop Affect Fusion (FaceMesh heuristics) if the session isn't actively running
-    if (activeModeRef.current === 'live' && !liveSessionIdRef.current) {
-      canvasCtx.restore();
-      return;
-    }
-
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-      const landmarks = results.multiFaceLandmarks[0];
-
-      // Calculate heuristics in background
-      const ear = calculateEAR(landmarks);
-      const mar = calculateMAR(landmarks);
-      const pose = estimateHeadPose(landmarks);
-
-      const newMetrics = { ear, mar, pose };
-      setMetrics(prev => ({ ...prev, ...newMetrics }));
-      metricsRef.current = { ...metricsRef.current, ...newMetrics }; // ref for WebSocket
-
-      // Only draw the mesh overlay if enabled
-      if (showMeshRef.current) {
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
-          color: "#06B6D4",
-          lineWidth: 0.5,
-        });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: "#7C3AED" });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: "#7C3AED" });
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: "#EC4899" });
-      }
-    }
-    canvasCtx.restore();
-  }, []);
-
-
-
-  const startAudioCapture = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-      setLiveHasMicPermission(true);
-
-      // Mic capture only — session is now manual
-      setLiveMicActive(true);
-
-      const socket = new WebSocket(mcaService.getAudioStreamUrl());
-      socketRef.current = socket;
-
-      socket.onopen = () => {
-        const startRecordingChunk = () => {
-          if (socket.readyState !== WebSocket.OPEN) return;
-
-          const mediaRecorder = new MediaRecorder(stream);
-          mediaRecorderRef.current = mediaRecorder;
-
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              // Send Visual Data First
-              socket.send(JSON.stringify({
-                type: 'visual_metrics',
-                metrics: metricsRef.current,
-                session_id: liveSessionIdRef.current
-              }));
-              // Send Audio Data
-              socket.send(event.data);
-            }
-          };
-
-          mediaRecorder.start();
-
-          if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current);
-          recordRestartTimeoutRef.current = setTimeout(() => {
-            if (mediaRecorder.state === 'recording') {
-              mediaRecorder.stop();
-              startRecordingChunk();
-            }
-          }, 1000);
-        };
-
-        startRecordingChunk();
-        setLiveMicActive(true);
-      };
-
-      socket.onerror = (err) => console.error('[Live WS] error:', err);
-
-      socket.onmessage = (event) => {
+        if (chunks.length === 0 || !heardSpeech) return;
+        const blob = new Blob(chunks, { type: mimeType });
         try {
-          const data = JSON.parse(event.data);
-          if (data.metrics) {
-            setMetrics(prev => ({
-              ...prev,
-              emotion: data.metrics.emotion
-                ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
-                : 'Neutral',
-              confidence: data.metrics.confidence || 0,
-              isSyncing: true
-            }));
-
-            if (data.metrics.emotion) {
-              const emo = data.metrics.emotion.toLowerCase();
-              liveEmotionCountsRef.current[emo] = (liveEmotionCountsRef.current[emo] || 0) + 1;
-            }
-
-            if (data.metrics.nudge) {
-              handleNudge(
-                data.metrics.nudge,
-                data.metrics.nudge_category,
-                data.metrics.nudge_severity
-              );
-            }
+          const transcript = await transcribe(blob);
+          if (transcript) {
+            targetRef.current = [...targetRef.current, { text: transcript, elapsed_seconds: segmentElapsedSeconds }];
           }
         } catch (err) {
-          console.error('Error parsing socket message:', err);
+          console.error('[Live transcription] STT request failed:', err);
         }
       };
+
+      recorder.start();
+    };
+
+    recordSegment();
+  }, []);
+
+  // Log each nudge once (tracks all ids, since an older nudge can return to the top),
+  // and keep nudgesRef fresh for the PiP overlay.
+  const loggedNudgeIdsRef = useRef(new Set());
+  useEffect(() => {
+    nudgesRef.current = nudges;
+    const latest = nudges[0];
+    if (latest && !loggedNudgeIdsRef.current.has(latest.id)) {
+      loggedNudgeIdsRef.current.add(latest.id);
+      liveNudgeLogRef.current = [
+        ...liveNudgeLogRef.current,
+        {
+          message: latest.text,
+          category: latest.category,
+          severity: latest.severity,
+          timestamp: latest.timestamp,
+          elapsed_seconds: sessionDurationRef.current,
+        },
+      ];
+    }
+  }, [nudges]);
+
+  // Adds the time spent in the current emotion to its running total.
+  const flushCurrentEmotion = useCallback(() => {
+    const current = currentEmotionRef.current;
+    if (!current) return;
+    const seconds = (Date.now() - current.since) / 1000;
+    liveEmotionSecondsRef.current[current.emotion] = (liveEmotionSecondsRef.current[current.emotion] || 0) + seconds;
+    currentEmotionRef.current = null;
+  }, []);
+
+  // Track how long each emotion lasts while speaking, and log every change
+  // (session only). 'Sensing...' means no speech, so that time isn't counted.
+  useEffect(() => {
+    if (!liveSessionIdRef.current) return;
+    flushCurrentEmotion();
+    if (!metrics.emotion || metrics.emotion === 'Sensing...') return;
+
+    const emotion = metrics.emotion.toLowerCase();
+    currentEmotionRef.current = { emotion, since: Date.now() };
+    const timeline = liveEmotionTimelineRef.current;
+    if (timeline.length && timeline[timeline.length - 1].emotion === emotion) return; // same emotion after a pause
+    liveEmotionTimelineRef.current = [
+      ...timeline,
+      { emotion, confidence: metrics.confidence, elapsed_seconds: sessionDurationRef.current },
+    ];
+    // metrics.confidence is read at the moment the emotion changes on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metrics.emotion, liveSessionId, flushCurrentEmotion]);
+
+  useEffect(() => {
+    sessionDurationRef.current = sessionDuration;
+  }, [sessionDuration]);
+
+  // Sync PiP state with the browser's enter/leave events.
+  useEffect(() => {
+    const video = pipVideoRef.current;
+    if (!video) return undefined;
+    const onEnter = () => { setIsPipActive(true); isPipActiveRef.current = true; };
+    const onLeave = () => { setIsPipActive(false); isPipActiveRef.current = false; };
+    video.addEventListener('enterpictureinpicture', onEnter);
+    video.addEventListener('leavepictureinpicture', onLeave);
+    return () => {
+      video.removeEventListener('enterpictureinpicture', onEnter);
+      video.removeEventListener('leavepictureinpicture', onLeave);
+    };
+  }, [isCameraActive]);
+
+  // Opens the floating PiP window.
+  const openPip = useCallback(async (silent = false) => {
+    if (!pipSupported || !pipVideoRef.current || document.pictureInPictureElement) return;
+    const video = pipVideoRef.current;
+    try {
+      // Self-heal: re-sync from the mirrored canvas capture stream here too
+      if (!pipCaptureStreamRef.current && canvasRef.current?.captureStream) {
+        pipCaptureStreamRef.current = canvasRef.current.captureStream(25);
+      }
+      if (pipCaptureStreamRef.current && video.srcObject !== pipCaptureStreamRef.current) {
+        video.srcObject = pipCaptureStreamRef.current;
+      }
+      if (!video.srcObject) {
+        if (!silent) toast.error("Camera isn't ready yet — try again in a moment.");
+        return;
+      }
+      if (video.paused) {
+        await video.play().catch(() => {});
+      }
+      // requestPictureInPicture needs actual frame data — wait for it if the video just got its source
+      if (video.readyState < 2) {
+        await new Promise((resolve) => {
+          video.addEventListener('loadeddata', resolve, { once: true });
+          setTimeout(resolve, 2000); // safety timeout — don't hang forever
+        });
+      }
+      await video.requestPictureInPicture();
     } catch (err) {
-      console.error('Audio capture error:', err);
+      console.warn('[MCA] Could not enter Picture-in-Picture:', err);
+      if (!silent) {
+        toast.error("Couldn't open the floating window.", { description: err?.message || String(err) });
+      }
     }
-  };
+  }, [pipSupported]);
 
-  const stopAudioCapture = async () => {
-    setLiveMicActive(false);
-    if (recordRestartTimeoutRef.current) {
-      clearTimeout(recordRestartTimeoutRef.current);
-      recordRestartTimeoutRef.current = null;
+  const closePip = useCallback(() => {
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
     }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop());
-      audioStreamRef.current = null;
-    }
-    setMetrics(prev => ({ ...prev, isSyncing: false, emotion: 'Sensing...' }));
+  }, []);
 
-    setMetrics(prev => ({ ...prev, isSyncing: false, emotion: 'Sensing...' }));
-  };
+  // Pop out automatically on minimize/tab-switch, and close automatically on return.
+  useEffect(() => {
+    if (!pipSupported) return undefined;
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (liveSessionIdRef.current && isCameraActive && !document.pictureInPictureElement) {
+          openPip(/* silent */ true);
+        }
+      } else {
+        closePip();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
-  const toggleLiveMic = () => {
-    if (liveMicActive) {
-      stopAudioCapture();
+    // Some platforms fire only "blur" when the window is minimized.
+    const handleBlur = () => {
+      if (document.hidden && liveSessionIdRef.current && isCameraActive && !document.pictureInPictureElement) {
+        openPip(/* silent */ true);
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [pipSupported, isCameraActive, openPip, closePip]);
+
+  // Exit PiP if the component unmounts (session ended, navigated away).
+  useEffect(() => {
+    return () => {
+      if (document.pictureInPictureElement === pipVideoRef.current) {
+        document.exitPictureInPicture().catch(() => {});
+      }
+    };
+  }, []);
+
+  // Warn on navigation if session is active
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (liveSessionId) {
+        e.preventDefault();
+        e.returnValue = 'You have an active Live session. Are you sure you want to leave?';
+      }
+    };
+
+    const handleGlobalClick = (e) => {
+      if (!liveSessionId) return;
+      const link = e.target.closest('a');
+      if (link && link.href && link.href.startsWith(window.location.origin) && link.pathname !== window.location.pathname) {
+        e.preventDefault();
+        e.stopPropagation();
+        setNavAlertTarget(link.pathname + link.search + link.hash);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleGlobalClick, { capture: true });
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleGlobalClick, { capture: true });
+    };
+  }, [liveSessionId]);
+
+  // User's voice -> text with the browser Web Speech API (like AIChatbot).
+  // Falls back to startTranscriptionLoop if the browser lacks it.
+  const userTranscribeStreamRef = useRef(null);
+  const userRecognitionRef = useRef(null);
+  const userRecognitionActiveRef = useRef(false);
+
+  const startUserTranscription = useCallback(async () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (!event.results[i].isFinal) continue;
+          const text = event.results[i][0].transcript.trim();
+          if (text) {
+            liveUserTranscriptRef.current = [
+              ...liveUserTranscriptRef.current,
+              { text, elapsed_seconds: sessionDurationRef.current },
+            ];
+          }
+        }
+      };
+
+      // Chrome stops after silence; restart while the mic is still on.
+      recognition.onend = () => {
+        if (userRecognitionActiveRef.current && userRecognitionRef.current === recognition) {
+          try { recognition.start(); } catch { /* already started */ }
+        }
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error === 'no-speech' || e.error === 'aborted') return;
+        console.error('[Live transcription] SpeechRecognition error:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          userRecognitionActiveRef.current = false;
+        }
+      };
+
+      userRecognitionRef.current = recognition;
+      userRecognitionActiveRef.current = true;
+      try {
+        recognition.start();
+      } catch (err) {
+        console.error('User transcription start error:', err);
+      }
       return;
     }
-    if (aiMicActive) {
-      setAiStopSignal(Date.now());
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      userTranscribeStreamRef.current = stream;
+      startTranscriptionLoop(stream, liveUserTranscriptRef, userTranscribeRecorderRef);
+    } catch (err) {
+      console.error('User transcription capture error:', err);
     }
-    startAudioCapture();
+  }, [startTranscriptionLoop]);
+
+  const stopUserTranscription = useCallback(() => {
+    userRecognitionActiveRef.current = false;
+    if (userRecognitionRef.current) {
+      const recognition = userRecognitionRef.current;
+      userRecognitionRef.current = null;
+      try { recognition.stop(); } catch { /* already stopped */ }
+    }
+    if (userTranscribeRecorderRef.current) {
+      const recorder = userTranscribeRecorderRef.current;
+      userTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    if (userTranscribeStreamRef.current) {
+      userTranscribeStreamRef.current.getTracks().forEach(track => track.stop());
+      userTranscribeStreamRef.current = null;
+    }
+  }, []);
+
+  const toggleLiveMic = useCallback(() => {
+    if (liveMicActive) {
+      stopUserTranscription();
+    } else {
+      startUserTranscription();
+    }
+    rawToggleMic();
+  }, [liveMicActive, rawToggleMic, startUserTranscription, stopUserTranscription]);
+
+  // Latest state/toggles for the unmount cleanup (avoids stale closures).
+  const liveMicActiveRef = useRef(false);
+  const isCameraActiveRef = useRef(false);
+  const toggleLiveMicRef = useRef(() => {});
+  const toggleCameraRef = useRef(() => {});
+  liveMicActiveRef.current = liveMicActive;
+  isCameraActiveRef.current = isCameraActive;
+  toggleLiveMicRef.current = toggleLiveMic;
+  toggleCameraRef.current = toggleCamera;
+
+  // Draws the timer and latest nudge onto the camera canvas while in PiP.
+  const drawPipOverlay = useCallback((canvasCtx, canvasElement) => {
+    if (isPipActiveRef.current) {
+      const w = canvasElement.width;
+      const h = canvasElement.height;
+      const scale = w / 320; // keep sizes legible and consistent across camera resolutions
+      const PANEL_BG = 'rgba(15, 15, 20, 0.78)';
+      const BORDER = 'rgba(255, 255, 255, 0.14)';
+
+      canvasCtx.save();
+      canvasCtx.textBaseline = 'middle';
+
+      // Session timer — rounded pill, top-left
+      const mins = Math.floor(sessionDurationRef.current / 60);
+      const secs = (sessionDurationRef.current % 60).toString().padStart(2, '0');
+      const timerText = `${mins}:${secs}`;
+      const pillH = 30 * scale;
+      const pillPadX = 12 * scale;
+      const dotR = 4 * scale;
+
+      canvasCtx.font = `700 ${15 * scale}px -apple-system, system-ui, sans-serif`;
+      const timerW = canvasCtx.measureText(timerText).width;
+      const pillW = dotR * 2 + 8 * scale + timerW + pillPadX * 2;
+      const pillX = 10 * scale;
+      const pillY = 10 * scale;
+
+      canvasCtx.fillStyle = PANEL_BG;
+      canvasCtx.strokeStyle = BORDER;
+      canvasCtx.lineWidth = 1;
+      canvasCtx.beginPath();
+      canvasCtx.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      canvasCtx.fillStyle = '#00bb87';
+      canvasCtx.beginPath();
+      canvasCtx.arc(pillX + pillPadX + dotR, pillY + pillH / 2, dotR, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      canvasCtx.fillStyle = '#ffffff';
+      canvasCtx.fillText(timerText, pillX + pillPadX + dotR * 2 + 8 * scale, pillY + pillH / 2 + 1);
+
+      const latestNudge = nudgesRef.current[0];
+      if (latestNudge) {
+        const SEVERITY_STYLE = {
+          critical: { color: '#ec5a63', label: 'Critical' }, // --destructive / --danger
+          warning:  { color: '#e4a339', label: 'Warning' },  // --warning
+        };
+        const sev = SEVERITY_STYLE[latestNudge.severity] || { color: '#926dff', label: 'Info' }; // --primary / --accent
+
+        const fontSize = 12.5 * scale;
+        const lineHeight = fontSize * 1.4;
+        const labelHeight = 11 * scale;
+        const panelPad = 14 * scale;
+        const iconSize = 26 * scale;
+        const gapIconText = 10 * scale;
+        const marginX = 10 * scale;
+        const radius = 16 * scale;
+        const textX0 = panelPad + iconSize + gapIconText;
+        const maxTextWidth = w - marginX * 2 - panelPad * 2 - iconSize - gapIconText;
+
+        canvasCtx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+        const lines = wrapCanvasText(canvasCtx, latestNudge.text, maxTextWidth).slice(0, 2);
+
+        const panelH = panelPad * 2 + labelHeight + 4 * scale + lines.length * lineHeight;
+        const panelW = w - marginX * 2;
+        const panelX = marginX;
+        const panelY = h - panelH - 12 * scale;
+
+        // Elevation shadow, cast by the card only
+        canvasCtx.save();
+        canvasCtx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        canvasCtx.shadowBlur = 18 * scale;
+        canvasCtx.shadowOffsetY = 6 * scale;
+        const bgGrad = canvasCtx.createLinearGradient(0, panelY, 0, panelY + panelH);
+        bgGrad.addColorStop(0, 'rgba(30, 30, 38, 0.90)');
+        bgGrad.addColorStop(1, 'rgba(14, 14, 19, 0.94)');
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(panelX, panelY, panelW, panelH, radius);
+        canvasCtx.fillStyle = bgGrad;
+        canvasCtx.fill();
+        canvasCtx.restore();
+
+        // Faint severity-tinted border for a subtle glow edge
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1, radius);
+        canvasCtx.strokeStyle = `${sev.color}55`;
+        canvasCtx.lineWidth = 1.25 * scale;
+        canvasCtx.stroke();
+
+        // Icon badge — glowing ring with a solid centre dot
+        const iconCx = panelX + panelPad + iconSize / 2;
+        const iconCy = panelY + panelH / 2;
+        canvasCtx.save();
+        canvasCtx.shadowColor = sev.color;
+        canvasCtx.shadowBlur = 10 * scale;
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, iconSize / 2, 0, Math.PI * 2);
+        canvasCtx.fillStyle = `${sev.color}2A`;
+        canvasCtx.fill();
+        canvasCtx.restore();
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, iconSize / 2, 0, Math.PI * 2);
+        canvasCtx.strokeStyle = sev.color;
+        canvasCtx.lineWidth = 1.5 * scale;
+        canvasCtx.stroke();
+        canvasCtx.beginPath();
+        canvasCtx.arc(iconCx, iconCy, 4 * scale, 0, Math.PI * 2);
+        canvasCtx.fillStyle = sev.color;
+        canvasCtx.fill();
+
+        // Text block — uppercase category label, then the wrapped message
+        const textX = panelX + textX0;
+        let textY = panelY + panelPad;
+        canvasCtx.textBaseline = 'top';
+
+        canvasCtx.font = `700 ${10 * scale}px -apple-system, system-ui, sans-serif`;
+        canvasCtx.fillStyle = sev.color;
+        canvasCtx.fillText(sev.label.toUpperCase(), textX, textY);
+        textY += labelHeight + 4 * scale;
+
+        canvasCtx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+        canvasCtx.fillStyle = '#f4f4f6';
+        lines.forEach((line, i) => {
+          canvasCtx.fillText(line, textX, textY + lineHeight * i);
+        });
+
+        canvasCtx.textBaseline = 'middle';
+      }
+
+      canvasCtx.textBaseline = 'alphabetic';
+      canvasCtx.restore();
+    }
+
+    // Keep the PiP video fed from this same mirrored/mesh-overlaid canvas
+    if (!pipCaptureStreamRef.current && canvasElement.captureStream) {
+      pipCaptureStreamRef.current = canvasElement.captureStream(25);
+    }
+    if (pipVideoRef.current && pipCaptureStreamRef.current && pipVideoRef.current.srcObject !== pipCaptureStreamRef.current) {
+      pipVideoRef.current.srcObject = pipCaptureStreamRef.current;
+      pipVideoRef.current.play().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    frameOverlayRef.current = drawPipOverlay;
+  }, [drawPipOverlay]);
+
+  // Capture meeting audio from a shared tab so both sides get scored.
+  const stopMeetingAudioCapture = () => {
+    setLiveMeetingAudioActive(false);
+    if (meetingTranscribeRecorderRef.current) {
+      const recorder = meetingTranscribeRecorderRef.current;
+      meetingTranscribeRecorderRef.current = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    if (meetingAudioStreamRef.current) {
+      meetingAudioStreamRef.current.getTracks().forEach(track => track.stop());
+      meetingAudioStreamRef.current = null;
+    }
   };
+
+  const startMeetingAudioCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      if (stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach(track => track.stop());
+        toast.warning("No shared audio detected.", {
+          description: "Re-share and tick 'Share audio' to include meeting voice in scoring."
+        });
+        return;
+      }
+
+      // Video is only required by the browser to grant the share; drop it.
+      stream.getVideoTracks().forEach(track => track.stop());
+
+      meetingAudioStreamRef.current = stream;
+      setLiveMeetingAudioActive(true);
+      startTranscriptionLoop(stream, liveMeetingTranscriptRef, meetingTranscribeRecorderRef);
+
+      // Sharing can be stopped from the browser's own "Stop sharing" bar.
+      stream.getAudioTracks()[0].addEventListener('ended', stopMeetingAudioCapture);
+    } catch (err) {
+      // User cancelled the share prompt — not an error, just stay opted-out.
+      if (err?.name !== 'NotAllowedError') {
+        console.error('Meeting audio capture error:', err);
+      }
+    }
+  };
+
+  const toggleMeetingAudio = () => {
+    if (liveMeetingAudioActive) {
+      stopMeetingAudioCapture();
+      return;
+    }
+    startMeetingAudioCapture();
+  };
+
+  // Turns off mic, meeting audio and camera (safe to call more than once).
+  const stopAllSensing = useCallback(() => {
+    if (liveMicActiveRef.current) toggleLiveMicRef.current();
+    stopMeetingAudioCapture();
+    if (isCameraActiveRef.current) toggleCameraRef.current();
+  }, []);
 
   const startLiveSession = async () => {
     if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
@@ -316,7 +736,16 @@ const MultimodalEngine = () => {
 
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
-    liveEmotionCountsRef.current = {};
+    // Nudges already on screen fired before the session, so don't log them.
+    loggedNudgeIdsRef.current = new Set(sensedNudges.map((n) => n.id));
+    liveBehaviorLogRef.current = [];
+    liveObservationLogRef.current = [];
+    liveEmotionSecondsRef.current = {};
+    liveEmotionTimelineRef.current = [];
+    currentEmotionRef.current = null;
+    resetVisualAverages();
+    liveUserTranscriptRef.current = [];
+    liveMeetingTranscriptRef.current = [];
     setSessionDuration(0);
     try {
       const session = await mcaService.startSession('live');
@@ -333,7 +762,7 @@ const MultimodalEngine = () => {
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred.";
-      toast.error("Session Startup Failed", {
+      toast.error("Couldn't start the session", {
         description: errorMsg
       });
     } finally {
@@ -349,20 +778,19 @@ const MultimodalEngine = () => {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
+    // Close the last emotion's time before sensing stops and resets it.
+    flushCurrentEmotion();
+    stopAllSensing();
     if (sid) {
-      // Hard stop sensing
-      stopAudioCapture();
-      setIsCameraActive(false);
-
       setLiveSessionId(null);
       liveSessionIdRef.current = null;
       try {
-        // Calculate distribution
-        const total = Object.values(liveEmotionCountsRef.current).reduce((a, b) => a + b, 0);
+        // Share of session time spent in each emotion.
+        const total = Object.values(liveEmotionSecondsRef.current).reduce((a, b) => a + b, 0);
         const distribution = {};
         if (total > 0) {
-          Object.entries(liveEmotionCountsRef.current).forEach(([emo, count]) => {
-            distribution[emo.toLowerCase()] = count / total;
+          Object.entries(liveEmotionSecondsRef.current).forEach(([emo, seconds]) => {
+            distribution[emo] = seconds / total;
           });
         }
 
@@ -375,15 +803,19 @@ const MultimodalEngine = () => {
           },
           null,
           distribution,
-          {
-            avg_ear: metrics.ear,
-            avg_mar: metrics.mar,
-            avg_pitch: metrics.pose.pitch
-          }
+          getVisualAverages(),
+          liveUserTranscriptRef.current,
+          liveMeetingTranscriptRef.current,
+          liveEmotionTimelineRef.current,
+          liveBehaviorLogRef.current,
+          liveObservationLogRef.current
         );
         if (res.id && res.status === 'completed') {
           toast.success("Live session ended and data saved.");
-          // Automatically redirect to feedback form using correct app route
+
+          // Send the session to analytics (fire-and-forget).
+          integrateCompletedSession(analyticsService, sid);
+
           const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           setTimeout(() => navigate(redirectUrl), 1500);
         } else {
@@ -391,7 +823,7 @@ const MultimodalEngine = () => {
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Connection interrupted.";
-        toast.error("Session Sync Failed", {
+        toast.error("Connection interrupted", {
           description: errorMsg
         });
       } finally {
@@ -402,67 +834,18 @@ const MultimodalEngine = () => {
     }
   };
 
-  const endLiveSession = () => {
-    setIsStopAlertOpen(true);
-  };
-
   useEffect(() => {
     return () => {
-      stopAudioCapture();
       realEndLiveSession();
     };
   }, []);
 
+  // Camera restart creates a new canvas; drop the old PiP capture stream.
   useEffect(() => {
-    if (aiMicActive && liveMicActive) {
-      stopAudioCapture();
+    if (!isCameraActive) {
+      pipCaptureStreamRef.current = null;
     }
-  }, [aiMicActive, liveMicActive]);
-
-  useEffect(() => {
-    let faceMeshModel = null;
-
-    if (isCameraActive) {
-      faceMeshModel = new faceMesh.FaceMesh({
-        locateFile: (file) => {
-          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
-          return `${baseUrl}/${file}`;
-        },
-      });
-
-      faceMeshModel.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      faceMeshModel.onResults(onResults);
-
-      if (webcamRef.current && webcamRef.current.video) {
-        cameraRef.current = new cam.Camera(webcamRef.current.video, {
-          onFrame: async () => {
-            if (faceMeshModel) {
-              await faceMeshModel.send({ image: webcamRef.current.video });
-            }
-          },
-          width: 1280,
-          height: 720,
-        });
-        cameraRef.current.start();
-      }
-    }
-
-    return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-        cameraRef.current = null;
-      }
-      if (faceMeshModel) {
-        faceMeshModel.close();
-      }
-    };
-  }, [isCameraActive, onResults]);
+  }, [isCameraActive]);
 
   const toggleMesh = () => {
     const newParams = new URLSearchParams(searchParams);
@@ -470,22 +853,17 @@ const MultimodalEngine = () => {
     setSearchParams(newParams);
   };
 
-  const toggleCamera = () => {
-    setIsCameraActive(prev => !prev);
-  };
-
   return (
-    <div className="h-screen w-full bg-background text-foreground flex flex-col items-center px-4 md:px-8 font-sans antialiased overflow-hidden relative">
-      {/* Global Nudge Stack (Floating - Page Top Right) */}
-      <div className="fixed top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
+    <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">
+      <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
         {nudges.map((nudge, index) => (
           <div
             key={nudge.id}
             className={clsx(
               "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
-              nudge.severity === 'critical' ? "bg-destructive border-white/30 text-white" :
-                nudge.severity === 'warning' ? "bg-warning border-white/30 text-white" :
-                  "bg-primary/95 border-white/20 text-white",
+              nudge.severity === 'critical' ? "bg-[var(--nudge-critical-bg)] border-white/30 text-white" :
+                nudge.severity === 'warning' ? "bg-[var(--nudge-warning-bg)] border-white/30 text-white" :
+                  "bg-[var(--nudge-info-bg)] border-white/20 text-white",
               index > 0 && "scale-90 opacity-40 hover:opacity-100"
             )}
           >
@@ -496,11 +874,11 @@ const MultimodalEngine = () => {
               <Activity size={20} />
             </div>
             <div className="flex flex-col min-w-[120px]">
-              <p className="text-[11px] font-black tracking-widest uppercase leading-none">{nudge.text}</p>
+              <p className="text-[11px] font-medium tracking-wide uppercase leading-none">{nudge.text}</p>
               <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
             </div>
             <button
-              onClick={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+              onClick={() => dismissNudge(nudge.id)}
               className="ml-2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center opacity-0 group-hover/nudge:opacity-100 transition-opacity"
             >
               <X size={14} />
@@ -508,53 +886,26 @@ const MultimodalEngine = () => {
           </div>
         ))}
       </div>
-      <div className={clsx(
-        "w-full h-full flex flex-col gap-6 py-6 transition-all duration-700 ease-in-out",
-        activeMode === 'ai' ? "max-w-[1600px]" : "max-w-6xl"
-      )}>
-        {/* Header Section - Compact */}
+      <div className="w-full flex-1 min-h-0 flex flex-col gap-6 transition-all duration-700 ease-in-out max-w-[1600px] h-full">
         <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-4xl font-extrabold text-foreground tracking-tight">
-            EmpowerZ <span className="text-primary font-black">MCA</span>
+          <h1 className="t-h1" style={{ fontSize: 28 }}>
+            EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>MCA</span>
           </h1>
-          <p className="text-card-foreground text-[10px] md:text-xs font-bold opacity-60 uppercase tracking-[0.3em]">
-            Behavioral Intelligence • Real-time Fusion
+          <p className="t-over" style={{ marginTop: 4 }}>
+            Live analyzing, powered by your voice and camera
           </p>
-          {liveSessionId && activeMode === 'live' && (
+          {liveSessionId && (
             <div className="pt-2 flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-500">
-              <div className="px-3 py-1 bg-secondary/10 border border-secondary/20 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-                <span className="text-[10px] font-black text-secondary tracking-widest uppercase">
-                  {friendlyId || 'SESSION'} • {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
+              <div className="px-3 py-1 bg-success/10 border border-success/20 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span className="text-[10px] font-medium text-success tracking-widest uppercase">
+                  Session Active: {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
                 </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Mode Switcher Section */}
-        <div className="flex justify-center">
-          <ModeSwitcher onModeChangeRequest={handleModeChangeRequest} />
-        </div>
-
-        <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>End Active Session?</AlertDialogTitle>
-              <AlertDialogDescription>
-                You are currently in an active session. Switching modes will automatically end your session and save your data. Do you want to continue?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={handleCancelModeSwitch}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleConfirmModeSwitch} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                End Session & Switch
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Session End Confirmation */}
         <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -567,12 +918,7 @@ const MultimodalEngine = () => {
               <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-                  if (activeMode === 'live') {
-                    // We need a force-end bypass for the confirmation
-                    realEndLiveSession();
-                  } else {
-                    setAiStopSignal(Date.now());
-                  }
+                  realEndLiveSession();
                   setIsStopAlertOpen(false);
                 }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -583,24 +929,37 @@ const MultimodalEngine = () => {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Dynamic Content Layout - Stretches to fill screen */}
-        <div className={clsx(
-          "flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0",
-          activeMode === 'ai' ? "lg:grid-cols-3" : "grid-cols-1"
-        )}>
+        {/* Navigation Warning Alert */}
+        <AlertDialog open={!!navAlertTarget} onOpenChange={(open) => !open && setNavAlertTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave Active Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have an active Live session running. If you leave this page, your session will be ended. Are you sure you want to leave?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setNavAlertTarget(null)}>Stay in Session</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  realEndLiveSession();
+                  const target = navAlertTarget;
+                  setNavAlertTarget(null);
+                  navigate(target);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                End & Leave
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-          {/* Capturing Window Section */}
-          <div className={clsx(
-            "relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0",
-            activeMode === 'ai' ? "lg:col-span-2" : "col-span-1"
-          )}>
-            <div className="relative p-4 md:p-6 bg-card border border-border shadow-sm rounded-3xl flex flex-col items-center h-full overflow-y-auto custom-scrollbar">
+        <div className="flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0 grid-cols-1">
+          <div className="relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0 col-span-1">
+            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full min-h-0 overflow-y-auto custom-scrollbar">
 
-              {/* Capturing Window (Webcam Area) */}
-              <div className={clsx(
-                "w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500",
-                activeMode === 'live' ? "border-secondary/20 hover:border-secondary/40" : "border-primary/20 hover:border-primary/40"
-              )}>
+              <div className="w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500 border-secondary/20 hover:border-secondary/40">
 
                 {isCameraActive ? (
                   <>
@@ -618,29 +977,42 @@ const MultimodalEngine = () => {
                       ref={canvasRef}
                       className="absolute inset-0 w-full h-full object-cover rounded-xl"
                     />
+                    {/* Feeds the native Picture-in-Picture window (see openPip). */}
+                    <video
+                      ref={pipVideoRef}
+                      autoPictureInPicture
+                      autoPlay
+                      muted
+                      playsInline
+                      style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                    />
                   </>
                 ) : (
                   <>
-                    <div className={clsx(
-                      "absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30",
-                      activeMode === 'live' ? "from-secondary/10" : "from-primary/10"
-                    )}></div>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30 from-secondary/10"></div>
 
                     <div className="relative flex flex-col items-center gap-4">
-                      <div className={clsx(
-                        "p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold",
-                        activeMode === 'live'
-                          ? "border-secondary/20 text-secondary group-hover/window:border-secondary/40"
-                          : "border-primary/20 text-primary group-hover/window:border-primary/40"
-                      )}>
-                        [ {activeMode === 'live' ? 'SENSING_MODULE' : 'INTELLIGENCE_CORE'} READY ]<br />
-                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">WAITING_FOR_ACCESS</span>
+                      <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-secondary/20 text-secondary group-hover/window:border-secondary/40">
+                        Camera's off<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">Turn on your camera to begin</span>
                       </div>
                     </div>
                   </>
                 )}
 
-                {/* Overlay UI (Only for enabling camera when off) */}
+                {isPipActive && (
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/90 backdrop-blur-sm rounded-xl">
+                    <PictureInPicture2 size={28} className="text-primary animate-pulse" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Live view popped out</p>
+                    <button
+                      onClick={closePip}
+                      className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                    >
+                      Bring it back
+                    </button>
+                  </div>
+                )}
+
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
                   <div className="flex flex-col gap-4 pointer-events-auto">
                     {!isCameraActive && (
@@ -649,207 +1021,180 @@ const MultimodalEngine = () => {
                         className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Video size={14} />
-                        Enable Video Sensing
+                        Turn on camera
                       </button>
                     )}
                     {!liveMicActive && (
                       <button
                         onClick={toggleLiveMic}
-                        className="bg-secondary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                        className="bg-secondary text-secondary-foreground px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
                       >
                         <Mic size={14} />
-                        Enable Audio Sensing
+                        Turn on microphone
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Persistent Control Bar */}
-                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center px-6 py-3 bg-card/95 backdrop-blur-xl border border-border/60 rounded-2xl shadow-2xl z-20 transition-all duration-500">
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-black tracking-widest uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", isCameraActive ? "bg-success animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-muted-foreground/30")}></div>
-                      <span className="opacity-80">Video</span>
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface border border-border-default rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+                  <div className="flex items-center gap-6 flex-1 justify-start">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Video</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-t-tertiary")}>
+                          {isCameraActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-foreground font-black tracking-widest uppercase">
-                      <div className={clsx("w-2.5 h-2.5 rounded-full transition-colors duration-500", liveMicActive ? "bg-secondary animate-pulse shadow-[0_0_8px_rgba(14,165,233,0.6)]" : "bg-muted-foreground/30")}></div>
-                      <span className="opacity-80">Audio</span>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMicActive ? "text-info" : "text-t-tertiary")}>
+                          {liveMicActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Meeting Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", liveMeetingAudioActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", liveMeetingAudioActive ? "text-info" : "text-t-tertiary")}>
+                          {liveMeetingAudioActive ? "Active" : "Optional"}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    {/* Primary Session Controls */}
-                    {activeMode === 'live' ? (
-                      <>
-                        {!liveSessionId ? (
-                          <button
-                            onClick={startLiveSession}
-                            disabled={isLiveStarting}
-                            className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              isLiveStarting && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {isLiveStarting ? (
-                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Play size={14} fill="currentColor" />
-                            )}
-                            {isLiveStarting ? "Starting..." : "Start Session"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsStopAlertOpen(true)}
-                            disabled={isLiveEnding}
-                            className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              isLiveEnding && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {isLiveEnding ? (
-                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Square size={14} fill="currentColor" />
-                            )}
-                            {isLiveEnding ? "Ending..." : "Stop Session"}
-                          </button>
-                        )}
-                      </>
+                  <div className="flex justify-center flex-1 shrink-0">
+                    {!liveSessionId ? (
+                      <button
+                        onClick={startLiveSession}
+                        disabled={isLiveStarting}
+                        className="bg-primary text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isLiveStarting ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                        Start Session
+                      </button>
                     ) : (
-                      <>
-                        {!aiSessionActive ? (
-                          <button
-                            onClick={() => setAiStartSignal(Date.now())}
-                            disabled={aiSessionStarting}
-                            className={clsx(
-                              "bg-primary text-primary-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              aiSessionStarting && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {aiSessionStarting ? (
-                              <div className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Play size={14} fill="currentColor" />
-                            )}
-                            {aiSessionStarting ? "Starting AI..." : "Start AI Session"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsStopAlertOpen(true)}
-                            disabled={aiSessionEnding}
-                            className={clsx(
-                              "bg-destructive text-destructive-foreground px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-destructive/20 hover:bg-destructive/90 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
-                              aiSessionEnding && "opacity-70 cursor-wait"
-                            )}
-                          >
-                            {aiSessionEnding ? (
-                              <div className="w-3 h-3 border-2 border-destructive-foreground/30 border-t-destructive-foreground rounded-full animate-spin" />
-                            ) : (
-                              <Square size={14} fill="currentColor" />
-                            )}
-                            {aiSessionEnding ? "Ending AI..." : "Stop AI Session"}
-                          </button>
-                        )}
-                      </>
+                      <button
+                        onClick={() => setIsStopAlertOpen(true)}
+                        disabled={isLiveEnding}
+                        className="bg-destructive text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isLiveEnding ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Square size={14} fill="currentColor" />}
+                        Stop Session
+                      </button>
                     )}
+                  </div>
 
-                    {/* Secondary Controls (Tools) - ALWAYS SHOW SO USER CAN ENABLE THEM BEFORE SESSION */}
-                    <div className="h-6 w-px bg-border/50 mx-2 hidden sm:block"></div>
-
-                    {/* Camera Toggle */}
+                  <div className="flex items-center gap-2 flex-1 justify-end">
                     <button
                       onClick={toggleCamera}
                       className={clsx(
-                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                        isCameraActive ? "bg-success/10 text-success border-success/30 hover:bg-success/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        isCameraActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                       )}
                     >
                       <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
-                      {isCameraActive ? "Stop Cam" : "Start Cam"}
+                      {isCameraActive ? "Stop Cam" : "Cam"}
                     </button>
-
-                    {/* Mesh Overlay Toggle */}
+                    <button
+                      onClick={toggleLiveMic}
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        liveMicActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                      )}
+                    >
+                      <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
+                      {liveMicActive ? "Stop Mic" : "Mic"}
+                    </button>
+                    <button
+                      onClick={toggleMeetingAudio}
+                      title="Optional: share your meeting tab/window with audio so both voices feed the session score"
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        liveMeetingAudioActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                      )}
+                    >
+                      <MonitorUp size={14} className={clsx(liveMeetingAudioActive && "animate-pulse")} />
+                      {liveMeetingAudioActive ? "Stop Meeting Audio" : "Meeting Audio"}
+                    </button>
                     {isCameraActive && (
                       <button
                         onClick={toggleMesh}
                         className={clsx(
-                          "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                          showMesh ? "bg-primary/10 text-primary border-primary/30" : "bg-background text-muted-foreground border-border hover:bg-muted"
+                          "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                          showMesh ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
                         )}
                       >
                         <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
                         Mesh
                       </button>
                     )}
-
-                    {/* Audio Toggle */}
-                    <button
-                      onClick={toggleLiveMic}
-                      className={clsx(
-                        "flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border transition-all pointer-events-auto uppercase tracking-widest",
-                        liveMicActive ? "bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20" : "bg-background text-muted-foreground border-border hover:bg-muted"
-                      )}
-                    >
-                      <Mic size={14} className={clsx(liveMicActive && "animate-pulse")} />
-                      {liveMicActive ? "Stop Mic" : "Enable Mic"}
-                    </button>
+                    {pipSupported && isCameraActive && (
+                      <button
+                        onClick={() => (isPipActive ? closePip() : openPip())}
+                        title="Pop out a floating mini window — auto-appears on minimize/tab-switch after first use, and closes automatically when you come back"
+                        className={clsx(
+                          "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                          isPipActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                        )}
+                      >
+                        <PictureInPicture2 size={14} className={clsx(isPipActive && "animate-pulse")} />
+                        {isPipActive ? "Popped Out" : "Pop Out"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Bottom Meta Info */}
               <div className="mt-6 flex flex-wrap justify-center gap-4">
-                <div className="flex items-center gap-2.5 text-[10px] font-black text-secondary bg-secondary/10 px-4 py-2 rounded-lg border border-secondary/20 uppercase tracking-widest">
-                  <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
-                  Privacy: Edge_Only
+                <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
+                  Processed on your device
                 </div>
-                <div className={clsx(
-                  "flex items-center gap-2.5 text-[10px] font-black px-4 py-2 rounded-lg border uppercase tracking-widest",
-                  activeMode === 'live'
-                    ? "bg-secondary/10 text-secondary border-secondary/20"
-                    : "bg-primary/10 text-primary border-primary/20"
-                )}>
-                  Module: {activeMode === 'live' ? 'Multimodal_Sensing' : 'Intelligence_Core'}
-                </div>
+                {metrics.modelKind && metrics.modelKind !== 'unknown' && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
+                    Model: {metrics.modelKind === 'wav2vec2' ? 'Transformer' : metrics.modelKind === 'cnn' ? 'CNN' : 'SVM'}
+                  </div>
+                )}
                 {isCameraActive && (
-                  <div className="flex items-center gap-2.5 text-[10px] font-black text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
                     Tracking: {showMesh ? "Visual" : "Background"}
                   </div>
                 )}
                 {metrics.isSyncing && (
-                  <div className="flex items-center gap-2.5 text-[10px] font-black text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
                     <Activity size={12} />
-                    Fusion: Active
+                    Analyzing your voice and face
                   </div>
                 )}
               </div>
 
-              {/* Behavioral Metrics Dashboard */}
               {isCameraActive && (
-                <div className="w-full mt-8 pt-8 border-t border-border/50 grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                  {/* Eye Contact (EAR) */}
-                  <div className="space-y-3">
+                <div className="w-full mt-4 pt-4 border-t border-border/50 grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Eye Contact</span>
-                      <span className={clsx("text-[10px] font-black", metrics.ear < 0.2 ? "text-destructive" : "text-success")}>
-                        {metrics.ear < 0.2 ? "LOOKING AWAY" : "FOCUSED"}
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.eyesClosed ? "text-destructive" : "text-success")}>
+                        {metrics.eyesClosed ? "Eyes closed" : "Focused"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
-                        className={clsx("h-full transition-all duration-300", metrics.ear < 0.2 ? "bg-destructive" : "bg-primary")}
+                        className={clsx("h-full transition-all duration-300", metrics.eyesClosed ? "bg-destructive" : "bg-primary")}
                         style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Maintaining steady gaze with the camera.</p>
                   </div>
 
-                  {/* Smile/Speech (MAR) */}
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Facial Expression</span>
-                      <span className={clsx("text-[10px] font-black", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
-                        {metrics.mar > 0.3 ? "ACTIVE / SPEAKING" : "NEUTRAL"}
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Expression</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
+                        {metrics.mar > 0.3 ? "SPEAKING" : "NEUTRAL"}
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
@@ -858,18 +1203,16 @@ const MultimodalEngine = () => {
                         style={{ width: `${Math.min(100, (metrics.mar / 0.6) * 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Detecting speaking, smiling, or facial energy.</p>
                   </div>
 
-                  {/* Head Pose */}
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-card-foreground">Head Alignment</span>
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Head Alignment</span>
                       <span className={clsx(
-                        "text-[10px] font-black",
+                        "text-[9px] font-bold",
                         (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
                       )}>
-                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "DISTRACTED" : "CENTERED"}
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "Off-center" : "Centered"}
                       </span>
                     </div>
                     <div className="flex gap-1 h-1.5 w-full relative">
@@ -881,55 +1224,26 @@ const MultimodalEngine = () => {
                         )} style={{ width: `${50 + metrics.pose.yaw * 100}%` }}></div>
                       </div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">Keeping your head level and facing forward.</p>
                   </div>
 
-                  {/* Vocal Emotion */}
-                  <div className="space-y-3 col-span-1 sm:col-span-3 pt-6 mt-6 border-t border-border/30">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-primary">Vocal Affect (SVM)</span>
-                      <span className="text-[10px] font-black text-primary uppercase">
-                        {metrics.emotion} • {Math.round(metrics.confidence * 100)}% Confidence
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Voice tone</span>
+                      <span className="text-[9px] font-bold text-primary uppercase">
+                        {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
                       </span>
                     </div>
-                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden flex">
                       <div
                         className="h-full bg-primary transition-all duration-700"
                         style={{ width: `${metrics.confidence * 100}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-card-foreground/60 font-medium">
-                      The Affect Fusion engine is currently cross-checking your {(metrics.emotion || 'sensing').toLowerCase()} vocal tone with your facial geometry.
-                    </p>
                   </div>
                 </div>
               )}
             </div>
           </div>
-
-          {/* AI Chatbot Section (Only in AI mode) */}
-          {activeMode === 'ai' && (
-            <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full max-h-[calc(100vh-160px)]">
-              <AIChatbot
-                isListening={aiMicActive}
-                setIsListening={setAiMicActive}
-                hasPermission={aiHasMicPermission}
-                setHasPermission={setAiHasMicPermission}
-                onNudge={handleNudge}
-                metrics={metrics}
-                stopSignal={aiStopSignal}
-                startSignal={aiStartSignal}
-                isCameraActive={isCameraActive}
-                onSessionStateChange={(isActive, isStarting, isEnding) => {
-                  setAiSessionActive(isActive);
-                  aiSessionActiveRef.current = isActive;
-                  setAiSessionStarting(isStarting);
-                  setAiSessionEnding(isEnding);
-                }}
-              />
-            </div>
-          )}
-
         </div>
       </div>
     </div>

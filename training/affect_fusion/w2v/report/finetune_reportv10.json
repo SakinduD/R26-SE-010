@@ -1,0 +1,136 @@
+{
+  "model_type": "wav2vec2_finetuned",
+  "base_model": "facebook/wav2vec2-base",
+  "train_accuracy": 0.9988333333333334,
+  "test_accuracy": 0.762,
+  "overfit_gap": 0.23683333333333334,
+  "test_macro_f1": 0.7576881280153538,
+  "classification_report": {
+    "neutral": {
+      "precision": 0.6997742663656885,
+      "recall": 0.96875,
+      "f1-score": 0.8125819134993447,
+      "support": 320.0
+    },
+    "happy": {
+      "precision": 0.708904109589041,
+      "recall": 0.7392857142857143,
+      "f1-score": 0.7237762237762237,
+      "support": 280.0
+    },
+    "sad": {
+      "precision": 0.8252032520325203,
+      "recall": 0.725,
+      "f1-score": 0.7718631178707225,
+      "support": 280.0
+    },
+    "angry": {
+      "precision": 0.7333333333333333,
+      "recall": 0.7464285714285714,
+      "f1-score": 0.7398230088495575,
+      "support": 280.0
+    },
+    "fearful": {
+      "precision": 0.8144329896907216,
+      "recall": 0.8464285714285714,
+      "f1-score": 0.830122591943958,
+      "support": 280.0
+    },
+    "disgust": {
+      "precision": 0.7429906542056075,
+      "recall": 0.5678571428571428,
+      "f1-score": 0.6437246963562753,
+      "support": 280.0
+    },
+    "surprised": {
+      "precision": 0.868995633187773,
+      "recall": 0.7107142857142857,
+      "f1-score": 0.7819253438113949,
+      "support": 280.0
+    },
+    "accuracy": 0.762,
+    "macro avg": {
+      "precision": 0.7705191769149551,
+      "recall": 0.7577806122448979,
+      "f1-score": 0.7576881280153538,
+      "support": 2000.0
+    },
+    "weighted avg": {
+      "precision": 0.7691042787039697,
+      "recall": 0.762,
+      "f1-score": 0.7587860037250337,
+      "support": 2000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      310,
+      0,
+      10,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      35,
+      207,
+      17,
+      0,
+      4,
+      3,
+      14
+    ],
+    [
+      41,
+      14,
+      203,
+      0,
+      22,
+      0,
+      0
+    ],
+    [
+      7,
+      12,
+      4,
+      209,
+      2,
+      41,
+      5
+    ],
+    [
+      9,
+      11,
+      11,
+      6,
+      237,
+      2,
+      4
+    ],
+    [
+      28,
+      14,
+      0,
+      70,
+      2,
+      159,
+      7
+    ],
+    [
+      13,
+      34,
+      1,
+      0,
+      24,
+      9,
+      199
+    ]
+  ],
+  "training_args": {
+    "epochs": 15,
+    "learning_rate": 0.0001,
+    "batch_size": 8,
+    "gradient_accumulation_steps": 2
+  }
+}

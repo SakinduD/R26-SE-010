@@ -60,13 +60,25 @@ def _detail(**kw) -> ScenarioDetail:
 async def test_rpe_good_match_uses_library():
     rpe = AsyncMock()
     rpe.recommend_scenarios.return_value = [_summary()]
-    rpe.get_scenario_detail.return_value = _detail()
+    # A genuinely good match: the exact difficulty band, and target skills that
+    # cover every weak skill this profile reports. Skill overlap is scored
+    # against the learner's weak-skill list, so a scenario addressing only one
+    # of four weak skills does not clear MATCH_THRESHOLD on its own.
+    rpe.get_scenario_detail.return_value = _detail(
+        target_skills=[
+            "emotional_regulation",
+            "boundary_setting",
+            "assertiveness",
+            "self_advocacy",
+        ],
+    )
     llm = AsyncMock()
 
     result = await select_scenarios(SCORES, STRATEGY, 3, "assertiveness", rpe, llm, user_id="u1")
 
     assert result.primary_scenario is not None
-    assert result.generation_source in ("rpe_library", "rpe_then_gemini")
+    assert result.match_score >= MATCH_THRESHOLD
+    assert result.generation_source == "rpe_library"
     llm.generate_json.assert_not_called()
 
 

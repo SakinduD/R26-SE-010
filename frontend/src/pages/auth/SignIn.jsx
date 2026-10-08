@@ -27,7 +27,7 @@ export default function SignIn() {
       await signIn(data);
       navigate('/dashboard');
     } catch (err) {
-      toast.error(getApiError(err) || 'Incorrect email or password.');
+      toast.error(getApiError(err) || "That email or password doesn't look right.");
     }
   };
 

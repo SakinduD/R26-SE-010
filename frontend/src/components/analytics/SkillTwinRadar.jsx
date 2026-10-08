@@ -1,9 +1,18 @@
 import React, { useState } from 'react'
 
-const hasScore = (value) => Number.isFinite(Number(value))
+// Number(null) is 0 and Number.isFinite(0) is true, so a null score passed this
+// guard and was drawn as a real zero. Only a number is a score here.
+const hasScore = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
 const clampScore = (value) => Math.max(0, Math.min(100, Number(value)))
 
-export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
+// The default wording describes one session, which is what two of the three
+// callers show. The dashboard's All Sessions view averages instead, and the
+// sentence has to say so - "scored on the session as a whole" under a figure
+// covering a hundred sessions is simply wrong.
+const SESSION_OVERALL_NOTE =
+  'Scored on the session as a whole, so it will not always match the average of the skills above.'
+
+export default function SkillTwinRadar({ scores, selfScores, overallScore, overallNote = SESSION_OVERALL_NOTE }) {
   const normalizedScores = scores.map((item) => ({
     ...item,
     hasEvidence: hasScore(item.value),
@@ -28,12 +37,12 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
         {/* Legend */}
         <div className="mt-4 flex items-center gap-5 text-[11px]">
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{background:'rgba(14,116,144,0.4)', border:'2px solid rgb(14,116,144)'}} />
+            <span className="inline-block w-3 h-3 rounded-sm" style={{background:'color-mix(in oklab, var(--accent) 40%, transparent)', border:'2px solid var(--accent)'}} />
             <span className="text-muted-foreground font-medium">Observed</span>
           </div>
           {hasSelfData && (
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{background:'rgba(245,158,11,0.3)', border:'2px solid rgb(245,158,11)'}} />
+              <span className="inline-block w-3 h-3 rounded-sm" style={{background:'color-mix(in oklab, var(--warning) 30%, transparent)', border:'2px solid var(--warning)'}} />
               <span className="text-muted-foreground font-medium">Self Rating</span>
             </div>
           )}
@@ -61,11 +70,16 @@ export default function SkillTwinRadar({ scores, selfScores, overallScore }) {
             <ScoreBar
               label="OVERALL SKILLS SCORE"
               value={overallScore}
-              hasEvidence={true}
+              hasEvidence={hasScore(overallScore)}
               isOverall={true}
             />
+            {/* Said plainly because the reader can check it and find it does not
+                add up. This is the engine's own overall score, not the mean of
+                the bars above, and the two differ by up to 13.5 points on a
+                single session. Without this line that gap reads as a broken
+                page. */}
             <p className="text-[10px] text-muted-foreground mt-1.5 italic">
-              This score represents your combined performance across all analyzed skills.
+              {overallNote}
             </p>
           </div>
         </div>
@@ -84,7 +98,10 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
   const points = scores.map((item, index) => {
     const angle = -Math.PI / 2 + (2 * Math.PI * index) / scores.length
     const valueRadius = radius * (item.value / 100)
-    const selfVal = selfMap[item.key] || 0
+    // A rating of 0 is a rating. Absence is the key not being in the map, so
+    // `selfVal > 0` treated a real zero as "never rated".
+    const hasSelf = Object.prototype.hasOwnProperty.call(selfMap, item.key)
+    const selfVal = hasSelf ? selfMap[item.key] : 0
     const selfRadius = radius * (selfVal / 100)
     return {
       ...item,
@@ -93,7 +110,7 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
       selfX: center + Math.cos(angle) * selfRadius,
       selfY: center + Math.sin(angle) * selfRadius,
       selfVal,
-      hasSelf: selfVal > 0,
+      hasSelf,
       labelX: center + Math.cos(angle) * (radius + 32),
       labelY: center + Math.sin(angle) * (radius + 32),
       axisX: center + Math.cos(angle) * radius,
@@ -115,27 +132,34 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
 
       {hasSelfData && (
         <>
-          <polygon
-            points={points.map((p) => `${p.selfX},${p.selfY}`).join(' ')}
-            fill="rgba(245, 158, 11, 0.15)"
-            stroke="rgb(245, 158, 11)"
-            strokeWidth="2"
-            strokeDasharray="4 2"
-          />
+          {points.every((p) => p.hasSelf) && (
+            <polygon
+              points={points.map((p) => `${p.selfX},${p.selfY}`).join(' ')}
+              fill="color-mix(in oklab, var(--warning) 15%, transparent)"
+              stroke="var(--warning)"
+              strokeWidth="2"
+              strokeDasharray="4 2"
+            />
+          )}
           {points.map((p) => (
-            p.hasSelf && <circle key={'s-'+p.key} cx={p.selfX} cy={p.selfY} r="3" fill="rgb(245, 158, 11)" />
+            p.hasSelf && <circle key={'s-'+p.key} cx={p.selfX} cy={p.selfY} r="3" fill="var(--warning)" />
           ))}
         </>
       )}
 
-      <polygon
-        points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-        fill="rgba(14, 116, 144, 0.2)"
-        stroke="rgb(14, 116, 144)"
-        strokeWidth="2"
-      />
+      {/* An unmeasured axis has no vertex to place. Putting one at the centre
+          draws it as a score of zero, so the shape is only closed when every
+          axis has a value; otherwise the measured axes show as points. */}
+      {points.every((p) => p.hasEvidence) && (
+        <polygon
+          points={points.map((p) => `${p.x},${p.y}`).join(' ')}
+          fill="color-mix(in oklab, var(--accent) 20%, transparent)"
+          stroke="var(--accent)"
+          strokeWidth="2"
+        />
+      )}
       {points.map((p) => (
-        <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="rgb(14, 116, 144)" />
+        p.hasEvidence && <circle key={'o-'+p.key} cx={p.x} cy={p.y} r="3.5" fill="var(--accent)" />
       ))}
 
       {points.map((point) => (
@@ -147,28 +171,28 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
           <circle cx={point.labelX} cy={point.labelY} r="15" fill="transparent" />
           <text x={point.labelX} y={point.labelY} textAnchor="middle" dominantBaseline="middle"
             className="fill-muted-foreground text-[10px]" fontWeight={hovered === point.key ? 'bold' : 'normal'}>
-            {point.hasEvidence ? Math.round(point.value) : '0'}
+            {point.hasEvidence ? Math.round(point.value) : '--'}
           </text>
 
           {hovered === point.key && (
             <g transform={`translate(${point.labelX > center ? -125 : 5}, 15)`}>
               <rect x="0" y="0" width="120"
                 height={hasSelfData && point.hasSelf ? 48 : 34} rx="6"
-                fill="rgba(15,23,42,0.95)" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-              <text x="60" y="16" textAnchor="middle" className="text-[10px]" fill="white" fontWeight="bold">
+                fill="var(--bg-elevated)" stroke="var(--border-default)" strokeWidth="1" />
+              <text x="60" y="16" textAnchor="middle" className="text-[10px]" fill="var(--text-primary)" fontWeight="bold">
                 {point.label}
               </text>
-              <text x="35" y="32" textAnchor="middle" className="text-[9px]" fill="rgb(14,186,197)">
+              <text x="35" y="32" textAnchor="middle" className="text-[9px]" fill="var(--accent)">
                 Obs: {point.hasEvidence ? Math.round(point.value) : '--'}
               </text>
               {hasSelfData && point.hasSelf && (
-                <text x="85" y="32" textAnchor="middle" className="text-[9px]" fill="rgb(245,158,11)">
+                <text x="85" y="32" textAnchor="middle" className="text-[9px]" fill="var(--warning)">
                   Self: {Math.round(point.selfVal)}
                 </text>
               )}
               {hasSelfData && point.hasSelf && (
                 <text x="60" y="42" textAnchor="middle" className="text-[8px]"
-                  fill={point.selfVal > point.value ? '#fca5a5' : '#86efac'}>
+                  fill={point.selfVal > point.value ? 'var(--danger-text)' : 'var(--success-text)'}>
                   Gap: {Math.abs(Math.round(point.selfVal - point.value))} pts
                 </text>
               )}
@@ -182,7 +206,7 @@ function RadarSvg({ scores, selfMap, hasSelfData }) {
 
 function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall }) {
   const hasSelf = Number.isFinite(selfValue)
-  const barColor = isOverall ? 'rgb(139, 92, 246)' : 'rgb(14, 116, 144)'
+  const barColor = isOverall ? 'var(--accent)' : 'var(--accent)'
   
   return (
     <div>
@@ -192,7 +216,7 @@ function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall
         </span>
         <div className="flex items-center gap-2 shrink-0">
           {hasSelfData && hasSelf && (
-            <span style={{color:'rgb(245,158,11)'}} className="text-xs font-medium">{Math.round(selfValue)}</span>
+            <span style={{color:'var(--warning)'}} className="text-xs font-medium">{Math.round(selfValue)}</span>
           )}
           <span className={`${isOverall ? 'text-sm' : 'text-xs text-muted-foreground'} font-bold`}>
             {hasEvidence ? Math.round(value) : 'N/A'}
@@ -201,7 +225,7 @@ function ScoreBar({ label, value, selfValue, hasEvidence, hasSelfData, isOverall
       </div>
       <div className="relative h-2 rounded-full bg-muted">
         {hasSelfData && hasSelf && (
-          <div className="absolute top-0 left-0 h-2 rounded-full" style={{ width: `${selfValue}%`, backgroundColor: 'rgba(245,158,11,0.4)' }} />
+          <div className="absolute top-0 left-0 h-2 rounded-full" style={{ width: `${selfValue}%`, backgroundColor: 'color-mix(in oklab, var(--warning) 40%, transparent)' }} />
         )}
         <div className="relative h-2 rounded-full" style={{ width: `${hasEvidence ? value : 0}%`, backgroundColor: barColor }} />
       </div>

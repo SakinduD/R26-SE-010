@@ -1,8 +1,15 @@
 """add baseline_snapshots table
 
-Revision ID: 20260509_001
+Revision ID: 20260509_001a
 Revises: 1ab1e9d9712e
 Create Date: 2026-05-09 12:00:00.000000
+
+Note: this revision was originally authored as "20260509_001", the same id as
+20260509_001_add_mentoring_recommendations_table.py. Alembic keeps only one node
+per id, so this file was shadowed and never ran, and `alembic upgrade head` broke
+with "Multiple head revisions are present". The id is suffixed with "a" to make it
+unique; nothing else about the migration changed. Databases that were already
+past this point are repaired by 20260811_002.
 
 """
 from typing import Sequence, Union
@@ -11,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "20260509_001"
+revision: str = "20260509_001a"
 down_revision: Union[str, None] = "1ab1e9d9712e"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

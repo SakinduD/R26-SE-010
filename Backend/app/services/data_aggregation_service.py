@@ -14,6 +14,17 @@ from app.schemas.analytics import (
 )
 
 
+# The "All Sessions" view is a summary of a learner's whole history, so the cap
+# has to be high enough that it never quietly becomes a page size. It was 100,
+# which on this development account meant the lifetime averages were computed
+# from 100 of 118 sessions and 100 of 392 feedback entries - a summary labelled
+# "all sessions" that silently excluded a quarter of them.
+#
+# This is a guard against a pathological row count, not pagination. A learner
+# who genuinely exceeds it has a data problem worth noticing rather than
+# averaging over.
+FULL_HISTORY_LIMIT = 10_000
+
 SCORE_FIELDS = [
     "confidence_score",
     "clarity_score",
@@ -46,7 +57,16 @@ def get_session_aggregate(db: Session, session_id: str) -> AnalyticsAggregateSum
     )
 
 
-def get_user_aggregate(db: Session, user_id: str, limit: int = 100) -> AnalyticsAggregateSummary:
+def get_user_aggregate(
+    db: Session, user_id: str, limit: int = FULL_HISTORY_LIMIT
+) -> AnalyticsAggregateSummary:
+    """Every metric, feedback entry and prediction the learner has.
+
+    ``limit`` caps each of the three, guarding against a runaway row count. It is
+    deliberately far above any realistic history: a summary that drops rows
+    without saying so reports a number for "all sessions" that is not about all
+    sessions.
+    """
     metrics = (
         _query_metrics(db)
         .filter(AnalyticsSessionMetric.user_id == user_id)
@@ -128,7 +148,38 @@ def _summarize_scores(metrics: list[AnalyticsSessionMetric]) -> ScoreSummary:
     )
 
 
+def _latest_per_skill(feedback: list[FeedbackEntry]) -> list[FeedbackEntry]:
+    """One row per (session, skill, source): the most recent one.
+
+    Re-submitting the rating form inserts rather than updates, so a session can
+    hold the same skill several times over - one here is six deep. Every figure
+    below was built from the raw list, which counted a correction as another
+    opinion and let a session submitted six times weigh six times as much.
+
+    feedback_analysis_service and blind_spot_service already do this, so the
+    same page showed a skill's self-rating as both 79 and 80. The source is
+    where it belongs, so that everything derived here agrees.
+
+    Callers order newest first, so the first row seen for a key stands. A row
+    with no session id cannot be paired with anything and is kept as its own.
+    """
+    seen: set[tuple] = set()
+    latest: list[FeedbackEntry] = []
+    for entry in feedback:
+        key = (
+            (entry.session_id, entry.skill_area, entry.feedback_type)
+            if entry.session_id
+            else ("", entry.id)
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        latest.append(entry)
+    return latest
+
+
 def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
+    feedback = _latest_per_skill(feedback)
     ratings = [entry.rating for entry in feedback if entry.rating is not None]
     self_entries = [entry for entry in feedback if entry.feedback_type == "self"]
 
@@ -175,6 +226,13 @@ def _summarize_feedback(feedback: list[FeedbackEntry]) -> FeedbackSummary:
     return FeedbackSummary(
         total_count=len(feedback),
         session_count=len({entry.session_id for entry in feedback if entry.session_id}),
+        self_session_count=len(
+            {
+                entry.session_id
+                for entry in feedback
+                if entry.feedback_type == "self" and entry.session_id
+            }
+        ),
         by_type=dict(Counter(entry.feedback_type for entry in feedback)),
         sentiment_counts=dict(Counter(entry.sentiment for entry in feedback if entry.sentiment)),
         skill_rating_averages=skill_rating_averages,

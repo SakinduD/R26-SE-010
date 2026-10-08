@@ -13,11 +13,18 @@ Strategy:
 
 No raw OCEAN numbers go into the Gemini prompt — only low/mid/high levels.
 Never raises: always returns a ScenarioSelectionResult.
+
+Credentialing: the GeminiClient passed as `llm` must be APM-credentialed —
+callers build it with app.core.llm_client.get_apm_llm_client(), which resolves
+GEMINI_API_KEY_APM (falling back to GEMINI_API_KEY with a warning) via
+app.config.get_apm_gemini_key(). Never read GEMINI_API_KEY* in this module.
+An unset key surfaces as LLMError("api_error") on first use and is absorbed by
+the existing never-raises fallback chain below.
 """
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -186,9 +193,13 @@ async def select_scenarios(
     llm: GeminiClient,
     *,
     user_id: str,
+    weak_skills: Optional[list[str]] = None,
 ) -> ScenarioSelectionResult:
     """
     Hybrid scenario selection. Never raises.
+
+    weak_skills: the learner profile's weak skills (baseline-aware). When
+    omitted they are inferred from OCEAN alone.
 
     Returns:
       ScenarioSelectionResult with generation_source set to whichever path
@@ -196,7 +207,8 @@ async def select_scenarios(
       and the orchestrator should mark generation_status='scenario_failed'.
     """
     rationale: list[str] = []
-    weak_skills = infer_weak_skills(profile, strategy)
+    if weak_skills is None:
+        weak_skills = infer_weak_skills(profile, strategy)
     difficulty_label = difficulty_int_to_label(difficulty)
     rationale.append(
         f"Inferred weak_skills={weak_skills or '[]'}; "
@@ -213,7 +225,10 @@ async def select_scenarios(
             rpe_profile
         )
         rationale.append(f"RPE returned {len(summaries)} candidate scenarios")
-    except RpeClientError as exc:
+    except Exception as exc:
+        # The contract above is "never raises", so anything the client can throw
+        # has to land here, not only RpeClientError: a transport, parsing or
+        # validation error must still leave the learner with a scenario.
         rationale.append(
             f"RPE recommend failed: {exc} — trying Gemini-only fallback"
         )
@@ -234,7 +249,9 @@ async def select_scenarios(
     for s in summaries:
         try:
             detail = await rpe.get_scenario_detail(s.scenario_id)
-        except RpeClientError as exc:
+        except Exception as exc:
+            # Same reason as above: a missing detail degrades the score, it does
+            # not abort the selection.
             logger.debug("scenario_detail %s failed: %s", s.scenario_id, exc)
             detail = None
         score = _score_scenario(

@@ -1,0 +1,836 @@
+[
+  {
+    "user_id": "alex",
+    "label": "Anxious introvert",
+    "ocean": {
+      "openness": 40.0,
+      "conscientiousness": 40.0,
+      "extraversion": 25.0,
+      "agreeableness": 55.0,
+      "neuroticism": 70.0
+    },
+    "baseline": {
+      "has_baseline": true,
+      "skill_scores": {
+        "vocal_command": 0.25,
+        "speech_fluency": 0.3,
+        "presence_engagement": 0.45,
+        "emotional_regulation": 0.35
+      },
+      "dominant_emotions": [
+        "fearful",
+        "sad",
+        "neutral"
+      ],
+      "stress_indicator": 0.72,
+      "confidence_indicator": 0.1,
+      "duration_seconds": null,
+      "raw_overall_score": null
+    },
+    "initial": {
+      "style": {
+        "tone": "gentle",
+        "pacing": "slow",
+        "complexity": "moderate",
+        "npc_personality": "warm_supportive",
+        "feedback_style": "encouraging"
+      },
+      "difficulty": 1,
+      "difficulty_band": "beginner",
+      "weak_skills": [
+        "assertiveness",
+        "professional_communication",
+        "emotional_regulation"
+      ],
+      "priority_skills": [
+        "vocal_command",
+        "speech_fluency",
+        "emotional_regulation"
+      ],
+      "rationale": [
+        "Neuroticism=70 (high) → tone=gentle, feedback=encouraging (safety signal — wins over agreeableness for tone)",
+        "Extraversion=25 (low) → pacing=slow, npc=warm_supportive",
+        "baseline stress_indicator=0.72 > 0.6 → tone already at floor ('gentle'), no change",
+        "baseline confidence_indicator=0.10 < 0.3 with stress_indicator=0.72 → npc overridden to warm_supportive",
+        "baseline skill_scores has weak areas (vocal_command, speech_fluency, emotional_regulation) → added to priority_skills",
+        "Neuroticism=70 (high) → -2",
+        "Extraversion=25 (low) → -1",
+        "baseline stress_indicator=0.72 > 0.6 → -1 (measured stress relief)"
+      ]
+    },
+    "sessions": [
+      {
+        "session": 1,
+        "scenario": "hard failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 20,
+          "escalation": 5,
+          "quality": 3.0
+        },
+        "signal": {
+          "engagement_score": 0.3,
+          "confidence_score": 0.2,
+          "objective_completion_rate": 0.0,
+          "stress_level": 1.0,
+          "outcome": "failure"
+        },
+        "difficulty": "1 → 1",
+        "band": "beginner",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "slow",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=1.00 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.20 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      },
+      {
+        "session": 2,
+        "scenario": "partial",
+        "rpe": {
+          "outcome": "partial",
+          "trust": 50,
+          "escalation": 2,
+          "quality": 5.2
+        },
+        "signal": {
+          "engagement_score": 0.52,
+          "confidence_score": 0.5,
+          "objective_completion_rate": 0.5,
+          "stress_level": 0.4,
+          "outcome": "partial"
+        },
+        "difficulty": "1 → 1",
+        "band": "beginner",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "slow",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "No adjustment criteria met — plan unchanged"
+        ]
+      },
+      {
+        "session": 3,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 82,
+          "escalation": 1,
+          "quality": 8.0
+        },
+        "signal": {
+          "engagement_score": 0.8,
+          "confidence_score": 0.82,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.2,
+          "outcome": "success"
+        },
+        "difficulty": "1 → 2",
+        "band": "beginner",
+        "style_changes": {
+          "pacing": "slow → moderate",
+          "complexity": "moderate → complex"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "moderate",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.80: difficulty +1, complexity moderate→complex",
+          "success with low stress=0.20: pacing slow→moderate"
+        ]
+      },
+      {
+        "session": 4,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 85,
+          "escalation": 0,
+          "quality": 8.5
+        },
+        "signal": {
+          "engagement_score": 0.85,
+          "confidence_score": 0.85,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.0,
+          "outcome": "success"
+        },
+        "difficulty": "2 → 3",
+        "band": "beginner",
+        "style_changes": {
+          "pacing": "moderate → fast"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.85: difficulty +1, complexity complex→complex",
+          "success with low stress=0.00: pacing moderate→fast"
+        ]
+      },
+      {
+        "session": 5,
+        "scenario": "stressed failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 35,
+          "escalation": 4,
+          "quality": 4.0
+        },
+        "signal": {
+          "engagement_score": 0.4,
+          "confidence_score": 0.35,
+          "objective_completion_rate": 0.0,
+          "stress_level": 0.8,
+          "outcome": "failure"
+        },
+        "difficulty": "3 → 2",
+        "band": "beginner",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=0.80 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.35 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      }
+    ]
+  },
+  {
+    "user_id": "jordan",
+    "label": "Confident extrovert",
+    "ocean": {
+      "openness": 65.0,
+      "conscientiousness": 70.0,
+      "extraversion": 80.0,
+      "agreeableness": 55.0,
+      "neuroticism": 30.0
+    },
+    "baseline": {
+      "has_baseline": true,
+      "skill_scores": {
+        "vocal_command": 0.78,
+        "speech_fluency": 0.72,
+        "presence_engagement": 0.81,
+        "emotional_regulation": 0.7
+      },
+      "dominant_emotions": [
+        "happy",
+        "neutral",
+        "surprised"
+      ],
+      "stress_indicator": 0.05,
+      "confidence_indicator": 0.55,
+      "duration_seconds": null,
+      "raw_overall_score": null
+    },
+    "initial": {
+      "style": {
+        "tone": "challenging",
+        "pacing": "fast",
+        "complexity": "complex",
+        "npc_personality": "professional",
+        "feedback_style": "balanced"
+      },
+      "difficulty": 7,
+      "difficulty_band": "intermediate",
+      "weak_skills": [],
+      "priority_skills": [],
+      "rationale": [
+        "Neuroticism=30 (low) → tone=challenging",
+        "Extraversion=80 (high) → pacing=fast",
+        "Openness=65 (high) → complexity=complex",
+        "Neuroticism=30 (low) → +1",
+        "Openness=65 (high) → +1"
+      ]
+    },
+    "sessions": [
+      {
+        "session": 1,
+        "scenario": "hard failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 20,
+          "escalation": 5,
+          "quality": 3.0
+        },
+        "signal": {
+          "engagement_score": 0.3,
+          "confidence_score": 0.2,
+          "objective_completion_rate": 0.0,
+          "stress_level": 1.0,
+          "outcome": "failure"
+        },
+        "difficulty": "7 → 6",
+        "band": "intermediate",
+        "style_changes": {
+          "tone": "challenging → direct",
+          "npc_personality": "professional → warm_supportive",
+          "feedback_style": "balanced → encouraging"
+        },
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=1.00 > 0.6: difficulty -1, tone softened to direct, feedback=encouraging",
+          "confidence=0.20 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      },
+      {
+        "session": 2,
+        "scenario": "partial",
+        "rpe": {
+          "outcome": "partial",
+          "trust": 50,
+          "escalation": 2,
+          "quality": 5.2
+        },
+        "signal": {
+          "engagement_score": 0.52,
+          "confidence_score": 0.5,
+          "objective_completion_rate": 0.5,
+          "stress_level": 0.4,
+          "outcome": "partial"
+        },
+        "difficulty": "6 → 6",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "No adjustment criteria met — plan unchanged"
+        ]
+      },
+      {
+        "session": 3,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 82,
+          "escalation": 1,
+          "quality": 8.0
+        },
+        "signal": {
+          "engagement_score": 0.8,
+          "confidence_score": 0.82,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.2,
+          "outcome": "success"
+        },
+        "difficulty": "6 → 7",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.80: difficulty +1, complexity complex→complex"
+        ]
+      },
+      {
+        "session": 4,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 85,
+          "escalation": 0,
+          "quality": 8.5
+        },
+        "signal": {
+          "engagement_score": 0.85,
+          "confidence_score": 0.85,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.0,
+          "outcome": "success"
+        },
+        "difficulty": "7 → 8",
+        "band": "advanced",
+        "style_changes": {},
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.85: difficulty +1, complexity complex→complex"
+        ]
+      },
+      {
+        "session": 5,
+        "scenario": "stressed failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 35,
+          "escalation": 4,
+          "quality": 4.0
+        },
+        "signal": {
+          "engagement_score": 0.4,
+          "confidence_score": 0.35,
+          "objective_completion_rate": 0.0,
+          "stress_level": 0.8,
+          "outcome": "failure"
+        },
+        "difficulty": "8 → 7",
+        "band": "intermediate",
+        "style_changes": {
+          "tone": "direct → gentle"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=0.80 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.35 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      }
+    ]
+  },
+  {
+    "user_id": "sam",
+    "label": "Mid-range, no baseline",
+    "ocean": {
+      "openness": 50.0,
+      "conscientiousness": 50.0,
+      "extraversion": 50.0,
+      "agreeableness": 50.0,
+      "neuroticism": 50.0
+    },
+    "baseline": {
+      "has_baseline": false,
+      "skill_scores": null,
+      "dominant_emotions": null,
+      "stress_indicator": null,
+      "confidence_indicator": null,
+      "duration_seconds": null,
+      "raw_overall_score": null
+    },
+    "initial": {
+      "style": {
+        "tone": "direct",
+        "pacing": "moderate",
+        "complexity": "moderate",
+        "npc_personality": "professional",
+        "feedback_style": "balanced"
+      },
+      "difficulty": 5,
+      "difficulty_band": "intermediate",
+      "weak_skills": [],
+      "priority_skills": [],
+      "rationale": [
+        "All OCEAN traits in mid-range — using neutral defaults",
+        "Mid-range OCEAN profile — base difficulty 5"
+      ]
+    },
+    "sessions": [
+      {
+        "session": 1,
+        "scenario": "hard failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 20,
+          "escalation": 5,
+          "quality": 3.0
+        },
+        "signal": {
+          "engagement_score": 0.3,
+          "confidence_score": 0.2,
+          "objective_completion_rate": 0.0,
+          "stress_level": 1.0,
+          "outcome": "failure"
+        },
+        "difficulty": "5 → 4",
+        "band": "beginner",
+        "style_changes": {
+          "tone": "direct → gentle",
+          "npc_personality": "professional → warm_supportive",
+          "feedback_style": "balanced → encouraging"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "moderate",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=1.00 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.20 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      },
+      {
+        "session": 2,
+        "scenario": "partial",
+        "rpe": {
+          "outcome": "partial",
+          "trust": 50,
+          "escalation": 2,
+          "quality": 5.2
+        },
+        "signal": {
+          "engagement_score": 0.52,
+          "confidence_score": 0.5,
+          "objective_completion_rate": 0.5,
+          "stress_level": 0.4,
+          "outcome": "partial"
+        },
+        "difficulty": "4 → 4",
+        "band": "beginner",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "moderate",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "No adjustment criteria met — plan unchanged"
+        ]
+      },
+      {
+        "session": 3,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 82,
+          "escalation": 1,
+          "quality": 8.0
+        },
+        "signal": {
+          "engagement_score": 0.8,
+          "confidence_score": 0.82,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.2,
+          "outcome": "success"
+        },
+        "difficulty": "4 → 5",
+        "band": "intermediate",
+        "style_changes": {
+          "pacing": "moderate → fast",
+          "complexity": "moderate → complex"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.80: difficulty +1, complexity moderate→complex",
+          "success with low stress=0.20: pacing moderate→fast"
+        ]
+      },
+      {
+        "session": 4,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 85,
+          "escalation": 0,
+          "quality": 8.5
+        },
+        "signal": {
+          "engagement_score": 0.85,
+          "confidence_score": 0.85,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.0,
+          "outcome": "success"
+        },
+        "difficulty": "5 → 6",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.85: difficulty +1, complexity complex→complex"
+        ]
+      },
+      {
+        "session": 5,
+        "scenario": "stressed failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 35,
+          "escalation": 4,
+          "quality": 4.0
+        },
+        "signal": {
+          "engagement_score": 0.4,
+          "confidence_score": 0.35,
+          "objective_completion_rate": 0.0,
+          "stress_level": 0.8,
+          "outcome": "failure"
+        },
+        "difficulty": "6 → 5",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=0.80 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.35 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      }
+    ]
+  },
+  {
+    "user_id": "riley",
+    "label": "Low agreeableness, calm",
+    "ocean": {
+      "openness": 55.0,
+      "conscientiousness": 45.0,
+      "extraversion": 55.0,
+      "agreeableness": 30.0,
+      "neuroticism": 35.0
+    },
+    "baseline": {
+      "has_baseline": false,
+      "skill_scores": null,
+      "dominant_emotions": null,
+      "stress_indicator": null,
+      "confidence_indicator": null,
+      "duration_seconds": null,
+      "raw_overall_score": null
+    },
+    "initial": {
+      "style": {
+        "tone": "challenging",
+        "pacing": "moderate",
+        "complexity": "moderate",
+        "npc_personality": "demanding_critical",
+        "feedback_style": "blunt"
+      },
+      "difficulty": 6,
+      "difficulty_band": "intermediate",
+      "weak_skills": [
+        "conflict_resolution",
+        "professional_communication"
+      ],
+      "priority_skills": [],
+      "rationale": [
+        "Neuroticism=35 (low) → tone=challenging",
+        "Agreeableness=30 (low) → npc=demanding_critical, feedback=blunt",
+        "Neuroticism=35 (low) → +1"
+      ]
+    },
+    "sessions": [
+      {
+        "session": 1,
+        "scenario": "hard failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 20,
+          "escalation": 5,
+          "quality": 3.0
+        },
+        "signal": {
+          "engagement_score": 0.3,
+          "confidence_score": 0.2,
+          "objective_completion_rate": 0.0,
+          "stress_level": 1.0,
+          "outcome": "failure"
+        },
+        "difficulty": "6 → 5",
+        "band": "intermediate",
+        "style_changes": {
+          "tone": "challenging → direct",
+          "npc_personality": "demanding_critical → warm_supportive",
+          "feedback_style": "blunt → encouraging"
+        },
+        "style_after": {
+          "tone": "direct",
+          "pacing": "moderate",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=1.00 > 0.6: difficulty -1, tone softened to direct, feedback=encouraging",
+          "confidence=0.20 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      },
+      {
+        "session": 2,
+        "scenario": "partial",
+        "rpe": {
+          "outcome": "partial",
+          "trust": 50,
+          "escalation": 2,
+          "quality": 5.2
+        },
+        "signal": {
+          "engagement_score": 0.52,
+          "confidence_score": 0.5,
+          "objective_completion_rate": 0.5,
+          "stress_level": 0.4,
+          "outcome": "partial"
+        },
+        "difficulty": "5 → 5",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "direct",
+          "pacing": "moderate",
+          "complexity": "moderate",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "No adjustment criteria met — plan unchanged"
+        ]
+      },
+      {
+        "session": 3,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 82,
+          "escalation": 1,
+          "quality": 8.0
+        },
+        "signal": {
+          "engagement_score": 0.8,
+          "confidence_score": 0.82,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.2,
+          "outcome": "success"
+        },
+        "difficulty": "5 → 6",
+        "band": "intermediate",
+        "style_changes": {
+          "pacing": "moderate → fast",
+          "complexity": "moderate → complex"
+        },
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.80: difficulty +1, complexity moderate→complex",
+          "success with low stress=0.20: pacing moderate→fast"
+        ]
+      },
+      {
+        "session": 4,
+        "scenario": "strong success",
+        "rpe": {
+          "outcome": "success",
+          "trust": 85,
+          "escalation": 0,
+          "quality": 8.5
+        },
+        "signal": {
+          "engagement_score": 0.85,
+          "confidence_score": 0.85,
+          "objective_completion_rate": 1.0,
+          "stress_level": 0.0,
+          "outcome": "success"
+        },
+        "difficulty": "6 → 7",
+        "band": "intermediate",
+        "style_changes": {},
+        "style_after": {
+          "tone": "direct",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "success with completion=1.00, engagement=0.85: difficulty +1, complexity complex→complex"
+        ]
+      },
+      {
+        "session": 5,
+        "scenario": "stressed failure",
+        "rpe": {
+          "outcome": "failure",
+          "trust": 35,
+          "escalation": 4,
+          "quality": 4.0
+        },
+        "signal": {
+          "engagement_score": 0.4,
+          "confidence_score": 0.35,
+          "objective_completion_rate": 0.0,
+          "stress_level": 0.8,
+          "outcome": "failure"
+        },
+        "difficulty": "7 → 6",
+        "band": "intermediate",
+        "style_changes": {
+          "tone": "direct → gentle"
+        },
+        "style_after": {
+          "tone": "gentle",
+          "pacing": "fast",
+          "complexity": "complex",
+          "npc_personality": "warm_supportive",
+          "feedback_style": "encouraging"
+        },
+        "rationale": [
+          "failure with stress=0.80 > 0.6: difficulty -1, tone softened to gentle, feedback=encouraging",
+          "confidence=0.35 < 0.4: npc=warm_supportive, feedback=encouraging"
+        ]
+      }
+    ]
+  }
+]

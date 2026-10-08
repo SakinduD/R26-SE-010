@@ -7,7 +7,7 @@ export const TRAIT_META = {
   openness: {
     label: 'Openness',
     letter: 'O',
-    description: 'Curiosity, creativity, and appetite for new experiences.',
+    description: 'How curious, creative, and open to new experiences you are.',
     trainingNote: {
       low:  'Your training uses clear, structured scenarios with concrete goals — no ambiguity.',
       mid:  'Your training balances familiar frameworks with occasional novel challenges.',
@@ -22,7 +22,7 @@ export const TRAIT_META = {
   conscientiousness: {
     label: 'Conscientiousness',
     letter: 'C',
-    description: 'Self-discipline, organization, and goal-directed behaviour.',
+    description: 'How disciplined, organized, and goal-focused you are.',
     trainingNote: {
       low:  'Your training uses shorter sessions with frequent check-ins to keep momentum.',
       mid:  'Your training has clear milestones with moderate flexibility.',
@@ -37,7 +37,7 @@ export const TRAIT_META = {
   extraversion: {
     label: 'Extraversion',
     letter: 'E',
-    description: 'Social energy, assertiveness, and outward expressiveness.',
+    description: 'How social, assertive, and outwardly expressive you are.',
     trainingNote: {
       low:  'Your training paces gradually, with encouragement built into every step.',
       mid:  'Your training mixes solo reflection with interactive exercises.',
@@ -52,7 +52,7 @@ export const TRAIT_META = {
   agreeableness: {
     label: 'Agreeableness',
     letter: 'A',
-    description: 'Warmth, cooperation, and sensitivity to others.',
+    description: 'How warm, cooperative, and tuned-in to others you are.',
     trainingNote: {
       low:  'Your training uses debate-style scenarios where holding firm is the goal.',
       mid:  'Your training covers both collaborative and competitive interaction styles.',

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,7 +47,12 @@ class FeedbackEntryBase(BaseModel):
     skill_area: str | None = Field(default=None, max_length=80)
     rating: Score = Field(default=None, ge=0, le=100)
     comment: str | None = None
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    # For human-written feedback the service overwrites this with the NLP model's
+    # reading; supplying it only sets the fallback for entries with no text.
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
+    # What the author says about their own feedback, kept apart from the model's
+    # independent reading of the same words.
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class FeedbackEntryCreate(FeedbackEntryBase):
@@ -55,6 +60,9 @@ class FeedbackEntryCreate(FeedbackEntryBase):
 
 
 class FeedbackEntryRead(FeedbackEntryBase):
+    sentiment_confidence: float | None = None
+    sentiment_source: Literal["model", "rule", "declared"] | None = None
+    sentiment_model_version: str | None = None
     id: int
     created_at: datetime
 
@@ -68,7 +76,7 @@ class FeedbackSentimentRequest(BaseModel):
 class FeedbackSentimentResult(BaseModel):
     text: str
     cleaned_text: str
-    sentiment: Literal["positive", "neutral", "negative"]
+    sentiment: Literal["positive", "neutral", "negative", "mixed"]
     confidence: float = Field(..., ge=0, le=1)
     sentiment_score: float = Field(..., ge=-1, le=1)
     class_probabilities: dict[str, float]
@@ -85,50 +93,13 @@ class ComponentMcaNudge(BaseModel):
     nudge_severity: str | None = None
 
 
-class ComponentTurnMetric(BaseModel):
-    turn: int | None = None
-    assertiveness_score: Score = Field(default=None, ge=0, le=100)
-    empathy_score: Score = Field(default=None, ge=0, le=100)
-    clarity_score: Score = Field(default=None, ge=0, le=100)
-    response_quality: Score = Field(default=None, ge=0, le=100)
-    flags: list[str] = []
-
-
-class ComponentRpeSession(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    trust_history: list[float] = []
-    emotion_history: list[str] = []
-
-
-class ComponentRpeFeedback(BaseModel):
-    session_id: str | None = None
-    scenario_id: str | None = None
-    scenario_title: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
-    final_trust: Score = Field(default=None, ge=0, le=100)
-    final_escalation: int | None = Field(default=None, ge=0)
-    total_turns: int | None = Field(default=None, ge=0)
-    turn_metrics: list[ComponentTurnMetric] = []
-    risk_flags: list[str] = []
-    blind_spots: list[str] = []
-    coaching_advice: list[str] = []
-    viz_payload: dict[str, Any] = {}
-    end_reason: str | None = None
-    recommended_turns: int | None = Field(default=None, ge=0)
-    max_turns: int | None = Field(default=None, ge=0)
-
-
 class ComponentAdaptivePlan(BaseModel):
     skill: str | None = None
     strategy: str | None = None
-    difficulty: str | None = None
+    # The adaptive plan stores difficulty as an integer 1-10; earlier callers
+    # sent a word. Declared as a string only, an int failed validation and took
+    # the whole integration down with it - see _coerce_model.
+    difficulty: str | int | None = None
     recommended_scenario_ids: list[str] = []
     primary_scenario: str | None = None
     generation_source: str | None = None
@@ -146,7 +117,7 @@ class ComponentSubmittedFeedback(BaseModel):
     skill_area: str | None = Field(default=None, max_length=80)
     rating: Score = Field(default=None, ge=0, le=100)
     comment: str | None = None
-    sentiment: Literal["positive", "neutral", "negative"] | None = None
+    sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
 
 
 class AnalyticsComponentIntegrationRequest(BaseModel):
@@ -156,18 +127,42 @@ class AnalyticsComponentIntegrationRequest(BaseModel):
     skill_type: str | None = Field(default=None, max_length=80)
     survey_profile: ComponentSurveyProfile | dict[str, Any] | None = None
     adaptive_plan: ComponentAdaptivePlan | dict[str, Any] | None = None
-    rpe_session: ComponentRpeSession | dict[str, Any] | None = None
-    rpe_feedback: ComponentRpeFeedback | dict[str, Any] | None = None
     mca_nudges: list[ComponentMcaNudge | dict[str, Any]] = []
+    # Accurate per-skill scores already computed by the MCA engine
+    # (vocal_command, speech_fluency, presence_engagement, emotional_regulation).
+    # When present these are mapped directly onto the metric columns instead of
+    # re-deriving lossy scores from the nudge log.
+    mca_skill_scores: dict[str, Score] | None = None
+    mca_overall_score: Score = Field(default=None, ge=0, le=100)
     self_feedback: ComponentSubmittedFeedback | None = None
-    peer_feedback: list[ComponentSubmittedFeedback] = []
+
+
+class SessionBackfillItem(BaseModel):
+    session_id: str
+    # Only multimodal sessions are integrated. Role-play is a separate module
+    # with its own feedback screens; nothing in this component reads it.
+    source: Literal["mca"]
+    label: str
+    integrated: bool
+    overall_score: Score = None
+    reason: str | None = None
+
+
+class SessionBackfillResult(BaseModel):
+    user_id: str
+    examined_count: int
+    integrated_count: int
+    # Sessions that were started but recorded nothing analysable - counted, never
+    # turned into empty metric rows.
+    skipped_count: int = 0
+    failed_count: int
+    items: list[SessionBackfillItem]
+    backfill_version: str
 
 
 class AnalyticsIntegrationSourceSummary(BaseModel):
     has_survey_profile: bool
     has_adaptive_plan: bool
-    has_rpe_session: bool
-    has_rpe_feedback: bool
     mca_nudge_count: int
     submitted_feedback_count: int
     generated_feedback_count: int
@@ -205,6 +200,9 @@ class ScoreSummary(BaseModel):
 class FeedbackSummary(BaseModel):
     total_count: int
     session_count: int = 0
+    # Distinct sessions the user self-assessed. Self feedback is stored one row per
+    # skill (4 rows per assessment), so this reflects "assessments" not row count.
+    self_session_count: int = 0
     by_type: dict[str, int]
     sentiment_counts: dict[str, int]
     skill_rating_averages: dict[str, float] = {}
@@ -250,7 +248,6 @@ class SkillScoreInputs(BaseModel):
     speech_volume_score: Score = Field(default=None, ge=0, le=100)
     response_quality_score: Score = Field(default=None, ge=0, le=100)
     self_rating: Score = Field(default=None, ge=0, le=100)
-    peer_rating: Score = Field(default=None, ge=0, le=100)
 
 
 class SkillScoreRequest(BaseModel):
@@ -277,16 +274,12 @@ class SkillScoreResult(BaseModel):
 class FeedbackAlignmentItem(BaseModel):
     skill_area: str
     self_rating: float | None = None
-    peer_rating: float | None = None
     observed_score: float | None = None
-    self_peer_gap: float | None = None
     self_observed_gap: float | None = None
-    peer_observed_gap: float | None = None
     alignment: Literal[
         "aligned",
         "self_overestimation",
         "self_underestimation",
-        "peer_misalignment",
         "insufficient_data",
     ]
     severity: Literal["none", "low", "medium", "high"]
@@ -295,12 +288,11 @@ class FeedbackAlignmentItem(BaseModel):
 
 class FeedbackAnalysisSummary(BaseModel):
     self_feedback_count: int
-    peer_feedback_count: int
     analyzed_skill_count: int
     aligned_count: int
     blind_spot_count: int
     average_self_rating: float | None = None
-    average_peer_rating: float | None = None
+    average_observed_score: float | None = None
 
 
 class FeedbackAnalysisResult(BaseModel):
@@ -319,10 +311,30 @@ class BlindSpotItem(BaseModel):
     severity: Literal["low", "medium", "high"]
     self_rating: float
     comparison_score: float
-    comparison_source: Literal["observed", "peer"]
+    comparison_source: Literal["observed"]
     gap: float
     confidence: float
     recommendation: str
+
+
+class SentimentBlindSpotItem(BaseModel):
+    """A gap between how the learner rated a session and how they wrote about it.
+
+    The rating-based blind spots compare numbers; this compares the learner's own
+    stated sentiment against what the NLP model reads in their words. A learner
+    who marks a session positive while describing it critically is showing the
+    same self-perception gap, expressed in language rather than scores.
+    """
+
+    session_id: str
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    severity: Literal["low", "medium", "high"]
+    confidence: float = Field(..., ge=0, le=1)
+    comment_excerpt: str
+    model_version: str | None = None
+    recommendation: str
+    created_at: datetime
 
 
 class BlindSpotSummary(BaseModel):
@@ -331,6 +343,38 @@ class BlindSpotSummary(BaseModel):
     medium_count: int
     low_count: int
     strongest_blind_spot: BlindSpotItem | None = None
+    # Counted separately: a sentiment gap is different evidence from a rating gap
+    # and lumping the two totals together would blur what the learner is told.
+    sentiment_gap_count: int = 0
+
+
+class ReflectionReading(BaseModel):
+    """One written reflection, and what happened when the model read it.
+
+    Separate from SentimentBlindSpotItem, which is the subset that became a
+    finding. This is every reflection that was read, including the ones that
+    produced nothing, because the panel showing them had only findings to show
+    and stood empty the rest of the time - on a session where the learner had
+    written something, been read, and agreed with.
+
+    `outcome` is what separates them. `raised` became a finding; `agrees` means
+    the model read the text the way the learner marked it; `not_acted_on` means
+    it disagreed in a direction blind_spot_service has measured itself unreliable
+    about, so no finding was made.
+
+    The reading is returned in all three cases, with its confidence. Hiding it on
+    `not_acted_on` was tried and was worse: the learner's own sentence still sat
+    beside the sentiment they chose, so the disagreement was visible while the
+    page reported nothing found. Publishing the reading with its reliability is
+    the honest form of not acting on it.
+    """
+
+    session_id: str
+    comment_excerpt: str
+    declared_sentiment: Literal["positive", "neutral", "negative", "mixed"]
+    detected_sentiment: Literal["positive", "neutral", "negative", "mixed"] | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    outcome: Literal["agrees", "raised", "not_acted_on"]
 
 
 class BlindSpotDetectionResult(BaseModel):
@@ -339,6 +383,14 @@ class BlindSpotDetectionResult(BaseModel):
     session_id: str | None = None
     summary: BlindSpotSummary
     blind_spots: list[BlindSpotItem]
+    sentiment_gaps: list[SentimentBlindSpotItem] = []
+    # Every written reflection the model read in this scope, findings or not.
+    # An empty `sentiment_gaps` means one of two different things and the screen
+    # cannot tell them apart without this: nothing was written, or something was
+    # written and produced no finding. It said "write a reflection to have this
+    # checked" to a learner who had just written one.
+    reflection_readings: list[ReflectionReading] = []
+    reflections_examined: int = 0
     generated_at: datetime
     detection_version: str
 
@@ -429,6 +481,25 @@ class MentoringRecommendationItem(BaseModel):
     evidence_sources: list[str] = []
 
 
+class SupportContact(BaseModel):
+    name: str
+    number: str
+    detail: str
+
+
+class SupportPath(BaseModel):
+    """Where to go when a reflection was about more than the session.
+
+    Not a recommendation, and deliberately not in the recommendations list: those
+    are advice, they are written to the database, and neither is right for this.
+    This is computed when a response is built and is never stored.
+    """
+
+    level: Literal["support", "urgent"]
+    message: str
+    contacts: list[SupportContact]
+
+
 class MentoringRecommendationResult(BaseModel):
     user_id: str
     session_id: str | None = None
@@ -439,6 +510,10 @@ class MentoringRecommendationResult(BaseModel):
     model_version: str
     source: Literal["llm", "rule_based"]
     recommendation_type: Literal["overall_user", "session_specific"] = "overall_user"
+    # Present only when a written reflection tripped the distress rule. The
+    # recommendations above never mention the subject; this is the whole of the
+    # system's response to it.
+    support_path: SupportPath | None = None
 
 
 class PostSessionActionItem(BaseModel):
@@ -455,6 +530,37 @@ class PostSessionReportSummary(BaseModel):
     completion_status: Literal["complete", "partial", "empty"]
 
 
+class SkillContextItem(BaseModel):
+    """One skill in this session, against the same skill in every other session."""
+
+    skill_area: str
+    session_score: float
+    previous_average: float | None = None
+    delta: float | None = None
+    previous_best: float | None = None
+    is_personal_best: bool = False
+
+
+class SessionContext(BaseModel):
+    """Where this session sits among the learner's others.
+
+    The report answered "how did that go" with a score out of 100 and no way to
+    read it. 67 is a fine session for someone who usually scores 60 and a bad one
+    for someone who usually scores 82, and this learner is the second - so the
+    page opened on "Vocal Command held up" over their worst result in weeks.
+
+    Averages here exclude this session. Comparing a score against an average it
+    is itself part of shrinks the very difference the learner is being shown, and
+    on an account with three sessions it would hide it almost entirely.
+    """
+
+    sessions_compared: int
+    overall_score: float | None = None
+    previous_overall_average: float | None = None
+    overall_delta: float | None = None
+    skills: list[SkillContextItem] = []
+
+
 class PostSessionReportResult(BaseModel):
     session_id: str
     user_id: str | None = None
@@ -464,5 +570,255 @@ class PostSessionReportResult(BaseModel):
     feedback_analysis: FeedbackAnalysisResult
     blind_spots: BlindSpotDetectionResult
     action_items: list[PostSessionActionItem]
+    computed_predictions: list[PredictiveModelingItem] = []
+    # Absent on a learner's first session: there is nothing to compare against
+    # yet, and an empty comparison is worse than none.
+    context: SessionContext | None = None
     generated_at: datetime
     report_version: str
+
+
+class GamificationLevelProgress(BaseModel):
+    level: int
+    total_xp: int
+    xp_into_level: int
+    xp_for_next_level: int
+    xp_to_next_level: int
+    progress_percent: float = Field(..., ge=0, le=100)
+
+
+class GamificationStreak(BaseModel):
+    current_streak: int
+    longest_streak: int
+    total_learning_days: int
+    last_activity_date: date | None = None
+    active_today: bool
+    # Mon..Sun flags for the current calendar week.
+    week_activity: list[bool] = []
+
+
+class GamificationSkillLevel(BaseModel):
+    skill_area: str
+    label: str
+    xp: int
+    level: int
+    latest_score: Score = None
+    progress_percent: float = Field(..., ge=0, le=100)
+    xp_to_next_level: int
+
+
+class GamificationBadgeItem(BaseModel):
+    badge_key: str
+    title: str
+    description: str
+    criteria: str
+    tier: Literal["bronze", "silver", "gold"]
+    skill_area: str | None = None
+    earned: bool
+    earned_at: datetime | None = None
+    progress_percent: float = Field(default=0.0, ge=0, le=100)
+    progress_hint: str | None = None
+
+
+class GamificationBadgeSummary(BaseModel):
+    earned_count: int
+    total_count: int
+    latest_badge: GamificationBadgeItem | None = None
+
+
+class GamificationXpAward(BaseModel):
+    session_id: str
+    base_xp: int
+    performance_xp: int
+    streak_bonus_xp: int
+    total_xp_awarded: int
+    overall_score: Score = None
+    already_scored: bool = False
+
+
+class AnalyticsLearnerProfileSignal(BaseModel):
+    """The learner's longitudinal profile, normalised for the pedagogy engine.
+
+    The first five fields are the contract the Adaptive Pedagogical Architecture
+    already consumes; the rest are the evidence they were derived from, carried
+    along so an adjustment can be explained rather than just asserted.
+    """
+
+    engagement_score: float = Field(..., ge=0, le=1)
+    confidence_score: float = Field(..., ge=0, le=1)
+    objective_completion_rate: float = Field(..., ge=0, le=1)
+    stress_level: float = Field(..., ge=0, le=1)
+    outcome: Literal["success", "partial", "failure"]
+
+    analyzed_skill_count: int
+    improving_count: int
+    declining_count: int
+    blind_spot_total: int
+    blind_spot_high: int
+    high_risk_skill_count: int
+    mean_latest_score: Score = None
+    mean_predicted_score: Score = None
+    evidence_sessions: int
+
+
+class AnalyticsFeedbackLoopResult(BaseModel):
+    user_id: str
+    signal: AnalyticsLearnerProfileSignal
+    loop_version: str
+    generated_at: datetime
+
+
+class GamificationRules(BaseModel):
+    """The XP formula, published so the UI never restates it from memory."""
+
+    base_session_xp: int
+    performance_xp_factor: float
+    max_performance_xp: int
+    streak_xp_per_day: int
+    max_streak_bonus_days: int
+    max_streak_bonus_xp: int
+    level_base_xp: int
+    level_growth_xp: int
+    timezone: str
+
+
+class GamificationProfileResult(BaseModel):
+    user_id: str
+    level_progress: GamificationLevelProgress
+    streak: GamificationStreak
+    session_count: int
+    skill_levels: list[GamificationSkillLevel]
+    badges: list[GamificationBadgeItem]
+    badge_summary: GamificationBadgeSummary
+    rules: GamificationRules
+    generated_at: datetime
+    rules_version: str
+
+
+class GamificationSyncResult(BaseModel):
+    user_id: str
+    profile: GamificationProfileResult
+    awards: list[GamificationXpAward] = []
+    newly_earned_badges: list[GamificationBadgeItem] = []
+    xp_gained: int = 0
+
+
+# --- Whole-history views -----------------------------------------------------
+# The dashboard's "All Sessions" mode was showing the same panels as its
+# single-session mode, with lifetime averages substituted for that session's
+# numbers. An average answers a different question from the one the panel asks:
+# "how are you doing" is about now, and a mean over three months is not now. On
+# the development account the cards read 88 while the learner's last session was
+# 72, so a visible decline was being reported as "Great job".
+
+
+class SkillHistoryItem(BaseModel):
+    """One skill across a learner's whole history.
+
+    Carries latest and average side by side deliberately. Either alone misleads:
+    the latest score is one session and may be a bad day, the average hides which
+    direction the learner is moving.
+    """
+
+    skill_area: str
+    latest_score: float | None = None
+    first_score: float | None = None
+    best_score: float | None = None
+    worst_score: float | None = None
+    average_score: float | None = None
+    delta: float | None = None
+    trend_label: Literal["improving", "stable", "declining", "insufficient_data"]
+    session_count: int
+    # How much the learner varies between sessions. A high figure alongside a
+    # comfortable average means the average is not describing anything real.
+    consistency: float | None = None
+
+
+class LearnerHistorySummary(BaseModel):
+    user_id: str
+    session_count: int
+    first_session_at: datetime | None = None
+    latest_session_at: datetime | None = None
+    skills: list[SkillHistoryItem]
+    # The engine's own overall score across the same sessions, carried in the same
+    # shape as a skill so callers can read it the same way.
+    #
+    # It is deliberately not a fifth entry in `skills`: the four there are tracked
+    # skills, each with its own trend line, prediction and blind-spot comparison,
+    # and overall must never appear as one of those. But it is also not the mean of
+    # them - the multimodal engine computes it separately, and on this dataset the
+    # two disagree by up to 13.5 points on a single session - so a caller that
+    # wants the real overall cannot derive it from the four and needs it here.
+    overall: SkillHistoryItem | None = None
+    improving_count: int
+    declining_count: int
+    strongest_skill: SkillHistoryItem | None = None
+    weakest_skill: SkillHistoryItem | None = None
+    generated_at: datetime
+    history_version: str
+
+
+class RecurringBlindSpotItem(BaseModel):
+    """A self-assessment gap counted across sessions rather than averaged.
+
+    Averaging destroys the distinction this exists to make. A learner who
+    overestimates by 20 in one session and underestimates by 20 in the next has a
+    mean gap of zero and a real problem; a learner who overestimates by 20 every
+    single time has the same mean as one bad session and a completely different
+    situation.
+    """
+
+    skill_area: str
+    sessions_rated: int
+    sessions_with_gap: int
+    gap_rate: float
+    pattern: Literal[
+        "consistent_overestimation",
+        "consistent_underestimation",
+        "inconsistent",
+        "aligned",
+    ]
+    mean_signed_gap: float | None = None
+    typical_gap: float | None = None
+    severity: Literal["none", "low", "medium", "high"]
+    recommendation: str
+
+
+class RecurringBlindSpotResult(BaseModel):
+    user_id: str
+    minimum_gap: float
+    items: list[RecurringBlindSpotItem]
+    strongest_pattern: RecurringBlindSpotItem | None = None
+    generated_at: datetime
+    detection_version: str
+
+
+class LearnerSessionOption(BaseModel):
+    """One selectable session, as the analytics session pickers need it."""
+
+    session_id: str
+    friendly_id: str | None = None
+    scenario_id: str | None = None
+    skill_type: str | None = None
+    overall_score: Score = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+
+class LearnerSessionPage(BaseModel):
+    """A page of a learner's completed sessions, newest first.
+
+    ``total`` is the count of everything selectable, not of this page, so a
+    picker can say "5 of 115" rather than implying the list ends where the page
+    does. The multimodal engine's own endpoint pages over sessions in any state
+    and leaves the filtering to the caller, which meant a picker asking for
+    twenty could receive twenty unfinished ones and show nothing - here the
+    filter is applied before the limit.
+    """
+
+    user_id: str
+    items: list[LearnerSessionOption]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

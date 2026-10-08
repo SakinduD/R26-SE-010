@@ -1,0 +1,51 @@
+{
+  "dataset": "RAVDESS+SUBESCO",
+  "output": "features.npz",
+  "note": "Built by concatenating ravdess/features.npz + subesco/features.npz (both already augmented) rather than re-running extraction from raw audio -- numerically identical to running combine/preprocess.py fresh.",
+  "feature_dimensions": 362,
+  "label_to_id": {
+    "neutral": 0,
+    "happy": 1,
+    "sad": 2,
+    "angry": 3,
+    "fearful": 4,
+    "disgust": 5,
+    "surprised": 6
+  },
+  "samples": 35191,
+  "actors": 44,
+  "removed_duplicates": 0,
+  "class_counts": {
+    "neutral": 5440,
+    "happy": 4957,
+    "sad": 4957,
+    "angry": 4957,
+    "fearful": 4960,
+    "disgust": 4960,
+    "surprised": 4960
+  },
+  "class_counts_by_source": {
+    "RAVDESS": {
+      "neutral": 1440,
+      "happy": 957,
+      "sad": 960,
+      "angry": 960,
+      "fearful": 960,
+      "disgust": 960,
+      "surprised": 960
+    },
+    "SUBESCO": {
+      "neutral": 4000,
+      "happy": 4000,
+      "sad": 3997,
+      "angry": 3997,
+      "fearful": 4000,
+      "disgust": 4000,
+      "surprised": 4000
+    }
+  },
+  "sample_counts_by_source": {
+    "RAVDESS": 7197,
+    "SUBESCO": 27994
+  }
+}

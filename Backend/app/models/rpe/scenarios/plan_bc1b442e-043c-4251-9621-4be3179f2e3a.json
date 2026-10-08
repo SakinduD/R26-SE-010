@@ -1,0 +1,79 @@
+{
+  "scenario_id": "plan_bc1b442e-043c-4251-9621-4be3179f2e3a",
+  "title": "Presentation with a stakeholder",
+  "difficulty": "beginner",
+  "conflict_type": "presentation",
+  "npc_role": "stakeholder",
+  "npc_personality": "neutral, Neutral and businesslike; matched to a gentle teaching tone at fast pacing, wants to protect their own priorities in the presentation situation and be seen as reasonable by anyone who hears about this later",
+  "context": "The meeting has just begun in a conference room on the third floor of the company's headquarters. The stakeholder, a senior manager, sits across from the learner, with a notepad and a copy of the proposal in front of them. The atmosphere is professional, with a hint of tension due to the importance of the discussion. Outside, the sounds of the bustling office are muffled by the closed door, allowing the two to focus on the task at hand.",
+  "opening_npc_line": "I've reviewed the proposal you've submitted, and I have to say, I'm concerned about the resource allocation you're suggesting. Can you walk me through your thought process on that, especially considering our current budget constraints? I want to make sure I understand your reasoning.",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 85,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 2
+  },
+  "success_criteria": {
+    "min_trust_score": 60,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 85,
+      "neutral": 65,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 2,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "professional_communication",
+      "self_advocacy",
+      "emotional_regulation",
+      "boundary_setting",
+      "accountability"
+    ],
+    "big_five_relevance": [
+      "conscientiousness",
+      "neuroticism"
+    ],
+    "recommended_for_profile": "2d8c6237-64b5-464b-be13-4d6e0420993e",
+    "difficulty_weight": 0.6,
+    "plan_generated": {
+      "plan_id": "bc1b442e-043c-4251-9621-4be3179f2e3a",
+      "plan_version": 2,
+      "required_beats": [
+        "The counterpart states their position on the presentation issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "A moment requiring the learner to restate something complex clearly and concisely",
+        "A moment where the learner's own contribution or constraint goes unacknowledged unless they raise it",
+        "The counterpart raises the temperature once, testing whether the learner stays composed"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed",
+        "Learner's responses become terse or shut down after pushback",
+        "Learner accepts the extra scope while signalling resentment"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising professional communication or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

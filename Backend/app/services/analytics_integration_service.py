@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
@@ -10,8 +11,6 @@ from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     ComponentAdaptivePlan,
     ComponentMcaNudge,
-    ComponentRpeFeedback,
-    ComponentRpeSession,
     ComponentSurveyProfile,
     FeedbackEntryCreate,
 )
@@ -20,21 +19,35 @@ from app.services import analytics_service, data_aggregation_service
 
 MAPPING_VERSION = "component-contract-mapping-v1"
 
+logger = logging.getLogger(__name__)
+
 
 def integrate_component_session_data(
     db: Session,
     payload: AnalyticsComponentIntegrationRequest,
+    run_downstream: bool = True,
 ) -> AnalyticsSessionIntegrationResult:
-    rpe_feedback = _coerce_model(payload.rpe_feedback, ComponentRpeFeedback)
-    rpe_session = _coerce_model(payload.rpe_session, ComponentRpeSession)
+    """Fold one completed session into the analytics module.
+
+    ``run_downstream`` controls the after-effects (currently the gamification
+    sync). A bulk backfill turns it off and runs them once at the end instead:
+    each sync replays the learner's whole history, so doing it per session would
+    make importing fifty sessions quadratic for no benefit.
+    """
     adaptive_plan = _coerce_model(payload.adaptive_plan, ComponentAdaptivePlan)
     survey_profile = _coerce_model(payload.survey_profile, ComponentSurveyProfile)
-    mca_nudges = [_coerce_model(item, ComponentMcaNudge) for item in payload.mca_nudges]
+    # Dropped, not kept as None: _coerce_model returns None for an entry that
+    # does not validate, and a None in this list reaches the scorers as a nudge.
+    mca_nudges = [
+        nudge
+        for nudge in (
+            _coerce_model(item, ComponentMcaNudge) for item in payload.mca_nudges
+        )
+        if nudge is not None
+    ]
 
     metric_payload = _build_metric_payload(
         payload=payload,
-        rpe_feedback=rpe_feedback,
-        rpe_session=rpe_session,
         adaptive_plan=adaptive_plan,
         mca_nudges=mca_nudges,
     )
@@ -42,8 +55,6 @@ def integrate_component_session_data(
 
     generated_feedback = _build_generated_feedback(
         payload=payload,
-        rpe_feedback=rpe_feedback,
-        rpe_session=rpe_session,
         adaptive_plan=adaptive_plan,
         survey_profile=survey_profile,
         mca_nudges=mca_nudges,
@@ -57,6 +68,12 @@ def integrate_component_session_data(
         ],
     ]
 
+    # The session's own analytics are now stored; award the learner for it. The
+    # pedagogy engine picks up the refreshed learner profile itself, the next
+    # time it composes a plan.
+    if run_downstream:
+        _sync_gamification(db, payload.user_id)
+
     aggregate = data_aggregation_service.get_session_aggregate(db, payload.session_id)
     return AnalyticsSessionIntegrationResult(
         user_id=payload.user_id,
@@ -68,14 +85,27 @@ def integrate_component_session_data(
         source_summary=AnalyticsIntegrationSourceSummary(
             has_survey_profile=survey_profile is not None,
             has_adaptive_plan=adaptive_plan is not None,
-            has_rpe_session=rpe_session is not None,
-            has_rpe_feedback=rpe_feedback is not None,
             mca_nudge_count=len(mca_nudges),
             submitted_feedback_count=len(submitted_feedback),
             generated_feedback_count=len(generated_feedback),
         ),
         mapping_version=MAPPING_VERSION,
     )
+
+
+def _sync_gamification(db: Session, user_id: str) -> None:
+    """Award XP / badges for the session that just landed.
+
+    Imported lazily to keep the module import graph flat, and deliberately
+    non-fatal: gamification is a motivational layer, so a failure here must never
+    stop a session's analytics from being recorded.
+    """
+    try:
+        from app.services import gamification_service
+
+        gamification_service.sync_user_gamification(db, user_id)
+    except Exception:
+        logger.exception("Gamification sync failed for user %s", user_id)
 
 
 def _upsert_session_metric(
@@ -129,31 +159,47 @@ def _replace_generated_feedback(
 
 def _build_metric_payload(
     payload: AnalyticsComponentIntegrationRequest,
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
     adaptive_plan: ComponentAdaptivePlan | None,
     mca_nudges: list[ComponentMcaNudge],
 ) -> AnalyticsSessionMetricCreate:
-    turn_metrics = rpe_feedback.turn_metrics if rpe_feedback else []
     scenario_id = (
         payload.scenario_id
-        or _optional_attr(rpe_feedback, "scenario_id")
-        or _optional_attr(rpe_session, "scenario_id")
         or _optional_attr(adaptive_plan, "primary_scenario")
     )
 
+    # Several of these were filled from role-play turn scores and now have no
+    # non-multimodal source. They stay in the dict because the mapping below
+    # writes into them, and because a metric row missing columns the rest of the
+    # module reads is worse than one holding an explicit None.
     values = {
-        "confidence_score": _average(item.assertiveness_score for item in turn_metrics),
-        "clarity_score": _average(item.clarity_score for item in turn_metrics),
-        "empathy_score": _average(item.empathy_score for item in turn_metrics),
-        "response_quality_score": _average(item.response_quality for item in turn_metrics),
-        "adaptability_score": _trust_score(rpe_feedback, rpe_session),
-        "emotional_control_score": _emotional_control_score(rpe_feedback, rpe_session, mca_nudges),
-        "professionalism_score": _professionalism_score(rpe_feedback, rpe_session),
+        "confidence_score": None,
+        "clarity_score": None,
+        "empathy_score": None,
+        "response_quality_score": None,
+        "adaptability_score": None,
+        "emotional_control_score": _nudge_score(mca_nudges, {"fusion", "ser"}),
+        "professionalism_score": None,
         "speech_pace_score": _nudge_score(mca_nudges, {"pace"}),
         "speech_volume_score": _nudge_score(mca_nudges, {"volume", "pitch"}),
         "eye_contact_score": _nudge_score(mca_nudges, {"fusion", "ser"}),
     }
+
+    # When the MCA engine has already computed accurate per-skill scores, map them
+    # straight onto the composite metric columns so the analytics radar shows the
+    # exact MCA scores instead of values re-derived (and conflated) from nudges.
+    mca_scores = _normalize_mca_skill_scores(payload.mca_skill_scores)
+    if mca_scores.get("vocal_command") is not None:
+        values["speech_volume_score"] = mca_scores["vocal_command"]
+    if mca_scores.get("speech_fluency") is not None:
+        values["speech_pace_score"] = mca_scores["speech_fluency"]
+        values["clarity_score"] = mca_scores["speech_fluency"]
+    if mca_scores.get("presence_engagement") is not None:
+        values["eye_contact_score"] = mca_scores["presence_engagement"]
+        values["confidence_score"] = mca_scores["presence_engagement"]
+    if mca_scores.get("emotional_intelligence") is not None:
+        values["empathy_score"] = mca_scores["emotional_intelligence"]
+        values["emotional_control_score"] = mca_scores["emotional_intelligence"]
+
     values["listening_score"] = _average(
         [
             values["empathy_score"],
@@ -161,7 +207,13 @@ def _build_metric_payload(
             _nudge_score(mca_nudges, {"silence"}),
         ]
     )
-    values["overall_score"] = _average(values.values())
+    # Overall is the mean of the four skills (not a skill). Prefer the MCA overall
+    # when it was supplied for an MCA-scored session; otherwise average whatever
+    # composite scores are available.
+    if payload.mca_overall_score is not None:
+        values["overall_score"] = _clamp_score(float(payload.mca_overall_score))
+    else:
+        values["overall_score"] = _average(values.values())
 
     return AnalyticsSessionMetricCreate(
         user_id=payload.user_id,
@@ -174,35 +226,11 @@ def _build_metric_payload(
 
 def _build_generated_feedback(
     payload: AnalyticsComponentIntegrationRequest,
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
     adaptive_plan: ComponentAdaptivePlan | None,
     survey_profile: ComponentSurveyProfile | None,
     mca_nudges: list[ComponentMcaNudge],
 ) -> list[FeedbackEntryCreate]:
     entries: list[FeedbackEntryCreate] = []
-
-    if rpe_feedback:
-        comment_parts = [
-            _sentence("Role-play outcome", rpe_feedback.outcome or _optional_attr(rpe_session, "outcome")),
-            _sentence("Risk flags", ", ".join(rpe_feedback.risk_flags)),
-            _sentence("Blind spots", ", ".join(rpe_feedback.blind_spots)),
-            _sentence("Coaching advice", " ".join(rpe_feedback.coaching_advice)),
-        ]
-        entries.append(
-            _system_feedback(
-                payload,
-                skill_area=payload.skill_type,
-                rating=_average(
-                    [
-                        _optional_attr(rpe_feedback, "final_trust"),
-                        _average(item.response_quality for item in rpe_feedback.turn_metrics),
-                    ]
-                ),
-                comment=" ".join(part for part in comment_parts if part),
-                sentiment=_sentiment_from_outcome(rpe_feedback.outcome),
-            )
-        )
 
     if adaptive_plan:
         entries.append(
@@ -284,11 +312,31 @@ def _system_feedback(
 
 
 def _coerce_model(value, model_type):
+    """Optional component data, or None when it does not fit.
+
+    Every one of these is an enhancement: the session's own scores are what the
+    learner sees, and a survey profile or adaptive plan is extra context. This
+    used to re-validate strictly and raise, so one malformed optional field
+    aborted the entire integration - an adaptive plan whose difficulty was the
+    integer 5 rather than the string "5" was enough to make the request fail and
+    the screen report that no component data existed at all.
+
+    A component that does not fit is dropped and logged. Losing that context is
+    a smaller loss than losing the session.
+    """
     if value is None:
         return None
     if isinstance(value, model_type):
         return value
-    return model_type.model_validate(value)
+    try:
+        return model_type.model_validate(value)
+    except Exception:
+        logger.warning(
+            "Dropping %s from the integration payload: it did not validate",
+            model_type.__name__,
+            exc_info=True,
+        )
+        return None
 
 
 def _optional_attr(value, attr: str):
@@ -302,66 +350,37 @@ def _average(values: Iterable[float | None]) -> float | None:
     return round(sum(valid_values) / len(valid_values), 2)
 
 
-def _trust_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-) -> float | None:
-    trust_history = _optional_attr(rpe_session, "trust_history") or []
-    return _average(
-        [
-            _optional_attr(rpe_feedback, "final_trust"),
-            _optional_attr(rpe_session, "final_trust"),
-            *trust_history,
-        ]
-    )
+def _normalize_mca_skill_scores(scores: dict[str, float] | None) -> dict[str, float]:
+    """Map the MCA engine's skill_scores onto analytics skill keys.
+
+    MCA names the fourth skill ``emotional_regulation``; the analytics component
+    calls it ``emotional_intelligence`` — both are accepted here.
+    """
+    if not scores:
+        return {}
+
+    normalized: dict[str, float] = {}
+    for key in ("vocal_command", "speech_fluency", "presence_engagement"):
+        value = _coerce_score(scores.get(key))
+        if value is not None:
+            normalized[key] = value
+
+    emotional = _coerce_score(scores.get("emotional_intelligence"))
+    if emotional is None:
+        emotional = _coerce_score(scores.get("emotional_regulation"))
+    if emotional is not None:
+        normalized["emotional_intelligence"] = emotional
+
+    return normalized
 
 
-def _emotional_control_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-    mca_nudges: list[ComponentMcaNudge],
-) -> float | None:
-    escalations = [
-        value
-        for value in [
-            _optional_attr(rpe_feedback, "final_escalation"),
-            _optional_attr(rpe_session, "final_escalation"),
-        ]
-        if value is not None
-    ]
-    escalation_score = None
-    if escalations:
-        escalation_score = _clamp_score(100 - (max(escalations) * 18))
-    return _average([escalation_score, _nudge_score(mca_nudges, {"fusion", "ser"})])
-
-
-def _professionalism_score(
-    rpe_feedback: ComponentRpeFeedback | None,
-    rpe_session: ComponentRpeSession | None,
-) -> float | None:
-    trust = _trust_score(rpe_feedback, rpe_session)
-    escalation = max(
-        [
-            value
-            for value in [
-                _optional_attr(rpe_feedback, "final_escalation"),
-                _optional_attr(rpe_session, "final_escalation"),
-            ]
-            if value is not None
-        ],
-        default=None,
-    )
-    outcome = (_optional_attr(rpe_feedback, "outcome") or _optional_attr(rpe_session, "outcome") or "").lower()
-    if trust is None and escalation is None and not outcome:
+def _coerce_score(value) -> float | None:
+    if value is None:
         return None
-    score = trust if trust is not None else 70
-    if escalation is not None:
-        score -= escalation * 8
-    if "success" in outcome or "resolved" in outcome:
-        score += 8
-    if "fail" in outcome or "escalated" in outcome:
-        score -= 10
-    return _clamp_score(score)
+    try:
+        return _clamp_score(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _nudge_score(nudges: list[ComponentMcaNudge], categories: set[str]) -> float | None:

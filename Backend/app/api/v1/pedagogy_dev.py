@@ -24,7 +24,7 @@ from app.api.dependencies import get_db
 from app.api.v1.pedagogy import _plan_to_out
 from app.config import get_settings
 from app.core.auth import get_current_user
-from app.core.llm_client import get_llm_client
+from app.core.llm_client import get_apm_llm_client
 from app.core.rpe_client import get_rpe_client
 from app.contracts.rpe import CoachingAdvice, FeedbackResponse, TurnMetric
 from app.models.baseline_snapshot import BaselineSnapshot
@@ -39,6 +39,10 @@ router = APIRouter(tags=["APM Demo"])
 
 # ---------------------------------------------------------------------------
 # Pre-canned personas
+#
+# "baseline" mirrors what MCA stores for a session: 0-100 integer skill scores
+# and MCA's SER emotion labels. stress_indicator / confidence_indicator are
+# documentation only — baseline_summarizer derives them from the distribution.
 # ---------------------------------------------------------------------------
 
 _PERSONAS: dict[str, dict[str, Any]] = {
@@ -58,17 +62,18 @@ _PERSONAS: dict[str, dict[str, Any]] = {
         },
         "baseline": {
             "stress_indicator": 0.72,
-            "confidence_indicator": 0.18,
+            "confidence_indicator": 0.10,
             "skill_scores": {
-                "assertiveness": 0.25,
-                "boundary_setting": 0.30,
-                "emotional_regulation": 0.35,
+                "vocal_command": 25,
+                "speech_fluency": 30,
+                "presence_engagement": 45,
+                "emotional_regulation": 35,
             },
             "emotion_distribution": {
-                "anxious": 0.45,
-                "nervous": 0.27,
-                "calm": 0.18,
-                "neutral": 0.10,
+                "fearful": 0.45,
+                "sad": 0.27,
+                "neutral": 0.18,
+                "happy": 0.10,
             },
             "overall_score": 38.0,
             "duration_seconds": 210,
@@ -89,17 +94,19 @@ _PERSONAS: dict[str, dict[str, Any]] = {
             "neuroticism": 30.0,
         },
         "baseline": {
-            "stress_indicator": 0.15,
-            "confidence_indicator": 0.75,
+            "stress_indicator": 0.05,
+            "confidence_indicator": 0.55,
             "skill_scores": {
-                "political_awareness": 0.45,
-                "conflict_resolution": 0.60,
+                "vocal_command": 78,
+                "speech_fluency": 72,
+                "presence_engagement": 81,
+                "emotional_regulation": 70,
             },
             "emotion_distribution": {
-                "confident": 0.55,
-                "calm": 0.30,
-                "neutral": 0.10,
-                "anxious": 0.05,
+                "happy": 0.55,
+                "neutral": 0.30,
+                "surprised": 0.10,
+                "fearful": 0.05,
             },
             "overall_score": 74.0,
             "duration_seconds": 185,
@@ -108,7 +115,7 @@ _PERSONAS: dict[str, dict[str, Any]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Outcome presets for simulate-session
+# Outcome presets for simulate-session (turn scores on RPE's 0-10 scale)
 # ---------------------------------------------------------------------------
 
 _SESSION_PRESETS: dict[str, dict[str, Any]] = {
@@ -117,8 +124,8 @@ _SESSION_PRESETS: dict[str, dict[str, Any]] = {
         "final_trust": 82,
         "final_escalation": 1,
         "turn_metrics": [
-            TurnMetric(turn=i, assertiveness_score=0.8, empathy_score=0.75,
-                       clarity_score=0.82, response_quality=0.80)
+            TurnMetric(turn=i, assertiveness_score=8.0, empathy_score=7.5,
+                       clarity_score=8.2, response_quality=8.0)
             for i in range(1, 6)
         ],
     },
@@ -127,8 +134,8 @@ _SESSION_PRESETS: dict[str, dict[str, Any]] = {
         "final_trust": 50,
         "final_escalation": 2,
         "turn_metrics": [
-            TurnMetric(turn=i, assertiveness_score=0.55, empathy_score=0.50,
-                       clarity_score=0.55, response_quality=0.52)
+            TurnMetric(turn=i, assertiveness_score=5.5, empathy_score=5.0,
+                       clarity_score=5.5, response_quality=5.2)
             for i in range(1, 6)
         ],
     },
@@ -137,8 +144,8 @@ _SESSION_PRESETS: dict[str, dict[str, Any]] = {
         "final_trust": 20,
         "final_escalation": 3,
         "turn_metrics": [
-            TurnMetric(turn=i, assertiveness_score=0.25, empathy_score=0.30,
-                       clarity_score=0.28, response_quality=0.28)
+            TurnMetric(turn=i, assertiveness_score=2.5, empathy_score=3.0,
+                       clarity_score=2.8, response_quality=2.8)
             for i in range(1, 6)
         ],
     },
@@ -200,7 +207,7 @@ async def inject_persona(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     rpe=Depends(get_rpe_client),
-    llm=Depends(get_llm_client),
+    llm=Depends(get_apm_llm_client),
 ) -> TrainingPlanOut:
     """
     Inject a pre-canned persona for the current user and generate a training plan.

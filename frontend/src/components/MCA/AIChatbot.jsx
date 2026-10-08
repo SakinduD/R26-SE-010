@@ -1,17 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Mic, Bot, User, Volume2, Activity, X, Play, Square } from 'lucide-react';
+import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
 import { mcaService } from '../../services/mca/mcaService';
+import { toMechanicalAverages, toObservation } from '../../utils/mca/realtimeSensing';
 import clsx from 'clsx';
 
-const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, metrics, stopSignal, startSignal, isCameraActive, onSessionStateChange }) => {
+// Research basis: 8-minute intake window per Kickmeier-Rust & Albert (2010) and Murray & Arroyo (2002)
+// for optimal cold-start adaptive learning profiling in intelligent tutoring systems.
+const SESSION_DURATION_SECONDS = 480;
+
+// onSessionCompleted(session): optional, awaited after the session is saved and before the
+// redirect, so the host page can hand the completed session on (e.g. as the pedagogy baseline).
+const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermission, onNudge, onActiveNudges, visualStatsRef, metrics, setMetrics, discardSignal, startSignal, isCameraActive, onSessionStateChange, onSessionCompleted }) => {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
       id: 1,
       type: 'bot',
-      text: "Hello! I am EmpowerZ, your conversation partner. This isn't just for practice or roleplay—it's a space for genuine dialogue where you can build your confidence and see real-time behavioral insights. How would you like to start our conversation today?",
+      text: "Welcome!! I'm your EmpowerZ Communication Partner. Over the next 8 minutes we'll just have a relaxed conversation, it's not an interview, a quiz, or a test, and nothing you say is scored for content. I'm genuinely curious about the communication situations you find hard and the abilities you'd most like to strengthen, so talk as naturally as you would with a supportive mentor, the more you share, the more helpful this is. Ready to begin?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     },
   ]);
@@ -31,12 +38,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
   useEffect(() => {
     if (onSessionStateChange) {
-      onSessionStateChange(sessionActive, sessionStarting, sessionEnding);
+      onSessionStateChange(sessionActive, sessionStarting, sessionEnding, isSpeaking);
     }
-  }, [sessionActive, sessionStarting, sessionEnding, onSessionStateChange]);
+  }, [sessionActive, sessionStarting, sessionEnding, isSpeaking, onSessionStateChange]);
 
   const lastProcessedStart = useRef(startSignal);
-  const lastProcessedStop = useRef(stopSignal);
+  const lastProcessedDiscard = useRef(discardSignal);
 
   useEffect(() => {
     if (startSignal && startSignal !== lastProcessedStart.current) {
@@ -47,28 +54,42 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
   }, [startSignal, sessionActive, sessionStarting]);
 
+  // A manual stop is always before the 8-minute auto-end, so it discards the session.
   useEffect(() => {
-    if (stopSignal && stopSignal !== lastProcessedStop.current) {
-      lastProcessedStop.current = stopSignal;
+    if (discardSignal && discardSignal !== lastProcessedDiscard.current) {
+      lastProcessedDiscard.current = discardSignal;
       if (sessionActive) {
-        handleEndSession();
+        handleDiscardSession();
       }
     }
-  }, [stopSignal, sessionActive]);
+  }, [discardSignal, sessionActive]);
 
   // Nudge log accumulated during the session (for persistence on end)
   const nudgeLogRef = useRef([]);
-  const emotionCountsRef = useRef({}); // Track distribution for scoring
+  // Every analysed chunk (for scoring) and when the session started.
+  const observationLogRef = useRef([]);
+  const sessionStartMsRef = useRef(null);
+  const emotionCountsRef = useRef({});
+  // Everything detected since the user's last message (every chunk, not
+  // limited by the nudge cooldown) — sent with the next chat message.
+  const turnEmotionCountsRef = useRef({});
+  const turnBehaviorsRef = useRef({});
+  const lastEmotionRef = useRef(null); // last real emotion { emotion, confidence }
   const chatTurnsRef = useRef(0);
+  const warningShownRef = useRef(false);
 
   const isContinuousRef = useRef(false);
   const [stableVoice, setStableVoice] = useState(null);
   const chatEndRef = useRef(null);
+  const transcriptEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const transcriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const sessionTranscriptRef = useRef('');
+  const currentInstanceFinalRef = useRef('');
   const recordRestartTimeoutRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -79,6 +100,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [transcript]);
 
   // Load and lock in a high-quality TTS voice
   useEffect(() => {
@@ -99,13 +126,40 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     };
   }, []);
 
-  // React to stopSignal (e.g. when the user switches to Live mode)
+  // React to discardSignal
   useEffect(() => {
-    if (stopSignal && isListening) {
+    if (discardSignal && isListening) {
       isContinuousRef.current = false;
       stopListening(false);
     }
-  }, [stopSignal]);
+  }, [discardSignal]);
+
+  // Sync internal listening state with prop from parent engine
+  useEffect(() => {
+    if (isListening && !streamRef.current && sessionActive) {
+      startListening();
+    } else if (!isListening && streamRef.current) {
+      stopListening(true);
+    }
+  }, [isListening, sessionActive, sessionId]);
+
+  // Auto-end and countdown warning for the 8-minute baseline session
+  useEffect(() => {
+    if (!sessionActive) return;
+    const remaining = SESSION_DURATION_SECONDS - sessionDuration;
+
+    if (remaining === 60 && !warningShownRef.current) {
+      warningShownRef.current = true;
+      toast.warning("1 minute remaining in your baseline session.", {
+        description: "Wrap up any final thoughts you'd like to share."
+      });
+    }
+
+    if (remaining <= 0 && !sessionEnding) {
+      toast.info("Baseline session complete.", { description: "Saving your profile data..." });
+      handleEndSession();
+    }
+  }, [sessionDuration, sessionActive, sessionEnding]);
 
   // Session helpers
 
@@ -125,8 +179,15 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         setFriendlyId(session.friendly_id);
         setSessionActive(true);
         nudgeLogRef.current = [];
+        observationLogRef.current = [];
+        sessionStartMsRef.current = Date.now();
         emotionCountsRef.current = {};
+        turnEmotionCountsRef.current = {};
+        turnBehaviorsRef.current = {};
+        lastEmotionRef.current = null;
+        visualStatsRef?.current.session.reset();
         chatTurnsRef.current = 0;
+        warningShownRef.current = false;
         setSessionDuration(0);
 
         // Start duration timer
@@ -134,15 +195,15 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           setSessionDuration(prev => prev + 1);
         }, 1000);
 
-        toast.success("AI session started successfully.");
-        addBotMessage("Great — I've started a new session for you. Let's begin! Tell me something you'd like to work on or talk about.");
+        toast.success("Baseline session started. You have 8 minutes.");
+        addBotMessage("Great, your 8-minute baseline session has started. Let's begin — what area of communication feels most challenging for you right now? For example: speaking confidently in groups, handling difficult conversations, or expressing your ideas clearly?");
       } else {
         toast.error("Failed to initialize AI session on server.");
         setSessionActive(false);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "An unexpected error occurred while connecting to the AI core.";
-      toast.error("AI Core Connection Failed", {
+      toast.error("Couldn't connect", {
         description: errorMsg
       });
       setSessionId(null);
@@ -185,11 +246,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           final_emotion: metrics.emotion
         };
 
-        const mechanicalAverages = {
-          avg_ear: metrics.ear,
-          avg_mar: metrics.mar,
-          avg_pitch: metrics.pose.pitch
-        };
+        // Face metrics averaged over the whole session (null if no face data).
+        const mechanicalAverages = visualStatsRef ? toMechanicalAverages(visualStatsRef.current.session) : null;
 
         const res = await mcaService.endSession(
           sessionId,
@@ -197,11 +255,24 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           resultData,
           chatTurnsRef.current,
           distribution,
-          mechanicalAverages
+          mechanicalAverages,
+          null,
+          null,
+          null,
+          null,
+          observationLogRef.current
         );
 
         if (res.id && res.status === 'completed') {
           toast.success("AI session ended and scores calculated.");
+          if (onSessionCompleted) {
+            // The session is already saved; a failure here must not block the feedback form.
+            try {
+              await onSessionCompleted(res);
+            } catch (err) {
+              console.error("onSessionCompleted failed:", err);
+            }
+          }
           // Redirect to self-rating feedback form (same as live session)
           const redirectUrl = `/analytics/sessions/${sessionId}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           setTimeout(() => navigate(redirectUrl), 1500);
@@ -210,7 +281,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Network synchronization failed.";
-        toast.error("Session Finalization Failed", {
+        toast.error("Couldn't save the session", {
           description: errorMsg
         });
       } finally {
@@ -222,7 +293,43 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
     setSessionActive(false);
     setSessionId(null);
-    addBotMessage("Session ended! Great work. Your session data has been saved. Feel free to start a new session whenever you're ready.");
+    addBotMessage("Your baseline session is complete. I've gathered the insights needed to personalize your adaptive learning path. Your profile has been saved — upcoming sessions will now be tailored to your goals.");
+  };
+
+  // Ends the session early (before the 8-minute mark) WITHOUT saving anything — the
+  // session row itself is deleted server-side rather than marked "completed".
+  const handleDiscardSession = async () => {
+    if (!sessionActive || sessionEnding) return;
+    setSessionEnding(true);
+
+    if (isListening) {
+      isContinuousRef.current = false;
+      stopListening(false);
+    }
+
+    if (sessionTimerRef.current) {
+      clearInterval(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
+
+    if (sessionId) {
+      try {
+        await mcaService.discardSession(sessionId);
+        toast.info("Session dismissed. No data was saved.");
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Failed to dismiss the session.";
+        toast.error("Dismiss Failed", { description: errorMsg });
+      } finally {
+        setSessionEnding(false);
+      }
+    } else {
+      setSessionEnding(false);
+    }
+
+    setSessionActive(false);
+    setSessionId(null);
+    setFriendlyId(null);
+    addBotMessage("Your baseline session was dismissed before completion, so nothing was saved. Start a new session whenever you're ready.");
   };
 
   const addBotMessage = (text) => {
@@ -254,15 +361,17 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     }
     window.speechSynthesis.cancel();
 
-    // Formal end for backend if unmounting during active session
+    // Stop audio tracks to release hardware
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    // If the component unmounts mid-session, that's always before the 8-minute mark
+    // (a natural completion already sets sessionActive to false) — so discard, not save.
     if (sessionActive && sessionId) {
-      const resultData = {
-        total_nudges: nudgeLogRef.current.length,
-        chat_turns: chatTurnsRef.current,
-        unmounted: true
-      };
-      mcaService.endSession(sessionId, nudgeLogRef.current, resultData, chatTurnsRef.current)
-        .catch(err => console.error('[AIChatbot] Unmount end failed:', err));
+      mcaService.discardSession(sessionId)
+        .catch(err => console.error('[AIChatbot] Unmount discard failed:', err));
     }
   };
 
@@ -272,6 +381,10 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       streamRef.current = stream;
       setHasPermission(true);
       setTranscript('');
+      transcriptRef.current = '';
+      interimTranscriptRef.current = '';
+      sessionTranscriptRef.current = '';
+      currentInstanceFinalRef.current = '';
       isContinuousRef.current = true;
 
       // Build WS URL with real JWT token
@@ -288,17 +401,18 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-              // Send visual metrics first to enable Affect Fusion
-              if (metrics) {
-                socket.send(JSON.stringify({
-                  type: 'visual_metrics',
-                  metrics: { ear: metrics.ear, mar: metrics.mar, pose: metrics.pose },
-                }));
-              }
+              // Send visual metrics first to enable Affect Fusion: the face
+              // averaged over this same ~3 s of audio (null = no face).
+              socket.send(JSON.stringify({
+                type: 'visual_metrics',
+                metrics: visualStatsRef ? visualStatsRef.current.chunk.average() : null,
+                session_id: sessionId
+              }));
               socket.send(event.data);
             }
           };
 
+          visualStatsRef?.current.chunk.reset();
           mediaRecorder.start();
 
           if (recordRestartTimeoutRef.current) clearTimeout(recordRestartTimeoutRef.current);
@@ -307,7 +421,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
               mediaRecorder.stop();
               startRecordingChunk();
             }
-          }, 1000);
+          }, 3000);
         };
 
         startRecordingChunk();
@@ -321,23 +435,57 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
-          if (data.metrics.emotion) {
-            const emo = data.metrics.emotion.toLowerCase();
-            emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
-          }
 
-          if (data.metrics?.nudge) {
-            const nudgeEntry = {
-              message: data.metrics.nudge,
-              category: data.metrics.nudge_category || 'fusion',
-              severity: data.metrics.nudge_severity || 'info',
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            };
-            // Accumulate in log for session persistence
-            nudgeLogRef.current = [...nudgeLogRef.current, nudgeEntry];
-            // Fire the visual nudge toast in the parent
-            onNudge(nudgeEntry.message, nudgeEntry.category, nudgeEntry.severity);
+          if (data.metrics) {
+            // Update parent metrics for SVM dashboard. No emotion means the
+            // learner wasn't speaking — not "Neutral".
+            setMetrics(prev => ({
+              ...prev,
+              emotion: data.metrics.emotion
+                ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
+                : 'Sensing...',
+              confidence: data.metrics.confidence || 0,
+              isSyncing: true,
+              modelKind: data.metrics.model_kind || prev.modelKind,
+            }));
+
+            // Track distribution for scoring, and this message's emotions
+            if (data.metrics.emotion) {
+              const emo = data.metrics.emotion.toLowerCase();
+              emotionCountsRef.current[emo] = (emotionCountsRef.current[emo] || 0) + 1;
+              turnEmotionCountsRef.current[emo] = (turnEmotionCountsRef.current[emo] || 0) + 1;
+              lastEmotionRef.current = { emotion: emo, confidence: data.metrics.confidence || 0 };
+            }
+
+            if (sessionStartMsRef.current) {
+              const elapsed = (Date.now() - sessionStartMsRef.current) / 1000;
+              observationLogRef.current.push(toObservation(data.metrics, elapsed));
+            }
+
+            // Every behaviour detected in this chunk (ignores the nudge cooldown)
+            (data.metrics.detections || []).forEach((d) => {
+              const seen = turnBehaviorsRef.current[d.message];
+              turnBehaviorsRef.current[d.message] = seen
+                ? { ...seen, chunks: seen.chunks + 1 }
+                : { ...d, chunks: 1 };
+            });
+
+            // Hide nudges whose behaviour has stopped.
+            onActiveNudges?.(data.metrics.active_nudges);
+
+            // Propagate fusion nudges to parent (MultimodalEngine nudge stack)
+            if (data.metrics.nudge) {
+              const nudgeEntry = {
+                message: data.metrics.nudge,
+                category: data.metrics.nudge_category || 'fusion',
+                severity: data.metrics.nudge_severity || 'info',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              };
+              // Accumulate in log for session persistence
+              nudgeLogRef.current = [...nudgeLogRef.current, nudgeEntry];
+              // Fire the visual nudge toast in the parent
+              onNudge(nudgeEntry.message, nudgeEntry.category, nudgeEntry.severity);
+            }
           }
         } catch (err) {
           console.error('Error parsing socket message:', err);
@@ -354,23 +502,50 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
 
         recognition.onresult = (event) => {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            stopListening(true); // Auto-submit after 2s silence
-          }, 2000);
 
-          let interimTranscript = '';
-          let finalTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interimTranscript += event.results[i][0].transcript;
+          let instanceFinal = '';
+          let interim = '';
+
+          // Process all results to ensure consistency
+          for (let i = 0; i < event.results.length; ++i) {
+            const transcriptChunk = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              instanceFinal += transcriptChunk + ' ';
+            } else {
+              interim += transcriptChunk;
+            }
           }
-          const current = finalTranscript + interimTranscript;
-          transcriptRef.current = current;
-          setTranscript(current);
+
+          currentInstanceFinalRef.current = instanceFinal;
+          interimTranscriptRef.current = interim;
+
+          const currentDisplay = sessionTranscriptRef.current + instanceFinal + interim;
+
+          // Auto-submission disabled
+          if (currentDisplay !== transcriptRef.current) {
+            transcriptRef.current = currentDisplay;
+            setTranscript(currentDisplay);
+          }
+        };
+
+        recognition.onend = () => {
+          sessionTranscriptRef.current += (currentInstanceFinalRef.current + interimTranscriptRef.current).trim() + ' ';
+          currentInstanceFinalRef.current = '';
+          interimTranscriptRef.current = '';
+
+          // Restart if still active to support long talking sessions
+          if (isContinuousRef.current && !isSpeaking && isListening) {
+            try {
+              recognition.start();
+            } catch (err) {
+              // Silently ignore if already started or blocked
+            }
+          }
         };
 
         recognition.onerror = (e) => {
-          console.error(e);
+          if (e.error === 'no-speech') return;
+          console.error('[SpeechRecognition] Error:', e.error);
           stopListening(false);
         };
 
@@ -378,13 +553,15 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
         recognitionRef.current = recognition;
       }
     } catch (err) {
-      console.error(err);
+      console.error('[AIChatbot] startListening failed:', err);
     }
   };
 
   const stopListening = (shouldSubmit = true) => {
     setIsListening(false);
     if (!shouldSubmit) isContinuousRef.current = false;
+    // Mic is off, so there is no current emotion to show.
+    setMetrics(prev => ({ ...prev, emotion: 'Sensing...', confidence: 0, isSyncing: false, modelKind: prev.modelKind || 'unknown' }));
 
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (recordRestartTimeoutRef.current) { clearTimeout(recordRestartTimeoutRef.current); recordRestartTimeoutRef.current = null; }
@@ -400,19 +577,21 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     if (shouldSubmit) {
       const finalVal = transcriptRef.current;
       if (finalVal.trim()) handleBotResponse(finalVal);
-      setTranscript('');
-      transcriptRef.current = '';
     }
+    setTranscript('');
+    transcriptRef.current = '';
+    interimTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
+    currentInstanceFinalRef.current = '';
   };
 
   const toggleListening = () => {
     if (!sessionActive) {
-      // Prompt user to start a session first
       return;
     }
     if (isListening) {
       isContinuousRef.current = false;
-      stopListening(false);
+      stopListening(true); // Submit on manual stop
     } else {
       startListening();
     }
@@ -433,11 +612,26 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     setIsLoading(true);
     chatTurnsRef.current += 1;
 
+    // What the voice/face analysis saw while the user produced this message.
+    // Uses the last real emotion, since the user is usually silent by now.
+    const lastEmotion = lastEmotionRef.current;
+    const context = {
+      metrics: {
+        ...metrics,
+        emotion: lastEmotion ? lastEmotion.emotion : null,
+        confidence: lastEmotion ? lastEmotion.confidence : 0,
+      },
+      turn_emotions: turnEmotionCountsRef.current,
+      turn_behaviors: Object.values(turnBehaviorsRef.current),
+    };
+    turnEmotionCountsRef.current = {};
+    turnBehaviorsRef.current = {};
+
     try {
       const data = await mcaService.chat(
         userMessage,
         updatedHistory,
-        { metrics },
+        context,
         sessionId, // pass active session ID
       );
       if (!data.isSuccessful) throw new Error(data.message);
@@ -497,7 +691,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
   // Render
 
   return (
-    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative">
+    <div className="flex flex-col h-full w-full bg-card border border-border overflow-hidden shadow-2xl rounded-3xl transition-all duration-500 relative min-h-0">
 
       {/* Chat Header */}
       <div className="px-8 py-4 border-b border-border flex items-center justify-between bg-muted/30 backdrop-blur-md z-10">
@@ -513,7 +707,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-[11px] font-black text-foreground tracking-tight uppercase">Intelligence Core</h3>
+              <h3 className="text-[11px] font-black text-foreground tracking-tight uppercase">Your AI Coach</h3>
               {isSpeaking && (
                 <div className="flex gap-0.5 h-3 items-end mb-0.5">
                   <div className="w-0.5 h-full bg-primary animate-[pulse_1s_infinite]"></div>
@@ -528,31 +722,61 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 isSpeaking ? 'bg-primary animate-pulse' : (isLoading ? 'bg-amber-500 animate-pulse' : (sessionActive ? 'bg-success' : 'bg-muted-foreground'))
               )}></div>
               <span className="text-[9px] text-card-foreground uppercase tracking-widest font-black opacity-60">
-                {isSpeaking ? 'Speaking_Response' : (isLoading ? 'Analyzing_Voice' : (sessionActive ? 'Session_Active' : 'No_Session'))}
+                {isSpeaking ? 'Speaking…' : (isLoading ? 'Listening to you…' : (sessionActive ? 'Session in progress' : 'Ready to start'))}
               </span>
             </div>
           </div>
-          {sessionActive && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full animate-in fade-in zoom-in duration-500">
-              <div className="w-1 h-1 rounded-full bg-primary animate-pulse" />
-              <span className="text-[9px] font-black text-primary tracking-widest">
-                {friendlyId || 'SESSION'} • {Math.floor(sessionDuration / 60)}:{(sessionDuration % 60).toString().padStart(2, '0')}
-              </span>
-            </div>
-          )}
+          {sessionActive && (() => {
+            const remaining = Math.max(0, SESSION_DURATION_SECONDS - sessionDuration);
+            const pct = Math.min(100, (sessionDuration / SESSION_DURATION_SECONDS) * 100);
+            const isLow = remaining <= 120;
+            const isCritical = remaining <= 60;
+            return (
+              <div className="flex flex-col gap-1 animate-in fade-in zoom-in duration-500">
+                <div className={clsx(
+                  'flex items-center gap-2 px-3 py-1 rounded-full border',
+                  isCritical
+                    ? 'bg-destructive/10 border-destructive/20'
+                    : isLow
+                      ? 'bg-amber-500/10 border-amber-500/20'
+                      : 'bg-primary/10 border-primary/20'
+                )}>
+                  <div className={clsx(
+                    'w-1 h-1 rounded-full animate-pulse',
+                    isCritical ? 'bg-destructive' : isLow ? 'bg-amber-500' : 'bg-primary'
+                  )} />
+                  <span className={clsx(
+                    'text-[9px] font-black tracking-widest',
+                    isCritical ? 'text-destructive' : isLow ? 'text-amber-500' : 'text-primary'
+                  )}>
+                    {friendlyId || 'BASELINE'} • {Math.floor(remaining / 60)}:{(remaining % 60).toString().padStart(2, '0')} LEFT
+                  </span>
+                </div>
+                <div className="h-0.5 w-full bg-border rounded-full overflow-hidden">
+                  <div
+                    className={clsx(
+                      'h-full rounded-full transition-all duration-1000',
+                      isCritical ? 'bg-destructive' : isLow ? 'bg-amber-500' : 'bg-primary'
+                    )}
+                    style={{ width: `${100 - pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Session Status & Voice Link */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2.5 text-[9px] font-black text-primary bg-primary/5 px-3 py-1.5 rounded-lg border border-primary/10 uppercase tracking-[0.2em]">
             <Volume2 size={12} />
-            Voice_Link
+            Voice connected
           </div>
         </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -564,7 +788,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center border transition-all duration-500 shadow-sm font-bold',
               msg.type === 'user'
-                ? 'bg-secondary/10 border-secondary/20 text-secondary'
+                ? 'bg-secondary/10 border-secondary/20 text-secondary-foreground'
                 : 'bg-primary/10 border-primary/20 text-primary'
             )}>
               {msg.type === 'user' ? <User size={14} /> : <Bot size={14} />}
@@ -572,7 +796,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
             <div className={clsx(
               'px-5 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm font-medium border break-words overflow-hidden min-w-0',
               msg.type === 'user'
-                ? 'bg-secondary text-white border-secondary/20 rounded-tr-none'
+                ? 'bg-secondary text-secondary-foreground border-secondary/20 rounded-tr-none'
                 : 'bg-primary text-white border-primary/20 rounded-tl-none'
             )}>
               {msg.text}
@@ -623,13 +847,13 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 )}
               >
                 {isListening ? (
-                  <div className="w-5 h-5 bg-destructive rounded-md animate-pulse shadow-sm"></div>
+                  <Send size={24} className="relative z-10 drop-shadow-md animate-pulse" />
                 ) : (
                   <Mic size={24} className="relative z-10 drop-shadow-md" />
                 )}
               </button>
               <span className="text-[8px] font-black text-card-foreground/60 uppercase tracking-[0.2em]">
-                {isListening ? 'STOP' : 'TALK'}
+                {isListening ? 'Send' : 'Talk'}
               </span>
             </div>
 
@@ -663,20 +887,38 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 </div>
               </div>
 
-              <div className="bg-background/40 p-3 rounded-xl border border-border/50 min-h-[50px] flex items-center">
-                <p className={clsx(
-                  'text-[13px] font-medium leading-relaxed italic transition-all duration-300 line-clamp-2',
-                  isListening ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'
-                )}>
-                  {isListening ? (transcript || "I'm listening...") : 'Awaiting input...'}
-                </p>
+              <div className="bg-background/40 p-3 rounded-xl border border-border/50 h-[80px] overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 flex flex-col justify-end">
+                  <div className={clsx(
+                    'text-[13px] font-medium leading-relaxed transition-all duration-300',
+                    isListening ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'
+                  )}>
+                    {transcript ? (
+                      <>
+                        <span className="text-foreground">{transcript.substring(0, transcript.length - (interimTranscriptRef.current || '').length)}</span>
+                        <span className="text-foreground/50 italic">{interimTranscriptRef.current}</span>
+                        {isListening && (
+                          <span className="inline-block w-1 h-4 bg-primary ml-1 animate-[pulse_0.8s_infinite] align-middle" />
+                        )}
+                      </>
+                    ) : (
+                      <span className="italic opacity-60">
+                        {isListening ? "I'm listening..." : 'Awaiting input...'}
+                      </span>
+                    )}
+                  </div>
+                  <div ref={transcriptEndRef} />
+                </div>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center p-6 bg-muted/20 rounded-xl border border-border/50">
+          <div className="flex flex-col items-center justify-center gap-1 p-6 bg-muted/20 rounded-xl border border-border/50">
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em]">
-              Start Session to Begin Interaction
+              Start your baseline session
+            </span>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+              About 8 minutes — helps us personalize your training
             </span>
           </div>
         )}

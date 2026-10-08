@@ -20,7 +20,7 @@ class RpePredictiveService:
                 return [{
                     "flag_type":      "trust_plateau",
                     "severity":       "medium",
-                    "description":    "Trust score stagnated over 3 consecutive turns. Try varying your response strategy.",
+                    "description":    "Trust stopped growing for a few turns in a row — whatever you tried there wasn't landing. Worth changing your approach.",
                     "affected_turns": [i - 1, i, i + 1],
                 }]
         return []
@@ -33,7 +33,7 @@ class RpePredictiveService:
                 flags.append({
                     "flag_type":      "escalation_spike",
                     "severity":       "high",
-                    "description":    f"Escalation jumped sharply at turn {i + 1}. Your response triggered a strong NPC reaction.",
+                    "description":    "Tension jumped suddenly partway through — something in that reply caught the other person off guard.",
                     "affected_turns": [i + 1],
                 })
         return flags
@@ -55,7 +55,7 @@ class RpePredictiveService:
                 return [{
                     "flag_type":      "passive_streak",
                     "severity":       "high",
-                    "description":    "You responded passively for 3+ consecutive turns. Build confidence with assertive phrasing.",
+                    "description":    "You held back for several turns in a row. Speaking up earlier and more directly tends to land better.",
                     "affected_turns": list(range(start, start + streak)),
                 }]
         return []
@@ -66,7 +66,7 @@ class RpePredictiveService:
                 return [{
                     "flag_type":      "trust_collapse",
                     "severity":       "high",
-                    "description":    f"Trust dropped sharply at turn {i + 1}. Identify what triggered the NPC's reaction.",
+                    "description":    "Trust dropped suddenly at one point — worth thinking back on what triggered that reaction.",
                     "affected_turns": [i, i + 1],
                 }]
         return []
@@ -83,7 +83,7 @@ class RpePredictiveService:
             return [{
                 "flag_type":      "emotional_volatility",
                 "severity":       "medium",
-                "description":    "Your emotional tone shifted almost every turn. Try to maintain a steadier, more consistent approach.",
+                "description":    "Your tone shifted almost every turn. A steadier, more consistent approach tends to build trust faster.",
                 "affected_turns": [],
             }]
         return []

@@ -42,13 +42,6 @@ export async function getMyBaseline() {
   }
 }
 
-export async function completeBaseline(mcaSessionId) {
-  const resp = await apiClient.post('/api/v1/apa/baseline/complete', {
-    mca_session_id: mcaSessionId,
-  })
-  return resp.data
-}
-
 // ---- Demo endpoints ---------------------------------------------------------
 
 export async function listDemoPersonas() {

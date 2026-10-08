@@ -25,28 +25,23 @@ SKILL_FORMULAS = {
         WeightedInput("confidence_score", 0.45),
         WeightedInput("eye_contact_score", 0.25),
         WeightedInput("speech_volume_score", 0.20),
-        WeightedInput("peer_rating", 0.10),
     ],
     "communication_clarity": [
         WeightedInput("clarity_score", 0.35),
         WeightedInput("speech_pace_score", 0.20),
         WeightedInput("response_quality_score", 0.30),
-        WeightedInput("peer_rating", 0.15),
     ],
     "empathy": [
         WeightedInput("empathy_score", 0.55),
-        WeightedInput("peer_rating", 0.30),
         WeightedInput("self_rating", 0.15),
     ],
     "active_listening": [
         WeightedInput("listening_score", 0.70),
         WeightedInput("response_quality_score", 0.20),
-        WeightedInput("peer_rating", 0.10),
     ],
     "adaptability": [
         WeightedInput("adaptability_score", 0.65),
         WeightedInput("response_quality_score", 0.20),
-        WeightedInput("peer_rating", 0.15),
     ],
     "emotional_control": [
         WeightedInput("emotional_control_score", 0.70),
@@ -85,7 +80,19 @@ def calculate_session_skill_scores(db: Session, session_id: str) -> SkillScoreRe
 
     user_id = _resolve_user_id(metrics, feedback)
     inputs = _build_inputs_from_session_data(metrics, feedback)
-    return _calculate_result(inputs=inputs, user_id=user_id, session_id=session_id)
+    result = _calculate_result(inputs=inputs, user_id=user_id, session_id=session_id)
+
+    # The weighted combination below is how this module scores a payload it is
+    # handed. For a session that already has one, the engine's own overall score
+    # is the answer, and every screen naming a session's overall has to name the
+    # same number. The computed value stands only where nothing was stored.
+    stored = next(
+        (metric.overall_score for metric in metrics if metric.overall_score is not None),
+        None,
+    )
+    if stored is not None:
+        return result.model_copy(update={"overall_score": round(float(stored), 2)})
+    return result
 
 
 def _calculate_result(
@@ -122,11 +129,14 @@ def _calculate_result(
             weighted_sum += val * weight
             total_weight += weight
             
+    available_scores = [score for score in skill_scores.values() if score is not None]
+
     if total_weight > 0:
         overall_score = round(weighted_sum / total_weight, 2)
+    elif available_scores:
+        overall_score = round(sum(available_scores) / len(available_scores), 2)
     else:
-        available_scores = [score for score in skill_scores.values() if score is not None]
-        overall_score = round(sum(available_scores) / len(available_scores), 2) if available_scores else None
+        overall_score = None
 
     return SkillScoreResult(
         user_id=user_id,
@@ -168,11 +178,10 @@ def _build_inputs_from_session_data(
     metric_values = {
         field: _average([getattr(metric, field) for metric in metrics])
         for field in SkillScoreInputs.model_fields
-        if field not in {"self_rating", "peer_rating"}
+        if field != "self_rating"
     }
 
     metric_values["self_rating"] = _feedback_average(feedback, "self")
-    metric_values["peer_rating"] = _feedback_average(feedback, "peer")
     return SkillScoreInputs(**metric_values)
 
 

@@ -12,8 +12,9 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { isCompletedSession } from './analyticsIntegrationUtils'
 
 export default function AnalyticsRecommendationsNew() {
   const params = useParams()
@@ -30,17 +31,11 @@ export default function AnalyticsRecommendationsNew() {
   useEffect(() => {
     const loadSessions = async () => {
       try {
-        const rpeData = await analyticsService.getComponentRpeSessions()
         const mcaData = await analyticsService.getComponentMcaSessions(50, 0)
 
+        // Only completed sessions are selectable — in-progress ones have no results yet.
         const allSessions = [
-          ...(Array.isArray(rpeData) ? rpeData : []).map(s => ({
-            id: s.session_id,
-            label: `RPE - ${s.scenario_id || 'Session'} - ${new Date(s.started_at).toLocaleString()}`,
-            type: 'rpe',
-            timestamp: s.started_at,
-          })),
-          ...(Array.isArray(mcaData) ? mcaData : []).map(s => ({
+          ...(Array.isArray(mcaData) ? mcaData : []).filter(isCompletedSession).map(s => ({
             id: s.id,
             label: `MCA - ${s.mode || 'Session'} - ${new Date(s.started_at).toLocaleString()}`,
             type: 'mca',
@@ -119,7 +114,6 @@ export default function AnalyticsRecommendationsNew() {
               <h1 className="mt-1 text-3xl font-bold text-white">My Recommendations</h1>
             </div>
             <div className="flex gap-2">
-              <AnalyticsNav />
               <Button 
                 onClick={() => selectedSession ? undefined : loadOverallRecommendations()}
                 className="bg-blue-600 hover:bg-blue-700"

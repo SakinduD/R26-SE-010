@@ -1,0 +1,79 @@
+{
+  "scenario_id": "plan_fc459d83-5ccb-4b86-bcea-ecf1d0c1a65b",
+  "title": "Balancing Networking Priorities",
+  "difficulty": "intermediate",
+  "conflict_type": "networking",
+  "npc_role": "colleague",
+  "npc_personality": "supportive, Supportive and businesslike; matched to a challenging teaching tone at moderate pacing, wants to Protect their own priorities in the networking situation and Be seen as reasonable by anyone who hears about this later",
+  "context": "The learner and a supportive colleague are in the conference room after a team meeting. The company is planning a high\u2011visibility networking event, and the colleague has just raised a concern about allocating limited speaking slots. The learner wants to practice speaking confidently with new contacts while respecting the colleague\u2019s constraints.",
+  "opening_npc_line": "I need us to focus the upcoming client mixer on the accounts I\u2019m handling, so I\u2019m not sure we can add any extra introductions right now.",
+  "recommended_turns": 8,
+  "max_turns": 16,
+  "end_conditions": {
+    "success_trust_threshold": 90,
+    "success_consecutive_turns": 2,
+    "failure_escalation_threshold": 2
+  },
+  "success_criteria": {
+    "min_trust_score": 65,
+    "max_escalation_level": 1
+  },
+  "npc_behaviour": {
+    "trust_thresholds": {
+      "cooperative": 90,
+      "neutral": 70,
+      "hostile": 0
+    },
+    "escalation_thresholds": {
+      "furious": 2,
+      "irritated": 1,
+      "controlled": 0
+    }
+  },
+  "apa_metadata": {
+    "target_skills": [
+      "self_advocacy",
+      "trust_building",
+      "boundary_setting",
+      "emotional_regulation",
+      "conflict_resolution"
+    ],
+    "big_five_relevance": [
+      "conscientiousness",
+      "neuroticism"
+    ],
+    "recommended_for_profile": "7b64e293-1db8-4a4c-abda-fe8cc7a32d75",
+    "difficulty_weight": 1.4,
+    "plan_generated": {
+      "plan_id": "fc459d83-5ccb-4b86-bcea-ecf1d0c1a65b",
+      "plan_version": 1,
+      "required_beats": [
+        "The counterpart states their position on the networking issue, giving the learner something concrete to respond to",
+        "The learner is given a clear opening to state their own position",
+        "A moment where the learner's own contribution or constraint goes unacknowledged unless they raise it",
+        "An opportunity for the learner to acknowledge the counterpart's constraint before pressing their own",
+        "The counterpart makes a request that exceeds what the learner can reasonably absorb"
+      ],
+      "hidden_concern": "They are under pressure themselves and have less room to move than they are willing to admit up front",
+      "likely_objections": [
+        "The learner's concern is real but not the most urgent thing right now",
+        "Someone above them has already committed to the current course",
+        "This has been handled the same way before without complaint"
+      ],
+      "failure_modes": [
+        "Learner agrees to everything to end the discomfort",
+        "Learner never states a position, only asks questions",
+        "Learner becomes combative and attacks the counterpart personally",
+        "Learner leaves with no concrete next step agreed",
+        "Learner's responses become terse or shut down after pushback",
+        "Learner accepts the extra scope while signalling resentment"
+      ],
+      "formative_checkpoints": [
+        "After the opening exchange: did the learner state a position or only react?",
+        "Mid-conversation: is the learner exercising self advocacy or avoiding it?",
+        "At the pressure beat: did the learner hold, fold, or escalate?",
+        "At close: is there a concrete, mutually understood next step?"
+      ]
+    }
+  }
+}

@@ -22,9 +22,11 @@ MCA_ENGAGEMENT_DROP_CATEGORIES = {"volume", "silence", "clarity"}
 MCA_ENGAGEMENT_DROP_WEIGHT = 0.6
 MCA_WARNING_STRESS_WEIGHT = 0.5  # warnings count half as much as criticals
 
-# Tunables for RPE aggregation
-RPE_FINAL_TRUST_RANGE = 100.0           # final_trust is 0-100
-RPE_FINAL_ESCALATION_RANGE = 4.0        # final_escalation is 0-4
+# Tunables for RPE aggregation. Ranges verified against RPE's own code:
+RPE_TURN_METRIC_RANGE = 10.0            # turn scores are 0-10 (rpe_nlp_service._score_turn)
+RPE_FINAL_TRUST_RANGE = 100.0           # final_trust is 0-100 (rpe_emotion_service.update_trust)
+RPE_FINAL_ESCALATION_RANGE = 5.0        # final_escalation is 0-5 (rpe_emotion_service.update_escalation)
+RPE_NEUTRAL_TRUST = 50                  # used only when RPE reports no final_trust
 RPE_HIGH_SEVERITY_FLAGS = {"high", "critical"}
 RPE_HIGH_SEVERITY_FLAG_STRESS_BONUS = 0.1
 
@@ -39,28 +41,29 @@ class PerformanceAggregator:
 
         Field mapping (each cites the FeedbackResponse source field):
           engagement_score
-              ← mean of fb.turn_metrics[*].response_quality (0-1 already)
+              ← mean of fb.turn_metrics[*].response_quality / 10 (RPE is 0-10)
           confidence_score
-              ← (fb.final_trust or 50) / 100      (RPE trust is 0-100)
+              ← fb.final_trust / 100 (RPE trust is 0-100; 50 only when missing —
+                a trust of 0 is a real reading, not a missing one)
           objective_completion_rate
               ← outcome=success → 1.0; partial → 0.5; failure → 0.0
           stress_level
-              ← (fb.final_escalation or 0) / 4
+              ← (fb.final_escalation or 0) / 5   (RPE escalation is 0-5)
                 + 0.1 * count(risk_flags with severity in {high, critical})
           outcome
-              ← maps fb.outcome string ("success"|"failure"|else→partial)
+              ← maps fb.outcome string ("success"|"failure"|else→partial;
+                RPE's "ended_by_user" — the learner left early — is partial)
         """
         if fb.turn_metrics:
-            engagement_raw = sum(t.response_quality for t in fb.turn_metrics) / len(
-                fb.turn_metrics
+            engagement_raw = sum(t.response_quality for t in fb.turn_metrics) / (
+                len(fb.turn_metrics) * RPE_TURN_METRIC_RANGE
             )
         else:
             engagement_raw = 0.5
         engagement = max(0.0, min(1.0, engagement_raw))
 
-        confidence = max(
-            0.0, min(1.0, (fb.final_trust or 50) / RPE_FINAL_TRUST_RANGE)
-        )
+        trust = fb.final_trust if fb.final_trust is not None else RPE_NEUTRAL_TRUST
+        confidence = max(0.0, min(1.0, trust / RPE_FINAL_TRUST_RANGE))
 
         outcome_lower = (fb.outcome or "partial").lower()
         if outcome_lower == "success":
@@ -106,6 +109,7 @@ class PerformanceAggregator:
               ← (criticals + 0.5 * warnings) / total
           confidence_score
               ← mean of nudge.confidence (the SVM emotion confidence proxy)
+                over nudges that carry an emotion; 0.5 when none do
           objective_completion_rate
               ← 0.5 (MCA cannot tell us this; intentional middle value)
           outcome
@@ -141,8 +145,9 @@ class PerformanceAggregator:
                 (critical + MCA_WARNING_STRESS_WEIGHT * warning) / n,
             ),
         )
-        confidence = max(
-            0.0, min(1.0, sum(x.confidence for x in nudges) / n)
+        readings = [x.confidence for x in nudges if x.emotion]
+        confidence = (
+            max(0.0, min(1.0, sum(readings) / len(readings))) if readings else 0.5
         )
 
         return PerformanceSignal(

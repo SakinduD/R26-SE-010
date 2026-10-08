@@ -8,47 +8,215 @@ from app.schemas.analytics import (
     PostSessionActionItem,
     PostSessionReportResult,
     PostSessionReportSummary,
+    SessionContext,
+    SkillContextItem,
     SkillPredictionRead,
+    SkillScoreBreakdown,
     SkillScoreResult,
 )
+from app.models.analytics import AnalyticsSessionMetric
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
-    skill_scoring_service,
+    predictive_modeling_service,
+    progress_trend_service,
 )
 
 
 REPORT_VERSION = "rule-based-report-v1"
 SKILL_LABELS = {
-    "confidence": "Confidence",
-    "communication_clarity": "Communication clarity",
-    "empathy": "Empathy",
-    "active_listening": "Active listening",
-    "adaptability": "Adaptability",
-    "emotional_control": "Emotional control",
-    "professionalism": "Professionalism",
+    "vocal_command": "Vocal Command",
+    "speech_fluency": "Speech Fluency",
+    "presence_engagement": "Presence & Engagement",
+    "emotional_intelligence": "Emotional Intelligence",
     "overall": "Overall",
 }
 
+# Maps each composite MCA skill → the raw DB metric fields that contribute to it.
+# Scores are averaged across whichever fields are present in the session aggregate.
+#
+# Borrowed rather than restated. This module kept its own copy, which listed
+# professionalism_score under vocal_command where feedback_analysis_service did
+# not - so the radar's "Measured" value and the blind spot's "Measured" value for
+# the same skill were averages of different fields. Nothing writes
+# professionalism_score today (the MCA integration maps vocal_command onto
+# speech_volume_score alone and sets professionalism to None), so the two agreed
+# by accident; the day anything filled that column they would have parted without
+# a line of code changing.
+COMPOSITE_SCORE_FIELDS = feedback_analysis_service.OBSERVED_SCORE_FIELDS
 
 def generate_session_report(db: Session, session_id: str) -> PostSessionReportResult:
     aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
-    skill_scores = skill_scoring_service.calculate_session_skill_scores(db, session_id)
+    skill_scores = _compute_skill_scores(aggregate)
     feedback_analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
     blind_spots = blind_spot_service.detect_session_blind_spots(db, session_id)
+    user_id = aggregate.user_id or feedback_analysis.user_id
+
+    computed_predictions = []
+    if user_id:
+        try:
+            pred_result = predictive_modeling_service.predict_user_skill_outcomes(
+                db, user_id, session_id
+            )
+            computed_predictions = pred_result.predictions
+        except Exception:
+            pass
 
     return PostSessionReportResult(
         session_id=session_id,
-        user_id=aggregate.user_id or skill_scores.user_id or feedback_analysis.user_id,
+        user_id=user_id,
         summary=_build_summary(aggregate, skill_scores, blind_spots),
         aggregate=aggregate,
         skill_scores=skill_scores,
         feedback_analysis=feedback_analysis,
         blind_spots=blind_spots,
-        action_items=_build_action_items(skill_scores, blind_spots, aggregate.predictions.latest_predictions),
+        # The same predictions the report displays. The page prefers the freshly
+        # computed ones and falls back to the stored rows; building actions from
+        # the stored rows alone meant a high risk could be on screen with nothing
+        # in "Things to try" about it - stored rows are empty on these sessions,
+        # so every computed high risk was silently dropped.
+        action_items=_build_action_items(
+            skill_scores,
+            blind_spots,
+            computed_predictions or aggregate.predictions.latest_predictions,
+        ),
+        computed_predictions=computed_predictions,
+        context=_session_in_context(db, user_id, session_id, skill_scores) if user_id else None,
         generated_at=datetime.utcnow(),
         report_version=REPORT_VERSION,
+    )
+
+
+def _session_in_context(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    skill_scores: SkillScoreResult,
+) -> SessionContext | None:
+    """This session measured against every other session the learner has.
+
+    A score out of 100 cannot be read on its own. 67 is a good session for
+    someone who usually scores 60 and a poor one for someone who usually scores
+    82, and the report had no way to say which - it opened with "Vocal Command
+    held up" over this learner's worst result in weeks.
+
+    Every average here excludes the session being reported on. Comparing a score
+    against an average that contains it shrinks the difference being shown, and
+    on a short history it erases it: with three sessions, a score sits a third of
+    the way into its own comparison.
+    """
+    others = [
+        float(score)
+        for stored_session, score in db.query(
+            AnalyticsSessionMetric.session_id, AnalyticsSessionMetric.overall_score
+        )
+        .filter(AnalyticsSessionMetric.user_id == user_id)
+        .filter(AnalyticsSessionMetric.overall_score.isnot(None))
+        .all()
+        if stored_session != session_id
+    ]
+    if not others:
+        return None
+
+    trends = progress_trend_service.analyze_user_progress_trends(db, user_id)
+    skills: list[SkillContextItem] = []
+    for trend in trends.trends:
+        session_score = skill_scores.skill_scores.get(trend.skill_area)
+        if session_score is None:
+            continue
+        previous = [point.score for point in trend.points if point.session_id != session_id]
+        if not previous:
+            continue
+        average = round(sum(previous) / len(previous), 2)
+        best = max(previous)
+        skills.append(
+            SkillContextItem(
+                skill_area=trend.skill_area,
+                session_score=round(float(session_score), 2),
+                previous_average=average,
+                delta=round(float(session_score) - average, 2),
+                previous_best=best,
+                is_personal_best=float(session_score) > best,
+            )
+        )
+
+    overall = skill_scores.overall_score
+    previous_overall = round(sum(others) / len(others), 2)
+    return SessionContext(
+        sessions_compared=len(others),
+        overall_score=overall,
+        previous_overall_average=previous_overall,
+        overall_delta=round(overall - previous_overall, 2) if overall is not None else None,
+        skills=skills,
+    )
+
+
+def _compute_skill_scores(aggregate: AnalyticsAggregateSummary) -> SkillScoreResult:
+    """Build composite MCA skill scores from the session aggregate.
+
+    A skill scores only from the raw DB metric fields that belong to it. With no
+    metric fields it has no score, and the radar's existing `hasEvidence` path
+    renders it as not measured.
+
+    It used to fall back to the feedback averages, which are mostly the learner's
+    own ratings. On a session the engine never scored, that put the learner's
+    opinion in the "Observed" column beside the same numbers under "Self-Rating",
+    reported their mean as the session's score, and left blind spot detection
+    comparing a rating against itself - which is why such a session always read
+    "0 gaps". A page built to compare measurement with self-assessment cannot
+    substitute one for the other.
+
+    Overall is the multimodal engine's own score, read from the stored
+    `overall_score`, not the mean of the four composites. It used to be that mean,
+    which made the report internally tidy - Overall always equalled the average of
+    the four boxes beside it - and made it disagree with the number the session
+    itself produced. The engine weights its dimensions its own way; on this
+    account the two differ on 37 of 99 sessions, by up to 13.5 points. A report
+    about a session has to show the session's score.
+
+    The mean is still the fallback, for a session that stored no overall of its
+    own, and feedback average after that.
+    """
+    averages = aggregate.scores.averages
+    feedback_avgs = aggregate.feedback.skill_rating_averages
+
+    skill_scores: dict[str, float | None] = {}
+    breakdown: dict[str, SkillScoreBreakdown] = {}
+    available_scores: list[float] = []
+
+    for skill_name, fields in COMPOSITE_SCORE_FIELDS.items():
+        vals = [(f, averages[f]) for f in fields if f in averages and averages[f] is not None]
+        if vals:
+            score = round(sum(v for _, v in vals) / len(vals), 2)
+            inputs_used = [f for f, _ in vals]
+        else:
+            score = None
+            inputs_used = []
+
+        skill_scores[skill_name] = score
+        breakdown[skill_name] = SkillScoreBreakdown(score=score, inputs_used=inputs_used)
+        if score is not None:
+            available_scores.append(score)
+
+    stored_overall = averages.get("overall_score")
+    if stored_overall is not None:
+        overall_score = round(float(stored_overall), 2)
+    elif available_scores:
+        overall_score = round(sum(available_scores) / len(available_scores), 2)
+    else:
+        overall_score = None
+
+    completeness = round(len(available_scores) / len(COMPOSITE_SCORE_FIELDS), 2)
+
+    return SkillScoreResult(
+        user_id=aggregate.user_id,
+        session_id=aggregate.session_id,
+        skill_scores=skill_scores,
+        breakdown=breakdown,
+        overall_score=overall_score,
+        completeness=completeness,
+        scoring_version="composite-from-aggregate-v1",
     )
 
 
@@ -61,14 +229,25 @@ def _build_summary(
     improvement_areas = _improvement_areas(skill_scores, blind_spots)
     completion_status = _completion_status(aggregate)
 
+    overestimation_count = sum(
+        1 for item in blind_spots.blind_spots if item.blind_spot_type == "overestimation"
+    )
+    # The headline is the one line somebody reads before deciding whether to read
+    # the rest. It used to describe the report ("Session completed with focused
+    # improvement areas") rather than the session, which told the learner nothing
+    # they could not see from the panel titles.
     if completion_status == "empty":
-        headline = "No post-session analytics are available yet."
-    elif blind_spots.summary.high_count:
-        headline = "Session completed with high-priority blind spots to review."
+        headline = "No results were recorded for this session."
+    elif improvement_areas and strengths:
+        headline = f"{strengths[0]} held up. {improvement_areas[0]} is the one to work on."
     elif improvement_areas:
-        headline = "Session completed with focused improvement areas."
+        headline = f"{improvement_areas[0]} needs the most attention from this session."
+    elif overestimation_count and blind_spots.summary.high_count:
+        headline = "Solid scores, but your own read of them was some way off."
+    elif strengths:
+        headline = f"A strong session — {strengths[0]} led the way."
     else:
-        headline = "Session completed with steady skill performance."
+        headline = "Session recorded. Complete another to see how it compares."
 
     return PostSessionReportSummary(
         headline=headline,
@@ -78,43 +257,68 @@ def _build_summary(
     )
 
 
+# Where a score stops being a worry and starts being something to build on.
+#
+# There used to be one line at 75: at or above it a skill was a strength, below
+# it an improvement area, and nothing was allowed to be simply fine. A learner
+# scoring 72, 72, 70 and 50 was told they had no strengths at all and four areas
+# needing work - which is both untrue and useless, because when everything needs
+# work nothing is prioritised. Two points either side of one number decided
+# whether a skill was praised or flagged.
+STRENGTH_SCORE = 70.0
+CONCERN_SCORE = 60.0
+
+# A report that names everything names nothing.
+MAX_LISTED = 3
+
+
 def _top_strengths(skill_scores: SkillScoreResult) -> list[str]:
-    ranked_scores = sorted(
-        [
+    """The skills worth building on, best first."""
+    ranked = sorted(
+        (
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score >= 75
-        ],
+            if score is not None and score >= STRENGTH_SCORE
+        ),
         key=lambda item: item[1],
         reverse=True,
     )
-    return [_label(skill_area) for skill_area, _score in ranked_scores[:3]]
+    return [_label(skill_area) for skill_area, _ in ranked[:MAX_LISTED]]
 
 
 def _improvement_areas(
     skill_scores: SkillScoreResult,
     blind_spots: BlindSpotDetectionResult,
 ) -> list[str]:
-    areas = []
-    for item in blind_spots.blind_spots:
-        label = _label(item.skill_area)
-        if label not in areas:
-            areas.append(label)
+    """The skills that actually need work, weakest first.
 
-    low_scores = sorted(
-        [
+    Deliberately not the same thing as a blind spot. A blind spot says the
+    learner read themselves wrong; it says nothing about whether the skill is
+    weak, and somebody can misjudge a skill they are good at. Listing blind
+    spots here as well put a 70-scoring skill in the "needs work" column purely
+    because the learner had rated it 85 - while the panel immediately to the
+    right of it was already reporting exactly that gap.
+    """
+    ranked = sorted(
+        (
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 70
-        ],
+            if score is not None and score < STRENGTH_SCORE
+        ),
         key=lambda item: item[1],
     )
-    for skill_area, _score in low_scores:
-        label = _label(skill_area)
-        if label not in areas:
-            areas.append(label)
+    return [_label(skill_area) for skill_area, _ in ranked[:MAX_LISTED]]
 
-    return areas[:4]
+
+def _steady_areas(skill_scores: SkillScoreResult) -> list[str]:
+    """Neither a strength nor a worry - the middle band that used to not exist."""
+    return [
+        _label(skill_area)
+        for skill_area, score in sorted(
+            skill_scores.skill_scores.items(), key=lambda item: item[1] or 0, reverse=True
+        )
+        if score is not None and CONCERN_SCORE <= score < STRENGTH_SCORE
+    ]
 
 
 def _completion_status(aggregate: AnalyticsAggregateSummary) -> str:
@@ -141,11 +345,17 @@ def _build_action_items(
     actions: list[PostSessionActionItem] = []
 
     for item in blind_spots.blind_spots[:3]:
+        if item.blind_spot_type == "overestimation":
+            title = f"Review {_label(item.skill_area)} blind spot"
+            priority = item.severity
+        else:
+            title = f"Build confidence in {_label(item.skill_area)}"
+            priority = "low"
         actions.append(
             PostSessionActionItem(
-                priority=item.severity,
+                priority=priority,
                 skill_area=item.skill_area,
-                title=f"Review {_label(item.skill_area)} blind spot",
+                title=title,
                 detail=item.recommendation,
             )
         )
@@ -158,9 +368,12 @@ def _build_action_items(
                 priority="medium" if score < 60 else "low",
                 skill_area=skill_area,
                 title=f"Practice {_label(skill_area)}",
+                # "before the next role-play session" - role-play is a separate
+                # module and nothing in this component reports on it. The
+                # sessions this report is about are multimodal ones.
                 detail=(
                     f"Current score is {round(score)}. Add one focused exercise for "
-                    f"{_label(skill_area).lower()} before the next role-play session."
+                    f"{_label(skill_area).lower()} before your next session."
                 ),
             )
         )
@@ -191,11 +404,19 @@ def _build_action_items(
 
 
 def _lowest_scores(skill_scores: SkillScoreResult) -> list[tuple[str, float]]:
+    """The skills weak enough to earn a practice item.
+
+    Bounded by STRENGTH_SCORE, not by a number of its own. It used to cut at 72
+    while _top_strengths kept everything from 70 up, so a skill scoring 70 or 71
+    was a strength and a weakness at once - this session listed Presence &
+    Engagement at 70 under "held up well" and then told the learner to practise
+    it, two panels apart on the same screen.
+    """
     return sorted(
         [
             (skill_area, score)
             for skill_area, score in skill_scores.skill_scores.items()
-            if score is not None and score < 72
+            if score is not None and score < STRENGTH_SCORE
         ],
         key=lambda item: item[1],
     )[:3]

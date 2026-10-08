@@ -10,16 +10,22 @@ import {
   User,
   Layout,
   Activity,
+  ArrowRight,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import {
   normalizeComponentSessionOptions,
   optionalRequest,
   selectPreferredComponentSession,
 } from './analyticsIntegrationUtils'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
+import Banner from '@/components/ui/Banner'
+import SegmentedControl from '@/components/ui/SegmentedControl'
+import KeyValuePair from '@/components/ui/KeyValuePair'
 
 const SKILL_OPTIONS = [
   { value: 'vocal_command', label: 'Vocal Command', sub: 'Speech Volume' },
@@ -36,7 +42,6 @@ export default function FeedbackForm() {
   const {
     userId: connectedUserId,
     userLabel,
-    isAuthenticated,
   } = useAnalyticsIdentity(null, 'user-123')
 
   const [form, setForm] = useState({
@@ -48,13 +53,25 @@ export default function FeedbackForm() {
       presence_engagement: 75,
       emotional_intelligence: 75,
     },
-    sentiment: 'neutral',
+    // No pre-selection. This was 'neutral' - the one option now gone, and before
+    // that a recorded opinion from anyone who never touched the control. The
+    // whole point of this field is to compare what the learner says with what
+    // their words say, which is worth nothing if the default answered for them.
+    sentiment: '',
     comment: '',
   })
 
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
+  // The model's own reading of the written reflection, returned on save.
+  const [reading, setReading] = useState(null)
+  // Null unless the reflection just written was about more than the session.
+  const [supportPath, setSupportPath] = useState(null)
+  // Session options + status are loaded but not displayed in this restyle —
+  // sidebar nav handles session selection. Kept to preserve existing fetch logic.
+  // eslint-disable-next-line no-unused-vars
   const [sessionOptions, setSessionOptions] = useState([])
+  // eslint-disable-next-line no-unused-vars
   const [sessionStatus, setSessionStatus] = useState('loading')
 
   // Use the exact weights from the backend for consistency
@@ -76,8 +93,31 @@ export default function FeedbackForm() {
     return session?.friendlyId || null;
   }, [friendlyId, sessionOptions, form.session_id]);
 
+  // A written reflection is required, not optional. It is the only human text
+  // the sentiment module ever receives — with it left blank the analysis has
+  // nothing to read, which is exactly how 163 self-assessments were recorded
+  // without the model ever running once.
+  const MIN_REFLECTION_LENGTH = 15
+
+  const reflection = form.comment.trim()
+  const reflectionTooShort = reflection.length > 0 && reflection.length < MIN_REFLECTION_LENGTH
+
+  // Where "View my dashboard" goes once the evaluation is saved. The session id
+  // travels with it so the dashboard opens on the session just reflected on,
+  // not the "All Sessions" overall view.
+  const dashboardTarget = useMemo(() => {
+    const sessionId = form.session_id.trim()
+    return sessionId
+      ? `/analytics-dashboard?sessionId=${encodeURIComponent(sessionId)}`
+      : '/analytics-dashboard'
+  }, [form.session_id])
+
   const canSubmit = useMemo(
-    () => form.user_id.trim() && form.session_id.trim(),
+    () =>
+      Boolean(form.user_id.trim())
+      && Boolean(form.session_id.trim())
+      && Boolean(form.sentiment)
+      && form.comment.trim().length >= MIN_REFLECTION_LENGTH,
     [form]
   )
 
@@ -91,8 +131,18 @@ export default function FeedbackForm() {
 
   const submitFeedback = async (event) => {
     event.preventDefault()
+    // Guard the handler, not just the button: a double click, an Enter keypress
+    // while the button is focused, or a re-render mid-flight could all fire this
+    // twice, and each run writes a full set of ratings.
+    if (status === 'saving') return
     if (!canSubmit) {
-      setMessage('Session ID is required.')
+      setMessage(
+        !form.session_id.trim()
+          ? 'Select a session first.'
+          : !form.sentiment
+            ? 'Choose how the session felt overall.'
+            : `Write at least ${MIN_REFLECTION_LENGTH} characters about how the session went.`
+      )
       return
     }
 
@@ -100,24 +150,66 @@ export default function FeedbackForm() {
     setMessage('')
 
     try {
+      const written = form.comment.trim()
+      const userId = form.user_id.trim()
+      const sessionId = form.session_id.trim()
+
+      // Four ratings, one per skill, and nothing else on them.
       const promises = Object.entries(form.ratings).map(([skill, val]) => {
         return analyticsService.createFeedbackEntry({
-          user_id: form.user_id.trim(),
-          session_id: form.session_id.trim(),
+          user_id: userId,
+          session_id: sessionId,
           feedback_type: 'self',
           skill_area: skill,
           rating: val,
-          sentiment: form.sentiment,
-          comment: skill === 'vocal_command' ? form.comment : null
         })
       })
 
-      await Promise.all(promises)
-      setStatus('success')
-      setMessage('Self-evaluation completed!')
-      if (params.sessionId) {
-        setTimeout(() => navigate('/analytics-dashboard'), 2000)
+      // The reflection is about the session, so it is its own entry: no skill,
+      // no rating, carrying the words and the sentiment you declared for them.
+      // It used to be stapled onto whichever row was vocal_command, which made
+      // the report print a thought about the whole session under that one skill.
+      // The NLP model reads the words independently, so the two readings can be
+      // compared afterwards.
+      if (written) {
+        promises.push(
+          analyticsService.createFeedbackEntry({
+            user_id: userId,
+            session_id: sessionId,
+            feedback_type: 'self',
+            // No skill and no rating. The form rates four skills; this is the
+            // one thing written about the session itself, so naming a skill area
+            // for it would put a fifth skill in the data that nobody rated.
+            skill_area: null,
+            rating: null,
+            comment: written,
+            declared_sentiment: form.sentiment,
+          })
+        )
       }
+
+      const saved = await Promise.all(promises)
+      const analysed = saved.find((entry) => entry?.sentiment_source === 'model')
+      setReading(analysed || null)
+
+      // Asked for after the save, so it reads the words as they were stored.
+      // Never allowed to fail the submit: the reflection is already safe, and a
+      // lookup that could not run is not a reason to show an error over it.
+      // optionalRequest wraps its result as { ok, data } - the payload is .data.
+      const support = await optionalRequest(() => analyticsService.getReflectionSupport(sessionId))
+      setSupportPath(support.data || null)
+
+      setStatus('success')
+      setMessage(
+        written
+          ? 'Self-evaluation saved and your reflection was analysed.'
+          : 'Self-evaluation saved.'
+      )
+      // No timed redirect. The learner is shown their sentiment reading here and
+      // decides when to move on; a page that navigates itself away mid-read takes
+      // the one moment that analysis is useful. The button below carries the
+      // session id forward so the dashboard opens on THIS session's results
+      // rather than the "All Sessions" overall view.
     } catch (error) {
       setStatus('error')
       setMessage('Error saving feedback.')
@@ -132,12 +224,9 @@ export default function FeedbackForm() {
     let cancelled = false
     const loadCompletedSessions = async () => {
       setSessionStatus('loading')
-      const [rpeSessions, mcaSessions] = await Promise.all([
-        optionalRequest(() => analyticsService.getComponentRpeSessions()),
-        optionalRequest(() => analyticsService.getComponentMcaSessions()),
-      ])
+      const mcaSessions = await optionalRequest(() => analyticsService.getComponentMcaSessions())
       if (cancelled) return
-      const options = normalizeComponentSessionOptions(rpeSessions.data, mcaSessions.data)
+      const options = normalizeComponentSessionOptions(mcaSessions.data)
       const preferred = selectPreferredComponentSession(options)
       setSessionOptions(options)
       setSessionStatus(options.length ? 'ready' : 'empty')
@@ -153,55 +242,93 @@ export default function FeedbackForm() {
   }, [params.sessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground pb-12">
-      <section className="border-b border-border bg-card/60 sticky top-0 z-10 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-indigo-500 mb-1">Post-Session Evaluation</p>
-          <h1 className="text-2xl font-black text-white">Self-Reflection Form</h1>
-        </div>
-      </section>
+    <div className="page page-wide">
+      {/* REDESIGN: hero replaced AnalyticsNav + indigo-500/font-black/tracking-[0.3em] header
+          with PageHead + Badge for "Self-reflection" */}
+      <PageHead
+        eyebrow="Post-session evaluation"
+        title="Self-reflection"
+        sub="Your reflections seed the prediction model — be honest."
+      />
 
-      <div className="max-w-7xl mx-auto px-4 mt-8 grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 380px', alignItems: 'start' }}>
 
-        {/* Left Side: The Form */}
-        <form onSubmit={submitFeedback} className="space-y-6">
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-indigo-500/10 p-2 rounded-lg">
-                <ShieldCheck className="h-5 w-5 text-indigo-500" />
+        {/* REDESIGN: form column rebuilt with Card components, prototype tokens, no indigo/slate hardcoded colors */}
+        <form onSubmit={submitFeedback} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: 'var(--accent-soft)',
+                  border: '1px solid var(--accent-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent)',
+                }}
+              >
+                <ShieldCheck size={16} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="font-bold">Session Verification</h2>
-                <p className="text-xs text-muted-foreground">This form is compulsory to finalize your analytics</p>
+                <div className="t-h3" style={{ margin: 0 }}>Session verification</div>
+                <p className="t-cap" style={{ margin: 0 }}>
+                  This form is required to finalize your analytics
+                </p>
               </div>
             </div>
 
-            <label className="grid gap-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-tight">Active Session ID</span>
-              <div className="h-12 flex items-center px-4 rounded-xl border border-border bg-background text-sm font-medium text-indigo-400">
-                {displayFriendlyId || form.session_id || 'Waiting for session...'}
+            <div className="field">
+              <label className="field-label">Active session ID</label>
+              <div
+                className="input"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 44,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 13,
+                  color: (displayFriendlyId || form.session_id) ? 'var(--text-primary)' : 'var(--text-quaternary)',
+                }}
+              >
+                {displayFriendlyId || form.session_id || 'Waiting for session…'}
               </div>
-            </label>
-          </div>
+            </div>
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-1 flex items-center gap-2">
-              <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
-              Rate Your Performance
-            </h3>
-            <p className="text-xs text-muted-foreground mb-8">How do you feel you performed in each area? (0-100)</p>
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
+              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--warning-text)' }} />
+              Rate your performance
+            </div>
+            <p className="t-cap" style={{ margin: '0 0 24px' }}>
+              How do you feel you performed in each area? (0–100)
+            </p>
 
-            <div className="space-y-10">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
               {SKILL_OPTIONS.map((skill) => (
                 <div key={skill.value}>
-                  <div className="flex justify-between items-end mb-3">
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-end',
+                      marginBottom: 10,
+                    }}
+                  >
                     <div>
-                      <span className="text-sm font-bold block text-slate-100">{skill.label}</span>
-                      <span className="text-[10px] text-slate-500 italic">{skill.sub}</span>
+                      <span className="fg" style={{ fontSize: 14, fontWeight: 500, display: 'block' }}>
+                        {skill.label}
+                      </span>
+                      <span className="t-cap" style={{ fontStyle: 'italic' }}>
+                        {skill.sub}
+                      </span>
                     </div>
-                    <span className="bg-indigo-600 text-white px-3 py-1 rounded-full text-sm font-bold ring-1 ring-indigo-400">
-                      {form.ratings[skill.value]}
-                    </span>
+                    <Badge variant="accent">
+                      <span className="score-num">{form.ratings[skill.value]}</span>
+                    </Badge>
                   </div>
                   <input
                     type="range"
@@ -210,118 +337,295 @@ export default function FeedbackForm() {
                     step="5"
                     value={form.ratings[skill.value]}
                     onChange={(e) => updateRating(skill.value, e.target.value)}
-                    className="w-full h-2 bg-slate-700 rounded-full cursor-pointer accent-indigo-500 appearance-none [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:mt-[-4px]"
+                    className="slider"
                   />
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-4 flex items-center gap-2">
-              <Star className="h-4 w-4 text-indigo-500" />
-              Overall Sentiment
-            </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { val: 'positive', label: 'Positive', emoji: '😊', color: 'bg-green-500/10 border-green-500/20 text-green-500' },
-                { val: 'neutral', label: 'Neutral', emoji: '😐', color: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500' },
-                { val: 'negative', label: 'Negative', emoji: '☹️', color: 'bg-red-500/10 border-red-500/20 text-red-500' },
-              ].map((opt) => (
-                <button
-                  key={opt.val}
-                  type="button"
-                  onClick={() => setForm(p => ({ ...p, sentiment: opt.val }))}
-                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${form.sentiment === opt.val ? opt.color + ' ring-2 ring-current' : 'border-border bg-background/40 hover:bg-background'
-                    }`}
-                >
-                  <span className="text-2xl">{opt.emoji}</span>
-                  <span className="text-[10px] font-bold uppercase">{opt.label}</span>
-                </button>
-              ))}
+          {/* REDESIGN: sentiment buttons replaced emoji + bg-green-500/10 etc. with text-only SegmentedControl */}
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px' }}>
+              <Star size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+              Overall sentiment
             </div>
-          </div>
+            <SegmentedControl
+              value={form.sentiment}
+              onChange={(v) => setForm((p) => ({ ...p, sentiment: v }))}
+              /* These are the three the model can return, and no more.
+                 "Neutral" used to be offered here, and the model has no such
+                 class - it is trained on negative/mixed/positive - so anyone who
+                 chose it was recorded as disagreeing with their own words no
+                 matter what they wrote. Six of the seventeen reflections read so
+                 far were marked neutral, and all six read back as a mismatch the
+                 learner could do nothing about.
+                 "Mixed" is what most of them mean anyway: every reflection
+                 collected so far says something went well and something did
+                 not. */
+              options={[
+                { label: 'Positive', value: 'positive' },
+                { label: 'Mixed', value: 'mixed' },
+                { label: 'Negative', value: 'negative' },
+              ]}
+            />
+          </Card>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h3 className="font-bold mb-4 flex items-center gap-2 text-slate-100">
-              <MessageSquare className="h-4 w-4 text-indigo-400" />
-              Additional Observations
-            </h3>
+          {/* REDESIGN: comment textarea uses .input + .textarea (was bg-background + ring-indigo-500/30) */}
+          <Card>
+            <div className="t-h3" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px' }}>
+              <MessageSquare size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+              Additional observations
+            </div>
+            <p className="t-cap" style={{ margin: '0 0 10px', lineHeight: 1.6 }}>
+              Write a sentence or two about how the session went. Your words are
+              analysed on their own, so you can see whether they match the
+              sentiment you chose above. <strong>Required.</strong>
+            </p>
             <textarea
-              className="w-full min-h-[120px] rounded-xl border border-border bg-background p-4 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-              placeholder="What specific moment in the session made you feel this way? (Optional)"
+              className="input textarea"
+              placeholder="What specific moment in the session made you feel this way?"
               value={form.comment}
               onChange={(e) => setForm(prev => ({ ...prev, comment: e.target.value }))}
+              style={{ minHeight: 120, padding: 14 }}
+              aria-invalid={reflectionTooShort || undefined}
+              required
             />
-          </div>
-
-          <div className="flex flex-col gap-4 items-center">
-            <StatusMessage status={status} message={message} />
-            <Button
-              type="submit"
-              className="px-8 h-11 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20"
-              disabled={!canSubmit || status === 'saving'}
+            <div
+              className="t-cap"
+              style={{
+                marginTop: 6,
+                color: reflectionTooShort ? 'var(--danger)' : 'var(--text-quaternary)',
+              }}
             >
-              {status === 'saving' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Complete Evaluation
-            </Button>
+              {reflection.length === 0
+                ? `Write at least ${MIN_REFLECTION_LENGTH} characters.`
+                : reflectionTooShort
+                  ? `${MIN_REFLECTION_LENGTH - reflection.length} more characters needed.`
+                  : `${reflection.length} characters — ready to analyse.`}
+            </div>
+          </Card>
+
+          {/* REDESIGN: status message replaced bg-red-500/10/etc. ad-hoc colors with Banner */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+            {message && (
+              <div style={{ width: '100%' }}>
+                <Banner
+                  variant={
+                    status === 'success' ? 'success'
+                      : status === 'error' ? 'danger'
+                      : 'info'
+                  }
+                >
+                  {message}
+                </Banner>
+              </div>
+            )}
+
+            {reading && <SentimentReading reading={reading} declared={form.sentiment} />}
+            {supportPath && <SupportPathCard path={supportPath} />}
+
+            {/* Once the evaluation is saved, "Complete evaluation" is no longer
+                the action available — offering it again invites a duplicate
+                submission and leaves the learner with no way onward. The saved
+                state hands them their results instead. */}
+            {status === 'success' ? (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => navigate(dashboardTarget)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Layout size={14} strokeWidth={1.8} />
+                  View my dashboard
+                  <ArrowRight size={14} strokeWidth={1.8} />
+                </span>
+              </Button>
+            ) : (
+              /* REDESIGN: bg-indigo-600 submit button replaced with Button primary */
+              <Button
+                type="submit"
+                disabled={!canSubmit || status === 'saving'}
+                loading={status === 'saving'}
+                size="lg"
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {status === 'saving'
+                    ? <RefreshCw size={14} strokeWidth={1.8} className="animate-spin" />
+                    : <Save size={14} strokeWidth={1.8} />}
+                  Complete evaluation
+                </span>
+              </Button>
+            )}
           </div>
         </form>
 
-        {/* Right Side: Current Entry Preview */}
-        <aside className="hidden lg:block sticky top-28 h-fit">
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-2 mb-6 text-indigo-400">
-              <Star className="h-4 w-4" />
-              <h2 className="font-bold text-sm tracking-tight uppercase">Current Entry</h2>
+        {/* REDESIGN: preview pane rebuilt with Card accent + KeyValuePair (was indigo-400/slate-200) */}
+        <aside style={{ position: 'sticky', top: 80, height: 'fit-content' }} className="hide-mobile-aside">
+          <Card variant="accent">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 16,
+                color: 'var(--accent)',
+              }}
+            >
+              <Star size={14} strokeWidth={1.8} />
+              <div className="t-over" style={{ color: 'var(--accent)' }}>Current entry</div>
             </div>
 
-            <div className="divide-y divide-border text-sm">
-              <PreviewItem icon={<User className="h-3 w-3" />} label="User" value={userLabel || connectedUserId} />
-              <PreviewItem icon={<Layout className="h-3 w-3" />} label="Session" value={displayFriendlyId || form.session_id} isMono />
-              <PreviewItem icon={<Activity className="h-3 w-3" />} label="Type" value="Self reflection" />
-              <PreviewItem icon={<Star className="h-3 w-3" />} label="Skills" value="4 Real Skills" />
-              <PreviewItem icon={<CheckCircle2 className="h-3 w-3" />} label="Avg Rating" value={avgRating} isHighlight />
-              <PreviewItem icon={<MessageSquare className="h-3 w-3" />} label="Sentiment" value={form.sentiment} isCapitalized />
-            </div>
+            <KeyValuePair k={<><User size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />User</>} v={userLabel || connectedUserId || '—'} />
+            <KeyValuePair k={<><Layout size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Session</>} v={displayFriendlyId || form.session_id || '—'} mono />
+            <KeyValuePair k={<><Activity size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Type</>} v="Self reflection" />
+            <KeyValuePair k={<><Star size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Skills</>} v="4 skills" />
+            <KeyValuePair k={<><CheckCircle2 size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Avg rating</>} v={avgRating} mono />
+            <KeyValuePair k={<><MessageSquare size={12} strokeWidth={1.8} style={{ marginRight: 4 }} />Sentiment</>} v={<span style={{ textTransform: 'capitalize' }}>{form.sentiment || 'Not chosen'}</span>} />
 
-            <div className="mt-6 p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10">
-              <p className="text-[10px] text-indigo-400 font-medium leading-relaxed">
+            <div
+              style={{
+                marginTop: 18,
+                padding: 14,
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent-muted)',
+                borderRadius: 'var(--radius)',
+              }}
+            >
+              <p className="t-cap" style={{ color: 'var(--accent)', lineHeight: 1.55, margin: 0 }}>
                 Confirm your ratings before submitting. Your self-reflection will be compared with AI-observed metrics to detect blind spots.
               </p>
             </div>
-          </div>
+          </Card>
         </aside>
-
       </div>
-    </main>
-  )
-}
 
-function PreviewItem({ icon, label, value, isMono, isHighlight, isCapitalized }) {
-  return (
-    <div className="flex items-center justify-between py-3 gap-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      <span className={`text-xs font-bold truncate max-w-[180px] ${isMono ? 'font-mono bg-muted px-1.5 py-0.5 rounded' : ''} ${isHighlight ? 'text-indigo-400' : 'text-slate-200'} ${isCapitalized ? 'capitalize' : ''}`}>
-        {value || 'N/A'}
-      </span>
+      {/* Hide preview pane on mobile (was hidden lg:block) */}
+      <style>{`
+        @media (max-width: 1023px) {
+          .hide-mobile-aside { display: none; }
+        }
+      `}</style>
     </div>
   )
 }
 
-function StatusMessage({ status, message }) {
-  if (!message) return null
-  const colors = {
-    success: 'bg-green-500/10 text-green-500 border-green-500/20',
-    error: 'bg-red-500/10 text-red-500 border-red-500/20',
-    saving: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
-  }
+const SENTIMENT_TONE = {
+  positive: 'var(--success)',
+  // Mixed is not a milder negative — it is two feelings at once, so it gets its
+  // own tone rather than a shade of either pole.
+  mixed: 'var(--warning-text)',
+  neutral: 'var(--text-secondary)',
+  negative: 'var(--danger)',
+}
+
+/**
+ * What the learner said about their reflection, beside what the NLP model read
+ * in the same words.
+ *
+ * When the two disagree it is worth surfacing: a learner who writes something
+ * critical but marks the session positive is showing the same self-perception
+ * gap the blind-spot detector looks for in ratings — only in their own words.
+ */
+function SentimentReading({ reading, declared }) {
+  const detected = reading.sentiment
+  const agrees = detected === declared
+  const confidence = Math.round((reading.sentiment_confidence || 0) * 100)
+
   return (
-    <div className={`px-4 py-3 rounded-xl border text-sm font-medium flex items-center gap-2 ${colors[status]}`}>
-      {message}
+    <div style={{ width: '100%' }}>
+      <Card>
+        <div className="t-over" style={{ marginBottom: 12 }}>Sentiment analysis of your reflection</div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <ReadingBox label="You marked it" value={declared} />
+          <ReadingBox label="Your words read as" value={detected} hint={`${confidence}% confidence`} />
+        </div>
+
+        <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>
+          {agrees
+            ? 'Your words and your rating agree — your self-perception matches what you wrote.'
+            : detected === 'mixed'
+              ? `You marked the session ${declared}, but your wording carries more than one feeling at once — something that went well and something that did not. Both are real. Worth asking which one you gave the rating to.`
+              : `You marked the session ${declared}, but the wording reads as ${detected}. That gap is worth a second look: it is the same kind of mismatch the blind-spot detector looks for in your ratings.`}
+        </p>
+
+        <p className="t-cap" style={{ marginTop: 10, color: 'var(--text-quaternary)' }}>
+          Read by {reading.sentiment_model_version}. Nothing was overwritten — both readings are kept.
+        </p>
+      </Card>
+    </div>
+  )
+}
+
+/**
+ * Where to go, when the words were about more than the session.
+ *
+ * Here rather than only on the recommendations page, because this is the moment
+ * the learner is thinking about what they just wrote; that page is later, and
+ * only if they go to it.
+ *
+ * Below the sentiment reading, and deliberately quiet. A red alarm over
+ * someone's sentence about their own life reads as the software reacting to
+ * them, and a learner who works out that certain words set something off will
+ * write a blander reflection next time. It offers phone numbers and says nothing
+ * about the person.
+ */
+function SupportPathCard({ path }) {
+  // Nothing to show is not a reason to take the page down with it. There is no
+  // error boundary in this app, so a bad shape here blanks the whole screen -
+  // which is how this component first shipped, handed optionalRequest's
+  // { ok, data } wrapper instead of the payload inside it.
+  if (!path?.message || !path.contacts?.length) return null
+
+  return (
+    <div style={{ width: '100%' }}>
+      <Card>
+        <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{path.message}</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 22px', marginTop: 12 }}>
+          {path.contacts.map((contact) => (
+            <div key={contact.number}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span className="fg" style={{ fontSize: 13, fontWeight: 600 }}>{contact.name}</span>
+                {/* Text, not a tel: link - on a laptop that opens nothing useful,
+                    and this is a number to read and dial from a phone. */}
+                <span className="fg" style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {contact.number}
+                </span>
+              </div>
+              <div className="t-cap" style={{ fontSize: 11 }}>{contact.detail}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function ReadingBox({ label, value, hint }) {
+  return (
+    <div
+      style={{
+        flex: '1 1 160px',
+        padding: 12,
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-subtle)',
+        background: 'var(--bg-input)',
+      }}
+    >
+      <div className="t-cap">{label}</div>
+      <div
+        style={{
+          fontSize: 17,
+          fontWeight: 600,
+          marginTop: 4,
+          textTransform: 'capitalize',
+          color: SENTIMENT_TONE[value] || 'var(--text-primary)',
+        }}
+      >
+        {value || '—'}
+      </div>
+      {hint && <div className="t-cap" style={{ marginTop: 2 }}>{hint}</div>}
     </div>
   )
 }

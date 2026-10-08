@@ -1,114 +1,68 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
-  RefreshCw,
-  Search,
+  MessageSquare,
   ShieldAlert,
   Target,
   UserCircle,
 } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
+import AnalyticsLoadButton from './AnalyticsLoadButton'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
 import AnalyticsSessionSelect from './AnalyticsSessionSelect'
-import AnalyticsUserBadge from './AnalyticsUserBadge'
 import { useAnalyticsIdentity } from './analyticsAuth'
 import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
+import { fadeInUp, staggerContainer } from '@/lib/animations'
+import PageHead from '@/components/ui/PageHead'
+import Card from '@/components/ui/Card'
+import Badge from '@/components/ui/Badge'
 
 const SKILL_LABELS = {
-  confidence: 'Confidence',
-  communication_clarity: 'Communication Clarity',
-  empathy: 'Empathy',
-  active_listening: 'Active Listening',
-  adaptability: 'Adaptability',
-  emotional_control: 'Emotional Control',
-  professionalism: 'Professionalism',
+  vocal_command: 'Vocal Command',
+  speech_fluency: 'Speech Fluency',
+  presence_engagement: 'Presence & Engagement',
+  emotional_intelligence: 'Emotional Intelligence',
   overall: 'Overall',
 }
 
-const DEMO_DATA = {
+const EMPTY_DATA = {
+  recurring: { items: [] },
   blindSpots: {
     scope: 'user',
-    user_id: 'demo-user',
+    user_id: '',
     session_id: null,
     summary: {
-      total_count: 2,
-      high_count: 1,
-      medium_count: 1,
+      total_count: 0,
+      high_count: 0,
+      medium_count: 0,
       low_count: 0,
-      strongest_blind_spot: {
-        skill_area: 'confidence',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review confidence evidence and set one measurable improvement target.',
-      },
+      strongest_blind_spot: null,
+      sentiment_gap_count: 0,
     },
-    blind_spots: [
-      {
-        skill_area: 'confidence',
-        blind_spot_type: 'overestimation',
-        severity: 'high',
-        self_rating: 92,
-        comparison_score: 55,
-        comparison_source: 'observed',
-        gap: 37,
-        confidence: 0.92,
-        recommendation: 'Review confidence evidence and set one measurable improvement target.',
-      },
-      {
-        skill_area: 'empathy',
-        blind_spot_type: 'underestimation',
-        severity: 'medium',
-        self_rating: 64,
-        comparison_score: 90,
-        comparison_source: 'observed',
-        gap: 26,
-        confidence: 0.81,
-        recommendation: 'Use positive observed evidence to build confidence and maintain this behaviour.',
-      },
-    ],
+    blind_spots: [],
+    sentiment_gaps: [],
   },
   feedbackAnalysis: {
     summary: {
-      self_feedback_count: 3,
-      system_evidence_count: 3,
-      analyzed_skill_count: 4,
-      aligned_count: 2,
-      blind_spot_count: 2,
-      average_self_rating: 78,
-      average_observed_score: 72,
+      self_feedback_count: 0,
+      analyzed_skill_count: 0,
+      aligned_count: 0,
+      blind_spot_count: 0,
+      average_self_rating: null,
+      average_observed_score: null,
     },
-    items: [
-      alignment('confidence', 92, 55, 'self_overestimation', 'high'),
-      alignment('empathy', 64, 90, 'self_underestimation', 'medium'),
-      alignment('communication_clarity', 78, 76, 'aligned', 'none'),
-    ],
+    items: [],
   },
 }
-
-function alignment(skillArea, selfRating, observedScore, alignmentLabel, severity) {
-  return {
-    skill_area: skillArea,
-    self_rating: selfRating,
-    observed_score: observedScore,
-    self_observed_gap: selfRating - observedScore,
-    alignment: alignmentLabel,
-    severity,
-    recommendation: `${labelFor(skillArea)} feedback should be reviewed with evidence from the session.`,
-  }
-}
-
 function labelFor(value) {
   return SKILL_LABELS[value] || value?.replaceAll('_', ' ') || 'Unknown'
 }
+
+const SEV_VARIANT = { high: 'danger', medium: 'warning', low: 'success', none: 'neutral' }
 
 export default function BlindSpotDetail() {
   const params = useParams()
@@ -122,13 +76,22 @@ export default function BlindSpotDetail() {
   const [userId, setUserId] = useState(connectedUserId)
   const [sessionId, setSessionId] = useState(params.sessionId || '')
   const [sessionOptions, setSessionOptions] = useState([])
-  const [data, setData] = useState(DEMO_DATA)
-  const [status, setStatus] = useState('demo')
+  const [data, setData] = useState(EMPTY_DATA)
+  const [status, setStatus] = useState('idle')
   const [error, setError] = useState('')
 
   const currentId = scope === 'session' ? sessionId : userId
   const blindSpots = data.blindSpots?.blind_spots || []
+  const sentimentGaps = data.blindSpots?.sentiment_gaps || []
+  // Every reflection the model read, findings and non-findings alike — see
+  // SentimentGapList.
+  const reflectionReadings = data.blindSpots?.reflection_readings || []
   const analysisItems = data.feedbackAnalysis?.items || []
+  // Recurrence per skill, for the "How often" box on each gap card.
+  const recurrenceBySkill = useMemo(() => {
+    const items = data.recurring?.items || []
+    return Object.fromEntries(items.map((item) => [item.skill_area, item]))
+  }, [data.recurring])
   const strongest = data.blindSpots?.summary?.strongest_blind_spot || blindSpots[0]
 
   const hasLiveData = useMemo(() => {
@@ -138,242 +101,414 @@ export default function BlindSpotDetail() {
 
   const loadBlindSpots = async (nextScope = scope, nextUserId = userId, nextSessionId = sessionId) => {
     const targetId = nextScope === 'session' ? nextSessionId.trim() : nextUserId.trim()
-
-    if (!targetId) {
-      setError(`Enter a ${nextScope} id`)
-      return
-    }
-
-    setStatus('loading')
-    setError('')
-
+    if (!targetId) { setError(`Enter a ${nextScope} id`); return }
+    setStatus('loading'); setError('')
     try {
-      const [blindSpotResult, analysisResult] =
+      // Recurring patterns are a history, and a history is exactly the context a
+      // single session's gap needs: a 20-point gap that shows up in 37 of 41
+      // rated sessions is a habit, the same gap seen once is a bad morning. So
+      // they are fetched in both scopes now. The panel listing them stays
+      // history-only - it summarises the whole set - but each gap card borrows
+      // its own skill's count.
+      const recurringUserId = nextScope === 'session' ? connectedUserId : targetId
+      const [blindSpotResult, analysisResult, recurringResult] =
         nextScope === 'session'
           ? await Promise.all([
               analyticsService.getBlindSpotsBySession(targetId),
               analyticsService.getFeedbackAnalysisBySession(targetId),
+              recurringUserId
+                ? analyticsService.getRecurringBlindSpots(recurringUserId).catch(() => null)
+                : Promise.resolve(null),
             ])
           : await Promise.all([
               analyticsService.getBlindSpotsByUser(targetId),
               analyticsService.getFeedbackAnalysisByUser(targetId),
+              analyticsService.getRecurringBlindSpots(targetId).catch(() => null),
             ])
-
-      setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult })
+      setData({ blindSpots: blindSpotResult, feedbackAnalysis: analysisResult, recurring: recurringResult })
       setStatus('live')
-    } catch (err) {
-      setData(DEMO_DATA)
-      setStatus('demo')
-      setError('Backend blind spot data unavailable. Showing demo analysis.')
+    } catch {
+      setData(EMPTY_DATA); setStatus('error')
+      setError('Your blind spot analysis could not be loaded. Nothing is shown rather than a guess — try again in a moment.')
     }
   }
 
   const handleScopeChange = (nextScope) => {
     setScope(nextScope)
-
     if (nextScope === 'session' && !sessionId) {
       const preferred = selectPreferredComponentSession(sessionOptions)
-      if (preferred) {
-        setSessionId(preferred.id)
-      }
+      if (preferred) setSessionId(preferred.id)
     }
   }
 
-  useEffect(() => {
-    if (scope === 'user') {
-      setUserId(connectedUserId)
-    }
-  }, [connectedUserId, scope])
+  useEffect(() => { if (scope === 'user') setUserId(connectedUserId) }, [connectedUserId, scope])
+
+  // Load whatever is selected, as soon as it is selected.
+  //
+  // Only the user scope loaded itself; picking a session, or picking a different
+  // one, left the previous results on screen until Load Results was pressed - so
+  // the page showed one session's gaps under another session's name. One effect
+  // covers both scopes, keyed on what is actually being looked at, so switching
+  // away and back reloads rather than leaving the other scope's data in place.
+  // The button stays, for re-reading the same target.
+  const loadedTargetRef = useRef(null)
 
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated && connectedUserId && scope === 'user') {
-      loadBlindSpots('user', connectedUserId, sessionId)
-    }
-  }, [connectedUserId, isAuthLoading, isAuthenticated, scope])
+    if (isAuthLoading || !isAuthenticated) return
+    const targetId = scope === 'session' ? sessionId : connectedUserId
+    if (!targetId) return
+    const target = `${scope}:${targetId}`
+    if (target === loadedTargetRef.current) return
+    loadedTargetRef.current = target
+    loadBlindSpots(scope, connectedUserId, sessionId)
+  }, [scope, sessionId, connectedUserId, isAuthLoading, isAuthenticated])
 
   useEffect(() => {
     let isActive = true
-
     async function loadSessions() {
-      const options = await loadComponentSessionOptions(analyticsService)
+      const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
       if (!isActive) return
-
       setSessionOptions(options)
-
       if (!params.sessionId && !sessionId) {
         const preferred = selectPreferredComponentSession(options)
-        if (preferred) {
-          setSessionId(preferred.id)
-        }
+        if (preferred) setSessionId(preferred.id)
       }
     }
-
     loadSessions()
-
-    return () => {
-      isActive = false
-    }
+    return () => { isActive = false }
   }, [params.sessionId, sessionId])
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b border-border bg-card/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Feedback System & Predictive Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold">Blind Spot Detection</h1>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <AnalyticsNav />
-            <SelectInput
-              label="Scope"
-              value={scope}
-              onChange={handleScopeChange}
-              options={[
-                { value: 'user', label: 'User' },
-                { value: 'session', label: 'Session' },
-              ]}
-            />
-            {scope === 'session' ? (
-              <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
-            ) : null}
-            <Button className="h-10 self-end" onClick={() => loadBlindSpots()}>
-              {status === 'loading' ? <RefreshCw className="animate-spin" /> : <Search />}
-              Load
-            </Button>
-          </div>
+    <motion.div variants={staggerContainer} initial="initial" animate="animate" className="page page-wide">
+      <PageHead
+        eyebrow="Feedback System & Predictive Analytics"
+        title="How Well Do You Know Yourself?"
+        sub="You rate yourself after each session. Here is how those ratings compared with what was actually measured."
+      />
+
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 20 }}>
+        <SelectInput
+          label="Looking at"
+          value={scope}
+          onChange={handleScopeChange}
+          options={[{ value: 'user', label: 'User' }, { value: 'session', label: 'Session' }]}
+        />
+        {scope === 'session' && (
+          <AnalyticsSessionSelect value={sessionId} options={sessionOptions} onChange={setSessionId} />
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <AnalyticsLoadButton loading={status === 'loading'} onClick={() => loadBlindSpots()} />
         </div>
-      </section>
+      </motion.div>
 
-      <section className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={status} />
-          <AnalyticsUserBadge isAuthenticated={isAuthenticated} userLabel={userLabel} />
-          {error ? <span className="text-sm text-warning">{error}</span> : null}
-        </div>
+      <motion.div variants={fadeInUp} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <Badge variant="neutral">
+          {status === 'live' ? 'Live blind spots' : status === 'loading' ? 'Loading…' : status === 'error' ? 'Unavailable' : 'Not loaded'}
+        </Badge>
+        {error && <span className="t-cap" style={{ color: 'var(--warning-text)' }}>{error}</span>}
+      </motion.div>
 
-        {!hasLiveData ? (
-          <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Live API is connected, but no blind spot records were found for this {scope}.
+      {!hasLiveData && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <div style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: '1px solid color-mix(in oklab, var(--warning) 40%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)' }}>
+            <span className="t-cap" style={{ color: 'var(--warning-text)' }}>
+              You're connected, but there's nothing here yet for this {scope}.
+            </span>
           </div>
-        ) : null}
+        </motion.div>
+      )}
 
-        <section className="rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_520px]">
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Card>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                {scope === 'session' ? <BarChart3 className="h-4 w-4 text-secondary" /> : <UserCircle className="h-4 w-4 text-secondary" />}
-                <span>{scope === 'user' && isAuthenticated ? userLabel : currentId}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                {scope === 'session'
+                  ? <BarChart3 size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />
+                  : <UserCircle size={13} strokeWidth={1.8} style={{ color: 'var(--text-tertiary)' }} />}
+                <span className="t-cap">{scope === 'user' && isAuthenticated ? userLabel : currentId}</span>
               </div>
-              <h2 className="mt-3 text-xl font-semibold">Self-perception gap analysis</h2>
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Blind spots compare self feedback against observed performance evidence from role-play, adaptive pedagogy, and multimodal analysis.
+              <div className="t-h3">Your rating vs what was measured</div>
+              <p className="t-cap" style={{ maxWidth: 520, marginTop: 6, lineHeight: 1.6 }}>
+                A gap is not a mark against you. It just means one thing is easier to see
+                from the outside than from where you are standing.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric icon={ShieldAlert} label="Total" value={data.blindSpots?.summary?.total_count || 0} />
-              <Metric icon={AlertTriangle} label="High" value={data.blindSpots?.summary?.high_count || 0} />
-              <Metric icon={Target} label="Medium" value={data.blindSpots?.summary?.medium_count || 0} />
-              <Metric icon={CheckCircle2} label="Aligned" value={data.feedbackAnalysis?.summary?.aligned_count || 0} />
+            {/* One box per severity, named exactly as the cards below badge them.
+                There are three severities and this row used to offer two boxes for
+                them: "Big ones" read high and "Smaller" read medium, so every
+                low-severity gap was counted in the total and shown nowhere -
+                "Gaps found 2 · Big ones 0 · Smaller 1". Summing medium and low
+                into "Smaller" fixed the arithmetic and broke the words instead: a
+                learner reading "Smaller 2" went looking for two SMALL badges and
+                found one SMALL and one NOTICEABLE. Every number here now has a
+                badge to match it. */}
+            {/* Five columns, always. auto-fit read the space it was given and
+                settled on four, dropping "Spot on" onto a line of its own - the
+                row is one set of counts and reads as one only while it is one
+                line. `flex` lets it claim the width it needs from the text
+                beside it; on a narrow screen the whole block wraps under that
+                text and takes the full width there instead. */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+              gap: 10,
+              flex: '1 1 440px',
+              maxWidth: 560,
+            }}>
+              <MetricBox icon={ShieldAlert} label="Gaps found" value={data.blindSpots?.summary?.total_count || 0} />
+              <MetricBox icon={AlertTriangle} label="Big gap" value={data.blindSpots?.summary?.high_count || 0} />
+              <MetricBox icon={Target} label="Noticeable" value={data.blindSpots?.summary?.medium_count || 0} />
+              <MetricBox icon={Target} label="Small" value={data.blindSpots?.summary?.low_count || 0} />
+              <MetricBox icon={CheckCircle2} label="Spot on" value={data.feedbackAnalysis?.summary?.aligned_count || 0} />
             </div>
           </div>
-        </section>
+        </Card>
+      </motion.div>
 
-        <div className="grid gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
-          <Panel title="Strongest Blind Spot" icon={ShieldAlert}>
-            {strongest ? <BlindSpotCard item={strongest} featured /> : <EmptyState text="No blind spot detected" />}
-          </Panel>
-
-          <Panel title="Evidence Alignment Summary" icon={BarChart3}>
-            <AlignmentSummary summary={data.feedbackAnalysis?.summary} />
-          </Panel>
-        </div>
-
-        <Panel title="Detected Blind Spots" icon={AlertTriangle}>
-          <BlindSpotList items={blindSpots} />
+      <motion.div variants={fadeInUp} className="grid-2" style={{ marginBottom: 16 }}>
+        <Panel title="The Biggest Gap" icon={ShieldAlert}>
+          {strongest
+            ? <BlindSpotCard item={strongest} featured recurrence={recurrenceBySkill[strongest.skill_area]} />
+            : <EmptyMsg text="Your rating matched what was measured" />}
         </Panel>
+        <Panel title="How Close You Were" icon={BarChart3}>
+          <AlignmentSummary summary={data.feedbackAnalysis?.summary} />
+        </Panel>
+      </motion.div>
 
-        <Panel title="Self / Observed Alignment" icon={BarChart3}>
+      {scope === 'user' && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <Panel title="Patterns Across All Your Sessions" icon={Target}>
+            <p className="t-cap" style={{ marginBottom: 14, lineHeight: 1.6 }}>
+              One session can go either way. These are the ones that keep happening.
+            </p>
+            <RecurringPatternList items={data.recurring?.items} />
+          </Panel>
+        </motion.div>
+      )}
+
+      {/* With one gap this panel repeats "The Biggest Gap" above it - the same
+          card, the same numbers, twice on one screen, which reads as a rendering
+          fault rather than as a list of one. It earns its place from two. */}
+      {blindSpots.length > 1 && (
+        <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+          <Panel title="Every Gap We Found" icon={AlertTriangle}>
+            <BlindSpotList items={blindSpots} recurrenceBySkill={recurrenceBySkill} />
+          </Panel>
+        </motion.div>
+      )}
+
+      <motion.div variants={fadeInUp} style={{ marginBottom: 16 }}>
+        <Panel
+          // Counting gaps alone put "0 gaps" over a card describing a
+          // disagreement the reader could see for themselves. The heading now
+          // counts what the panel is actually showing.
+          title={
+            sentimentGaps.length
+              ? `What Your Own Words Said — ${sentimentGaps.length} gap${sentimentGaps.length === 1 ? '' : 's'}`
+              : reflectionReadings.length
+                ? `What Your Own Words Said — ${reflectionReadings.length} reflection${reflectionReadings.length === 1 ? '' : 's'} read`
+                : 'What Your Own Words Said'
+          }
+          icon={MessageSquare}
+        >
+          <SentimentGapList items={sentimentGaps} readings={reflectionReadings} />
+        </Panel>
+      </motion.div>
+
+      <motion.div variants={fadeInUp}>
+        <Panel title="Skill by Skill" icon={BarChart3}>
           <AlignmentTable items={analysisItems} />
         </Panel>
-      </section>
-    </main>
+      </motion.div>
+    </motion.div>
   )
 }
 
-function BlindSpotList({ items }) {
-  if (!items.length) return <EmptyState text="No blind spots detected" />
+const PATTERN_COPY = {
+  consistent_overestimation: {
+    headline: 'You rate this higher than it measures',
+    tone: 'var(--danger-text)',
+  },
+  consistent_underestimation: {
+    headline: 'You rate this lower than it measures',
+    tone: 'var(--warning-text)',
+  },
+  inconsistent: {
+    headline: 'Sometimes high, sometimes low',
+    tone: 'var(--warning-text)',
+  },
+  aligned: {
+    headline: 'You read this one well',
+    tone: 'var(--success-text)',
+  },
+}
+
+/**
+ * Patterns counted across sessions, with the advice that goes with each.
+ *
+ * The overview shows the count and a bar - enough to know a pattern exists. The
+ * sentence about what to do lands here, where four of them can sit together
+ * without turning a summary panel into a wall of text.
+ *
+ * A count, not an average, for the reason the "inconsistent" case makes obvious:
+ * being 20 points high one session and 20 low the next averages to zero and
+ * reads as flawless self-knowledge, when the learner was wrong both times.
+ */
+function RecurringPatternList({ items }) {
+  if (!items?.length) {
+    return <EmptyMsg text="Rate yourself after three or more sessions and patterns will show up here" />
+  }
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div style={{ display: 'grid', gap: 12 }}>
+      {items.map((item) => {
+        const copy = PATTERN_COPY[item.pattern] || PATTERN_COPY.inconsistent
+        const pct = Math.round((item.gap_rate || 0) * 100)
+        return (
+          <Card key={item.skill_area}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+              <div className="t-h3">{labelFor(item.skill_area)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: copy.tone }}>
+                {item.sessions_with_gap} of {item.sessions_rated} sessions
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: copy.tone, marginTop: 4 }}>{copy.headline}</div>
+
+            <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-input)', overflow: 'hidden', margin: '10px 0' }}>
+              <div style={{ height: '100%', width: pct + '%', background: copy.tone, borderRadius: 999 }} />
+            </div>
+
+            <p className="t-cap" style={{ lineHeight: 1.65, margin: 0 }}>{item.recommendation}</p>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+// How a gap reads to the person who has it. The service calls these
+// "overestimation" and "underestimation"; neither is a word anybody uses about
+// themselves, and both sound like an accusation.
+const GAP_WORDS = {
+  overestimation: 'You rated this higher than it measured',
+  underestimation: 'You rated this lower than it measured',
+}
+const gapWords = (value) => GAP_WORDS[value] || String(value || '').replaceAll('_', ' ')
+
+const SEVERITY_WORDS = { high: 'big gap', medium: 'noticeable', low: 'small', none: 'none' }
+const severityWords = (value) => SEVERITY_WORDS[value] || value || ''
+
+function BlindSpotList({ items, recurrenceBySkill = {} }) {
+  if (!items.length) return <EmptyMsg text="No gaps this time — your ratings matched" />
+  return (
+    <div className="grid-2">
       {items.map((item) => (
-        <BlindSpotCard key={`${item.skill_area}-${item.blind_spot_type}`} item={item} />
+        <BlindSpotCard
+          key={`${item.skill_area}-${item.blind_spot_type}`}
+          item={item}
+          recurrence={recurrenceBySkill[item.skill_area]}
+        />
       ))}
     </div>
   )
 }
 
-function BlindSpotCard({ item, featured = false }) {
+// Counted over the sessions the learner *rated*, not over every session they
+// have. Those differ a lot - 41 rated against 114 completed here - so the
+// denominator is named rather than left to be assumed.
+function recurrenceWords(recurrence) {
+  if (!recurrence) return 'Not enough rated sessions yet'
+  return `${recurrence.sessions_with_gap} of ${recurrence.sessions_rated} rated sessions`
+}
+
+function BlindSpotCard({ item, featured = false, recurrence = null }) {
   return (
-    <div className={`rounded-lg border border-border bg-background/30 p-4 ${featured ? 'min-h-[260px]' : ''}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div style={{
+      padding: 16,
+      borderRadius: 'var(--radius)',
+      border: '1px solid var(--border-subtle)',
+      background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
+      minHeight: featured ? 240 : undefined,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
-          <h3 className="font-semibold">{labelFor(item.skill_area)}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{item.blind_spot_type} vs {item.comparison_source}</p>
+          <div className="fg" style={{ fontWeight: 500, fontSize: 14 }}>{labelFor(item.skill_area)}</div>
+          <div className="t-cap" style={{ marginTop: 2 }}>{gapWords(item.blind_spot_type)}</div>
         </div>
-        <SeverityBadge severity={item.severity} />
+        <Badge variant={SEV_VARIANT[item.severity] ?? 'neutral'}>{severityWords(item.severity)}</Badge>
       </div>
-
-      <div className="mt-4 space-y-3">
-        <ScoreBar label="Self rating" value={item.self_rating} />
-        <ScoreBar label={`${item.comparison_source} score`} value={item.comparison_score} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+        <ScoreBar label="You said" value={item.self_rating} />
+        {/* The field says "observed", which is what the code calls it. What the
+            reader needs to know is that a machine measured it, not a person. */}
+        <ScoreBar label="Measured" value={item.comparison_score} />
       </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <InfoBox label="Gap" value={formatScore(item.gap)} />
-        <InfoBox label="Confidence" value={`${Math.round(Number(item.confidence || 0) * 100)}%`} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <InfoBox label="Difference" value={formatScore(item.gap)} />
+        {/* This box used to read "How sure", and the number in it was
+            0.45 + gap/100 + 0.10 - the difference to its left, rescaled. Two
+            findings with the same gap always scored the same, whatever the
+            history behind them, so the box restated its neighbour and dressed
+            the restatement as certainty.
+            
+            How often the gap recurs is the thing that number was pretending to
+            be: it separates a habit from an off day, which is the decision the
+            learner is actually making here. */}
+        <InfoBox label="How often" value={recurrenceWords(recurrence)} />
       </div>
-
-      <p className="mt-4 text-sm text-muted-foreground">{item.recommendation}</p>
+      <p className="t-cap" style={{ lineHeight: 1.55 }}>{item.recommendation}</p>
     </div>
   )
 }
 
 function AlignmentSummary({ summary }) {
-  if (!summary) return <EmptyState text="No feedback analysis summary yet" />
-
+  if (!summary) return <EmptyMsg text="Rate yourself after a session to see this" />
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <Metric icon={UserCircle} label="Self Feedback" value={summary.self_feedback_count || 0} compact />
-      <Metric icon={BarChart3} label="System Evidence" value={summary.system_evidence_count || 0} compact />
-      <Metric icon={Target} label="Self Avg" value={formatScore(summary.average_self_rating)} compact />
-      <Metric icon={BarChart3} label="Observed Avg" value={formatScore(summary.average_observed_score)} compact />
-      <Metric icon={CheckCircle2} label="Aligned" value={summary.aligned_count || 0} compact />
-      <Metric icon={ShieldAlert} label="Blind Spots" value={summary.blind_spot_count || 0} compact />
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <MetricBox icon={UserCircle} label="Times you rated yourself" value={summary.self_feedback_count || 0} compact />
+      <MetricBox icon={BarChart3} label="Skills checked" value={summary.analyzed_skill_count || 0} compact />
+      <MetricBox icon={Target} label="Your average rating" value={formatScore(summary.average_self_rating)} compact />
+      <MetricBox icon={BarChart3} label="Measured average" value={formatScore(summary.average_observed_score)} compact />
+      <MetricBox icon={CheckCircle2} label="Spot on" value={summary.aligned_count || 0} compact />
+      <MetricBox icon={ShieldAlert} label="Gaps" value={summary.blind_spot_count || 0} compact />
     </div>
   )
 }
 
-function AlignmentTable({ items }) {
-  if (!items.length) return <EmptyState text="No alignment analysis yet" />
+const ALIGNMENT_WORDS = {
+  aligned: 'Spot on',
+  self_overestimation: 'You rated it higher',
+  self_underestimation: 'You rated it lower',
+  // Not "Not enough sessions". The session measured this skill; the learner just
+  // did not rate it, so there are not two sides to compare. Saying "sessions"
+  // pointed at the wrong thing entirely and left them nothing to act on.
+  insufficient_data: 'You did not rate this',
+}
+const alignmentWords = (value) =>
+  ALIGNMENT_WORDS[value] || String(value || '').replaceAll('_', ' ')
 
+function AlignmentTable({ items }) {
+  if (!items.length) return <EmptyMsg text="Rate yourself after a session to see this" />
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <div className="min-w-[760px]">
-        <div className="grid grid-cols-[1.2fr_repeat(3,0.8fr)_1fr] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
-          <span>Skill</span>
-          <span>Self</span>
-          <span>Observed</span>
-          <span>Gap</span>
-          <span>Alignment</span>
+    <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ minWidth: 720 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.7fr 0.8fr 0.8fr 1.6fr', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+          {['Skill', 'You said', 'Measured', 'Difference', 'How it went'].map((h) => (
+            <span key={h} className="t-cap" style={{ fontWeight: 500 }}>{h}</span>
+          ))}
         </div>
         {items.map((item) => (
-          <div key={item.skill_area} className="grid grid-cols-[1.2fr_repeat(3,0.8fr)_1fr] gap-2 border-b border-border px-3 py-3 text-sm last:border-0">
-            <span className="font-medium">{labelFor(item.skill_area)}</span>
-            <span>{formatScore(item.self_rating)}</span>
-            <span>{formatScore(item.observed_score)}</span>
-            <span>{formatGap(item.self_observed_gap)}</span>
-            <span className="truncate text-muted-foreground">{item.alignment}</span>
+          <div key={item.skill_area} style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.7fr 0.8fr 0.8fr 1.6fr', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 }}>
+            <span className="fg" style={{ fontWeight: 500 }}>{labelFor(item.skill_area)}</span>
+            <span className="fg">{formatScore(item.self_rating)}</span>
+            <span className="fg">{formatScore(item.observed_score)}</span>
+            <span className="fg">{formatGap(item.self_observed_gap)}</span>
+            {/* Printed the raw enum, clipped to one line - so a learner read
+                "self_overestimatio…". Both halves of that were wrong. */}
+            <span className="t-cap" style={{ lineHeight: 1.5, whiteSpace: 'normal' }}>{alignmentWords(item.alignment)}</span>
           </div>
         ))}
       </div>
@@ -385,103 +520,209 @@ function ScoreBar({ label, value }) {
   const score = normalizeScore(value)
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{formatScore(score)}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span className="t-cap">{label}</span>
+        <span className="fg" style={{ fontSize: 13, fontWeight: 500 }}>{formatScore(score)}</span>
       </div>
-      <div className="h-2 rounded-full bg-muted">
-        <div className="h-2 rounded-full bg-secondary" style={{ width: `${score || 0}%` }} />
+      <div style={{ height: 6, borderRadius: 99, background: 'var(--bg-input)' }}>
+        <div style={{ height: 6, borderRadius: 99, background: 'var(--accent)', width: `${score || 0}%`, transition: 'width 0.3s' }} />
       </div>
     </div>
   )
 }
 
-function Metric({ icon: Icon, label, value, compact = false }) {
+function MetricBox({ icon: Icon, label, value, compact = false }) {
   return (
-    <div className="rounded-md border border-border bg-background/40 p-3">
-      <Icon className="mb-2 h-4 w-4 text-secondary" />
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`${compact ? 'text-base' : 'text-xl'} mt-1 truncate font-semibold`}>{value}</p>
+    <div style={{ padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)', background: 'var(--bg-input)' }}>
+      <Icon size={13} strokeWidth={1.8} style={{ color: 'var(--accent)', marginBottom: 6 }} />
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: compact ? 16 : 22, fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   )
 }
 
 function InfoBox({ label, value }) {
   return (
-    <div className="rounded-md border border-border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 font-semibold">{value}</p>
+    <div style={{ padding: 10, borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+      <div className="t-cap">{label}</div>
+      <div className="fg" style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   )
 }
 
 function Panel({ title, icon: Icon, children }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-secondary" />
-        <h2 className="text-base font-semibold">{title}</h2>
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--accent)' }} />
+        <div className="t-over">{title}</div>
       </div>
       {children}
-    </section>
-  )
-}
-
-function Input({ label, value, onChange }) {
-  return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <input
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    </Card>
   )
 }
 
 function SelectInput({ label, value, onChange, options }) {
   return (
-    <label className="grid gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+    <label style={{ display: 'grid', gap: 4 }}>
+      <span className="t-cap">{label}</span>
       <select
-        className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary"
+        className="input"
+        style={{ height: 36, paddingTop: 0, paddingBottom: 0 }}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(e) => onChange(e.target.value)}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
     </label>
   )
 }
 
-function StatusPill({ status }) {
-  const label = status === 'live' ? 'Live API blind spots' : status === 'loading' ? 'Loading blind spots' : 'Demo blind spots'
+const GAP_TONE = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--info)' }
+
+/**
+ * Blind spots found in what the learner wrote, rather than in what they scored.
+ *
+ * The panel above compares numbers: a self-rating against measured performance.
+ * This compares the sentiment the learner selected against the sentiment the NLP
+ * model reads in their own reflection — the same self-perception gap, expressed
+ * in language. Their words are quoted back so the finding is checkable.
+ */
+// Floor, not round. 0.9962 rounds to "100% confidence", which is a certainty the
+// model never expressed and cannot have — a probability below 1 must not be
+// printed as 1. Flooring can only ever understate.
+function confidencePct(value) {
+  return Math.floor(Number(value || 0) * 100)
+}
+
+const READING_NOTE = {
+  agrees: 'Your words match how you marked it. Nothing to look at here.',
+  // Says the number rather than "unreliable". A learner can weigh "right about
+  // 7 times in 10" for themselves; "not reliable" only tells them to ignore it,
+  // which is the wrong instruction when the reading is often correct.
+  not_acted_on: 'The automatic reading disagreed with you. It is not raised as a blind spot: measured against hand-labelled workplace writing, readings in this direction are right about 7 times in 10, which is not enough to tell you something about yourself. Your own words are above — judge it yourself.',
+}
+
+/**
+ * The reflections that produced no finding, shown rather than summarised away.
+ *
+ * This panel had only gaps to render, so on a session where the learner had
+ * written something, been read, and agreed with, it showed one line of text in
+ * an otherwise empty box — and earlier, a line telling them to write a
+ * reflection they had already written. Their own words are the evidence behind
+ * everything else here; there is no reason to withhold them.
+ */
+function ReflectionReadingList({ readings }) {
   return (
-    <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-      {label}
-    </span>
+    <div style={{ display: 'grid', gap: 10 }}>
+      {readings.map((reading, index) => (
+        <div
+          key={`${reading.session_id}-${index}`}
+          style={{
+            padding: 14,
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
+          }}
+        >
+          <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '2px solid var(--border-subtle)' }}>
+            <span className="fg" style={{ fontSize: 13, fontStyle: 'italic' }}>“{reading.comment_excerpt}”</span>
+          </blockquote>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10 }}>
+            <span className="t-cap">You marked it</span>
+            <strong className="fg" style={{ textTransform: 'capitalize', fontSize: 12 }}>
+              {reading.declared_sentiment}
+            </strong>
+            {reading.outcome === 'agrees' ? (
+              <span className="t-cap">
+                · read the same way
+                {reading.confidence != null && ` (${confidencePct(reading.confidence)}% confidence)`}
+              </span>
+            ) : (
+              <>
+                <span className="t-cap">· your words read as</span>
+                <strong style={{ textTransform: 'capitalize', fontSize: 12, color: 'var(--warning-text)' }}>
+                  {reading.detected_sentiment}
+                </strong>
+                {reading.confidence != null && (
+                  <span className="t-cap">({confidencePct(reading.confidence)}% confidence)</span>
+                )}
+              </>
+            )}
+          </div>
+          <p className="t-cap" style={{ marginTop: 8, lineHeight: 1.55 }}>{READING_NOTE[reading.outcome]}</p>
+        </div>
+      ))}
+    </div>
   )
 }
 
-function SeverityBadge({ severity }) {
-  const className =
-    severity === 'high'
-      ? 'bg-destructive/20 text-destructive'
-      : severity === 'medium'
-        ? 'bg-warning/20 text-warning'
-        : severity === 'none'
-          ? 'bg-muted text-muted-foreground'
-          : 'bg-success/20 text-success'
-  return <span className={`rounded-full px-2 py-1 text-xs ${className}`}>{severity}</span>
+function SentimentGapList({ items, readings = [] }) {
+  if (!items.length) {
+    // Three states, not one. "Write a reflection to have this checked" was shown
+    // to a learner who had just written one, beside "no gaps" for a reflection
+    // the model had read and disagreed with.
+    const unraised = readings.filter((reading) => reading.outcome !== 'raised')
+    if (unraised.length) return <ReflectionReadingList readings={unraised} />
+    return (
+      <EmptyMsg text="Nothing to check yet. Write a reflection after a session and your words will be compared with the ratings you gave." />
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {items.map((gap, index) => (
+        <div
+          key={`${gap.session_id}-${index}`}
+          style={{
+            padding: 16,
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border-subtle)',
+            borderLeft: `3px solid ${GAP_TONE[gap.severity] || 'var(--accent)'}`,
+            background: 'color-mix(in oklab, var(--bg-input) 60%, transparent)',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span className="t-cap">You marked it</span>
+            <strong style={{ textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+              {gap.declared_sentiment}
+            </strong>
+            <span className="t-cap">but your words read as</span>
+            <strong style={{ textTransform: 'capitalize', color: GAP_TONE[gap.severity] }}>
+              {gap.detected_sentiment}
+            </strong>
+            <span className="t-cap">({confidencePct(gap.confidence)}% confidence)</span>
+          </div>
+
+          <blockquote
+            style={{
+              margin: 0,
+              padding: '10px 14px',
+              borderLeft: '2px solid var(--border-subtle)',
+              fontStyle: 'italic',
+              color: 'var(--text-secondary)',
+              fontSize: 14,
+              lineHeight: 1.6,
+            }}
+          >
+            {gap.comment_excerpt}
+          </blockquote>
+
+          <p className="t-cap" style={{ marginTop: 10, lineHeight: 1.6 }}>{gap.recommendation}</p>
+        </div>
+      ))}
+    </div>
+  )
 }
 
-function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{text}</div>
+function EmptyMsg({ text }) {
+  return (
+    <div style={{ padding: 20, borderRadius: 'var(--radius)', border: '1px dashed var(--border-subtle)', textAlign: 'center' }}>
+      <span className="t-cap">{text}</span>
+    </div>
+  )
 }
 
 function normalizeScore(value) {
@@ -494,8 +735,19 @@ function formatScore(value) {
   return Math.round(Number(value))
 }
 
+// "N/A" is not a phrase anybody says. A blank cell already means "nothing here".
+function formatScoreOrBlank(value) {
+  const score = formatScore(value)
+  return score === 'N/A' ? '—' : score
+}
+
 function formatGap(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A'
-  const rounded = Math.round(Number(value))
-  return `${rounded > 0 ? '+' : ''}${rounded}`
+  const gap = Number(value)
+  // Rounded to whole numbers this column stopped agreeing with the two beside
+  // it: a self-rating of 77.19 against a measured 77.50 showed as "77", "78"
+  // and a difference of "0", which reads as an arithmetic mistake. Under a
+  // point, the decimal is the only thing that makes the row add up.
+  const rounded = Math.abs(gap) < 1 ? gap.toFixed(1) : String(Math.round(gap))
+  return `${gap > 0 ? '+' : ''}${rounded}`
 }

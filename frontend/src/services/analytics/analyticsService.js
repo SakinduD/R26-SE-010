@@ -12,6 +12,11 @@ export const analyticsService = {
   getBlindSpotsBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/blind-spots`).then(unwrap),
 
+  // Null when there is nothing to offer, which is the common case. The phrase
+  // list this answers from lives on the server; see reflection_support.py.
+  getReflectionSupport: (sessionId) =>
+    api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/reflection-support`).then(unwrap),
+
   getFeedbackAnalysisByUser: (userId) =>
     api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/feedback-analysis`).then(unwrap),
 
@@ -44,6 +49,15 @@ export const analyticsService = {
       params: forceRefresh ? { force_refresh: true } : {},
     }).then(unwrap),
 
+  getLearnerProfileSignal: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/learner-profile-signal`).then(unwrap),
+
+  getGamificationByUser: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/gamification`).then(unwrap),
+
+  syncGamificationByUser: (userId) =>
+    api.post(`/api/v1/analytics/users/${encodeURIComponent(userId)}/gamification/sync`).then(unwrap),
+
   getAggregateBySession: (sessionId) =>
     api.get(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/aggregate`).then(unwrap),
 
@@ -56,8 +70,26 @@ export const analyticsService = {
   createFeedbackEntry: (payload) =>
     api.post('/api/v1/analytics/feedback', payload).then(unwrap),
 
+  // Whole-history views. Only meaningful without a session selected: they
+  // answer "where am I now versus where I started", which a single session
+  // cannot.
+  getSkillHistory: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/skill-history`).then(unwrap),
+
+  getRecurringBlindSpots: (userId) =>
+    api.get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/recurring-blind-spots`).then(unwrap),
+
   integrateCompletedSession: (payload) =>
     api.post('/api/v1/analytics/integrations/session-complete', payload).then(unwrap),
+
+  // Server-side integration of a single finished session: the backend reads the
+  // session from its own tables, so the caller needs nothing but the id.
+  integrateSession: (sessionId) =>
+    api.post(`/api/v1/analytics/sessions/${encodeURIComponent(sessionId)}/integrate`).then(unwrap),
+
+  // Lets the session-end hook resolve the learner without the MCA screens
+  // having to wire in the auth context themselves.
+  getCurrentUserId: () => api.get('/api/v1/auth/me').then((r) => r.data?.id || ''),
 
   getComponentSurveyProfile: () =>
     api.get('/api/v1/survey/profile/me').then(unwrap),
@@ -65,15 +97,20 @@ export const analyticsService = {
   getComponentAdaptivePlan: () =>
     api.get('/api/v1/apa/plan/me').then(unwrap),
 
-  getComponentRpeSession: (sessionId) =>
-    api.get(`/api/v1/rpe/session-summary/${encodeURIComponent(sessionId)}`).then(unwrap),
-
-  getComponentRpeFeedback: (sessionId) =>
-    api.get(`/api/v1/rpe/session-feedback/${encodeURIComponent(sessionId)}`).then(unwrap),
-
-  getComponentRpeSessions: () =>
-    api.get('/api/v1/rpe/my-sessions').then(unwrap),
+  // The learner's completed sessions, newest first, from this module's own
+  // endpoint rather than the multimodal engine's. That one pages over sessions
+  // in any state, so a page of twenty could arrive with nothing selectable in
+  // it; this one filters before the limit and reports the true total.
+  getLearnerSessions: (userId, { limit = 5, offset = 0 } = {}) =>
+    api
+      .get(`/api/v1/analytics/users/${encodeURIComponent(userId)}/sessions`, {
+        params: { limit, offset },
+      })
+      .then(unwrap),
 
   getComponentMcaSessions: (limit = 20, offset = 0) =>
     api.get('/api/v1/mca/sessions/', { params: { limit, offset } }).then(unwrap),
+
+  getComponentMcaSession: (sessionId) =>
+    api.get(`/api/v1/mca/sessions/${encodeURIComponent(sessionId)}`).then(unwrap),
 }

@@ -1,289 +1,609 @@
-import React, { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
+import { Navigate, useNavigate } from 'react-router-dom';
+import Webcam from 'react-webcam';
+import * as faceMesh from '@mediapipe/face_mesh';
+import * as cam from '@mediapipe/camera_utils';
+import * as draw from '@mediapipe/drawing_utils';
+import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
+import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
+import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
+import { mcaService } from '@/services/mca/mcaService';
+import AIChatbot from '@/components/MCA/AIChatbot';
+import { hasCaptureConsent } from '@/components/MCA/CaptureConsent';
+import clsx from 'clsx';
 import {
-  Activity, ArrowRight, CheckCircle2, Loader2,
-  Mic, Sparkles, Users,
-} from 'lucide-react'
-import { getMyBaseline, injectDemoPersona, listDemoPersonas, skipBaseline } from '@/lib/api/pedagogy'
-import { useProtectedRoute } from '@/lib/auth/useProtectedRoute'
-import { fadeInUp, staggerContainer } from '@/lib/animations'
-import { cn } from '@/lib/utils'
-
-const IS_DEMO = import.meta.env.VITE_DEMO_MODE === 'true'
-
-function MetricPill({ label, value, color }) {
-  return (
-    <div className="flex-1 rounded-xl border border-border/60 bg-muted/30 p-3 space-y-0.5 text-center">
-      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
-      <p className={cn('text-xl font-bold tabular-nums', color)}>{value}</p>
-    </div>
-  )
-}
-
-function BaselineSummaryCard({ baseline }) {
-  const stressColor = baseline.stress_indicator > 0.6 ? 'text-orange-500' : 'text-emerald-500'
-  const confColor = baseline.confidence_indicator < 0.3 ? 'text-orange-500' : 'text-emerald-500'
-
-  return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-emerald-400/40 bg-emerald-500/5 p-5 space-y-4"
-    >
-      <div className="flex items-center gap-2">
-        <CheckCircle2 className="size-5 text-emerald-500" />
-        <h2 className="text-sm font-semibold text-foreground">Baseline recorded</h2>
-      </div>
-
-      <div className="flex gap-3">
-        <MetricPill
-          label="Stress"
-          value={`${Math.round((baseline.stress_indicator ?? 0) * 100)}%`}
-          color={stressColor}
-        />
-        <MetricPill
-          label="Confidence"
-          value={`${Math.round((baseline.confidence_indicator ?? 0) * 100)}%`}
-          color={confColor}
-        />
-        {baseline.duration_seconds != null && (
-          <MetricPill
-            label="Duration"
-            value={`${baseline.duration_seconds}s`}
-            color="text-foreground"
-          />
-        )}
-      </div>
-
-      {baseline.dominant_emotions?.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
-            Dominant emotions
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {baseline.dominant_emotions.map((e) => (
-              <span
-                key={e}
-                className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground capitalize"
-              >
-                {e}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="text-xs text-emerald-700 border-t border-emerald-400/30 pt-3">
-        Your plan has been calibrated using this baseline evidence.
-      </p>
-    </motion.div>
-  )
-}
-
-function DemoInjector({ onInjected }) {
-  const [personas, setPersonas] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [active, setActive] = useState(null)
-
-  useEffect(() => {
-    listDemoPersonas()
-      .then(setPersonas)
-      .catch(() => setPersonas([]))
-  }, [])
-
-  async function handleInject(personaId) {
-    setLoading(true)
-    setActive(personaId)
-    try {
-      await injectDemoPersona(personaId)
-      onInjected()
-    } catch {
-      setLoading(false)
-      setActive(null)
-    }
-  }
-
-  if (!personas.length) return null
-
-  return (
-    <motion.div
-      variants={fadeInUp}
-      className="rounded-xl border border-violet-400/40 bg-violet-500/5 p-5 space-y-3"
-    >
-      <div className="flex items-center gap-2">
-        <Users className="size-4 text-violet-500" />
-        <p className="text-sm font-semibold text-foreground">Demo mode — inject a persona</p>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Instantly load a pre-canned OCEAN profile + baseline for demonstration purposes.
-      </p>
-      <div className="flex flex-col gap-2">
-        {personas.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => handleInject(p.id)}
-            disabled={loading}
-            className="flex items-start gap-3 rounded-xl border border-border/60 bg-card p-3 text-left hover:bg-muted/30 transition-colors disabled:opacity-60"
-          >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/10">
-              {loading && active === p.id
-                ? <Loader2 className="size-3.5 animate-spin text-violet-500" />
-                : <Sparkles className="size-3.5 text-violet-500" />
-              }
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-foreground">{p.label}</p>
-              <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                {p.description}
-              </p>
-            </div>
-          </button>
-        ))}
-      </div>
-    </motion.div>
-  )
-}
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
+import { completeBaseline } from '@/lib/api/baseline';
 
 export default function Baseline() {
-  const { isLoading: authLoading } = useProtectedRoute()
-  const navigate = useNavigate()
-  const [baseline, setBaseline] = useState(undefined)
-  const [loading, setLoading] = useState(true)
+  const { isLoading: authLoading } = useProtectedRoute();
+  const navigate = useNavigate();
+  const [showMesh, setShowMesh] = useState(false);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [aiMicActive, setAiMicActive] = useState(false);
+  const [aiHasMicPermission, setAiHasMicPermission] = useState(false);
+  const [aiDiscardSignal, setAiDiscardSignal] = useState(0);
+  const [aiStartSignal, setAiStartSignal] = useState(0);
 
-  function fetchBaseline() {
-    setLoading(true)
-    getMyBaseline()
-      .then((b) => {
-        setBaseline(b)
-        setLoading(false)
-      })
-      .catch(() => {
-        setBaseline(null)
-        setLoading(false)
-      })
-  }
+  const [aiSessionActive, setAiSessionActive] = useState(false);
+  const aiSessionActiveRef = useRef(false);
+  const [nudges, setNudges] = useState([]);
+  const [metrics, setMetrics] = useState({
+    ear: 0,
+    mar: 0,
+    pose: { yaw: 0, pitch: 0, roll: 0 },
+    emotion: 'Sensing...',
+    confidence: 0,
+    isSyncing: false,
+    modelKind: 'unknown'
+  });
+  const webcamRef = useRef(null);
+  const canvasRef = useRef(null);
+  const cameraRef = useRef(null);
+  // Face metrics averaged per audio chunk and per session (read by AIChatbot).
+  const visualStatsRef = useRef({ chunk: createVisualAccumulator(), session: createVisualAccumulator() });
+  const eyeClosureRef = useRef(createEyeClosureFilter());
+
+  const [aiSessionStarting, setAiSessionStarting] = useState(false);
+  const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
+  const [navAlertTarget, setNavAlertTarget] = useState(null);
+  const [aiSessionEnding, setAiSessionEnding] = useState(false);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+
+  const handleNudge = useCallback((text, category = 'fusion', severity = 'info') => {
+    if (!aiSessionActiveRef.current) return;
+    const id = Date.now();
+    const newNudge = {
+      id,
+      text,
+      category,
+      severity,
+      shownAt: id,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setNudges(prev => upsertNudge(prev, newNudge, 5));
+    setTimeout(() => {
+      setNudges(prev => prev.filter(n => n.id !== id));
+    }, 10000);
+  }, []);
+
+  // Hand the finished MCA session to the pedagogy module as this learner's baseline.
+  // The first baseline builds the training plan; a redo only updates the learner
+  // profile, and the plan picks it up when regenerated. The MCA session itself is
+  // already saved, so a failure here only means pedagogy didn't take it.
+  const handleSessionCompleted = useCallback(async (session) => {
+    try {
+      const result = await completeBaseline(session.id);
+      toast.success("Baseline saved", {
+        description: result?.plan_regenerated === false
+          ? "Your learner profile is updated. Regenerate your training plan to use it."
+          : "Your training plan now reflects this session."
+      });
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      toast.error("Couldn't use this session as your baseline", {
+        description: typeof detail === 'string' ? detail : "Your session was saved, but your training plan wasn't updated."
+      });
+    }
+  }, []);
+
+  // Hide nudges whose behaviour the backend no longer detects.
+  const handleActiveNudges = useCallback((activeMessages) => {
+    setNudges(prev => pruneResolvedNudges(prev, activeMessages));
+  }, []);
+
+  // Warn on navigation if session is active
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (aiSessionActive) {
+        e.preventDefault();
+        e.returnValue = 'You have an active AI session. Are you sure you want to leave?';
+      }
+    };
+
+    const handleGlobalClick = (e) => {
+      if (!aiSessionActive) return;
+      const link = e.target.closest('a');
+      if (link && link.href && link.href.startsWith(window.location.origin) && link.pathname !== window.location.pathname) {
+        e.preventDefault();
+        e.stopPropagation();
+        setNavAlertTarget(link.pathname + link.search + link.hash);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleGlobalClick, { capture: true });
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleGlobalClick, { capture: true });
+    };
+  }, [aiSessionActive]);
+
+  const onResults = useCallback((results) => {
+    if (!webcamRef.current || !webcamRef.current.video || !canvasRef.current) return;
+
+    const videoWidth = webcamRef.current.video.videoWidth;
+    const videoHeight = webcamRef.current.video.videoHeight;
+
+    if (canvasRef.current.width !== videoWidth) canvasRef.current.width = videoWidth;
+    if (canvasRef.current.height !== videoHeight) canvasRef.current.height = videoHeight;
+
+    const canvasElement = canvasRef.current;
+    const canvasCtx = canvasElement.getContext("2d");
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    // Mirror horizontally so the feed behaves like a normal selfie/mirror view
+    canvasCtx.translate(canvasElement.width, 0);
+    canvasCtx.scale(-1, 1);
+
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    const hasFace = results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0;
+    if (!hasFace) {
+      visualStatsRef.current.chunk.add(null);
+      visualStatsRef.current.session.add(null);
+    } else {
+      const landmarks = results.multiFaceLandmarks[0];
+
+      const ear = calculateEAR(landmarks);
+      const mar = calculateMAR(landmarks);
+      const pose = estimateHeadPose(landmarks);
+
+      const newMetrics = { ear, mar, pose };
+      setMetrics(prev => ({ ...prev, ...newMetrics, eyesClosed: eyeClosureRef.current(ear) }));
+      visualStatsRef.current.chunk.add(newMetrics);
+      visualStatsRef.current.session.add(newMetrics);
+
+      if (showMesh) {
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
+          color: "#06B6D4",
+          lineWidth: 0.5,
+        });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: "#7C3AED" });
+        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: "#EC4899" });
+      }
+    }
+    canvasCtx.restore();
+  }, [showMesh]);
 
   useEffect(() => {
-    if (authLoading) return
-    fetchBaseline()
-  }, [authLoading])
+    let faceMeshModel = null;
 
-  function handleDemoInjected() {
-    fetchBaseline()
-    navigate('/training-plan')
-  }
+    if (isCameraActive) {
+      faceMeshModel = new faceMesh.FaceMesh({
+        locateFile: (file) => {
+          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
+          return `${baseUrl}/${file}`;
+        },
+      });
 
-  if (loading || authLoading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+      faceMeshModel.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
 
-  const hasBaseline = baseline !== null
-  const [skipping, setSkipping] = useState(false)
+      faceMeshModel.onResults(onResults);
 
-  async function handleSkip() {
-    setSkipping(true)
-    try {
-      await skipBaseline()
-    } catch {
-      // generate_training_plan will 404 if no survey — let TrainingPlan page handle it
+      if (webcamRef.current && webcamRef.current.video) {
+        cameraRef.current = new cam.Camera(webcamRef.current.video, {
+          onFrame: async () => {
+            if (faceMeshModel) {
+              await faceMeshModel.send({ image: webcamRef.current.video });
+            }
+          },
+          width: 1280,
+          height: 720,
+        });
+        cameraRef.current.start();
+      }
     }
-    navigate('/training-plan')
-  }
+
+    return () => {
+      if (cameraRef.current) {
+        cameraRef.current.stop();
+        cameraRef.current = null;
+      }
+      if (faceMeshModel) {
+        faceMeshModel.close();
+      }
+    };
+  }, [isCameraActive, onResults]);
+
+  const toggleCamera = () => {
+    setIsCameraActive(prev => !prev);
+  };
+
+  if (authLoading) return null;
+
+  // No sensing without consent — send direct visits to the consent screen first.
+  if (!hasCaptureConsent('baseline')) return <Navigate to="/baseline/consent" replace />;
 
   return (
-    <motion.div
-      variants={staggerContainer}
-      initial="initial"
-      animate="animate"
-      className="mx-auto max-w-xl space-y-6"
-    >
-      {/* Header */}
-      <motion.div variants={fadeInUp} className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Baseline voice session
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          A 3-minute voice assessment calibrates your training plan with real
-          vocal and emotional evidence — on top of your personality profile.
-        </p>
-      </motion.div>
-
-      {/* What it does */}
-      {!hasBaseline && (
-        <motion.div
-          variants={fadeInUp}
-          className="rounded-xl border border-border/60 bg-card p-5 shadow-sm space-y-3"
-        >
-          <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-md bg-primary/10">
-              <Mic className="size-4 text-primary" />
+    <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">
+      {/* Global Nudge Stack (Floating - Page Top Right) */}
+      <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
+        {nudges.map((nudge, index) => (
+          <div
+            key={nudge.id}
+            className={clsx(
+              "backdrop-blur-2xl border px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-500 animate-in fade-in slide-in-from-right-8 pointer-events-auto group/nudge hover:scale-105",
+              nudge.severity === 'critical' ? "bg-[var(--nudge-critical-bg)] border-white/30 text-white" :
+                nudge.severity === 'warning' ? "bg-[var(--nudge-warning-bg)] border-white/30 text-white" :
+                  "bg-[var(--nudge-info-bg)] border-white/20 text-white",
+              index > 0 && "scale-90 opacity-40 hover:opacity-100"
+            )}
+          >
+            <div className={clsx(
+              "w-9 h-9 rounded-full flex items-center justify-center animate-pulse",
+              nudge.severity === 'critical' ? "bg-white/30" : "bg-white/20"
+            )}>
+              <Activity size={20} />
             </div>
-            <h2 className="text-sm font-semibold text-foreground">How it works</h2>
-          </div>
-          <ul className="space-y-2 text-xs text-muted-foreground">
-            {[
-              'Respond to 2–3 practice prompts in the Multimodal Coach (MCA) module.',
-              'Your vocal tone, pacing, and emotional signals are analysed.',
-              'APM uses the results to fine-tune your starting difficulty, NPC style, and focus skills.',
-            ].map((step, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="shrink-0 flex size-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary mt-0.5">
-                  {i + 1}
-                </span>
-                {step}
-              </li>
-            ))}
-          </ul>
-          <div className="border-t border-border/40 pt-3">
-            <Link
-              to="/multimodal-analysis"
-              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all"
+            <div className="flex flex-col min-w-[120px]">
+              <p className="text-[11px] font-medium tracking-wide uppercase leading-none">{nudge.text}</p>
+              <span className="text-[9px] opacity-50 mt-1.5 font-bold">{nudge.timestamp}</span>
+            </div>
+            <button
+              onClick={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+              className="ml-2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center opacity-0 group-hover/nudge:opacity-100 transition-opacity"
             >
-              <Activity className="size-4" />
-              Go to voice assessment
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
+              <X size={14} />
+            </button>
           </div>
-        </motion.div>
-      )}
+        ))}
+      </div>
 
-      {/* Baseline already recorded */}
-      {hasBaseline && <BaselineSummaryCard baseline={baseline} />}
+      <div className="w-full flex-1 min-h-0 flex flex-col gap-6 transition-all duration-700 ease-in-out max-w-[1600px] h-full">
+        {/* Header Section */}
+        <div className="text-center space-y-1">
+          <h1 className="t-h1" style={{ fontSize: 28 }}>
+            EmpowerZ <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Baseline</span>
+          </h1>
+          <p className="t-over" style={{ marginTop: 4 }}>
+            AI Chatbot · Calibration Session
+          </p>
+        </div>
 
-      {/* Demo persona injector */}
-      {IS_DEMO && <DemoInjector onInjected={handleDemoInjected} />}
+        {/* Early-Exit Confirmation — ending before the 8-minute mark discards the session */}
+        <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End this session early?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You haven't finished yet — ending now means none of it gets saved.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsStopAlertOpen(false)}>Continue Session</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setAiDiscardSignal(Date.now());
+                  setIsStopAlertOpen(false);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Dismiss Session
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-      {/* CTAs */}
-      <motion.div variants={fadeInUp} className="pt-2 pb-8 space-y-3">
-        {hasBaseline ? (
-          <Link
-            to="/training-plan"
-            className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-violet-500 px-5 py-3 text-sm font-semibold text-white shadow-md hover:opacity-90 transition-all"
-          >
-            View your calibrated plan
-            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-          </Link>
-        ) : (
-          <button
-            onClick={handleSkip}
-            disabled={skipping}
-            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-60"
-          >
-            {skipping ? <Loader2 className="size-4 animate-spin" /> : null}
-            Skip — generate plan without baseline
-          </button>
-        )}
-        <Link
-          to="/dashboard"
-          className="group flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-xs text-muted-foreground hover:text-foreground transition-all"
-        >
-          Continue to dashboard
-        </Link>
-      </motion.div>
-    </motion.div>
-  )
+        {/* Navigation Warning Alert */}
+        <AlertDialog open={!!navAlertTarget} onOpenChange={(open) => !open && setNavAlertTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave Active Session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have an active AI session running. Leaving now will dismiss it before completion — no data will be saved. Are you sure you want to leave?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setNavAlertTarget(null)}>Stay in Session</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setAiDiscardSignal(Date.now());
+                  const target = navAlertTarget;
+                  setNavAlertTarget(null);
+                  navigate(target);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Dismiss & Leave
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Dynamic Content Layout */}
+        <div className="flex-1 grid gap-6 transition-all duration-700 ease-in-out min-h-0 lg:grid-cols-3">
+          {/* Capturing Window Section */}
+          <div className="relative group transition-all duration-700 ease-in-out order-1 flex flex-col min-h-0 lg:col-span-2">
+            <div className="relative p-4 md:p-6 bg-surface border border-border-subtle rounded-2xl flex flex-col items-center h-full min-h-0 overflow-y-auto custom-scrollbar">
+              {/* Capturing Window */}
+              <div className="w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500 border-primary/20 hover:border-primary/40">
+                {isCameraActive ? (
+                  <>
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      className="hidden"
+                      videoConstraints={{
+                        facingMode: "user",
+                        aspectRatio: 1.777777778
+                      }}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute inset-0 w-full h-full object-cover rounded-xl"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] via-transparent to-transparent opacity-30 from-primary/10"></div>
+                    <div className="relative flex flex-col items-center gap-4">
+                      <div className="p-10 border-2 border-dashed rounded-2xl font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse transition-colors text-center font-bold border-primary/20 text-primary group-hover/window:border-primary/40">
+                        Camera's off<br />
+                        <span className="text-[8px] opacity-60 mt-2 block tracking-normal">Turn on your camera to begin</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Overlay UI */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
+                  <div className="flex flex-col gap-4 pointer-events-auto">
+                    {!isCameraActive && (
+                      <button
+                        onClick={toggleCamera}
+                        className="bg-primary text-white px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                      >
+                        <Video size={14} />
+                        Turn on camera
+                      </button>
+                    )}
+                    {(!aiMicActive && !aiSessionActive && !isAiSpeaking) && (
+                      <button
+                        onClick={() => setAiMicActive(true)}
+                        className="bg-secondary text-secondary-foreground px-6 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-secondary/90 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 pointer-events-auto"
+                      >
+                        <Mic size={14} />
+                        Turn on microphone
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Persistent Control Bar */}
+                <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center px-6 py-3 bg-surface border border-border-default rounded-3xl z-20 transition-all duration-500 shadow-xl" style={{ backdropFilter: 'blur(12px)' }}>
+                  <div className="flex items-center gap-6 flex-1 justify-start">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Video</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", isCameraActive ? "bg-success shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", isCameraActive ? "text-success" : "text-t-tertiary")}>
+                          {isCameraActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-t-secondary font-black tracking-[0.2em] uppercase">Audio</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className={clsx("w-2 h-2 rounded-full transition-all duration-500", aiMicActive ? "bg-info shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-t-quaternary")} />
+                        <span className={clsx("text-[10px] font-black uppercase tracking-widest", aiMicActive ? "text-info" : "text-t-tertiary")}>
+                          {aiMicActive ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center flex-1 shrink-0">
+                    {!aiSessionActive ? (
+                      <button
+                        onClick={() => {
+                          if (!isCameraActive || !aiMicActive) {
+                            toast.error("Please turn on your camera and microphone first to start the baseline session.", {
+                              description: "Behavioral sensing requires both inputs for real-time analysis."
+                            });
+                            return;
+                          }
+                          setAiStartSignal(Date.now());
+                        }}
+                        disabled={aiSessionStarting}
+                        className="bg-primary text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {aiSessionStarting ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                        Start AI Session
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setIsStopAlertOpen(true)}
+                        disabled={aiSessionEnding}
+                        className="bg-destructive text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2.5 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {aiSessionEnding ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Square size={14} fill="currentColor" />}
+                        Stop AI Session
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <button
+                      onClick={toggleCamera}
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        isCameraActive ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                      )}
+                    >
+                      <Video size={14} className={clsx(isCameraActive && "animate-pulse")} />
+                      {isCameraActive ? "Stop Cam" : "Cam"}
+                    </button>
+                    <button
+                      onClick={() => setAiMicActive(!aiMicActive)}
+                      className={clsx(
+                        "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                        aiMicActive ? "bg-info/15 border-info/60 text-info shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                      )}
+                    >
+                      <Mic size={14} className={clsx(aiMicActive && "animate-pulse")} />
+                      {aiMicActive ? "Stop Mic" : "Mic"}
+                    </button>
+                    {isCameraActive && (
+                      <button
+                        onClick={() => setShowMesh(!showMesh)}
+                        className={clsx(
+                          "flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all uppercase text-[9px] font-black tracking-[0.1em]",
+                          showMesh ? "bg-primary/15 border-primary/60 text-primary shadow-inner" : "bg-surface border-border-default text-t-secondary hover:bg-elevated hover:text-t-primary shadow-sm"
+                        )}
+                      >
+                        <Activity size={14} className={clsx(showMesh && "animate-pulse")} />
+                        Mesh
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Meta Info */}
+              <div className="mt-6 flex flex-wrap justify-center gap-4">
+                <div className="flex items-center gap-2.5 text-[10px] font-medium text-success bg-success/10 px-4 py-2 rounded-lg border border-success/20 uppercase tracking-widest">
+                  <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
+                  Processed on your device
+                </div>
+                {metrics.modelKind && metrics.modelKind !== 'unknown' && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
+                    Model: {metrics.modelKind === 'wav2vec2' ? 'Transformer' : metrics.modelKind === 'cnn' ? 'CNN' : 'SVM'}
+                  </div>
+                )}
+                {isCameraActive && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
+                    Tracking: {showMesh ? "Visual" : "Background"}
+                  </div>
+                )}
+                {metrics.isSyncing && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium text-primary bg-primary/10 px-4 py-2 rounded-lg border border-primary/30 uppercase tracking-widest animate-pulse">
+                    <Activity size={12} />
+                    Analyzing your voice and face
+                  </div>
+                )}
+              </div>
+
+              {/* Behavioral Metrics Dashboard */}
+              {isCameraActive && (
+                <div className="w-full mt-4 pt-4 border-t border-border/50 grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Eye Contact</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.eyesClosed ? "text-destructive" : "text-success")}>
+                        {metrics.eyesClosed ? "Eyes closed" : "Focused"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={clsx("h-full transition-all duration-300", metrics.eyesClosed ? "bg-destructive" : "bg-primary")}
+                        style={{ width: `${Math.min(100, (metrics.ear / 0.3) * 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Expression</span>
+                      <span className={clsx("text-[9px] font-bold", metrics.mar > 0.3 ? "text-primary" : "text-card-foreground")}>
+                        {metrics.mar > 0.3 ? "SPEAKING" : "NEUTRAL"}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-secondary transition-all duration-300"
+                        style={{ width: `${Math.min(100, (metrics.mar / 0.6) * 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-card-foreground">Head Alignment</span>
+                      <span className={clsx(
+                        "text-[9px] font-bold",
+                        (Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "text-warning" : "text-success"
+                      )}>
+                        {(Math.abs(metrics.pose.yaw) > 0.15 || Math.abs(metrics.pose.pitch) > 0.15) ? "Off-center" : "Centered"}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 h-1.5 w-full relative">
+                      <div className="absolute left-1/2 -translate-x-1/2 w-4 h-full bg-foreground/10 z-10 rounded"></div>
+                      <div className="flex-1 bg-muted rounded-full overflow-hidden">
+                        <div className={clsx(
+                          "h-full transition-all duration-300",
+                          Math.abs(metrics.pose.yaw) > 0.15 ? "bg-warning" : "bg-success"
+                        )} style={{ width: `${50 + metrics.pose.yaw * 100}%` }}></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-primary">Voice tone</span>
+                      <span className="text-[9px] font-bold text-primary uppercase">
+                        {metrics.emotion} • {Math.round(metrics.confidence * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden flex">
+                      <div
+                        className="h-full bg-primary transition-all duration-700"
+                        style={{ width: `${metrics.confidence * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AI Chatbot Section */}
+          <div className="lg:col-span-1 order-2 animate-in fade-in slide-in-from-right-8 duration-700 h-full min-h-0 flex flex-col">
+            <AIChatbot
+              isListening={aiMicActive}
+              setIsListening={setAiMicActive}
+              hasPermission={aiHasMicPermission}
+              setHasPermission={setAiHasMicPermission}
+              onNudge={handleNudge}
+              onActiveNudges={handleActiveNudges}
+              visualStatsRef={visualStatsRef}
+              metrics={metrics}
+              setMetrics={setMetrics}
+              discardSignal={aiDiscardSignal}
+              startSignal={aiStartSignal}
+              isCameraActive={isCameraActive}
+              onSessionCompleted={handleSessionCompleted}
+              onSessionStateChange={(isActive, isStarting, isEnding, isSpeaking) => {
+                setAiSessionActive(isActive);
+                aiSessionActiveRef.current = isActive;
+                setAiSessionStarting(isStarting);
+                setAiSessionEnding(isEnding);
+                setIsAiSpeaking(isSpeaking);
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

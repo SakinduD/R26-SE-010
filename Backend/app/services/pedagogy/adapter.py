@@ -6,23 +6,29 @@ test_scale_conversion_100_to_1 fails, only this file should be patched.
 
 Also defines `infer_weak_skills`, the OCEAN→skill-vocabulary mapping passed
 to RPE for scenario recommendations. Skill names below are verified against
-Backend/app/models/rpe/scenarios/scenario_*.json on 2026-05-04.
+Backend/app/models/rpe/scenarios/scenario_*.json on 2026-10-04
+(tests/pedagogy/test_adapter.py fails if the library drifts from this list).
 """
 from __future__ import annotations
 
 from typing import Optional
 
 from app.contracts.rpe import ApaLearnerProfile, DifficultyLabel
+from app.services.pedagogy.strategy_optimizer import weak_baseline_skills
 from app.services.pedagogy.types import BaselineSummary, OceanScores, TeachingStrategy
 
 # ---------------------------------------------------------------------------
 # RPE skill vocabulary (citations to the scenario JSON files)
 #
-#   scenario_001.json  — no apa_metadata block (skipped)
-#   scenario_002.json  — assertiveness, conflict_resolution, professional_communication
-#   scenario_003.json  — client_management, emotional_regulation, accountability
+#   scenario_001.json  — assertiveness, emotional_regulation, boundary_setting
+#   scenario_002.json  — assertiveness, conflict_resolution
+#   scenario_003.json  — client_management, emotional_regulation, accountability, empathy
 #   scenario_004.json  — political_awareness, assertiveness, trust_building
-#   scenario_005.json  — boundary_setting, professional_assertiveness, self_advocacy
+#   scenario_005.json  — boundary_setting, assertiveness, self_advocacy
+#
+# professional_communication and professional_assertiveness are no longer in
+# any library scenario, but stay valid: RPE generates scenarios from a
+# training-plan brief for any skill here.
 # ---------------------------------------------------------------------------
 RPE_SKILL_VOCABULARY: frozenset[str] = frozenset(
     {
@@ -37,8 +43,25 @@ RPE_SKILL_VOCABULARY: frozenset[str] = frozenset(
         "boundary_setting",
         "professional_assertiveness",
         "self_advocacy",
+        "empathy",
     }
 )
+
+# ---------------------------------------------------------------------------
+# MCA baseline skill → RPE skills it exercises. MCA scores four skills
+# (app/api/v1/mca/scoring.py); only emotional_regulation shares a name with
+# RPE, so without this a weak MCA skill could never steer scenario choice.
+# Proposed mapping from the MCA/pedagogy integration review (task P5) —
+# change it here only, together with the MCA team.
+# ---------------------------------------------------------------------------
+MCA_SKILL_TO_RPE_SKILLS: dict[str, tuple[str, ...]] = {
+    "vocal_command": ("assertiveness", "professional_communication"),
+    "speech_fluency": ("professional_communication",),
+    "presence_engagement": ("trust_building",),
+    "emotional_regulation": ("emotional_regulation",),
+}
+
+MAX_BASELINE_WEAK_SKILLS = 5
 
 LOW = 40
 HIGH = 60
@@ -70,11 +93,11 @@ def infer_weak_skills(
     scenario JSONs). If a teammate adds a new skill upstream, add a row here
     with a citation comment.
 
-    Baseline precedence: when baseline.has_baseline is True and
-    baseline.skill_scores contains skills within RPE_SKILL_VOCABULARY with a
-    score < 0.4, those skills take precedence over the OCEAN-derived list.
-    This reflects measured performance evidence over trait inference. Capped
-    at 5 skills.
+    Baseline precedence: when baseline.has_baseline is True and any measured
+    skill scores < 0.4, the RPE skills it maps to (MCA_SKILL_TO_RPE_SKILLS;
+    names already in RPE_SKILL_VOCABULARY map to themselves) take precedence
+    over the OCEAN-derived list, weakest measured skill first. This reflects
+    measured performance evidence over trait inference. Capped at 5 skills.
 
     OCEAN mapping (fallback when no baseline evidence):
       Neuroticism > 60        → emotional_regulation, boundary_setting
@@ -86,18 +109,14 @@ def infer_weak_skills(
                               → trust_building, client_management
     """
     # Baseline evidence takes precedence over trait inference
-    if (
-        baseline is not None
-        and baseline.has_baseline
-        and baseline.skill_scores
-    ):
-        baseline_weak = [
-            k
-            for k, v in baseline.skill_scores.items()
-            if v < 0.4 and k in RPE_SKILL_VOCABULARY
-        ]
-        if baseline_weak:
-            return baseline_weak[:5]
+    baseline_weak: list[str] = []
+    for measured in weak_baseline_skills(baseline):
+        mapped = MCA_SKILL_TO_RPE_SKILLS.get(
+            measured, (measured,) if measured in RPE_SKILL_VOCABULARY else ()
+        )
+        baseline_weak += [s for s in mapped if s not in baseline_weak]
+    if baseline_weak:
+        return baseline_weak[:MAX_BASELINE_WEAK_SKILLS]
 
     # Fall back to OCEAN-derived inference
     skills: list[str] = []

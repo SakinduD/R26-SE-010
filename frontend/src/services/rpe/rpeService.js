@@ -20,13 +20,37 @@ export const rpeService = {
     }
   },
 
-  startSession: async (scenarioId, userId) => {
+  startSession: async (scenarioId, userId, npcName) => {
     try {
       return await authClient
-        .post('/api/v1/rpe/start-session', { scenario_id: scenarioId, user_id: userId })
+        .post('/api/v1/rpe/start-session', { scenario_id: scenarioId, user_id: userId, npc_name: npcName || null })
         .then(unwrap)
     } catch (err) {
-      throw new Error(err.response?.data?.detail || err.message || 'Failed to start session')
+      const detail = err.response?.data?.detail
+      // The active-session cap (409) sends a structured detail object
+      // instead of a plain string — surface it as a typed error so the
+      // caller can show the blocking sessions instead of a generic message.
+      if (detail && typeof detail === 'object' && detail.error === 'active_session_limit') {
+        const limitErr = new Error(detail.message || 'You have reached the active session limit.')
+        limitErr.code = 'active_session_limit'
+        limitErr.activeSessions = detail.active_sessions || []
+        throw limitErr
+      }
+      throw new Error((typeof detail === 'string' ? detail : null) || err.message || 'Failed to start session')
+    }
+  },
+
+  // Generates a scenario from a Training Plan and returns its detail — the
+  // same shape as getScenarioDetail() — without starting a session. Session
+  // start is a separate, explicit startSession() call once the learner has
+  // seen the detail screen, same as every other scenario.
+  generateFromPlan: async (planId) => {
+    try {
+      return await authClient
+        .post(`/api/v1/rpe/from-plan/${encodeURIComponent(planId)}`)
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to generate a scenario from this plan')
     }
   },
 
@@ -112,13 +136,43 @@ export const rpeService = {
     }
   },
 
-  getMyRpeSessions: async () => {
+  getMyRpeSessions: async (trashed = false) => {
     try {
       return await authClient
-        .get('/api/v1/rpe/my-sessions')
+        .get('/api/v1/rpe/my-sessions', { params: { trashed } })
         .then(unwrap)
     } catch (err) {
       throw new Error(err.response?.data?.detail || err.message || 'Failed to fetch your sessions')
+    }
+  },
+
+  trashSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/trash', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to move sessions to the recycle bin')
+    }
+  },
+
+  restoreSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/restore', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to restore sessions')
+    }
+  },
+
+  purgeSessions: async (sessionIds) => {
+    try {
+      return await authClient
+        .post('/api/v1/rpe/sessions/purge', { session_ids: sessionIds })
+        .then(unwrap)
+    } catch (err) {
+      throw new Error(err.response?.data?.detail || err.message || 'Failed to permanently delete sessions')
     }
   },
 }

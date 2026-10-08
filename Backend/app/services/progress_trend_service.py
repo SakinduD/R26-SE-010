@@ -13,16 +13,24 @@ from app.schemas.analytics import (
 
 
 TREND_VERSION = "rule-based-v1"
+
+# What a caller passes when it wants the learner's whole history rather than a
+# page of it. Same reasoning as the constant of this name in
+# data_aggregation_service: a summary that silently drops rows reports a number
+# that is not about what its label says it is about.
+FULL_HISTORY_LIMIT = 10_000
 STABLE_DELTA_THRESHOLD = 5.0
 STABLE_SLOPE_THRESHOLD = 2.0
 
 
+# The four soft-skill dimensions tracked over time. "Overall" is intentionally
+# excluded: it is a summary (the mean of these four skills), not a skill itself,
+# so it must not appear as its own trend line or prediction.
 TREND_SCORE_FIELDS = {
     "vocal_command": "speech_volume_score",
     "speech_fluency": "speech_pace_score",
     "presence_engagement": "eye_contact_score",
     "emotional_intelligence": "empathy_score",
-    "overall": "overall_score",
 }
 
 FEEDBACK_SKILL_ALIASES = {
@@ -32,12 +40,23 @@ FEEDBACK_SKILL_ALIASES = {
 
 
 def analyze_user_progress_trends(
-    db: Session, user_id: str, session_id: str | None = None
+    db: Session, user_id: str, session_id: str | None = None, limit: int = FULL_HISTORY_LIMIT
 ) -> ProgressTrendResult:
+    """Trend lines for the four tracked skills.
+
+    ``limit`` caps how many metric rows are considered (most recent first).
+
+    It defaults to the learner's whole history, and has to. The default was 100,
+    chosen for responsiveness, and it silently changed the answer: with 118
+    sessions it dropped the oldest 18 — the ones that establish where the learner
+    started — and two skills that were declining across the full history came
+    back labelled "stable". A trend measured from an arbitrary point is not a
+    trend, and the saving was 18 rows.
+    """
     cutoff_id = _session_cutoff_id(db, user_id, session_id)
-    metrics = _query_user_metrics(db, user_id, limit=100, cutoff_id=cutoff_id)
+    metrics = _query_user_metrics(db, user_id, limit=limit, cutoff_id=cutoff_id)
     session_ids = {m.session_id for m in metrics} if cutoff_id is not None else None
-    feedback = _query_user_feedback(db, user_id, limit=100, session_ids=session_ids)
+    feedback = _query_user_feedback(db, user_id, limit=limit, session_ids=session_ids)
     trends = [
         _build_skill_trend(skill_area, field, metrics, feedback)
         for skill_area, field in TREND_SCORE_FIELDS.items()
@@ -50,9 +69,17 @@ def analyze_user_skill_trend(
     db: Session,
     user_id: str,
     skill_area: str,
-    limit: int = 100,
+    limit: int = FULL_HISTORY_LIMIT,
     session_id: str | None = None,
 ) -> SkillTrendItem:
+    """One skill's trend line.
+
+    The limit matches ``analyze_user_progress_trends`` and has to. When this
+    defaulted to 100 and that one to the full history, the same skill came back
+    "declining" from the all-skills endpoint and "stable" from the single-skill
+    endpoint — 85 sessions of evidence against 76 — and the two risk levels
+    disagreed on screen as a result.
+    """
     normalized_skill = _normalize_skill_area(skill_area)
     if normalized_skill not in TREND_SCORE_FIELDS:
         return SkillTrendItem(
@@ -80,12 +107,20 @@ def _query_user_metrics(
     if cutoff_id is not None:
         query = query.filter(AnalyticsSessionMetric.id <= cutoff_id)
 
-    return (
+    # Take the most recent `limit` rows, then put them back in chronological
+    # order for the trend line.
+    #
+    # This previously ordered ascending before applying the limit, which kept the
+    # OLDEST rows and silently dropped the newest — so once a learner passed the
+    # limit, their latest sessions stopped appearing in trends and predictions
+    # altogether, and "latest score" reported a session from weeks earlier.
+    rows = (
         query
-        .order_by(AnalyticsSessionMetric.id.asc())
+        .order_by(AnalyticsSessionMetric.id.desc())
         .limit(limit)
         .all()
     )
+    return list(reversed(rows))
 
 
 def _query_user_feedback(
@@ -98,7 +133,10 @@ def _query_user_feedback(
     if session_ids is not None:
         query = query.filter(FeedbackEntry.session_id.in_(session_ids))
 
-    return query.order_by(FeedbackEntry.id.asc()).limit(limit).all()
+    # Newest first for the limit, then back into chronological order — same
+    # reasoning as the metric query above.
+    rows = query.order_by(FeedbackEntry.id.desc()).limit(limit).all()
+    return list(reversed(rows))
 
 
 def _session_cutoff_id(
@@ -315,14 +353,27 @@ def _classify_trend(delta: float, slope: float) -> str:
     return "stable"
 
 
+# The learner reads these, not an instructor. They were written the other way
+# round - "assign targeted practice" is an instruction to somebody else about
+# them - and they printed the raw column name, so a learner was told
+# "vocal_command is declining".
+SKILL_LABELS = {
+    "vocal_command": "voice",
+    "speech_fluency": "fluency",
+    "presence_engagement": "presence",
+    "emotional_intelligence": "emotional read",
+}
+
+
 def _recommendation(skill_area: str, trend_label: str) -> str:
+    label = SKILL_LABELS.get(skill_area, skill_area.replace("_", " "))
     if trend_label == "improving":
-        return f"{skill_area} is improving. Continue the current practice pattern."
+        return f"Your {label} is climbing. Whatever you changed, keep doing it."
     if trend_label == "declining":
-        return f"{skill_area} is declining. Review recent sessions and assign targeted practice."
+        return f"Your {label} has been slipping. Worth making it the focus of your next session."
     if trend_label == "stable":
-        return f"{skill_area} is stable. Add a stretch goal to create measurable growth."
-    return f"More session data is needed to identify a reliable {skill_area} trend."
+        return f"Your {label} is holding steady. Try a harder scenario to push it up."
+    return f"A couple more sessions and we can tell which way your {label} is going."
 
 
 def _normalize_skill_area(skill_area: str) -> str:

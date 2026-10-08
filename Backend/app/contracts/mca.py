@@ -1,17 +1,7 @@
 """
-MCA (Multimodal Communication Analysis) integration contracts.
-
-Mirrors shape from:
-  - Backend/app/api/v1/mca/audio.py        (outbound WS payload structure)
-  - Backend/app/api/v1/mca/base_types.py:22-27 (Nudge dataclass)
-
-SCHEMA_VERSION = 1
-
-APM does NOT consume MCA's WebSocket directly (their auth is a hardcoded
-token, not our JWT). Instead APM exposes POST /api/v1/pedagogy/signals/live
-which accepts a list of these McaNudge payloads — that lets the May-08 demo
-POST simulated nudges and prove the live-adjustment loop without coupling to
-MCA's auth scheme.
+MCA integration contracts, mirroring the audio WebSocket `metrics` payload
+and the Nudge dataclass. APM receives these via its own live-signals endpoint
+rather than reading MCA's WebSocket.
 """
 from __future__ import annotations
 
@@ -35,15 +25,16 @@ NudgeSeverity = Literal["info", "warning", "critical"]
 
 class McaNudge(BaseModel):
     """
-    Single live coaching nudge from MCA's audio analyser.
+    One live coaching nudge from MCA's audio analyser: the `metrics` object of
+    an audio WebSocket frame whose nudge_category is set. Extra frame fields
+    (speaking, detections, ...) are ignored.
 
-    Source:
-      - Backend/app/api/v1/mca/audio.py outbound `metrics` block
-      - Backend/app/api/v1/mca/base_types.py::Nudge (lines 22-27)
+    emotion is None when the learner wasn't speaking in that chunk; MCA then
+    sends confidence 0.0, which is not an emotion reading.
     """
 
-    emotion: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    emotion: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     nudge: str | None = None
     nudge_category: NudgeCategory
     nudge_severity: NudgeSeverity

@@ -95,7 +95,12 @@ class ScenarioDetail(BaseModel):
 
 
 class TurnMetric(BaseModel):
-    """Mirror of Backend/app/schemas/rpe.py::TurnMetric (lines 100-106)."""
+    """
+    Mirror of Backend/app/schemas/rpe.py::TurnMetric.
+
+    All four scores are on RPE's 0-10 scale (rpe_nlp_service._score_turn),
+    NOT 0-1. Divide by 10 before comparing against 0-1 thresholds.
+    """
 
     turn: int
     assertiveness_score: float
@@ -139,6 +144,12 @@ class FeedbackResponse(BaseModel):
 
     This is the inbound payload for POST /api/v1/apa/session-feedback —
     the integration point where RPE notifies APM that a session ended.
+
+    Scales and labels as RPE produces them:
+      outcome           "success" | "failure" | "ended_by_user" (learner left early)
+      final_trust       0-100 (0 is a real value, not "missing")
+      final_escalation  0-5
+      coaching_advice.overall_rating  "excellent" | "good" | "needs_work"
     """
 
     session_id: str

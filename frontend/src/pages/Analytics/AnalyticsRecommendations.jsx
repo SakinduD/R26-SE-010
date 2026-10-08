@@ -14,18 +14,20 @@ import {
   AlertTriangle,
   ArrowRight,
 } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
 import { analyticsService } from '../../services/analytics/analyticsService'
-import AnalyticsNav from './AnalyticsNav'
+// REDESIGN: AnalyticsNav removed — sidebar Progress section now handles navigation
+import AnalyticsLoadButton from './AnalyticsLoadButton'
+import AnalyticsSessionSelect from './AnalyticsSessionSelect'
 import { useAnalyticsIdentity } from './analyticsAuth'
+import { loadComponentSessionOptions, selectPreferredComponentSession } from './analyticsIntegrationUtils'
 
 export default function AnalyticsRecommendationsNew() {
   const params = useParams()
   const { userId: connectedUserId, userLabel, isAuthLoading, isAuthenticated } = useAnalyticsIdentity(params.userId)
   
   const [mode, setMode] = useState('session')
-  const [sessions, setSessions] = useState([])
-  const [selectedSession, setSelectedSession] = useState(null)
+  const [sessionOptions, setSessionOptions] = useState([])
+  const [sessionId, setSessionId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -40,10 +42,16 @@ export default function AnalyticsRecommendationsNew() {
   // Derive display data from caches
   const recommendations = mode === 'overall'
     ? (overallCache?.recommendations || [])
-    : (sessionCache[selectedSession?.id]?.recommendations || [])
+    : (sessionCache[sessionId]?.recommendations || [])
+
+  // Present only when a reflection was about more than practice. See
+  // reflection_support.py for why this is not one of the recommendations.
+  const supportPath = mode === 'overall'
+    ? (overallCache?.supportPath || null)
+    : (sessionCache[sessionId]?.supportPath || null)
   const evidence = mode === 'overall'
     ? (overallCache?.evidence || null)
-    : (sessionCache[selectedSession?.id]?.evidence || null)
+    : (sessionCache[sessionId]?.evidence || null)
 
   // Clear caches and fetch flags when user identity changes
   useEffect(() => {
@@ -58,30 +66,12 @@ export default function AnalyticsRecommendationsNew() {
 
     const loadSessions = async () => {
       try {
-        const rpeData = await analyticsService.getComponentRpeSessions()
-        const mcaData = await analyticsService.getComponentMcaSessions(50, 0)
-
-        const allSessions = [
-          ...(Array.isArray(rpeData) ? rpeData : []).map(s => ({
-            id: s.session_id,
-            label: `${s.scenario_id || 'Practice Session'}`,
-            subtitle: `Role-Play Exercise • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'rpe',
-            timestamp: s.started_at,
-          })),
-          ...(Array.isArray(mcaData) ? mcaData : []).map(s => ({
-            id: s.id,
-            label: `${s.mode || 'Conversation'} Session`,
-            subtitle: `Interview Practice • ${new Date(s.started_at).toLocaleDateString()} ${new Date(s.started_at).toLocaleTimeString()}`,
-            type: 'mca',
-            timestamp: s.started_at,
-          })),
-        ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-
-        setSessions(allSessions)
-        if (allSessions.length > 0) setSelectedSession(allSessions[0])
+        const options = await loadComponentSessionOptions(analyticsService, connectedUserId)
+        setSessionOptions(options)
+        setSessionId((current) => current || selectPreferredComponentSession(options)?.id || '')
       } catch (err) {
         console.error('Failed to load sessions:', err)
+        setSessionOptions([])
       }
     }
 
@@ -90,26 +80,26 @@ export default function AnalyticsRecommendationsNew() {
 
   // Load session recommendations only when session changes AND not yet fetched
   useEffect(() => {
-    if (mode !== 'session' || !selectedSession) return
-    if (hasFetchedSession.current[selectedSession.id]) return
+    if (mode !== 'session' || !sessionId) return
+    if (hasFetchedSession.current[sessionId]) return
 
-    hasFetchedSession.current[selectedSession.id] = true
+    hasFetchedSession.current[sessionId] = true
 
     const fetchSession = async () => {
       setLoading(true)
       setError('')
       try {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, false)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+        const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, false)
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null } }))
       } catch (err) {
-        hasFetchedSession.current[selectedSession.id] = false // allow retry
+        hasFetchedSession.current[sessionId] = false // allow retry
         setError(err.response?.data?.detail || err.message || 'Could not load recommendations')
       } finally {
         setLoading(false)
       }
     }
     fetchSession()
-  }, [selectedSession, mode])
+  }, [sessionId, mode])
 
   // Load overall recommendations only once per user session (ref prevents re-fetch on tab switch)
   useEffect(() => {
@@ -123,7 +113,7 @@ export default function AnalyticsRecommendationsNew() {
       setError('')
       try {
         const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, false)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null })
       } catch (err) {
         hasFetchedOverall.current = false // allow retry
         setError(err.response?.data?.detail || err.message || 'Could not load overall recommendations')
@@ -138,12 +128,12 @@ export default function AnalyticsRecommendationsNew() {
     setLoading(true)
     setError('')
     try {
-      if (mode === 'session' && selectedSession) {
-        const data = await analyticsService.getMentoringRecommendationsBySession(selectedSession.id, true)
-        setSessionCache(prev => ({ ...prev, [selectedSession.id]: { recommendations: data.recommendations || [], evidence: data.evidence || null } }))
+      if (mode === 'session' && sessionId) {
+        const data = await analyticsService.getMentoringRecommendationsBySession(sessionId, true)
+        setSessionCache(prev => ({ ...prev, [sessionId]: { recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null } }))
       } else if (mode === 'overall') {
         const data = await analyticsService.getMentoringRecommendationsByUser(connectedUserId, true)
-        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null })
+        setOverallCache({ recommendations: data.recommendations || [], evidence: data.evidence || null, supportPath: data.support_path || null })
       }
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Could not refresh recommendations')
@@ -162,14 +152,9 @@ export default function AnalyticsRecommendationsNew() {
             <h1 className="text-lg font-bold">Your Coaching Insights</h1>
           </div>
           <div className="flex items-end gap-3 flex-wrap">
-            <AnalyticsNav />
-            <Button
-              onClick={handleRefresh}
-              className="h-10 px-5 text-sm font-semibold"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
+            <AnalyticsLoadButton loading={loading} onClick={handleRefresh}>
               Refresh
-            </Button>
+            </AnalyticsLoadButton>
           </div>
         </div>
       </header>
@@ -183,12 +168,13 @@ export default function AnalyticsRecommendationsNew() {
           </div>
         )}
 
+        {/* REDESIGN: not-logged-in state — border-red-500/50 → border-danger/50, bg-red-500/10 → bg-danger/10, text-red-300 → text-danger */}
         {!isAuthLoading && !isAuthenticated && (
-          <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 px-4 py-3 flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+          <div className="rounded-xl border-2 border-danger/50 bg-danger/10 px-4 py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-danger mt-0.5 flex-shrink-0" />
             <div>
-              <p className="font-semibold text-red-300">Not Logged In</p>
-              <p className="text-red-400 text-xs mt-0.5">Please sign in to see your personalized coaching recommendations.</p>
+              <p className="font-semibold text-danger">Not Logged In</p>
+              <p className="text-t-secondary text-xs mt-0.5">Please sign in to see your personalized coaching recommendations.</p>
             </div>
           </div>
         )}
@@ -226,27 +212,19 @@ export default function AnalyticsRecommendationsNew() {
             {/* Session Selector */}
             {mode === 'session' && (
               <div className="bg-card/30 border border-border/50 rounded-xl p-5 backdrop-blur-sm">
-                <label className="grid gap-2 text-sm">
+                <div className="grid gap-3 text-sm">
                   <span className="font-semibold text-foreground flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-primary" />
                     Which practice session would you like to review?
                   </span>
-                  <select 
-                    value={selectedSession?.id || ''} 
-                    onChange={(e) => {
-                      const session = sessions.find(s => s.id === e.target.value)
-                      setSelectedSession(session || null)
-                    }}
-                    className="h-11 w-full rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
-                  >
-                    <option value="" className="bg-background text-foreground">Select a session to see your feedback...</option>
-                    {sessions.map(session => (
-                      <option key={session.id} value={session.id} className="bg-background text-foreground">
-                        {session.label} • {session.subtitle}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <AnalyticsSessionSelect
+                    value={sessionId}
+                    options={sessionOptions}
+                    onChange={setSessionId}
+                    label="Session"
+                    minWidthClass="w-full max-w-xl"
+                  />
+                </div>
               </div>
             )}
 
@@ -292,27 +270,30 @@ export default function AnalyticsRecommendationsNew() {
                       <div className="rounded-xl border border-border bg-card p-5">
                         <div className="flex items-center gap-2 mb-3">
                           <Zap className="h-5 w-5 text-primary" />
-                          <h3 className="font-bold text-foreground">Prioritized mentoring actions</h3>
+                          <h3 className="font-bold text-foreground">What to work on</h3>
                         </div>
                         <p className="text-xs text-muted-foreground mb-4">
-                          Recommendations combine blind spots, predicted risks, progress trends, feedback volume, session evidence, and LLM mentoring into one action plan.
+                          {mode === 'session'
+                            ? 'Built from this session alone: where your rating differed from what was measured, and what you scored.'
+                            : 'Built from your whole history: declining skills, predicted risks, and patterns in how you rate yourself.'}
                         </p>
                         <div className="flex gap-2">
                           <div className="flex-1 bg-muted/50 rounded-lg p-3 border border-border/50 text-center">
                             <span className="block text-xs font-semibold text-muted-foreground mb-1">Actions</span>
                             <span className="text-lg font-bold text-foreground">{recommendations.length}</span>
                           </div>
-                          <div className="flex-1 bg-rose-500/10 rounded-lg p-3 border border-rose-500/20 text-center">
-                            <span className="block text-xs font-semibold text-rose-500 mb-1">High</span>
-                            <span className="text-lg font-bold text-rose-500">{recommendations.filter(r => r.priority === 'high').length}</span>
+                          {/* REDESIGN: rose/amber/emerald priority pills → danger/warning/success tokens */}
+                          <div className="flex-1 bg-danger/10 rounded-lg p-3 border border-danger/20 text-center">
+                            <span className="block text-xs font-semibold text-danger mb-1">High</span>
+                            <span className="text-lg font-bold text-danger">{recommendations.filter(r => r.priority === 'high').length}</span>
                           </div>
-                          <div className="flex-1 bg-amber-500/10 rounded-lg p-3 border border-amber-500/20 text-center">
-                            <span className="block text-xs font-semibold text-amber-500 mb-1">Medium</span>
-                            <span className="text-lg font-bold text-amber-500">{recommendations.filter(r => r.priority === 'medium').length}</span>
+                          <div className="flex-1 bg-warning/10 rounded-lg p-3 border border-warning/20 text-center">
+                            <span className="block text-xs font-semibold text-warning mb-1">Medium</span>
+                            <span className="text-lg font-bold text-warning">{recommendations.filter(r => r.priority === 'medium').length}</span>
                           </div>
-                          <div className="flex-1 bg-emerald-500/10 rounded-lg p-3 border border-emerald-500/20 text-center">
-                            <span className="block text-xs font-semibold text-emerald-500 mb-1">Low</span>
-                            <span className="text-lg font-bold text-emerald-500">{recommendations.filter(r => r.priority === 'low').length}</span>
+                          <div className="flex-1 bg-success/10 rounded-lg p-3 border border-success/20 text-center">
+                            <span className="block text-xs font-semibold text-success mb-1">Low</span>
+                            <span className="text-lg font-bold text-success">{recommendations.filter(r => r.priority === 'low').length}</span>
                           </div>
                         </div>
                       </div>
@@ -322,7 +303,7 @@ export default function AnalyticsRecommendationsNew() {
                         <div className="rounded-xl border border-border bg-card p-5">
                           <div className="flex items-center gap-2 mb-4">
                             <Target className="h-5 w-5 text-primary" />
-                            <h3 className="font-bold text-foreground">Evidence Summary</h3>
+                            <h3 className="font-bold text-foreground">What we looked at</h3>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             {evidence.session_count !== undefined && (
@@ -331,29 +312,36 @@ export default function AnalyticsRecommendationsNew() {
                                 <span className="text-base font-bold text-foreground">{evidence.session_count}</span>
                               </div>
                             )}
+                            {/* "Feedback" beside "Sessions 118" read as "you gave
+                                392 pieces of feedback". Two thirds of those rows
+                                are notes this codebase wrote itself. What the
+                                learner did is rate themselves — after 30 sessions
+                                overall, on 4 skills within one session. */}
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Feedback</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">
+                                {mode === 'session' ? 'Skills you rated' : 'Times you rated yourself'}
+                              </span>
                               <span className="text-base font-bold text-foreground">{evidence.feedback_count || 0}</span>
                             </div>
                             <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Blind Spots</span>
+                              <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Gaps found</span>
                               <span className="text-base font-bold text-foreground">{evidence.blind_spot_count || 0}</span>
                             </div>
                             {evidence.high_risk_prediction_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">High Risk</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Needs work now</span>
                                 <span className="text-base font-bold text-foreground">{evidence.high_risk_prediction_count}</span>
                               </div>
                             )}
                             {evidence.improving_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Improving</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Getting better</span>
                                 <span className="text-base font-bold text-foreground">{evidence.improving_count}</span>
                               </div>
                             )}
                             {evidence.declining_count !== undefined && (
                               <div className="bg-muted/50 rounded-lg p-2 border border-border/50">
-                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Declining</span>
+                                <span className="block text-[10px] uppercase font-semibold text-muted-foreground">Slipping</span>
                                 <span className="text-base font-bold text-foreground">{evidence.declining_count}</span>
                               </div>
                             )}
@@ -379,6 +367,8 @@ export default function AnalyticsRecommendationsNew() {
                         <RecommendationCard key={idx} recommendation={rec} />
                       ))}
                     </div>
+
+                    <SupportPathNotice path={supportPath} />
                   </div>
                 )}
               </div>
@@ -390,46 +380,98 @@ export default function AnalyticsRecommendationsNew() {
   )
 }
 
+/**
+ * The one thing this page says about a reflection that was not about practice.
+ *
+ * Below the advice, not above it: it is not a recommendation, it is not ranked
+ * against them, and it does not replace them. Quiet on purpose - a red alarm over
+ * someone's sentence about their own life reads as the software reacting to them,
+ * and a learner who works out that certain words trigger something will write
+ * blander reflections from then on.
+ *
+ * It offers phone numbers and says nothing about the person.
+ */
+function SupportPathNotice({ path }) {
+  // A shape check, not just a null check. There is no error boundary in this
+  // app, so one undefined field here takes the whole page down.
+  if (!path?.message || !path.contacts?.length) return null
+
+  return (
+    <div
+      className="mt-4"
+      style={{
+        padding: '14px 16px',
+        borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-default)',
+        background: 'var(--bg-elevated)',
+      }}
+    >
+      <p className="t-cap" style={{ margin: 0, lineHeight: 1.65 }}>{path.message}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 22px', marginTop: 12 }}>
+        {path.contacts.map((contact) => (
+          <div key={contact.number}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span className="fg" style={{ fontSize: 13, fontWeight: 600 }}>{contact.name}</span>
+              {/* Text, not a tel: link - on a laptop that opens nothing useful,
+                  and this number needs to be readable and dialled from a phone. */}
+              <span className="fg" style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {contact.number}
+              </span>
+            </div>
+            <div className="t-cap" style={{ fontSize: 11 }}>{contact.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function RecommendationCard({ recommendation }) {
   const [expanded, setExpanded] = useState(false)
   
+  // REDESIGN: rose/amber/emerald → danger/warning/success semantic tokens
   const priorityConfig = {
     high: {
-      wrapper: 'from-rose-500/10 to-transparent border-rose-500/20 dark:from-rose-950/30 dark:border-rose-900/40',
-      header: 'bg-rose-500/5',
-      badge: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
-      icon: <AlertTriangle className="h-5 w-5 text-rose-500" />,
+      wrapper: 'from-danger/10 to-transparent border-danger/20',
+      header: 'bg-danger/5',
+      badge: 'bg-danger/10 text-danger border-danger/20',
+      icon: <AlertTriangle className="h-5 w-5 text-danger" />,
       label: 'Focus Here First',
-      actionBtn: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400'
+      actionBtn: 'bg-danger/10 text-danger hover:bg-danger/20'
     },
     medium: {
-      wrapper: 'from-amber-500/10 to-transparent border-amber-500/20 dark:from-amber-950/30 dark:border-amber-900/40',
-      header: 'bg-amber-500/5',
-      badge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-      icon: <Target className="h-5 w-5 text-amber-500" />,
+      wrapper: 'from-warning/10 to-transparent border-warning/20',
+      header: 'bg-warning/5',
+      badge: 'bg-warning/10 text-warning border-warning/20',
+      icon: <Target className="h-5 w-5 text-warning" />,
       label: 'Good to Practice',
-      actionBtn: 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
+      actionBtn: 'bg-warning/10 text-warning hover:bg-warning/20'
     },
+    // "low" is how urgent this item is, not how the learner is doing. Labelled
+    // "Doing Great!" it sat in green above a card reading "15-point
+    // overestimation" - praise stamped on a gap. The badge now says where the
+    // item sits in the queue and leaves the verdict to the card.
     low: {
-      wrapper: 'from-emerald-500/10 to-transparent border-emerald-500/20 dark:from-emerald-950/30 dark:border-emerald-900/40',
-      header: 'bg-emerald-500/5',
-      badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-      icon: <Award className="h-5 w-5 text-emerald-500" />,
-      label: 'Doing Great!',
-      actionBtn: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400'
+      wrapper: 'from-info/10 to-transparent border-info/20',
+      header: 'bg-info/5',
+      badge: 'bg-info/10 text-info border-info/20',
+      icon: <Lightbulb className="h-5 w-5 text-info" />,
+      label: 'When You Have Time',
+      actionBtn: 'bg-info/10 text-info hover:bg-info/20'
     },
   }
 
   const config = priorityConfig[recommendation.priority] || priorityConfig.medium
   
+  // REDESIGN: removed shadow-md/shadow-sm from card — borders + gradient wrapper provide depth
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${expanded ? 'shadow-md ring-1 ring-foreground/5' : 'hover:shadow-sm'} ${config.wrapper} bg-gradient-to-br`}>
+    <div className={`overflow-hidden rounded-2xl border bg-card transition-all duration-300 ${config.wrapper} bg-gradient-to-br`}>
       {/* Clickable Header */}
       <div 
         onClick={() => setExpanded(!expanded)}
         className={`p-5 cursor-pointer flex gap-4 items-start select-none transition-colors hover:bg-foreground/[0.02] ${expanded ? config.header : ''}`}
       >
-        <div className="mt-0.5 p-2 rounded-xl bg-background shadow-sm border border-border/50">
+        <div className="mt-0.5 p-2 rounded-xl bg-background border border-border/50">
           {config.icon}
         </div>
         
@@ -449,7 +491,7 @@ function RecommendationCard({ recommendation }) {
         </div>
         
         <div className="flex-shrink-0 mt-2">
-          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background shadow-sm' : 'hover:bg-muted'}`}>
+          <div className={`p-1.5 rounded-full transition-colors ${expanded ? 'bg-background' : 'hover:bg-muted'}`}>
             <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${expanded ? 'rotate-90 text-foreground' : ''}`} />
           </div>
         </div>
@@ -473,7 +515,7 @@ function RecommendationCard({ recommendation }) {
 
             {/* Actionable Step */}
             <div className="pl-12">
-              <div className="rounded-xl bg-background border border-border/60 p-4 shadow-sm relative overflow-hidden group">
+              <div className="rounded-xl bg-background border border-border/60 p-4 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-1 h-full bg-primary/60"></div>
                 <div className="flex gap-3">
                   <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">

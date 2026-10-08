@@ -8,6 +8,7 @@ from app.api.v1.mca.router import mca_router
 from app.api.v1.pedagogy import router as pedagogy_router
 from app.api.v1.pedagogy_dev import router as pedagogy_dev_router
 from app.api.v1.survey import router as survey_router
+from app.api.v1.training_plan import router as training_plan_router
 from app.api.v1.rpe.router import rpe_router
 
 router.include_router(auth_router)
@@ -16,4 +17,5 @@ router.include_router(mca_router, prefix="/mca")
 router.include_router(survey_router, prefix="/survey")
 router.include_router(rpe_router, prefix="/rpe", tags=["Role-Play Engine"])
 router.include_router(pedagogy_router, prefix="/apa")
+router.include_router(training_plan_router, prefix="/apa")
 router.include_router(pedagogy_dev_router, prefix="/apa")

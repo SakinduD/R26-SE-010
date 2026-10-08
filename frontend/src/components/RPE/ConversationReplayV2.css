@@ -1,0 +1,224 @@
+/*
+ * ConversationReplayV2.css — self-contained, prefixed `crv2-` so it can
+ * never collide with V1's scoped inline styles or V2's `rps2-` classes.
+ * Defines its own dark-default token set so it looks reasonable dropped
+ * into any context; RolePlaySessionV2.css re-maps these vars to its own
+ * palette for visual consistency where it's actually used.
+ */
+
+.crv2-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  /* Deliberately light — the live simulation should still read as
+     "behind" the drawer, not blacked out. */
+  background: var(--crv2-scrim, rgba(6,7,10,0.35));
+  animation: crv2Fade 0.2s ease;
+}
+@keyframes crv2Fade { from { opacity: 0; } to { opacity: 1; } }
+
+.crv2-drawer {
+  --crv2-bg: #0E0F13;
+  --crv2-surface: rgba(255,255,255,0.045);
+  --crv2-border: rgba(255,255,255,0.09);
+  --crv2-text-hi: #F3F3F5;
+  --crv2-text-med: #9A9AA3;
+  --crv2-text-low: #5C5C66;
+  --crv2-accent: #9B9DFF;
+  --crv2-accent-soft: rgba(155,157,255,0.14);
+  --crv2-success: #5FD98A;
+  --crv2-success-soft: rgba(95,217,138,0.14);
+  --crv2-warning: #F0C169;
+  --crv2-warning-soft: rgba(240,193,105,0.14);
+  --crv2-danger: #F58080;
+  --crv2-danger-soft: rgba(245,128,128,0.14);
+  --crv2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(480px, 92vw);
+  background: var(--crv2-bg); border-left: 1px solid var(--crv2-border);
+  display: flex; flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--crv2-text-hi);
+  animation: crv2SlideIn 0.32s var(--crv2-ease);
+}
+@keyframes crv2SlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .crv2-drawer, .crv2-backdrop, .crv2-drawer * { animation-duration: 0.001ms !important; }
+}
+
+.crv2-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 18px 22px; border-bottom: 1px solid var(--crv2-border); flex-shrink: 0;
+}
+.crv2-title-row { display: flex; align-items: center; gap: 8px; }
+.crv2-title { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.crv2-mode-badge {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 100px; background: var(--crv2-surface); color: var(--crv2-text-med);
+}
+.crv2-mode-badge.replay { background: var(--crv2-accent-soft); color: var(--crv2-accent); }
+.crv2-subtitle { font-size: 11.5px; color: var(--crv2-text-low); margin: 3px 0 0; }
+.crv2-close {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--crv2-surface); border: 1px solid var(--crv2-border); color: var(--crv2-text-med); cursor: pointer;
+  flex-shrink: 0;
+}
+.crv2-close:hover { color: var(--crv2-text-hi); }
+
+/* ── Trust sparkline (replay only, ≥2 real points) ───────────────────── */
+
+.crv2-spark-wrap {
+  position: relative; padding: 14px 22px; border-bottom: 1px solid var(--crv2-border); flex-shrink: 0;
+}
+.crv2-spark-svg { width: 100%; height: 28px; display: block; overflow: visible; }
+.crv2-spark-points { position: absolute; top: 14px; left: 22px; right: 22px; height: 28px; }
+.crv2-spark-point {
+  position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--crv2-accent); border: 2px solid var(--crv2-bg); cursor: pointer;
+  transform: translate(-50%, -50%); padding: 0;
+}
+.crv2-spark-point:hover, .crv2-spark-point:focus-visible { outline: 2px solid var(--crv2-accent); outline-offset: 2px; }
+.crv2-spark-ends { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10.5px; font-weight: 650; color: var(--crv2-text-low); font-variant-numeric: tabular-nums; }
+
+/* ── Important moments (replay only) ─────────────────────────────────── */
+
+.crv2-moments { padding: 14px 22px; border-bottom: 1px solid var(--crv2-border); flex-shrink: 0; }
+.crv2-moments-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--crv2-text-low); margin: 0 0 8px; }
+.crv2-moments-list { display: flex; flex-direction: column; gap: 5px; max-height: 120px; overflow-y: auto; }
+.crv2-moment {
+  text-align: left; background: none; border: none; padding: 4px 0; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--crv2-text-med); font-family: inherit;
+}
+.crv2-moment:hover { color: var(--crv2-text-hi); }
+.crv2-moment.success { color: var(--crv2-success); }
+.crv2-moment.warning { color: var(--crv2-warning); }
+.crv2-moment.danger { color: var(--crv2-danger); }
+
+.crv2-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px; }
+.crv2-timeline { position: relative; display: flex; flex-direction: column; gap: 24px; }
+
+/* ── Turn ─────────────────────────────────────────────────────────────── */
+
+.crv2-turn {
+  position: relative; display: flex; gap: 14px; text-align: left;
+  background: none; border: none; padding: 0; width: 100%; color: inherit; font: inherit;
+  border-radius: 12px; transition: background .3s var(--crv2-ease);
+}
+.crv2-turn.selectable { cursor: pointer; }
+.crv2-turn.selectable:hover .crv2-block.user { border-color: var(--crv2-accent); }
+.crv2-turn.selected .crv2-block.user { border-color: var(--crv2-accent); }
+.crv2-turn.flash { background: var(--crv2-accent-soft); }
+
+.crv2-turn-marker { position: relative; width: 10px; flex-shrink: 0; display: flex; justify-content: center; }
+.crv2-turn-marker::before {
+  content: ""; position: absolute; top: 4px; bottom: -24px; width: 1px; background: var(--crv2-border);
+}
+.crv2-turn:last-child .crv2-turn-marker::before { display: none; }
+.crv2-turn-dot {
+  position: relative; z-index: 1; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--crv2-text-low); margin-top: 6px; flex-shrink: 0;
+}
+
+.crv2-turn-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.crv2-turn-number {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--crv2-text-low);
+  margin: 0 0 2px;
+}
+
+/* NPC left, YOU right — the scannable "NPC / YOU" alternation. Both keep
+   a comfortable max-width rather than spanning the full column so the
+   alignment itself carries the distinction, not just color. */
+.crv2-block {
+  border: 1px solid var(--crv2-border); border-radius: 12px; padding: 11px 15px;
+  max-width: 88%; transition: border-color .15s ease;
+}
+.crv2-block.npc { background: var(--crv2-surface); margin-right: auto; }
+.crv2-block.user { background: var(--crv2-accent-soft); border-color: rgba(155,157,255,0.22); margin-left: auto; }
+
+.crv2-block-role {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--crv2-text-low);
+  margin: 0 0 5px;
+}
+.crv2-block.user .crv2-block-role { text-align: right; }
+.crv2-emotion { text-transform: capitalize; color: var(--crv2-text-med); font-weight: 600; }
+
+/* Readable, non-italic — quotation marks alone are enough to signal
+   spoken dialogue; italics at this size just made it harder to scan. */
+.crv2-block-text { font-size: 14.5px; line-height: 1.6; color: var(--crv2-text-hi); margin: 0; }
+.crv2-block.user .crv2-block-text { text-align: right; }
+
+.crv2-handoff-tag {
+  display: flex; align-items: baseline; gap: 6px; justify-content: flex-end;
+  font-size: 12px; font-weight: 650; color: var(--crv2-accent); margin: 0 0 6px;
+}
+/* Actual user-typed/pasted content (ContentRequestInputV2), never a chosen
+   suggested reply — success-tinted instead of accent so it reads distinct
+   from a Handoff pick at a glance, not as a variant of the same thing. */
+.crv2-handoff-tag.content { color: var(--crv2-success); }
+.crv2-handoff-kicker { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--crv2-text-low); }
+
+.crv2-typing { display: inline-flex; gap: 3px; padding: 2px 0; }
+.crv2-typing span {
+  width: 4px; height: 4px; border-radius: 50%; background: var(--crv2-text-med);
+  animation: crv2TypingBounce 1.2s ease-in-out infinite;
+}
+.crv2-typing span:nth-child(2) { animation-delay: .15s; }
+.crv2-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes crv2TypingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
+
+/* ── Behavior markers (replay only, real data only) ──────────────────── */
+
+.crv2-markers { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.crv2-marker { font-size: 10.5px; font-weight: 650; padding: 3px 9px; border-radius: 100px; }
+.crv2-marker.success { background: var(--crv2-success-soft); color: var(--crv2-success); }
+.crv2-marker.warning { background: var(--crv2-warning-soft); color: var(--crv2-warning); }
+.crv2-marker.danger { background: var(--crv2-danger-soft); color: var(--crv2-danger); }
+.crv2-marker.neutral { background: var(--crv2-bg); color: var(--crv2-text-med); }
+
+/* ── Trust micro indicator ────────────────────────────────────────────── */
+
+.crv2-trust-micro { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.crv2-trust-micro-label { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--crv2-text-low); }
+.crv2-trust-micro-val { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: var(--crv2-text-hi); font-variant-numeric: tabular-nums; }
+.crv2-trust-micro-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--crv2-text-hi); font-variant-numeric: tabular-nums; }
+.crv2-trust-micro-arrow { color: var(--crv2-text-low); font-weight: 500; }
+.crv2-trust-micro-change { display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; }
+.crv2-trust-micro.up .crv2-trust-micro-change { color: var(--crv2-success); }
+.crv2-trust-micro.down .crv2-trust-micro-change { color: var(--crv2-danger); }
+
+/* ── Why-this-mattered expansion ──────────────────────────────────────── */
+
+.crv2-why {
+  margin-top: 2px; margin-left: auto; max-width: 88%;
+  border-left: 2px solid var(--crv2-accent); border-radius: 0 10px 10px 0;
+  background: var(--crv2-surface); padding: 10px 14px;
+  animation: crv2FadeUp 0.2s var(--crv2-ease);
+}
+@keyframes crv2FadeUp { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.crv2-why-label { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--crv2-accent); margin: 0 0 4px; }
+.crv2-why-text { font-size: 12.5px; line-height: 1.5; color: var(--crv2-text-med); margin: 0; text-align: left; }
+
+/* ── Scroll-to-bottom pill — one, with a count ────────────────────────── */
+
+.crv2-scroll-pill {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%) translateY(12px);
+  background: var(--crv2-accent); color: #0B0C0F; border: none; border-radius: 100px;
+  padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .2s var(--crv2-ease), transform .2s var(--crv2-ease);
+}
+.crv2-scroll-pill.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+
+/* ── Responsive — bottom sheet on mobile ──────────────────────────────── */
+
+@media (max-width: 720px) {
+  .crv2-drawer {
+    top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: min(80vh, 640px);
+    border-left: none; border-top: 1px solid var(--crv2-border);
+    border-radius: 20px 20px 0 0;
+    animation: crv2SlideUp 0.32s var(--crv2-ease);
+  }
+  @keyframes crv2SlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .crv2-header { padding: 16px 18px; }
+  .crv2-body { padding: 18px; }
+  .crv2-block { max-width: 92%; }
+}

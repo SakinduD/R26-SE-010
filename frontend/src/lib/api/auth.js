@@ -26,6 +26,11 @@ export const requestPasswordReset = (email) =>
 export const getCurrentUser = () =>
   authClient.get(`${BASE}/me`).then((r) => r.data);
 
+/** Mark the onboarding tour as seen for the current user. */
+export const markTourSeen = () =>
+  authClient.patch(`${BASE}/me/tour-seen`).then((r) => r.data);
+
+
 /** Extract a user-friendly error message from an axios error. */
 export function getApiError(error) {
   return (

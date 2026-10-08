@@ -81,8 +81,7 @@ export default function ForgotPassword() {
             <div className="space-y-1.5">
               <p className="text-sm font-medium text-foreground">Check your inbox</p>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                If that email is registered, you'll receive a password reset link
-                shortly.
+                If that email is registered, you'll get a reset link shortly.
               </p>
             </div>
 

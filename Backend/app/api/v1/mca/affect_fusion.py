@@ -43,7 +43,7 @@ class ScriptReaderRule(FusionRule):
         # Script Reader: Neutral emotion + Flat Pitch + Looking Down (Head Pitch > 0.15)
         head_pitch = visual.get("pose", {}).get("pitch", 0)
         
-        if features.emotion_label == "neutral" and pitch_std < 5 and pitch_std > 0 and head_pitch > 0.15:
+        if features.emotion_label == "neutral" and pitch_std < 15 and pitch_std > 0 and head_pitch > 0.15:
             return Nudge(
                 message="You sound a bit monotone and are looking down. Try to engage more with your audience!",
                 category="fusion",
@@ -57,7 +57,7 @@ class DeerInHeadlightsRule(FusionRule):
         ear = visual.get("ear", 0)
         yaw = abs(visual.get("pose", {}).get("yaw", 0))
         pitch_val = abs(visual.get("pose", {}).get("pitch", 0))
-        if features.emotion_label in ["fearful", "surprised"] and ear > 0.3 and yaw < 0.05 and pitch_val < 0.05:
+        if features.emotion_label in ["fearful", "surprised"] and ear > 0.35 and yaw < 0.05 and pitch_val < 0.05:
             return Nudge(
                 message="You appear frozen. Your eyes are wide and your voice sounds panicked.",
                 category="fusion",
@@ -85,7 +85,7 @@ class OverlyAnimatedRule(FusionRule):
         visual = features.visual_metrics
         yaw = abs(visual.get("pose", {}).get("yaw", 0))
         roll = abs(visual.get("pose", {}).get("roll", 0))
-        if features.emotion_label in ["happy", "surprised"] and (yaw > 0.15 or roll > 0.15) and features.zero_crossing_rate > 0.15:
+        if features.emotion_label in ["happy", "surprised"] and (yaw > 0.15 or roll > 0.26) and features.zero_crossing_rate > 0.15:
             return Nudge(
                 message="You have great vocal energy, but your head movements and pacing are very fast.",
                 category="fusion",
@@ -108,7 +108,7 @@ class SarcasmDetectionRule(FusionRule):
     def evaluate(self, features: AudioFeatures) -> Optional[Nudge]:
         mar = features.visual_metrics.get("mar", 0)
         roll = abs(features.visual_metrics.get("pose", {}).get("roll", 0))
-        if features.emotion_label in ["disgust", "angry"] and mar > 0.4 and roll > 0.1:
+        if features.emotion_label in ["disgust", "angry"] and mar > 0.4 and roll > 0.20:
             return Nudge(
                 message="Your tone and expression are displaying a sarcastic mismatch. Are you feeling frustrated?",
                 category="fusion",

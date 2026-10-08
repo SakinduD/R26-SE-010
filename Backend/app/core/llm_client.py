@@ -15,7 +15,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Literal
 
-from app.config import get_settings
+from app.config import get_apm_gemini_key, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +119,92 @@ class GeminiClient:
             )
         return data
 
+    async def generate_json_from_contents(
+        self,
+        contents: list[dict],
+        *,
+        system_instruction: str | None = None,
+        timeout_s: float = 8.0,
+        temperature: float = 0.7,
+    ) -> dict[str, Any]:
+        """
+        Multi-turn sibling of generate_json(). Takes pre-built Gemini
+        `contents` (list of {"role": "user"|"model", "parts": [text]}) plus
+        an optional system_instruction, instead of a single flat prompt.
+
+        Added for RPE's multi-turn NPC dialogue — kept fully separate from
+        generate_json() so APM's existing single-prompt call path is
+        untouched. Same JSON-mode + timeout + error handling as generate_json().
+        """
+        self._ensure_client()
+        logger.debug("Gemini multi-turn contents: %s", contents)
+
+        config = self._types.GenerateContentConfig(  # type: ignore[union-attr]
+            response_mime_type="application/json",
+            temperature=temperature,
+            system_instruction=system_instruction,
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._client.models.generate_content,  # type: ignore[union-attr]
+                    model=self._model_name,
+                    contents=contents,
+                    config=config,
+                ),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.warning("Gemini generation timed out after %.1fs", timeout_s)
+            raise LLMError("timeout", f"timed out after {timeout_s}s") from exc
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "safety" in msg or "blocked" in msg or "block_reason" in msg:
+                raise LLMError("safety_block", str(exc)) from exc
+            logger.warning("Gemini API error: %s", exc)
+            raise LLMError("api_error", str(exc)) from exc
+
+        text = (getattr(response, "text", None) or "").strip()
+        if not text:
+            raise LLMError("invalid_json", "empty response")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Gemini returned invalid JSON: %s", text[:200])
+            raise LLMError("invalid_json", str(exc)) from exc
+        if not isinstance(data, dict):
+            raise LLMError(
+                "invalid_json",
+                f"expected JSON object, got {type(data).__name__}",
+            )
+        return data
+
 
 @lru_cache(maxsize=1)
 def get_llm_client() -> GeminiClient:
-    """FastAPI dependency. Cached singleton per process."""
+    """
+    FastAPI dependency for NON-APM Gemini callers. Cached singleton per process.
+
+    Credentialed with the shared GEMINI_API_KEY. Anything under
+    app/services/pedagogy/ must use get_apm_llm_client() instead.
+    """
     settings = get_settings()
     model = getattr(settings, "gemini_model", "gemini-2.5-flash")
     return GeminiClient(api_key=settings.gemini_api_key, model=model)
+
+
+@lru_cache(maxsize=1)
+def get_apm_llm_client() -> GeminiClient:
+    """
+    FastAPI dependency for APM Gemini callers. Cached singleton per process.
+
+    Same GeminiClient class as get_llm_client() — only the credential differs.
+    The key is resolved by app.config.get_apm_gemini_key() (GEMINI_API_KEY_APM,
+    falling back to GEMINI_API_KEY with a warning). An empty key is allowed:
+    GeminiClient raises LLMError("api_error") lazily on first use, which every
+    APM caller already treats as a degradation path rather than a failure.
+    """
+    settings = get_settings()
+    model = getattr(settings, "gemini_model", "gemini-2.5-flash")
+    return GeminiClient(api_key=get_apm_gemini_key(), model=model)

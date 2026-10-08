@@ -1,0 +1,170 @@
+name: Build, push, and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  ci_gate:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and push images
+    needs: ci_gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GHCR image base path
+        id: image_repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (Frontend)
+        id: meta_web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image_repo.outputs.name }}/web
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push Frontend
+        id: build_web
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta_web.outputs.tags }}
+          labels: ${{ steps.meta_web.outputs.labels }}
+          build-args: |
+            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+            VITE_WS_URL=${{ vars.VITE_WS_URL }}
+            VITE_MEDIAPIPE_FACE_MESH_URL=${{ vars.VITE_MEDIAPIPE_FACE_MESH_URL }}
+            VITE_AVATAR_URL=${{ vars.VITE_AVATAR_URL }}
+            VITE_RPE_TTS_PROVIDER=${{ vars.VITE_RPE_TTS_PROVIDER }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend,ignore-error=true
+          provenance: mode=max
+          sbom: true
+
+      - name: Image metadata (Backend)
+        id: meta_api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image_repo.outputs.name }}/api
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push Backend
+        id: build_api
+        uses: docker/build-push-action@v5
+        with:
+          context: ./Backend
+          push: true
+          tags: ${{ steps.meta_api.outputs.tags }}
+          labels: ${{ steps.meta_api.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend,ignore-error=true
+          provenance: mode=max
+          sbom: true
+
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required deploy secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -eu
+          [ -n "$VPS_HOST" ] || { echo "::error::Missing secret VPS_HOST"; exit 1; }
+          [ -n "$VPS_USER" ] || { echo "::error::Missing secret VPS_USER"; exit 1; }
+          [ -n "$VPS_SSH_KEY" ] || { echo "::error::Missing secret VPS_SSH_KEY"; exit 1; }
+
+      - name: Sync compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT != '' && secrets.VPS_PORT || '22' }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          source: docker-compose.prod.yml
+          target: ${{ vars.DEPLOY_PATH || '/var/www/r26-se-010' }}
+
+      - name: Deploy stack
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT != '' && secrets.VPS_PORT || '22' }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          script: |
+            set -euo pipefail
+            cd "${{ vars.DEPLOY_PATH || '/var/www/r26-se-010' }}"
+
+            IMAGE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+            NEW_TAG="sha-$(echo '${{ github.sha }}' | cut -c1-7)"
+            PREV_TAG="$(cat .deployed_tag 2>/dev/null || true)"
+
+            export WEB_IMAGE="${{ env.REGISTRY }}/$IMAGE_REPO/web:$NEW_TAG"
+            export API_IMAGE="${{ env.REGISTRY }}/$IMAGE_REPO/api:$NEW_TAG"
+            export WEB_PORT="${{ vars.WEB_PORT || '80' }}"
+            
+            # Additional environment variables from GH environment or variables could be mapped here
+            # e.g., export POSTGRES_USER=...
+
+            COMPOSE="docker compose -f docker-compose.prod.yml"
+
+            echo "==> Deploying $NEW_TAG (previous: ${PREV_TAG:-none})"
+            $COMPOSE pull
+
+            if ! $COMPOSE up -d --wait --wait-timeout 180; then
+              echo "::error::New release did not become healthy."
+              $COMPOSE logs --tail 80 web || true
+              $COMPOSE logs --tail 80 api || true
+              if [ -n "$PREV_TAG" ]; then
+                echo "==> Rolling back to $PREV_TAG"
+                export WEB_IMAGE="${{ env.REGISTRY }}/$IMAGE_REPO/web:$PREV_TAG"
+                export API_IMAGE="${{ env.REGISTRY }}/$IMAGE_REPO/api:$PREV_TAG"
+                $COMPOSE up -d --wait --wait-timeout 180 || true
+              fi
+              exit 1
+            fi
+
+            echo "$NEW_TAG" > .deployed_tag
+
+            docker image prune -f >/dev/null 2>&1 || true
+            echo "==> Deployed $NEW_TAG"

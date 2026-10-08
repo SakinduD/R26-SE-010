@@ -58,6 +58,21 @@ export const mcaService = {
     return `${wsBase}/api/v1/mca/audio/audio-analysis?token=${encodeURIComponent(token)}`;
   },
 
+  // Live-mode speech-to-text (Whisper large-v3 via backend). Returns the
+  // transcript string, or null on failure so the caller can fall back.
+  transcribe: async (audioBlob, prompt = '') => {
+    try {
+      const response = await authClient.post(`${BASE}/stt/transcribe`, audioBlob, {
+        headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+        params: prompt ? { prompt } : {},
+      });
+      return (response.data?.transcript || '').trim();
+    } catch (error) {
+      console.warn('[mcaService:transcribe] Whisper STT failed:', error?.response?.status || error.message);
+      return null;
+    }
+  },
+
   // Session management
   startSession: async (mode = 'live') => {
     try {
@@ -69,14 +84,19 @@ export const mcaService = {
   },
 
   // End an active session and persist results.
-  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null, emotionDistribution = null, mechanicalAverages = null) => {
+  endSession: async (sessionId, nudgeLog = [], resultData = null, chatTurns = null, emotionDistribution = null, mechanicalAverages = null, userTranscript = null, meetingTranscript = null, emotionTimeline = null, behaviorLog = null, observationLog = null) => {
     try {
       const body = {
         nudge_log: nudgeLog,
         ...(resultData ? { result_data: resultData } : {}),
         ...(chatTurns !== null ? { chat_turns: chatTurns } : {}),
-        ...(emotionDistribution ? { emotion_distribution: emotionDistribution } : {}),
+        ...(emotionDistribution && Object.keys(emotionDistribution).length > 0 ? { emotion_distribution: emotionDistribution } : {}),
         ...(mechanicalAverages ? { mechanical_averages: mechanicalAverages } : {}),
+        ...(userTranscript && userTranscript.length ? { user_transcript: userTranscript } : {}),
+        ...(meetingTranscript && meetingTranscript.length ? { meeting_transcript: meetingTranscript } : {}),
+        ...(emotionTimeline && emotionTimeline.length ? { emotion_timeline: emotionTimeline } : {}),
+        ...(behaviorLog && behaviorLog.length ? { behavior_log: behaviorLog } : {}),
+        ...(observationLog && observationLog.length ? { observation_log: observationLog } : {}),
       };
       const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body);
       return response.data;
@@ -85,13 +105,43 @@ export const mcaService = {
     }
   },
 
-  // Fetch the current user's session history.
+  // Discard an active session without saving any data (early exit before a
+  // session completes its required duration).
+  discardSession: async (sessionId) => {
+    try {
+      await authClient.delete(`${BASE}/sessions/${sessionId}`);
+    } catch (error) {
+      throw new Error(handleApiError(error, 'discardSession'));
+    }
+  },
+
+  // Fetch the current user's session history (paginated).
   getSessions: async (limit = 20, offset = 0) => {
     try {
       const response = await authClient.get(`${BASE}/sessions/`, { params: { limit, offset } });
       return response.data;
     } catch (error) {
       throw new Error(handleApiError(error, 'getSessions'));
+    }
+  },
+
+  // Fetch all sessions for the currently logged-in user.
+  getMySessions: async () => {
+    try {
+      const response = await authClient.get(`${BASE}/sessions/me`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error, 'getMySessions'));
+    }
+  },
+
+  // Fetch full details for a specific session by its UUID.
+  getSession: async (sessionId) => {
+    try {
+      const response = await authClient.get(`${BASE}/sessions/${sessionId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error, 'getSession'));
     }
   },
 };

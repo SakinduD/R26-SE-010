@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -12,13 +13,35 @@ from app.schemas.analytics import (
 from app.services import ml_predictive_model_service, progress_trend_service
 
 
+logger = logging.getLogger(__name__)
+
 MODEL_VERSION = "rule-based-baseline-v1"
 ML_MODEL_VERSION = "ml-predictive-behavioral-analytics-v1"
 MIN_SCORE = 0.0
 MAX_SCORE = 100.0
 MAX_NEXT_SESSION_DELTA = 15.0
+
+# A regression pinned to the extreme of its own output range has stopped
+# discriminating: every input maps to the same answer, so the answer carries no
+# information about the input. The predictive model does this on real learner
+# histories - it returns exactly 100.0 for all four skills - and because the
+# blend is 55% model, the visible "prediction" became `current score + 15` for
+# every skill, every time. That number then appeared beside a declining trend and
+# a recommendation warning about decline, which is three parts of one screen
+# disagreeing with each other.
+#
+# A saturated reading is treated as no reading, and the trend projection is used
+# instead. Saying "about where you are now" from a real slope is worth more than
+# a confident number that was never about this learner.
+ML_SATURATION_MARGIN = 0.01
 LOW_EVIDENCE_MAX_DELTA = 10.0
-SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
+# A signed direction per sentiment. "mixed" scores zero like "neutral", for the
+# opposite reason: neutral text carries no judgement, mixed text carries two that
+# cancel. It has to be here at all because the serving classifier emits it and
+# the lookup below silently drops anything it does not recognise - so without
+# this line the reflections learners most often write, the ones weighing a good
+# thing against a bad one, contributed nothing to the forecast.
+SENTIMENT_VALUES = {"positive": 1.0, "neutral": 0.0, "mixed": 0.0, "negative": -1.0}
 
 
 def predict_user_skill_outcomes(
@@ -179,9 +202,28 @@ def _try_ml_prediction(
         return None
 
     try:
-        return ml_predictive_model_service.predict_behavioral_outcome(features)
+        prediction = ml_predictive_model_service.predict_behavioral_outcome(features)
     except ml_predictive_model_service.PredictiveModelUnavailableError:
         return None
+
+    if _is_saturated(prediction.get("predicted_score")):
+        logger.warning(
+            "Predictive model returned a saturated score (%s) for user %s / %s; "
+            "falling back to the trend projection.",
+            prediction.get("predicted_score"),
+            user_id,
+            trend.skill_area,
+        )
+        return None
+
+    return prediction
+
+
+def _is_saturated(score: float | None) -> bool:
+    """At the very top or bottom of the score range, and therefore uninformative."""
+    if score is None:
+        return False
+    return score <= MIN_SCORE + ML_SATURATION_MARGIN or score >= MAX_SCORE - ML_SATURATION_MARGIN
 
 
 def _build_ml_features(

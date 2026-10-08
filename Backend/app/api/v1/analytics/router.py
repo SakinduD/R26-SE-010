@@ -1,9 +1,19 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 import logging
 
 from app.api.dependencies import get_db
-from app.models.analytics import MentoringRecommendation
+from sqlalchemy import text
+
+from app.models.session_result import SessionResult
+from app.models.analytics import (
+    AnalyticsSessionMetric,
+    FeedbackEntry,
+    MentoringRecommendation,
+)
 from app.schemas.analytics import (
     AnalyticsSessionMetricCreate,
     AnalyticsSessionMetricRead,
@@ -15,10 +25,19 @@ from app.schemas.analytics import (
     FeedbackSentimentResult,
     AnalyticsAggregateSummary,
     AnalyticsComponentIntegrationRequest,
+    AnalyticsFeedbackLoopResult,
     AnalyticsSessionIntegrationResult,
+    GamificationProfileResult,
+    LearnerHistorySummary,
+    RecurringBlindSpotResult,
+    SessionBackfillResult,
+    GamificationSyncResult,
     MentoringRecommendationItem,
     MentoringRecommendationResult,
+    SupportPath,
     PostSessionReportResult,
+    LearnerSessionOption,
+    LearnerSessionPage,
     ProgressTrendResult,
     PredictiveModelingItem,
     PredictiveModelingResult,
@@ -30,15 +49,20 @@ from app.schemas.analytics import (
 )
 from app.services import (
     analytics_service,
+    analytics_feedback_loop_service,
     analytics_integration_service,
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
+    gamification_service,
     llm_mentoring_service,
+    mca_session_quality_service,
     post_session_report_service,
     predictive_modeling_service,
     progress_trend_service,
     sentiment_analysis_service,
+    learner_history_service,
+    session_backfill_service,
     skill_scoring_service,
 )
 
@@ -55,7 +79,83 @@ def integrate_completed_session_analytics(
     payload: AnalyticsComponentIntegrationRequest,
     db: Session = Depends(get_db),
 ):
+    """Fold one finished session into analytics.
+
+    The status check is here rather than only in the backfill sweep because
+    this is the other way in. The sweep has always taken completed sessions
+    only; this endpoint took whatever the screen was holding, which is how
+    seven unfinished sessions - three of them scoring zero - ended up counted
+    in a learner's totals.
+
+    409 rather than a quiet no-op: the caller asked for something that did not
+    happen, and the session-end hook already ignores failures, so nothing on a
+    learner's screen breaks from being told.
+    """
+    if _is_role_play_session(db, payload.session_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Not integrated: this is a role-play session, and this component "
+                "reports on multimodal sessions only"
+            ),
+        )
+    reason = mca_session_quality_service.rejection_reason(
+        _multimodal_session(db, payload.session_id)
+    )
+    if reason:
+        raise HTTPException(status_code=409, detail=f"Not integrated: {reason}")
     return analytics_integration_service.integrate_component_session_data(db, payload)
+
+
+def _is_role_play_session(db: Session, session_id: str) -> bool:
+    """Role-play ids are turned away here, and only role-play ids.
+
+    Unknown ids are accepted on purpose - see the docstring above - and a
+    role-play id is exactly such an id, so it passed. What it stored was not
+    inert. A role-play row carries clarity, confidence and empathy but none of
+    the three multimodal channels, and the skill composites read a secondary
+    field when the primary is absent: clarity alone became a speech-fluency
+    observation, confidence alone became presence, empathy alone became
+    emotional intelligence. Two of these rows arrived and took over the latest
+    point of three of the four skills - one of them carrying empathy 0, which
+    is how a learner with 114 real sessions was shown "--" for Emotional
+    Intelligence and a high-risk forecast built on it.
+
+    Only vocal command was spared, and only because its fallback happened to be
+    absent too. That is luck, not a boundary, so the boundary is drawn here.
+
+    Deliberately fail-open: this reads another component's table, and if that
+    table is renamed or dropped, refusing every integration would be a far worse
+    failure than admitting the rows this guard exists to stop.
+    """
+    try:
+        return bool(
+            db.execute(
+                text("SELECT 1 FROM rpe_sessions WHERE session_id = :sid LIMIT 1"),
+                {"sid": session_id},
+            ).first()
+        )
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "Could not check whether %s is a role-play session; allowing it through",
+            session_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _multimodal_session(db: Session, session_id: str) -> SessionResult | None:
+    """The stored multimodal session, or None when this id is not one.
+
+    A role-play id is not a UUID, and comparing one against a uuid column
+    raises rather than matching nothing.
+    """
+    try:
+        return db.query(SessionResult).filter(SessionResult.id == session_id).first()
+    except Exception:
+        db.rollback()
+        return None
 
 
 @router.post(
@@ -214,7 +314,11 @@ def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_aggregate(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return data_aggregation_service.get_user_aggregate(db, user_id, limit)
@@ -250,7 +354,11 @@ def get_session_feedback_analysis(session_id: str, db: Session = Depends(get_db)
 )
 def get_user_feedback_analysis(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=feedback_analysis_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=feedback_analysis_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
@@ -270,7 +378,11 @@ def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
 )
 def get_user_blind_spots(
     user_id: str,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(
+        default=blind_spot_service.FULL_HISTORY_LIMIT,
+        ge=1,
+        le=blind_spot_service.FULL_HISTORY_LIMIT,
+    ),
     db: Session = Depends(get_db),
 ):
     return blind_spot_service.detect_user_blind_spots(db, user_id, limit)
@@ -298,7 +410,7 @@ def get_user_skill_progress_trend(
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id)
+    return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id=session_id)
 
 
 @router.get(
@@ -326,13 +438,297 @@ def get_user_skill_predicted_outcome(
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
 
 
+@router.post(
+    "/users/{user_id}/backfill-sessions",
+    response_model=SessionBackfillResult,
+)
+def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
+    """Pull every completed session that has no analytics into the module.
+
+    Reads the role-play and multimodal tables directly, so a session is recorded
+    whether or not anyone opened an analytics page while it was running.
+    Idempotent — sessions that already have metrics are skipped.
+    """
+    try:
+        return session_backfill_service.backfill_user_sessions(db, user_id)
+    except Exception as exc:
+        logger.error("Session backfill failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to backfill sessions: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/skill-history",
+    response_model=LearnerHistorySummary,
+)
+def get_learner_skill_history(user_id: str, db: Session = Depends(get_db)):
+    """Every skill across the learner's whole history.
+
+    Answers the questions the "All Sessions" view actually asks, which the
+    per-session panels cannot: where am I now versus where I started, what is my
+    best, and how much do I vary between sessions. Latest and average are both
+    returned because either alone misleads - one is a single session, the other
+    hides which way the learner is moving.
+    """
+    return learner_history_service.summarise_skill_history(db, user_id)
+
+
+@router.get(
+    "/users/{user_id}/recurring-blind-spots",
+    response_model=RecurringBlindSpotResult,
+)
+def get_recurring_blind_spots(user_id: str, db: Session = Depends(get_db)):
+    """Self-assessment gaps counted across sessions, not averaged over them.
+
+    Averaging cannot tell a habit from a bad day, and worse, it cancels: a
+    learner who is 20 points high one session and 20 low the next averages to
+    zero and reads as perfectly self-aware. Counting keeps both facts - how often
+    they were wrong, and whether they were wrong in a consistent direction.
+    """
+    return learner_history_service.detect_recurring_blind_spots(db, user_id)
+
+
+@router.post(
+    "/sessions/{session_id}/integrate",
+    response_model=SessionBackfillResult,
+)
+def integrate_session(session_id: str, db: Session = Depends(get_db)):
+    """Fold one just-finished session into analytics, reading it from the database.
+
+    The session-end hook used to assemble this payload in the browser from half a
+    dozen component endpoints. Any one of them failing — or the learner simply
+    navigating away before they all returned — left the session with no analytics
+    at all, so its scores never reached the dashboard, the trend lines or the
+    predictions.
+
+    Here the server reads the session it already stored. One call, one id, no
+    assembly, and idempotent: a session that already has metrics is skipped.
+    """
+    owner = session_backfill_service.resolve_session_owner(db, session_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail=f"No session found with id {session_id}")
+    try:
+        return session_backfill_service.backfill_user_sessions(
+            db, owner, session_id=session_id
+        )
+    except Exception as exc:
+        logger.error("Integration failed for session %s: %s", session_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to integrate session: {exc}") from exc
+
+
+@router.get(
+    "/users/{user_id}/sessions",
+    response_model=LearnerSessionPage,
+)
+def list_learner_sessions(
+    user_id: str,
+    limit: int = 5,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """The learner's completed sessions, newest first, one page at a time.
+
+    This module used to populate its session pickers from the multimodal
+    engine's own endpoint. That endpoint pages over sessions in any state and
+    defaults to twenty, so the picker asked for the twenty newest, then dropped
+    the unfinished ones locally - on the development account that left 20
+    selectable out of 115 completed, with the other 95 unreachable, and any run
+    of unfinished sessions would have shrunk the visible list further.
+
+    Filtering before the limit is the whole point: a page of five is five
+    selectable sessions. ``total`` counts everything selectable so the picker
+    can say how much is behind it.
+
+    Sessions that finished but observed nothing are left out too. One of those
+    is offerable but not describable - it has no analytics behind it, so
+    picking it produces a page of blanks - and the count here has to agree with
+    the learner's session total, which is drawn from the rows that do exist.
+    """
+    # 500 so one request can cover a learner's whole history; the picker
+    # still reveals them a few at a time.
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
+    # Only the columns a picker shows. Loading whole SessionResult rows pulled
+    # every jsonb blob on each one - nudge logs, emotion distributions,
+    # diagnostics - and took over two seconds for a hundred sessions.
+    completed = db.execute(
+        text(
+            "SELECT id, friendly_id, session_type, overall_score, started_at, "
+            "       ended_at, skill_scores "
+            "FROM session_results "
+            "WHERE user_id = :uid AND status = 'completed' "
+            "ORDER BY created_at DESC"
+        ),
+        {"uid": user_id},
+    ).mappings().all()
+
+    # A session can only have observed nothing if all four skills sit on the
+    # neutral default, which is cheap to spot and true of almost none of them.
+    # Those few are re-read in full and put to the service that owns the rule,
+    # so the rule still lives in one place.
+    suspects = [
+        row["id"]
+        for row in completed
+        if _every_tracked_skill_is_neutral(row["skill_scores"])
+    ]
+    rejected: set = set()
+    if suspects:
+        for session in db.query(SessionResult).filter(SessionResult.id.in_(suspects)):
+            if mca_session_quality_service.rejection_reason(session):
+                rejected.add(session.id)
+
+    selectable = [row for row in completed if row["id"] not in rejected]
+    total = len(selectable)
+    rows = selectable[offset : offset + limit]
+
+    items = [
+        LearnerSessionOption(
+            session_id=str(row["id"]),
+            friendly_id=row["friendly_id"],
+            skill_type=row["session_type"],
+            overall_score=row["overall_score"],
+            started_at=row["started_at"],
+            ended_at=row["ended_at"],
+        )
+        for row in rows
+    ]
+    return LearnerSessionPage(
+        user_id=user_id,
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(items) < total,
+    )
+
+
+def _every_tracked_skill_is_neutral(skill_scores) -> bool:
+    """Cheap pre-filter for "this session may have observed nothing".
+
+    Never the decision itself - mca_session_quality_service makes that, reading
+    the nudge log and the emotion distribution too. This only narrows which
+    sessions are worth loading in full.
+    """
+    if not isinstance(skill_scores, dict) or not skill_scores:
+        return False
+    values = [
+        skill_scores.get(skill)
+        for skill in mca_session_quality_service.TRACKED_SKILLS
+    ]
+    if any(value is None for value in values):
+        return False
+    return all(
+        float(value) == float(mca_session_quality_service.NEUTRAL_SCORE)
+        for value in values
+    )
+
+
+@router.get(
+    "/users/{user_id}/learner-profile-signal",
+    response_model=AnalyticsFeedbackLoopResult,
+)
+def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
+    """The longitudinal learner profile analytics hands to the pedagogy engine.
+
+    Read-only. The pedagogy module pulls the same signal when it composes a plan;
+    exposing it here lets the learner see what their history currently says
+    before they regenerate.
+    """
+    signal = analytics_feedback_loop_service.build_learner_profile_signal(db, user_id)
+    return AnalyticsFeedbackLoopResult(
+        user_id=user_id,
+        signal=signal,
+        loop_version=analytics_feedback_loop_service.LOOP_VERSION,
+        generated_at=datetime.utcnow(),
+    )
+
+
+@router.get(
+    "/users/{user_id}/gamification",
+    response_model=GamificationProfileResult,
+)
+def get_user_gamification(user_id: str, db: Session = Depends(get_db)):
+    """Current XP, level, streak and badge state. Read-only."""
+    return gamification_service.get_user_gamification(db, user_id)
+
+
+@router.post(
+    "/users/{user_id}/gamification/sync",
+    response_model=GamificationSyncResult,
+)
+def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
+    """Award XP for any unscored sessions and re-check every badge rule.
+
+    Idempotent — replaying it never double-counts a session.
+    """
+    try:
+        return gamification_service.sync_user_gamification(db, user_id)
+    except Exception as exc:
+        logger.error("Gamification sync failed for user %s: %s", user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync gamification progress: {exc}",
+        ) from exc
+
+
+# high before medium before low, whatever the strings sort like.
+_PRIORITY_ORDER = case(
+    {"high": 0, "medium": 1, "low": 2},
+    value=MentoringRecommendation.priority,
+    else_=3,
+)
+
+
+def _cached_recommendations_are_stale(db: Session, user_id: str, generated_at) -> bool:
+    """Has the learner done anything since this advice was written?
+
+    The cache had no expiry, so the first set of recommendations a learner ever
+    generated was the set they saw forever. Somebody could practise for another
+    three sessions, watch every score collapse, open this page and still be told
+    they were doing fine - because the page was answering a question asked weeks
+    earlier.
+
+    That defeats the point of the view. "Overall Progress" means "how am I doing
+    across everything", and everything keeps growing. A session or a piece of
+    feedback recorded after the advice was written makes the advice out of date
+    by definition, so it is rebuilt rather than served.
+    """
+    if generated_at is None:
+        return True
+
+    newer_session = (
+        db.query(AnalyticsSessionMetric.id)
+        .filter(
+            AnalyticsSessionMetric.user_id == user_id,
+            AnalyticsSessionMetric.created_at > generated_at,
+        )
+        .first()
+    )
+    if newer_session:
+        return True
+
+    newer_feedback = (
+        db.query(FeedbackEntry.id)
+        .filter(
+            FeedbackEntry.user_id == user_id,
+            FeedbackEntry.created_at > generated_at,
+        )
+        .first()
+    )
+    return newer_feedback is not None
+
+
 @router.get(
     "/users/{user_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
 )
 def get_user_mentoring_recommendations(
     user_id: str,
-    limit: int = Query(default=100, ge=2, le=500),
+    limit: int = Query(
+        default=data_aggregation_service.FULL_HISTORY_LIMIT,
+        ge=2,
+        le=data_aggregation_service.FULL_HISTORY_LIMIT,
+    ),
     force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
@@ -346,16 +742,32 @@ def get_user_mentoring_recommendations(
                 MentoringRecommendation.session_id.is_(None),
                 MentoringRecommendation.recommendation_type == "overall_user",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).limit(limit).all()
+
+            newest = max((rec.created_at for rec in cached_recs), default=None)
+            if cached_recs and _cached_recommendations_are_stale(db, user_id, newest):
+                logger.info(
+                    "Saved recommendations for user %s predate newer activity; rebuilding",
+                    user_id,
+                )
+                cached_recs = []
 
             if cached_recs:
                 logger.info(f"Using saved recommendations for user {user_id}")
                 recommendations = [
                     MentoringRecommendationItem(
                         priority=rec.priority,
-                        skill_area=rec.skill_area,
+                        # Through the same gate generation uses. 35 rows predate it
+                        # and carry names like "multimodal clarity" that appear on no
+                        # screen; served from cache they bypassed it entirely.
+                        skill_area=llm_mentoring_service._normalise_skill_area(rec.skill_area),
                         title=rec.title,
                         reason=rec.reason or rec.description,
                         detail=rec.detail or "",
@@ -389,6 +801,31 @@ def get_user_mentoring_recommendations(
 
 
 @router.get(
+    "/sessions/{session_id}/reflection-support",
+    response_model=SupportPath | None,
+)
+def get_session_reflection_support(session_id: str, db: Session = Depends(get_db)):
+    """The offer of a way out for the reflection just written on this session.
+
+    Its own endpoint so the self-reflection form can show this the moment the
+    words are written, which is when the learner is actually thinking about them
+    - the recommendations page is later, and only if they go there.
+
+    The phrase list stays on the server and is asked for rather than copied into
+    the browser. A safety rule with two copies has none: the two would drift, and
+    the one that drifted would be the one nobody was reading.
+
+    Returns null when there is nothing to offer, which is the common case.
+    """
+    try:
+        return llm_mentoring_service.support_path(db, session_id)
+    except Exception as exc:
+        # Never break the page that just saved the learner's reflection.
+        logger.warning("Reflection support lookup failed for %s: %s", session_id, exc)
+        return None
+
+
+@router.get(
     "/sessions/{session_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
 )
@@ -406,8 +843,13 @@ def get_session_mentoring_recommendations(
                 MentoringRecommendation.session_id == session_id,
                 MentoringRecommendation.recommendation_type == "session_specific",
             ).order_by(
-                MentoringRecommendation.priority.desc(),
-                MentoringRecommendation.created_at.desc()
+                # Priority is stored as a word, so ordering by the column sorted
+                # it alphabetically: "medium", "low", "high" descending, which put
+                # the least urgent items at the top and the most urgent last. The
+                # generated list is already ranked correctly; only this read path
+                # was undoing it.
+                _PRIORITY_ORDER,
+                MentoringRecommendation.created_at.desc(),
             ).all()
 
             if cached_recs:
@@ -416,7 +858,10 @@ def get_session_mentoring_recommendations(
                 recommendations = [
                     MentoringRecommendationItem(
                         priority=rec.priority,
-                        skill_area=rec.skill_area,
+                        # Through the same gate generation uses. 35 rows predate it
+                        # and carry names like "multimodal clarity" that appear on no
+                        # screen; served from cache they bypassed it entirely.
+                        skill_area=llm_mentoring_service._normalise_skill_area(rec.skill_area),
                         title=rec.title,
                         reason=rec.reason or rec.description,
                         detail=rec.detail or "",
@@ -436,6 +881,10 @@ def get_session_mentoring_recommendations(
                     model_version=cached_recs[0].model_version,
                     source=cached_recs[0].source,
                     recommendation_type="session_specific",
+                    # Recomputed, never cached. The recommendations here are the
+                    # stored ones; a safety path that vanished on the second page
+                    # load would not be one.
+                    support_path=llm_mentoring_service.support_path(db, session_id),
                 )
 
         # Generate new recommendations (first time or explicit refresh)

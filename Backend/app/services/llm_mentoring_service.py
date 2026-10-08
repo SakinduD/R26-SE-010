@@ -1,23 +1,34 @@
 import json
 import logging
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.database import SessionLocal
 from app.models.analytics import MentoringRecommendation
-from app.schemas.analytics import MentoringRecommendationItem, MentoringRecommendationResult
+from app.models.analytics import FeedbackEntry
+from app.models.personality_profile import PersonalityProfile
+from app.models.training_plan import TrainingPlan
+from app.schemas.analytics import (
+    MentoringRecommendationItem,
+    MentoringRecommendationResult,
+    SupportPath,
+)
 from app.services import (
     blind_spot_service,
     data_aggregation_service,
     feedback_analysis_service,
     predictive_modeling_service,
     progress_trend_service,
+    reflection_support,
 )
+
+logger = logging.getLogger(__name__)
 
 
 RECOMMENDATION_VERSION = "llm-mentoring-v1"
@@ -40,16 +51,81 @@ PEER_TEXT_REPLACEMENTS = (
     (re.compile(r"\bpeer\b", re.IGNORECASE), "observer"),
 )
 
+# The skill names as a learner reads them, not as the database spells them.
+#
+# The prompt restricts the `skill_area` field to these four values and the model
+# obeys that - then writes the same value into the prose, so a learner is told
+# "your speech_fluency score" and "Vocal_command measured 60". 37 of 114 stored
+# recommendations carry a raw column name.
+#
+# Enforced here rather than asked for in the prompt, for the same reason the
+# evidence rules are: a rule the model usually follows is not the same as one it
+# cannot break. progress_trend_service made this same correction to its own
+# generated text.
+SKILL_NAME_REPLACEMENTS = tuple(
+    (re.compile(rf"\b{raw}\b", re.IGNORECASE), label)
+    for raw, label in (
+        ("vocal_command", "Vocal Command"),
+        ("speech_fluency", "Speech Fluency"),
+        ("presence_engagement", "Presence & Engagement"),
+        ("emotional_intelligence", "Emotional Intelligence"),
+        # MCA's name for the fourth skill, in case it reaches the prompt.
+        ("emotional_regulation", "Emotional Intelligence"),
+    )
+)
+
+
+def _has_usable_evidence(evidence_bundle: dict[str, Any]) -> bool:
+    """Is there anything here to give advice about?
+
+    A learner with no sessions still produces a bundle: four trends, all labelled
+    insufficient_data with a session_count of zero. The model sees four skill
+    names in that and writes confident, specific advice about each - "record a
+    60-90 second speaking clip focused on voice" - for somebody it knows nothing
+    about. It reads as personalised and is not, which is the one thing coaching
+    advice must never be.
+
+    It is also the prompt's own rule ("only for skills the evidence actually says
+    something about") being broken by evidence that looks fuller than it is. The
+    fix belongs here rather than in the prompt: do not ask a question there is no
+    material to answer.
+    """
+    summary = evidence_bundle.get("summary") or {}
+    if summary.get("session_count") or summary.get("feedback_count"):
+        return True
+    if evidence_bundle.get("scores"):
+        return True
+    return any(
+        evidence_bundle.get(key)
+        for key in ("blind_spots", "feedback_alignment", "latest_feedback")
+    )
+
 
 def generate_user_mentoring_recommendations(
     db: Session,
     user_id: str,
-    limit: int = 100,
+    limit: int = data_aggregation_service.FULL_HISTORY_LIMIT,
 ) -> MentoringRecommendationResult:
+    """Advice for a learner, drawn from everything they have done.
+
+    ``limit`` is passed straight through to the four services this reads, so at
+    100 it truncated all of them at once: the advice was composed from 100 of
+    118 sessions and 100 of 392 feedback entries, and the trend it reasoned
+    about was not the trend the Trends page showed. Recommendations built on a
+    different history than the one the learner can see are worse than none.
+    """
     evidence_bundle = _collect_evidence(db, user_id, limit)
     settings = get_settings()
+    # No support path on the overall view. It belongs beside the session it was
+    # written on; here it would sit over advice from a whole history, attached to
+    # nothing the learner could point at.
+    learner_support_path = None
 
-    llm_items = _call_openai_mentoring(evidence_bundle) if settings.openai_api_key else None
+    llm_items = (
+        _call_openai_mentoring(evidence_bundle)
+        if settings.openai_api_key and _has_usable_evidence(evidence_bundle)
+        else None
+    )
     if llm_items:
         result = MentoringRecommendationResult(
             user_id=user_id,
@@ -60,6 +136,7 @@ def generate_user_mentoring_recommendations(
             model_version=settings.openai_mentoring_model,
             source="llm",
             recommendation_type="overall_user",
+            support_path=learner_support_path,
         )
         # Save to database
         _save_recommendations_to_db(db, result)
@@ -75,6 +152,7 @@ def generate_user_mentoring_recommendations(
         model_version=FALLBACK_MODEL_VERSION,
         source="rule_based",
         recommendation_type="overall_user",
+        support_path=learner_support_path,
     )
     # Save to database
     _save_recommendations_to_db(db, result)
@@ -90,8 +168,14 @@ def generate_session_mentoring_recommendations(
     
     evidence_bundle = _collect_session_evidence(db, session_id)
     settings = get_settings()
+    # Computed before either branch: the offer must not depend on which one runs.
+    learner_support_path = support_path(db, session_id)
 
-    llm_items = _call_openai_session_mentoring(evidence_bundle) if settings.openai_api_key else None
+    llm_items = (
+        _call_openai_session_mentoring(evidence_bundle)
+        if settings.openai_api_key and _has_usable_evidence(evidence_bundle)
+        else None
+    )
     if llm_items:
         result = MentoringRecommendationResult(
             user_id=evidence_bundle.get("user_id", "unknown"),
@@ -103,6 +187,7 @@ def generate_session_mentoring_recommendations(
             model_version=settings.openai_mentoring_model,
             source="llm",
             recommendation_type="session_specific",
+            support_path=learner_support_path,
         )
         # Save to database
         _save_recommendations_to_db(db, result)
@@ -119,43 +204,177 @@ def generate_session_mentoring_recommendations(
         model_version=FALLBACK_MODEL_VERSION,
         source="rule_based",
         recommendation_type="session_specific",
+        support_path=learner_support_path,
     )
     # Save to database
     _save_recommendations_to_db(db, result)
     return result
 
 
+# Mirrors TREND_SCORE_FIELDS: each tracked skill and the columns it is built
+# from. Kept in this shape so the model is given the same four skills, under the
+# same names, as every screen the learner looks at.
+_TRACKED_SKILL_COLUMNS = {
+    "vocal_command": ["speech_volume_score"],
+    "speech_fluency": ["speech_pace_score", "clarity_score"],
+    "presence_engagement": ["eye_contact_score", "confidence_score"],
+    "emotional_intelligence": ["empathy_score", "emotional_control_score"],
+}
+
+
+def _tracked_skill_scores(averages: dict[str, float]) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for skill, columns in _TRACKED_SKILL_COLUMNS.items():
+        values = [averages[column] for column in columns if averages.get(column) is not None]
+        if values:
+            scores[skill] = round(sum(values) / len(values), 2)
+    if averages.get("overall_score") is not None:
+        scores["overall"] = round(averages["overall_score"], 2)
+    return scores
+
+
+def _as_uuid(value) -> uuid.UUID | None:
+    """The pedagogy tables key on a UUID column; this service passes strings."""
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _pedagogy_profile(db: Session, user_id: str) -> dict[str, Any] | None:
+    """What adaptive pedagogy has decided about how this learner is taught.
+
+    Advice is written for one person, so how it is said matters as much as what
+    it says. The pedagogy module has already worked that out - tone, pacing,
+    complexity, feedback style - and recommendations that ignore it hand the
+    learner the same words everyone else gets, in a register that module
+    specifically decided would not land for them.
+
+    Read-only, and never fatal: a learner with no plan yet simply gets advice
+    written to the default voice rather than no advice at all.
+    """
+    key = _as_uuid(user_id)
+    if key is None:
+        return None
+
+    profile: dict[str, Any] = {}
+
+    try:
+        # One row per learner - the pedagogy module filters on user alone.
+        plan = db.query(TrainingPlan).filter(TrainingPlan.user_id == key).first()
+    except Exception:
+        logger.exception("Could not read the training plan for mentoring (user %s)", user_id)
+        db.rollback()
+        plan = None
+
+    if plan is not None:
+        strategy = plan.strategy_json if isinstance(plan.strategy_json, dict) else {}
+        profile.update(
+            {
+                # A scenario domain - "job_interview" - not one of the four
+                # tracked skills. Named for what it is, because reading it as a
+                # skill silently matches nothing: on this database every plan
+                # carries the same value and none of it is a skill name.
+                "practice_domain": plan.skill,
+                "difficulty": plan.difficulty,
+                "tone": strategy.get("tone"),
+                "pacing": strategy.get("pacing"),
+                "complexity": strategy.get("complexity"),
+                "feedback_style": strategy.get("feedback_style"),
+                # Pedagogy fills this only once a baseline exists, so it is
+                # empty for most learners. Filtered to skills this component
+                # reports on, or ordering by it would be ordering by nothing.
+                "priority_skills": [
+                    skill
+                    for skill in (strategy.get("priority_skills") or [])
+                    if skill in _TRACKED_SKILLS
+                ][:4],
+            }
+        )
+
+    try:
+        traits = (
+            db.query(PersonalityProfile)
+            .filter(PersonalityProfile.user_id == key)
+            .first()
+        )
+    except Exception:
+        logger.exception("Could not read the personality profile for mentoring (user %s)", user_id)
+        db.rollback()
+        traits = None
+
+    if traits is not None:
+        # Rounded: the model is being asked to pick a register, not to do
+        # arithmetic on a trait score.
+        profile["traits"] = {
+            "openness": round(traits.openness),
+            "conscientiousness": round(traits.conscientiousness),
+            "extraversion": round(traits.extraversion),
+            "agreeableness": round(traits.agreeableness),
+            "neuroticism": round(traits.neuroticism),
+        }
+
+    return {k: v for k, v in profile.items() if v not in (None, [], {})} or None
+
+
 def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
     try:
         aggregate = data_aggregation_service.get_user_aggregate(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read aggregate for mentoring evidence (user %s)", user_id)
+        db.rollback()
         aggregate = None
     
     try:
         feedback_analysis = feedback_analysis_service.analyze_user_feedback(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read feedback_analysis for mentoring evidence (user %s)", user_id)
+        db.rollback()
         feedback_analysis = None
     
     try:
         blind_spots = blind_spot_service.detect_user_blind_spots(db, user_id, limit)
     except Exception:
+        logger.exception("Could not read blind_spots for mentoring evidence (user %s)", user_id)
+        db.rollback()
         blind_spots = None
     
+    # Both of these take session_id third, not limit. Passing the limit
+    # positionally sent 10000 in as a session id, Postgres refused to compare a
+    # varchar against an integer, and the bare except swallowed it - so the model
+    # was asked for advice with no trend and no forecast in front of it. Worse,
+    # the failed statement aborted the transaction, which took the prediction
+    # call down with it. The single most important thing this learner's data says
+    # - three skills slipping - never reached the prompt.
     try:
-        trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit)
+        trends = progress_trend_service.analyze_user_progress_trends(db, user_id, limit=limit)
     except Exception:
+        logger.exception("Could not read trends for mentoring evidence (user %s)", user_id)
+        db.rollback()
         trends = None
-    
+
     try:
-        predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id, limit)
+        predictions = predictive_modeling_service.predict_user_skill_outcomes(db, user_id)
     except Exception:
+        logger.exception("Could not read predictions for mentoring evidence (user %s)", user_id)
+        db.rollback()
         predictions = None
 
     return {
         "user_id": user_id,
+        "pedagogy": _pedagogy_profile(db, user_id),
         "summary": {
             "session_count": aggregate.scores.metric_count if aggregate else 0,
-            "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+            # Two different numbers, and only one of them means anything to the
+            # learner. total_count is every row in the table - 392 here, of which
+            # 258 are notes this codebase generated itself. Shown on a card next
+            # to "SESSIONS 118" it reads as "you gave 392 pieces of feedback",
+            # which is not true of any of it. self_assessment_count is the thing
+            # they actually did: the sessions they rated themselves on.
+            "feedback_count": aggregate.feedback.self_session_count if aggregate else 0,
+            "feedback_entry_count": aggregate.feedback.total_count if aggregate else 0,
             "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
             "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
             "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,
@@ -167,7 +386,12 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
             "sentiment_positive_count": aggregate.feedback.sentiment_counts.get("positive", 0) if aggregate else 0,
             "sentiment_negative_count": aggregate.feedback.sentiment_counts.get("negative", 0) if aggregate else 0,
         },
-        "scores": aggregate.scores.averages if aggregate else {},
+        # The four skills this product actually tracks, not the raw metric
+        # columns behind them. Sending the columns meant the model wrote advice
+        # about "professionalism" (20.2) and "response_quality" (47.3) - names
+        # the learner has never seen, on a dashboard that shows four different
+        # ones. Advice about a skill nobody can find is worse than no advice.
+        "scores": _tracked_skill_scores(aggregate.scores.averages if aggregate else {}),
         "latest_feedback": [
             _compact_feedback(entry.model_dump(mode="json"))
             for entry in (aggregate.feedback.latest_entries[:5] if aggregate else [])
@@ -191,21 +415,163 @@ def _collect_evidence(db: Session, user_id: str, limit: int) -> dict[str, Any]:
     }
 
 
+# Everything both prompts share: what the evidence means, what a good
+# recommendation looks like, and the lines this system does not cross.
+#
+# Written once because it was written twice and drifted. The session prompt had
+# lost "non-clinical", the ban on diagnoses, and the score-range guard while the
+# user prompt kept all three. A safety rule with two copies has none.
+
+# What the JSON fields actually mean.
+#
+# Without this the model infers the semantics from field names, and the sign of
+# a gap is the one it cannot afford to get backwards: telling a learner who
+# consistently underrates themselves that they are overconfident is worse than
+# saying nothing. It read the evidence correctly in testing, but "it guessed
+# right" is not a property to rely on.
+_EVIDENCE_GLOSSARY = (
+    "How to read the evidence. "
+    "scores: the learner's average for each tracked skill, 0-100. "
+    "feedback_alignment and blind_spots: the learner rated themselves after a "
+    "session, and that rating is compared with what was measured. A NEGATIVE gap "
+    "means they rated themselves LOWER than measured - they are underselling "
+    "themselves. A POSITIVE gap means they rated themselves HIGHER than measured. "
+    "trends: delta is the change from their first session to their latest, and "
+    "slope_per_session is the direction across all of them; when the two "
+    "disagree, trust the slope, because delta compares two single sessions. "
+    "predictions: where a skill lands next session if nothing changes, with "
+    "risk_level ranking how much that matters. "
+    "latest_feedback: the learner's own words, with sentiment as the model read "
+    "them - 'mixed' means the reflection holds a positive and a negative "
+    "judgement at once, which is not the same as neutral. "
+    "pedagogy: how the adaptive-pedagogy module has decided this learner should "
+    "be taught. feedback_style, tone, pacing and complexity describe the "
+    "register that was chosen for them; difficulty is 1-10 on their current "
+    "plan; practice_domain is the scenario it rehearses and priority_skills "
+    "are the skills it targets, empty until a baseline exists; "
+    "traits are OCEAN scores out of 100. It is absent for a learner who has no "
+    "plan yet."
+)
+
+# How to use the pedagogy block. Separate from the quality rules because it
+# governs delivery rather than substance: the evidence decides what to say, this
+# decides how to say it and which skill to say it about first.
+_PERSONALISATION_RULES = (
+    "Write for this learner, not a generic one. When a pedagogy block is "
+    "present, match its feedback_style: 'encouraging' means lead with what is "
+    "working before the correction, 'blunt' means state the problem first "
+    "without softening, 'balanced' means neither. Match its complexity too - "
+    "'simple' means one concrete step per recommendation and no jargon. "
+    "If priority_skills are set, order recommendations so those skills come "
+    "first where the evidence supports it; never invent a finding about them "
+    "that the evidence does not show. practice_domain is the scenario they are "
+    "rehearsing, not a skill - use it to make a next_action concrete, never as "
+    "the subject of a recommendation. "
+    "Use difficulty to pitch the next_action: a learner at 2 needs a smaller "
+    "step than one at 9. "
+    "Never name the pedagogy fields, the traits or their scores in the output. "
+    "They change how you write, not what the learner reads about themselves."
+)
+
+# What separates a recommendation worth reading from filler.
+_QUALITY_RULES = (
+    "Each recommendation must name one thing to change and one way to practise "
+    "it in a single upcoming session. Prefer a specific, observable action - "
+    "'pause for one breath before answering' - over a general one - 'work on "
+    "your listening'. Say what the evidence shows and let the learner draw the "
+    "conclusion; do not tell them how they feel. "
+    # Cover every measured skill, but do not manufacture a fault to fill the slot.
+    #
+    # This used to read "only for skills the evidence actually says something
+    # about", which produced three cards where the learner knows they have four
+    # skills - and a missing card reads as a question, not as reassurance.
+    # Forcing a fourth was worse: asked to cover a skill whose self-rating
+    # already matched the measurement, the model wrote "aligned; it's adequate
+    # but can be tightened to improve clarity" - a sentence that could be said
+    # about anything, at any time, and means nothing.
+    #
+    # So: one card per measured skill, and where there is no gap the finding IS
+    # the absence of one. Rating yourself accurately is a real result, and saying
+    # so is information rather than praise.
+    "Give exactly one recommendation for each skill the evidence has a score for, "
+    "and never more than one per skill. "
+    "Where a skill shows a genuine problem - a gap between rating and "
+    "measurement, a low score, a declining trend - say what to change. "
+    "Where a skill shows no problem, do not invent one and do not pad. Say "
+    "plainly that it is on track, name the evidence that shows it - an accurate "
+    "self-rating is itself worth reporting - and give one small thing that keeps "
+    "it there or stretches it. Mark those 'low'. "
+    "Use priority 'high' only where the evidence is strong: a high risk_level, a "
+    "high-severity blind spot, or a clearly declining trend."
+)
+
+# The lines this system does not cross.
+_BOUNDARY_RULES = (
+    "Use only the evidence provided. Do not invent sessions, scores, diagnoses, "
+    "or private facts about the learner. "
+    "All scores are already on a 0-100 scale; never write a negative score or "
+    "one above 100. "
+    "The only skills this system tracks are vocal_command, speech_fluency, "
+    "presence_engagement and emotional_intelligence. Use skill_area values from "
+    "that list only, or null for advice that spans all of them. Never name any "
+    "other skill - the learner has no screen where a fifth skill exists. "
+    # The evidence carries the learner's own written reflections, so their words
+    # reach this model. Coaching a personal disclosure is neither what this
+    # system is for nor something it is qualified to do. The boundary is practice
+    # technique; anything past it is left for a person.
+    "The evidence may contain the learner's own written reflections. Comment only "
+    "on their practice technique. If a reflection mentions distress, anxiety, "
+    "burnout, health, or their personal life, do not respond to it, do not quote "
+    "it, and do not offer reassurance, therapy, counselling or wellbeing advice. "
+    "Give no advice at all on that subject. "
+    "Do not ask the learner to collect peer feedback or peer ratings - this "
+    "system has none. Say 'observed performance evidence' or 'system evidence' "
+    "rather than naming internal components."
+)
+
+# How the words should land.
+_VOICE_RULES = (
+    "Write to the learner as 'you'. They are early in their career, not a "
+    "beginner at being an adult: be direct and practical, never congratulatory "
+    "for its own sake and never patronising. Keep every field to one or two "
+    "short sentences. Titles are imperative and specific - 'Hold eye contact "
+    "through your first answer', not 'Presence improvement'."
+)
+
+_SHARED_PROMPT_RULES = (
+    _EVIDENCE_GLOSSARY
+    + " "
+    + _QUALITY_RULES
+    + " "
+    + _BOUNDARY_RULES
+    + " "
+    + _VOICE_RULES
+    + " "
+    + _PERSONALISATION_RULES
+)
+
+
 def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     """Collect evidence specific to a single session."""
     try:
         aggregate = data_aggregation_service.get_session_aggregate(db, session_id)
     except Exception:
+        logger.exception("Could not read aggregate for session %s", session_id)
+        db.rollback()
         aggregate = None
     
     try:
         feedback_analysis = feedback_analysis_service.analyze_session_feedback(db, session_id)
     except Exception:
+        logger.exception("Could not read feedback_analysis for session %s", session_id)
+        db.rollback()
         feedback_analysis = None
     
     try:
         blind_spots = blind_spot_service.detect_session_blind_spots(db, session_id)
     except Exception:
+        logger.exception("Could not read blind_spots for session %s", session_id)
+        db.rollback()
         blind_spots = None
 
     user_id = aggregate.user_id if aggregate and aggregate.user_id else "unknown"
@@ -213,7 +579,23 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     summary_data = {
         "session_id": session_id,
         "user_id": user_id,
-        "feedback_count": aggregate.feedback.total_count if aggregate else 0,
+        # Skills rated, which is what the screen labels this - not rows.
+        #
+        # total_count is every feedback row on the session, so a learner who
+        # rated four skills was once shown nine. Counting self rows instead fixed
+        # most of that but not all: the written reflection is also a self row,
+        # carrying no skill and no rating, so four rated skills read as five.
+        # Counting the skills that actually hold a rating is the thing the label
+        # claims, and it cannot drift again as new kinds of row are added.
+        "feedback_count": (
+            len([
+                skill for skill in aggregate.feedback.self_rating_averages
+                if skill in feedback_analysis_service.OBSERVED_SCORE_FIELDS
+            ])
+            if aggregate
+            else 0
+        ),
+        "feedback_entry_count": aggregate.feedback.total_count if aggregate else 0,
         "average_feedback_rating": aggregate.feedback.average_rating if aggregate else None,
         "blind_spot_count": blind_spots.summary.total_count if blind_spots else 0,
         "high_blind_spot_count": blind_spots.summary.high_count if blind_spots else 0,
@@ -222,8 +604,16 @@ def _collect_session_evidence(db: Session, session_id: str) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "session_id": session_id,
+        "pedagogy": _pedagogy_profile(db, user_id),
         "summary": summary_data,
-        "scores": aggregate.scores.averages if aggregate and aggregate.scores else {},
+        # Same reasoning as the user-scope collector: the four skills the
+        # learner sees, not the metric columns underneath them. Left as raw
+        # columns here, the model wrote session advice about "listening",
+        # "empathy" and "emotional control" - three names that appear on no
+        # screen in this product.
+        "scores": _tracked_skill_scores(
+            aggregate.scores.averages if aggregate and aggregate.scores else {}
+        ),
         "latest_feedback": [
             _compact_feedback(entry.model_dump(mode="json"))
             for entry in (aggregate.feedback.latest_entries[:3] if aggregate else [])
@@ -243,15 +633,14 @@ def _call_openai_session_mentoring(evidence_bundle: dict[str, Any]) -> list[Ment
     settings = get_settings()
     schema = _recommendation_json_schema()
     prompt = (
-        "Generate immediate post-session mentoring feedback for a Gen Z workplace soft-skills learner. "
-        "Focus only on what happened in this specific session. "
-        "Use only the analytics evidence provided. "
-        "Return concise, actionable coaching advice for their next attempt. "
-        "Prioritize blind spots and low feedback ratings. "
-        "Do not invent session details or private user facts. "
-        "All score values are normalized to 0-100. "
-        "Do not ask the learner to collect peer feedback or peer ratings. "
-        "Use terms such as observed performance evidence or system evidence instead."
+        "You are a soft-skills practice coach. The learner has just finished one "
+        "practice session and is looking at their results. Tell them what to do "
+        "differently in their next attempt. "
+        "Everything here is about this one session - do not describe long-term "
+        "progress or trends, because a single session cannot show either. "
+        "Lead with the widest gap between what they thought and what was "
+        "measured, then the lowest scores. "
+        + _SHARED_PROMPT_RULES
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -289,7 +678,9 @@ def _call_openai_session_mentoring(evidence_bundle: dict[str, Any]) -> list[Ment
             response.raise_for_status()
         parsed = _parse_openai_json(response.json())
         items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
-        return _coerce_recommendations(items, source="llm")
+        return _coerce_recommendations(
+            items, source="llm", severities=_severity_by_skill(evidence_bundle)
+        )
     except Exception:
         return None
 
@@ -307,7 +698,14 @@ def _build_session_rule_based_recommendations(evidence_bundle: dict[str, Any]) -
                 skill_area=skill,
                 title=f"Work on {_label(skill)} in next session",
                 reason=f"This session showed a {blind_spot['blind_spot_type']} gap in {_label(skill)}.",
-                detail=f"You rated yourself {blind_spot['self_rating']} but observed performance was {blind_spot['observed_rating']}. "
+                # The field is comparison_score. It was written as
+                # observed_rating, which does not exist, so this whole branch
+                # raised KeyError - and because it is the fallback, it only ran
+                # when the LLM was already unavailable. A path that exists to
+                # catch a failure cannot itself be broken; it had never been
+                # executed once in production.
+                detail=f"You rated yourself {blind_spot['self_rating']} but the "
+                       f"session measured {blind_spot.get('comparison_score')}. "
                        f"Practice this skill specifically before your next session.",
                 next_action=f"Focus on {_label(skill)} during your next practice session. Ask for feedback on this specific area.",
                 evidence_sources=["blind_spot_detection", "session_feedback"],
@@ -351,18 +749,15 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
     settings = get_settings()
     schema = _recommendation_json_schema()
     prompt = (
-        "Generate personalized mentoring recommendations for a Gen Z workplace "
-        "soft-skills learner. Use only the analytics evidence provided. "
-        "Return concise, actionable, non-clinical coaching advice. "
-        "Prioritize high-risk predictions, blind spots, declining trends, and low scores. "
-        "Do not invent sessions, scores, diagnoses, or private user facts. "
-        "All score values in the evidence are already normalized to the 0-100 range. "
-        "Never write negative skill scores or a future score outside 0-100. "
-        "When discussing a trend, describe it as a point change, not as a predicted score. "
-        "Do not ask the learner to collect peer feedback or peer ratings. "
-        "This system uses self-reflection feedback plus observed performance evidence from adaptive pedagogy, "
-        "role-play, and multimodal analysis components. Use terms such as observed performance evidence, "
-        "mentor check, or system evidence instead of peer feedback."
+        "You are a soft-skills practice coach. The learner has been practising "
+        "for a while and wants to know where to put their effort next. Work from "
+        "the whole history, not the most recent session. "
+        "Lead with what is getting worse over time, then high-risk predictions, "
+        "then patterns in how they rate themselves. A skill that is merely low "
+        "but steady matters less than one that is falling. "
+        "Describe a trend as a change in points across sessions, never as a "
+        "predicted future score. "
+        + _SHARED_PROMPT_RULES
     )
     payload = {
         "model": settings.openai_mentoring_model,
@@ -400,7 +795,9 @@ def _call_openai_mentoring(evidence_bundle: dict[str, Any]) -> list[MentoringRec
             response.raise_for_status()
         parsed = _parse_openai_json(response.json())
         items = parsed.get("recommendations", []) if isinstance(parsed, dict) else []
-        return _coerce_recommendations(items, source="llm")
+        return _coerce_recommendations(
+            items, source="llm", severities=_severity_by_skill(evidence_bundle)
+        )
     except Exception:
         return None
 
@@ -488,18 +885,115 @@ def _build_rule_based_recommendations(evidence_bundle: dict[str, Any]) -> list[M
                 title="Maintain current progress",
                 reason="No urgent blind spot, prediction risk, or declining trend was detected.",
                 detail="Continue the current training strategy and review feedback after each session.",
-                next_action="Complete one more role-play session and compare the new scores with this baseline.",
+                # Not "one more role-play session". Role-play is a separate
+                # module; nothing in this component reports on it, and it is
+                # refused at the integration boundary. The sessions these
+                # recommendations are drawn from are multimodal ones.
+                next_action="Complete one more session and compare the new scores with this baseline.",
                 evidence_sources=["analytics_summary"],
             )
         )
 
-    return sorted(items, key=lambda item: PRIORITY_WEIGHT[item.priority], reverse=True)
+    # Priority first, then the plan. The fallback cannot change its register the
+    # way the model can, but it can still put the skill the learner is actually
+    # working on at the top - and since the list is truncated before it is
+    # shown, ordering is what decides whether that skill is seen at all.
+    focus = _pedagogy_focus_order(evidence_bundle.get("pedagogy"))
+    return sorted(
+        items,
+        key=lambda item: (
+            PRIORITY_WEIGHT[item.priority],
+            -focus.get(item.skill_area, len(focus)),
+        ),
+        reverse=True,
+    )
+
+
+def _pedagogy_focus_order(pedagogy: dict[str, Any] | None) -> dict[str, int]:
+    """Skills the learner's plan is working on, best first, as a rank lookup.
+
+    Reads priority_skills only. The plan's own `skill` column is a scenario
+    domain, so ranking by it would compare "job_interview" against
+    "speech_fluency" and quietly order nothing.
+    """
+    if not pedagogy:
+        return {}
+    ranks: dict[str, int] = {}
+    for position, skill in enumerate(pedagogy.get("priority_skills") or []):
+        if skill and skill not in ranks:
+            ranks[skill] = position
+    return ranks
+
+
+# Every metric column that feeds a tracked skill, mapped to the skill a learner
+# would recognise. The model is given only the four names now, but it is a
+# language model reading evidence full of blind spots and feedback entries, and
+# it will occasionally answer with something it saw in there. This is the last
+# gate: a recommendation is filed under a skill the product actually shows, or
+# under nothing at all.
+_SKILL_ALIASES = {
+    "speech_volume": "vocal_command", "speech_volume_score": "vocal_command",
+    "professionalism": "vocal_command", "volume": "vocal_command",
+    "voice": "vocal_command", "vocal": "vocal_command",
+    "speech_pace": "speech_fluency", "pace": "speech_fluency",
+    "clarity": "speech_fluency", "communication_clarity": "speech_fluency",
+    "fluency": "speech_fluency", "response_quality": "speech_fluency",
+    "eye_contact": "presence_engagement", "confidence": "presence_engagement",
+    "presence": "presence_engagement", "engagement": "presence_engagement",
+    "adaptability": "presence_engagement",
+    "empathy": "emotional_intelligence", "listening": "emotional_intelligence",
+    "active_listening": "emotional_intelligence",
+    "emotional_control": "emotional_intelligence",
+    "emotional_regulation": "emotional_intelligence",
+}
+_TRACKED_SKILLS = frozenset(_TRACKED_SKILL_COLUMNS)
+
+
+def _normalise_skill_area(value: Any) -> str | None:
+    """The learner's four skills, or None. Never an invented fifth."""
+    if not value:
+        return None
+    key = str(value).strip().lower().replace(" ", "_").replace("-", "_")
+    if key in _TRACKED_SKILLS:
+        return key
+    if key == "overall":
+        return "overall"
+    mapped = _SKILL_ALIASES.get(key) or _SKILL_ALIASES.get(key.removesuffix("_score"))
+    if mapped:
+        logger.info("Mentoring skill_area %r mapped to %r", value, mapped)
+        return mapped
+    # Unrecognised. Filed against no skill rather than shown under a name the
+    # learner cannot find anywhere else in the product.
+    logger.warning("Mentoring skill_area %r is not a tracked skill; dropping it", value)
+    return None
+
+
+def _severity_by_skill(evidence_bundle: dict[str, Any]) -> dict[str, str]:
+    """Blind-spot severity per skill, as the detector reported it."""
+    out: dict[str, str] = {}
+    for spot in evidence_bundle.get("blind_spots") or []:
+        skill = _normalise_skill_area(spot.get("skill_area"))
+        severity = str(spot.get("severity") or "").lower()
+        if skill and severity in PRIORITY_WEIGHT:
+            out[skill] = severity
+    return out
 
 
 def _coerce_recommendations(
     raw_items: list[dict[str, Any]],
     source: str,
+    severities: dict[str, str] | None = None,
 ) -> list[MentoringRecommendationItem]:
+    """Turn the model's JSON into items, with priority taken from the evidence.
+
+    `severities` maps a skill to the severity blind_spot_service computed for it.
+    Where one exists it wins, because the model was re-deciding a question that
+    is already settled: the same 12-point gap came back `medium` on one run and
+    `low` on the next, while the Blind Spots page - reading the same detector -
+    said `low` both times. Two pages disagreeing about one session is worse than
+    either answer, and the detector's is the one with a rule behind it.
+    """
+    severities = severities or {}
     items: list[MentoringRecommendationItem] = []
     for raw in raw_items:
         priority = str(raw.get("priority", "medium")).lower()
@@ -513,10 +1007,19 @@ def _coerce_recommendations(
         reason = _sanitize_mentoring_text(str(raw.get("reason") or detail).strip())
         if _contains_impossible_score_text(title, reason, detail, next_action):
             continue
+        skill_area = _normalise_skill_area(raw.get("skill_area"))
+        measured = severities.get(skill_area or "")
+        if measured and measured != priority:
+            logger.info(
+                "Mentoring priority for %s: model said %s, detector says %s",
+                skill_area, priority, measured,
+            )
+            priority = measured
+
         items.append(
             MentoringRecommendationItem(
                 priority=priority,
-                skill_area=raw.get("skill_area"),
+                skill_area=skill_area,
                 title=title,
                 reason=reason,
                 detail=detail,
@@ -582,13 +1085,74 @@ def _rank_predictions(items):
 
 
 def _compact_feedback(entry: dict[str, Any]) -> dict[str, Any]:
+    """One feedback row as the prompt sees it, minus anything it must not use.
+
+    _BOUNDARY_RULES tells the model not to respond to a reflection about distress,
+    health or the learner's personal life. That rule stopped it writing about the
+    subject - but the words stayed in the evidence, and the model is asked for one
+    recommendation per skill, so a sentence about someone's week still shaped the
+    emotional_intelligence card without ever being named. Silence about a subject
+    is not the same as not reasoning from it.
+
+    So the text is withheld rather than merely forbidden, the same way
+    _has_usable_evidence enforces a prompt rule in code instead of asking twice.
+    The rating and the sentiment stay: those are about the session, and they are
+    what the model is entitled to.
+
+    This drops the practice content of a mixed reflection along with the rest -
+    "I was overwhelmed all week and I rushed my opening" loses the opening. That
+    is the right trade at a safety boundary, and it is a small loss: the model
+    still has scores, blind spots, trends and predictions to work from.
+    """
+    comment = entry.get("comment")
+    if reflection_support.distress_level(comment) is not None:
+        comment = None
     return {
         "feedback_type": entry.get("feedback_type"),
         "skill_area": entry.get("skill_area"),
         "rating": entry.get("rating"),
         "sentiment": entry.get("sentiment"),
-        "comment": entry.get("comment"),
+        "comment": comment,
     }
+
+
+# How many recent reflections the offer is read from.
+#
+# Not the learner's whole history: user-level advice is drawn from everything they
+# have done, but offering a helpline over a sentence written months ago would be
+# answering something that has already passed. This matches the reflections the
+# advice itself was composed from.
+_SUPPORT_REFLECTION_LIMIT = 5
+
+
+def support_path(db: Session, session_id: str) -> SupportPath | None:
+    """The offer of a way out, for one session's reflections.
+
+    One session, never a whole history, and the signature says so rather than
+    leaving it to whoever calls it. Offered across everything a learner had ever
+    written, this appeared beside advice drawn from months of sessions with
+    nothing to attach it to - a standing statement about the person rather than a
+    reply to something they wrote. Beside the session they wrote it on, it is an
+    answer to that.
+
+    Read here rather than out of the evidence bundle, because that bundle is
+    serialised whole into the prompt - anything put in it for another purpose
+    would reach the model, which is the one thing this must not do. Sourcing it
+    separately also means the offer does not depend on the prompt-shaping code,
+    on the model answering, or on there being an API key at all.
+    """
+    rows = (
+        db.query(FeedbackEntry.comment)
+        .filter(
+            FeedbackEntry.feedback_type == "self",
+            FeedbackEntry.comment.isnot(None),
+            FeedbackEntry.session_id == session_id,
+        )
+        .order_by(FeedbackEntry.created_at.desc())
+        .limit(_SUPPORT_REFLECTION_LIMIT)
+        .all()
+    )
+    return reflection_support.support_path_for([row[0] for row in rows])
 
 
 def _compact_trend(item: dict[str, Any]) -> dict[str, Any]:
@@ -634,7 +1198,7 @@ def _contains_impossible_score_text(*values: str) -> bool:
 
 def _sanitize_mentoring_text(value: str) -> str:
     sanitized = value
-    for pattern, replacement in PEER_TEXT_REPLACEMENTS:
+    for pattern, replacement in PEER_TEXT_REPLACEMENTS + SKILL_NAME_REPLACEMENTS:
         sanitized = pattern.sub(replacement, sanitized)
     return sanitized.strip()
 
@@ -700,7 +1264,15 @@ def _recommendation_json_schema() -> dict[str, Any]:
                     "additionalProperties": False,
                     "properties": {
                         "priority": {"type": "string", "enum": ["high", "medium", "low"]},
-                        "skill_area": {"type": ["string", "null"]},
+                        # Constrained rather than free text. The prompt asks for
+                    # these four; the schema is what makes it impossible to
+                    # answer with a fifth, and _normalise_skill_area is the last
+                    # net under both. A recommendation filed under a skill the
+                    # learner cannot find on any screen is not usable advice.
+                    "skill_area": {
+                        "type": ["string", "null"],
+                        "enum": [*sorted(_TRACKED_SKILL_COLUMNS), "overall", None],
+                    },
                         "title": {"type": "string"},
                         "reason": {"type": "string"},
                         "detail": {"type": "string"},
@@ -730,11 +1302,22 @@ _svc_logger = logging.getLogger(__name__)
 
 
 def _save_recommendations_to_db(
-    _unused_db: Session,
+    db: Session,
     result: MentoringRecommendationResult,
 ) -> None:
-    """Save generated recommendations using a fresh session to avoid stale-connection failures after long LLM calls."""
-    save_db = SessionLocal()
+    """Save generated recommendations on a fresh session bound to the caller's database.
+
+    A fresh session, because an LLM call can take long enough for the request's
+    own connection to go stale before the write.
+
+    Bound to the caller's engine, because opening one from SessionLocal ignored
+    whatever database the caller was using. Under test that is the SQLite file
+    the fixtures set up, and the writes went to the real Postgres instead - five
+    recommendation rows and four feedback rows from test users are in production
+    because of it. A fresh session is the fix for a stale connection; a different
+    database is not part of it.
+    """
+    save_db = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)()
     try:
         _svc_logger.info(
             "Saving %d recommendations for user %s session %s",

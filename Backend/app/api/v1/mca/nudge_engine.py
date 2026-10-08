@@ -3,12 +3,18 @@ import numpy as np
 import librosa
 import logging
 import io
+import json
+import threading
 import traceback
 import os
 import joblib
 
 from .base_types import AudioAnalyzer, AudioFeatures, Nudge
 from .affect_fusion import AffectFusionAnalyzer
+
+# RMS above which a chunk counts as the learner speaking (same gate the
+# pitch/pace/clarity analyzers and emotion inference use).
+SPEECH_RMS_GATE = 0.015
 
 
 # Concrete Analyzers
@@ -66,11 +72,8 @@ class PitchAnalyzer(AudioAnalyzer):
 
 class PaceAnalyzer(AudioAnalyzer):
     """
-    Uses Zero-Crossing Rate (ZCR) as a proxy for speaking pace.
-    Voiced speech ZCR is typically 0.02-0.08. A sustained average above
-    0.15 across a 500ms chunk indicates rapid speech or heavy consonant use.
-    Note: ZCR conflates pace with fricative-heavy speech. Use onset detection
-    for more accurate pace measurement in future ML pipeline.
+    Zero-crossing rate as a rough pace proxy (voiced speech is ~0.02-0.08).
+    Also rises on consonant-heavy speech; onset detection would be more accurate.
     """
 
     FAST_ZCR_THRESHOLD = 0.18   # Moderated back to 0.18 for scoring baseline
@@ -90,14 +93,9 @@ class PaceAnalyzer(AudioAnalyzer):
 
 
 class ClarityAnalyzer(AudioAnalyzer):
-    """
-    Uses Spectral Centroid to detect muffled or noisy audio.
-    Human speech energy concentrates in the 1-4 kHz band.
-    Centroid below 1000 Hz = muffled/blocked mic.
-    Centroid above 4000 Hz = background noise (fan, AC, traffic).
-    """
+    """Spectral centroid: too low = muffled mic, too high = background noise."""
 
-    LOW_CENTROID_HZ = 800.0     # Moderated for scoring baseline
+    LOW_CENTROID_HZ = 1000.0    # Picheny et al. (1985): 1 kHz lower bound of speech intelligibility band
     HIGH_CENTROID_HZ = 5000.0   # Moderated for scoring baseline
     VOICE_GATE = 0.015
 
@@ -123,17 +121,28 @@ class ClarityAnalyzer(AudioAnalyzer):
 
 class SilenceAnalyzer(AudioAnalyzer):
     """
-    Detects prolonged near-silence, which may indicate hesitation.
-    Threshold raised from 0.00005 to 0.0001 to account for the
-    browser MediaRecorder noise floor which is rarely truly zero.
+    Detects a hesitation: a near-silent chunk straight after the learner was
+    speaking. Room noise alone sits in the same RMS range, so near-silence
+    before the learner has spoken (session start, idle mic) is not a pause.
+    Fires once per pause; the learner must speak again to re-arm it.
     """
 
     SILENCE_THRESHOLD = 0.008  # accounts for higher noise floors
 
+    def __init__(self):
+        self._was_speaking = False
+
     def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
+        v = features.avg_volume
+        if v > SPEECH_RMS_GATE:
+            self._was_speaking = True
+            return None
+
         # Only trigger if there was *some* noise but very low (true hesitation)
         # and ignore if completely silent (standby)
-        if 0.001 < features.avg_volume < self.SILENCE_THRESHOLD:
+        is_pause = self._was_speaking and 0.001 < v < self.SILENCE_THRESHOLD
+        self._was_speaking = False
+        if is_pause:
             return Nudge(
                 message="Take your time! Pauses help gather ideas.",
                 category="silence",
@@ -144,8 +153,8 @@ class SilenceAnalyzer(AudioAnalyzer):
 
 class SerAnalyzer(AudioAnalyzer):
     """
-    Speech Emotion Recognition (SER) Analyzer.
-    Loads the trained SVM pipeline (Scaler + SVC) to predict the user's emotional state.
+    Speech emotion recognition. Loads the model marked "enabled" in
+    model_config.json (SVM, CNN or wav2vec2).
     """
 
     EMOTION_MAP = {
@@ -158,24 +167,80 @@ class SerAnalyzer(AudioAnalyzer):
         6: "surprised"
     }
 
-    def __init__(self, model_path: str = "app/models/affect_fusion/svm_model.pkl"):
+    # Used only if the config file is missing/unreadable/has nothing enabled
+    FALLBACK_MODEL_PATH = "app/models/affect_fusion/svm_model.pkl"
+
+    # Model kinds loaded via transformers (HF checkpoint dir) instead of joblib (.pkl)
+    HF_MODEL_KINDS = {"wav2vec2"}
+
+    # Loaded models shared by every connection (inference is read-only), so a
+    # new WebSocket doesn't reload the model before its first chunk.
+    _cache: dict[str, tuple] = {}
+    _cache_lock = threading.Lock()
+
+    def __init__(self, config_path: str = "app/models/affect_fusion/model_config.json"):
         self.model = None
-        self.model_path = model_path
-        self._load_model()
+        self.feature_extractor = None  # only set for HF (wav2vec2) models
+        self.config_path = config_path
+        self.model_path = None
+        self.model_kind = None  # "svm" | "cnn" | "wav2vec2", from model_config.json key
+        with self._cache_lock:
+            if config_path not in self._cache:
+                self._load_model()
+                self._cache[config_path] = (self.model_kind, self.model_path, self.model, self.feature_extractor)
+            self.model_kind, self.model_path, self.model, self.feature_extractor = self._cache[config_path]
+
+    def _resolve_model_path(self) -> tuple[str, str]:
+        """Reads model_config.json and returns (name, path) of the model marked "enabled": true."""
+        log = logging.getLogger("uvicorn")
+        try:
+            with open(self.config_path, "r") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            log.warning(f"Model config not found at {self.config_path}. Falling back to {self.FALLBACK_MODEL_PATH}")
+            return "svm", self.FALLBACK_MODEL_PATH
+        except Exception as e:
+            log.error(f"Failed to parse model config {self.config_path}: {e}. Falling back to {self.FALLBACK_MODEL_PATH}")
+            return "svm", self.FALLBACK_MODEL_PATH
+
+        enabled = [(name, entry) for name, entry in config.items() if entry.get("enabled")]
+
+        if not enabled:
+            log.warning(f"No model marked \"enabled\": true in {self.config_path}. Falling back to {self.FALLBACK_MODEL_PATH}")
+            return "svm", self.FALLBACK_MODEL_PATH
+
+        if len(enabled) > 1:
+            names = ", ".join(name for name, _ in enabled)
+            log.warning(f"Multiple models enabled in {self.config_path} ({names}). Using the first: {enabled[0][0]}")
+
+        name, entry = enabled[0]
+        log.info(f"SER model selected via {self.config_path}: \"{name}\"")
+        return name, entry["path"]
 
     def _load_model(self):
-        import joblib
-        import os
+        self.model_kind, self.model_path = self._resolve_model_path()
+        log = logging.getLogger("uvicorn")
         try:
-            if os.path.exists(self.model_path):
-                self.model = joblib.load(self.model_path)
-                logging.getLogger("uvicorn").info(f"SVM Emotion Model loaded from {self.model_path}")
-            else:
-                logging.getLogger("uvicorn").warning(f"SVM Model not found at {self.model_path}. Emotion detection disabled.")
-        except Exception as e:
-            logging.getLogger("uvicorn").error(f"Failed to load SVM model: {str(e)}")
+            if not os.path.exists(self.model_path):
+                log.warning(f"Model not found at {self.model_path}. Emotion detection disabled.")
+                return
 
-    def analyze(self, features: AudioFeatures) -> Optional[Nudge]:
+            if self.model_kind in self.HF_MODEL_KINDS:
+                # Wav2Vec2 (and any future HF model) is a saved
+                # transformers checkpoint directory, not a joblib .pkl
+                from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+
+                self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_path)
+                self.model = AutoModelForAudioClassification.from_pretrained(self.model_path)
+                self.model.eval()
+            else:
+                self.model = joblib.load(self.model_path)
+            log.info(f"Emotion model ({self.model_kind}) loaded from {self.model_path}")
+        except Exception as e:
+            log.error(f"Failed to load emotion model: {str(e)}")
+
+    def analyze(self, _features: AudioFeatures) -> Optional[Nudge]:
+        # Inference runs in NudgeEngine.evaluate(); this analyzer is classification-only.
         return None
 
 
@@ -260,6 +325,37 @@ class AudioFeatureExtractor:
                 logging.getLogger("uvicorn").error(f"SVM Feature Extraction Error: {str(e)}")
                 feature_vector = None
 
+            # CNN input: fixed (1, 128, 128) log-mel spectrogram
+            # Parameters must match preprocess_cnn.py: n_fft=2048, hop=512, n_mels=128
+            try:
+                _N_FFT, _HOP, _N_MELS, _T_FRAMES = 2048, 512, 128, 128
+                _target_samples = (_T_FRAMES - 1) * _HOP + _N_FFT  # 67072
+                y_mel = audio_data.copy()
+                if y_mel.size < _target_samples:
+                    y_mel = np.pad(y_mel, (0, _target_samples - y_mel.size))
+                else:
+                    start = (y_mel.size - _target_samples) // 2
+                    y_mel = y_mel[start: start + _target_samples]
+                mel = librosa.feature.melspectrogram(
+                    y=y_mel, sr=sr,
+                    n_fft=_N_FFT, hop_length=_HOP, n_mels=_N_MELS,
+                )
+                mel_db = librosa.power_to_db(mel, ref=np.max)[:, :_T_FRAMES]
+                mel_min, mel_max = mel_db.min(), mel_db.max()
+                mel_db = (mel_db - mel_min) / (mel_max - mel_min + 1e-8)
+                mel_spectrogram = mel_db[np.newaxis].astype(np.float32)  # (1,128,128)
+            except Exception:
+                mel_spectrogram = None
+
+            # Wav2Vec2 input: raw mono waveform resampled to 16kHz
+            try:
+                if sr != 16000:
+                    waveform_16k = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
+                else:
+                    waveform_16k = audio_data
+            except Exception:
+                waveform_16k = None
+
             return AudioFeatures(
                 audio_data=audio_data,
                 sample_rate=sr,
@@ -270,7 +366,9 @@ class AudioFeatureExtractor:
                 duration_ms=duration_ms,
                 pitch_std=pitch_std,
                 feature_vector=feature_vector,
-                emotion_label=None, # Will be filled by SerAnalyzer
+                mel_spectrogram=mel_spectrogram,
+                waveform_16k=waveform_16k,
+                emotion_label=None,
             )
         except Exception as e:
             logging.getLogger("uvicorn").error(f"Feature Extraction Error: {str(e)}\n{traceback.format_exc()}")
@@ -298,57 +396,115 @@ class NudgeEngine:
         ]
         self.ser_analyzer = next((a for a in self._analyzers if isinstance(a, SerAnalyzer)), None)
         self.last_nudge_time: float = 0.0
-        self.COOLDOWN_SECONDS: float = 15.0 # Global gap between any two nudges
-        
-        # MCA-15: History buffer to ensure behavior is sustained before nudging
-        self.behavior_history: dict[str, int] = {} 
-        self.SUSTAIN_THRESHOLD = 3 # Behavior must persist for 3 chunks (3 seconds)
+        self.last_nudge_severity: str = "info"
+        self.COOLDOWN_SECONDS: float = 10.0 # Global gap between nudges of equal or lower severity
+
+        # One ~3 s chunk is enough to count a behaviour as sustained.
+        self.behavior_history: dict[str, int] = {}
+        self.SUSTAIN_THRESHOLD = 1 # Behavior must persist for 1 chunk (~3 seconds)
+
+        # Fairness bookkeeping for _select_nudge
+        self.category_last_fired: dict[str, float] = {}
+
+        # Everything detected in the latest chunk, even during cooldown.
+        self.active_nudges: list[Nudge] = []
+
+    _SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
+
+    @property
+    def active_messages(self) -> list[str]:
+        return [n.message for n in self.active_nudges]
+
+    def _select_nudge(self, candidates: list[Nudge]) -> Nudge:
+        """Highest severity wins; ties go to the category shown least recently."""
+        def rank(n: Nudge) -> tuple:
+            return (
+                self._SEVERITY_RANK.get(n.severity, 0),
+                -self.category_last_fired.get(n.category, 0.0),
+            )
+        return max(candidates, key=rank)
 
     def evaluate(self, features: AudioFeatures, visual_metrics: dict = None) -> Optional[Nudge]:
-        """
-        Runs all analyzers in order. Returns a nudge only if behavior is sustained 
-        and global cooldown has passed.
-        """
+        """Analyse one chunk; return at most one new nudge. Detection always runs, the cooldown only limits nudges."""
         import time
         current_time = time.time()
-        
-        # 1. Global Cooldown Check (Don't even try if we recently nudged)
-        if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
-            return None
 
-        if visual_metrics:
-            features.visual_metrics = visual_metrics
+        # This chunk's face data only (None = no face / camera off), never a
+        # stale value from an earlier chunk.
+        features.visual_metrics = visual_metrics or None
 
-        # 2. Emotion Inference (Only run if user is actually talking)
-        if self.ser_analyzer and self.ser_analyzer.model and features.feature_vector is not None and features.avg_volume > 0.015:
+        # 1. Emotion Inference (Only run if user is actually talking)
+        if self.ser_analyzer and self.ser_analyzer.model and features.avg_volume > SPEECH_RMS_GATE:
             try:
-                vec = features.feature_vector
-                prediction = int(self.ser_analyzer.model.predict(vec.reshape(1, -1))[0])
-                # Map integer back to string for the rule-based fusion logic
-                features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
-                
-                if hasattr(self.ser_analyzer.model, "predict_proba"):
-                    probs = self.ser_analyzer.model.predict_proba(vec.reshape(1, -1))[0]
+                model = self.ser_analyzer.model
+                kind = self.ser_analyzer.model_kind
+
+                if kind == "wav2vec2" and features.waveform_16k is not None:
+                    import torch
+
+                    extractor = self.ser_analyzer.feature_extractor
+                    inputs = extractor(features.waveform_16k, sampling_rate=16000, return_tensors="pt")
+                    with torch.no_grad():
+                        logits = model(**inputs).logits
+                    probs = torch.softmax(logits, dim=-1)[0].numpy()
+                    prediction = int(np.argmax(probs))
+                    features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
                     features.emotion_confidence = float(np.max(probs))
+                elif kind == "cnn" and features.mel_spectrogram is not None:
+                    # CNN path: flat mel spectrogram input (1, 16384)
+                    inp = features.mel_spectrogram.flatten().reshape(1, -1)
+                    prediction = int(model.predict(inp)[0])
+                    features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
+                    if hasattr(model, "predict_proba"):
+                        features.emotion_confidence = float(np.max(model.predict_proba(inp)[0]))
+                elif kind == "svm" and features.feature_vector is not None:
+                    # SVM path: 362-dim statistical feature vector
+                    inp = features.feature_vector.reshape(1, -1)
+                    prediction = int(model.predict(inp)[0])
+                    features.emotion_label = self.ser_analyzer.EMOTION_MAP.get(prediction, "unknown")
+                    if hasattr(model, "predict_proba"):
+                        features.emotion_confidence = float(np.max(model.predict_proba(inp)[0]))
             except Exception as e:
                 logging.getLogger("uvicorn").error(f"Inference Error: {str(e)}")
 
-        # 3. Analyze and Buffer
+        # 2. Analyze every analyzer this chunk — do NOT stop at the first
+        candidates: list[Nudge] = []
         for analyzer in self._analyzers:
             nudge = analyzer.analyze(features)
-            
             if nudge:
-                # Increment hit count for this specific nudge
-                self.behavior_history[nudge.message] = self.behavior_history.get(nudge.message, 0) + 1
-                
-                # Only fire if sustained
-                if self.behavior_history[nudge.message] >= self.SUSTAIN_THRESHOLD:
-                    self.last_nudge_time = current_time
-                    self.behavior_history = {} # Reset all history after a successful nudge
-                    return nudge
-                
-                return None # Behavior detected but not yet sustained
-            
-        # If no nudge detected for this chunk, gradually clear history
-        self.behavior_history = {} 
-        return None
+                candidates.append(nudge)
+        self.active_nudges = candidates
+
+        if not candidates:
+            # Nothing detected this chunk — clear history so an isolated
+            # blip doesn't keep counting toward sustain later.
+            self.behavior_history = {}
+            return None
+
+        # Sustain tracking: each candidate behavior must persist for
+        # SUSTAIN_THRESHOLD consecutive chunks before it's eligible to fire.
+        seen_messages = {c.message for c in candidates}
+        sustained: list[Nudge] = []
+        for nudge in candidates:
+            self.behavior_history[nudge.message] = self.behavior_history.get(nudge.message, 0) + 1
+            if self.behavior_history[nudge.message] >= self.SUSTAIN_THRESHOLD:
+                sustained.append(nudge)
+        # Drop history for behaviors that didn't recur this chunk.
+        self.behavior_history = {k: v for k, v in self.behavior_history.items() if k in seen_messages}
+
+        if not sustained:
+            return None # Behavior(s) detected but not yet sustained
+
+        # 3. Cooldown: one nudge per COOLDOWN_SECONDS, unless more severe than the last one.
+        if (current_time - self.last_nudge_time) < self.COOLDOWN_SECONDS:
+            last_rank = self._SEVERITY_RANK.get(self.last_nudge_severity, 0)
+            sustained = [n for n in sustained if self._SEVERITY_RANK.get(n.severity, 0) > last_rank]
+            if not sustained:
+                return None
+
+        chosen = self._select_nudge(sustained)
+        self.last_nudge_time = current_time
+        self.last_nudge_severity = chosen.severity
+        self.category_last_fired[chosen.category] = current_time
+        self.behavior_history = {} # Reset all history after a successful nudge
+        return chosen
