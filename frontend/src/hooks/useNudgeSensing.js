@@ -257,7 +257,8 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     let faceMeshModel = null
 
     if (isCameraActive) {
-      faceMeshModel = new faceMesh.FaceMesh({
+      const FaceMeshCtor = faceMesh.FaceMesh || window.FaceMesh || faceMesh.default?.FaceMesh || faceMesh.default;
+      faceMeshModel = new FaceMeshCtor({
         locateFile: (file) => {
           const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh'
           return `${baseUrl}/${file}`
@@ -274,7 +275,8 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
       faceMeshModel.onResults(onResults)
 
       if (webcamRef.current && webcamRef.current.video) {
-        cameraRef.current = new cam.Camera(webcamRef.current.video, {
+        const CameraCtor = cam.Camera || window.Camera || cam.default?.Camera || cam.default;
+        cameraRef.current = new CameraCtor(webcamRef.current.video, {
           onFrame: async () => {
             if (faceMeshModel) {
               await faceMeshModel.send({ image: webcamRef.current.video })
