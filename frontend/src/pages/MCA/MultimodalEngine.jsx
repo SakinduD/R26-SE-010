@@ -1155,9 +1155,11 @@ const LiveSensingSession = () => {
                   <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div>
                   Processed on your device
                 </div>
-                <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
-                  Multimodal Analysis
-                </div>
+                {metrics.modelKind && metrics.modelKind !== 'unknown' && (
+                  <div className="flex items-center gap-2.5 text-[10px] font-medium px-4 py-2 rounded-lg border uppercase tracking-widest bg-info/10 text-info border-info/20">
+                    Model: {metrics.modelKind === 'wav2vec2' ? 'Transformer' : metrics.modelKind === 'cnn' ? 'CNN' : 'SVM'}
+                  </div>
+                )}
                 {isCameraActive && (
                   <div className="flex items-center gap-2.5 text-[10px] font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-lg border border-border uppercase tracking-widest">
                     Tracking: {showMesh ? "Visual" : "Background"}

@@ -53,6 +53,7 @@ def _analyze_chunk(nudge_engine: NudgeEngine, data: bytes, visual_metrics, user_
         "nudge_severity": nudge.severity if nudge else None,
         # Behaviours still present in this chunk (frontend hides the rest).
         "active_nudges": nudge_engine.active_messages,
+        "model_kind": nudge_engine.ser_analyzer.model_kind if nudge_engine.ser_analyzer else "unknown",
         # Everything detected this chunk, not limited by the nudge cooldown.
         "detections": [
             {"message": n.message, "category": n.category, "severity": n.severity}

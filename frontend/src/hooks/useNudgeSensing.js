@@ -33,6 +33,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
     emotion: 'Sensing...',
     confidence: 0,
     isSyncing: false,
+    modelKind: 'unknown',
   })
 
   const webcamRef = useRef(null)
@@ -192,6 +193,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
                 : 'Sensing...',
               confidence: data.metrics.confidence || 0,
               isSyncing: true,
+              modelKind: data.metrics.model_kind || prev.modelKind,
             }))
             // Hide nudges whose behaviour has stopped.
             setNudges((prev) => pruneResolvedNudges(prev, data.metrics.active_nudges))

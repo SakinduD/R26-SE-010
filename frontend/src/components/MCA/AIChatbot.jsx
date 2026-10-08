@@ -445,7 +445,8 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
                 ? data.metrics.emotion.charAt(0).toUpperCase() + data.metrics.emotion.slice(1)
                 : 'Sensing...',
               confidence: data.metrics.confidence || 0,
-              isSyncing: true
+              isSyncing: true,
+              modelKind: data.metrics.model_kind || prev.modelKind,
             }));
 
             // Track distribution for scoring, and this message's emotions
@@ -560,7 +561,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     setIsListening(false);
     if (!shouldSubmit) isContinuousRef.current = false;
     // Mic is off, so there is no current emotion to show.
-    setMetrics(prev => ({ ...prev, emotion: 'Sensing...', confidence: 0, isSyncing: false }));
+    setMetrics(prev => ({ ...prev, emotion: 'Sensing...', confidence: 0, isSyncing: false, modelKind: prev.modelKind || 'unknown' }));
 
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (recordRestartTimeoutRef.current) { clearTimeout(recordRestartTimeoutRef.current); recordRestartTimeoutRef.current = null; }
