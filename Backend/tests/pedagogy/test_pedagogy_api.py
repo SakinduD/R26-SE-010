@@ -128,7 +128,7 @@ def test_baseline_skip_requires_auth():
 # POST /apa/baseline-skip — authenticated path (mocked orchestrator)
 # --------------------------------------------------------------------------
 
-def test_baseline_skip_returns_201_when_plan_generated(db_session):
+def test_baseline_skip_returns_201_when_plan_generated(db_session, client):
     import uuid
     from datetime import datetime, timezone
     from unittest.mock import AsyncMock, patch
@@ -169,8 +169,7 @@ def test_baseline_skip_returns_201_when_plan_generated(db_session):
             "app.services.pedagogy.orchestrator.generate_training_plan",
             new=AsyncMock(return_value=mock_plan),
         ):
-            with TestClient(app) as c:
-                resp = c.post("/api/v1/apa/baseline-skip")
+            resp = client.post("/api/v1/apa/baseline-skip")
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -180,7 +179,7 @@ def test_baseline_skip_returns_201_when_plan_generated(db_session):
     assert "difficulty" in data
 
 
-def test_baseline_skip_returns_404_when_no_profile(db_session):
+def test_baseline_skip_returns_404_when_no_profile(db_session, client):
     import uuid
     from datetime import datetime, timezone
     from app.core.auth import get_current_user
@@ -195,8 +194,7 @@ def test_baseline_skip_returns_404_when_no_profile(db_session):
 
     try:
         app.dependency_overrides[get_current_user] = lambda: user
-        with TestClient(app) as c:
-            resp = c.post("/api/v1/apa/baseline-skip")
+        resp = client.post("/api/v1/apa/baseline-skip")
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
