@@ -9,6 +9,8 @@ services:
 
   api:
     image: ${API_IMAGE}
+    ports:
+      - "${API_PORT:-8000}:8000"
     env_file:
       - .env
     depends_on:
