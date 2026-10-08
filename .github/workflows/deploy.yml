@@ -120,7 +120,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT != '' && secrets.VPS_PORT || '22' }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
-          source: docker-compose.prod.yml
+          source: "docker-compose.prod.yml,nginx.conf"
           target: ${{ vars.DEPLOY_PATH || '/var/www/r26-se-010' }}
 
       - name: Deploy stack
