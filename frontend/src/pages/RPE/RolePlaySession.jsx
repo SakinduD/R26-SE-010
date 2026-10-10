@@ -317,14 +317,18 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
         // right after it, whose callback fires once the queue reaches that
         // point — i.e. once the utterance has finished playing.
         setNpcSpeaking(true)
-        head.speakText(text)
-        head.speakMarker(() => { setNpcSpeaking(false); resolve() })
-        return
+        try {
+          head.speakText(text)
+          head.speakMarker(() => { setNpcSpeaking(false); resolve() })
+          return
+        } catch (headErr) {
+          console.warn('[Avatar TTS] head.speakText failed, falling back to speech synthesis:', headErr)
+        }
       }
 
       // Fallback: avatar not loaded/available yet — browser TTS so the
       // session still has a voice instead of silence.
-      if (!window.speechSynthesis) { resolve(); return }
+      if (!window.speechSynthesis) { setNpcSpeaking(false); resolve(); return }
       window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.onstart = () => setNpcSpeaking(true)

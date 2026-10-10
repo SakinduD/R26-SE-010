@@ -294,11 +294,15 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
       const speakViaGoogleOrBrowser = () => {
         if (head) {
           setNpcSpeaking(true)
-          head.speakText(text)
-          head.speakMarker(() => { setNpcSpeaking(false); resolve() })
-          return
+          try {
+            head.speakText(text)
+            head.speakMarker(() => { setNpcSpeaking(false); resolve() })
+            return
+          } catch (headErr) {
+            console.warn('[Avatar TTS] head.speakText failed, falling back to speech synthesis:', headErr)
+          }
         }
-        if (!window.speechSynthesis) { resolve(); return }
+        if (!window.speechSynthesis) { setNpcSpeaking(false); resolve(); return }
         window.speechSynthesis.cancel()
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.onstart = () => setNpcSpeaking(true)
