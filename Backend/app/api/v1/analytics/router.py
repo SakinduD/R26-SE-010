@@ -8,6 +8,12 @@ import logging
 from app.api.dependencies import get_db
 from sqlalchemy import text
 
+from app.api.v1.analytics.access import (
+    AnalyticsAccess,
+    get_analytics_access,
+    require_own_session,
+    require_own_user,
+)
 from app.models.session_result import SessionResult
 from app.models.analytics import (
     AnalyticsSessionMetric,
@@ -66,8 +72,17 @@ from app.services import (
     skill_scoring_service,
 )
 
-router = APIRouter(tags=["feedback-analytics"])
+# Every route needs a signed-in caller, including ones added later. Routes
+# keyed by a learner or a session also check that it is the caller's own; see
+# access.py.
+router = APIRouter(
+    tags=["feedback-analytics"],
+    dependencies=[Depends(get_analytics_access)],
+)
 logger = logging.getLogger(__name__)
+
+_OWN_USER = [Depends(require_own_user)]
+_OWN_SESSION = [Depends(require_own_session)]
 
 
 @router.post(
@@ -78,6 +93,7 @@ logger = logging.getLogger(__name__)
 def integrate_completed_session_analytics(
     payload: AnalyticsComponentIntegrationRequest,
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
     """Fold one finished session into analytics.
 
@@ -91,6 +107,8 @@ def integrate_completed_session_analytics(
     happen, and the session-end hook already ignores failures, so nothing on a
     learner's screen breaks from being told.
     """
+    access.require_user(payload.user_id)
+    access.require_session(payload.session_id)
     if _is_role_play_session(db, payload.session_id):
         raise HTTPException(
             status_code=409,
@@ -166,21 +184,28 @@ def _multimodal_session(db: Session, session_id: str) -> SessionResult | None:
 def create_session_metric(
     payload: AnalyticsSessionMetricCreate,
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_user(payload.user_id)
+    access.require_session(payload.session_id)
     return analytics_service.create_session_metric(db, payload)
 
 
 @router.get("/session-metrics/{metric_id}", response_model=AnalyticsSessionMetricRead)
-def get_session_metric(metric_id: int, db: Session = Depends(get_db)):
+def get_session_metric(
+    metric_id: int,
+    db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
+):
     metric = analytics_service.get_session_metric(db, metric_id)
-    if metric is None:
-        raise HTTPException(status_code=404, detail="Session metric not found")
+    access.require_row(metric, "Session metric not found")
     return metric
 
 
 @router.get(
     "/users/{user_id}/session-metrics",
     response_model=list[AnalyticsSessionMetricRead],
+    dependencies=_OWN_USER,
 )
 def list_user_session_metrics(
     user_id: str,
@@ -193,6 +218,7 @@ def list_user_session_metrics(
 @router.get(
     "/sessions/{session_id}/session-metrics",
     response_model=list[AnalyticsSessionMetricRead],
+    dependencies=_OWN_SESSION,
 )
 def list_session_metrics(
     session_id: str,
@@ -210,19 +236,29 @@ def list_session_metrics(
 def create_feedback_entry(
     payload: FeedbackEntryCreate,
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_user(payload.user_id)
+    access.require_session(payload.session_id)
     return analytics_service.create_feedback_entry(db, payload)
 
 
 @router.get("/feedback/{feedback_id}", response_model=FeedbackEntryRead)
-def get_feedback_entry(feedback_id: int, db: Session = Depends(get_db)):
+def get_feedback_entry(
+    feedback_id: int,
+    db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
+):
     feedback = analytics_service.get_feedback_entry(db, feedback_id)
-    if feedback is None:
-        raise HTTPException(status_code=404, detail="Feedback entry not found")
+    access.require_row(feedback, "Feedback entry not found")
     return feedback
 
 
-@router.get("/users/{user_id}/feedback", response_model=list[FeedbackEntryRead])
+@router.get(
+    "/users/{user_id}/feedback",
+    response_model=list[FeedbackEntryRead],
+    dependencies=_OWN_USER,
+)
 def list_user_feedback(
     user_id: str,
     limit: int = Query(default=50, ge=1, le=100),
@@ -231,7 +267,11 @@ def list_user_feedback(
     return analytics_service.list_feedback_by_user(db, user_id, limit)
 
 
-@router.get("/sessions/{session_id}/feedback", response_model=list[FeedbackEntryRead])
+@router.get(
+    "/sessions/{session_id}/feedback",
+    response_model=list[FeedbackEntryRead],
+    dependencies=_OWN_SESSION,
+)
 def list_session_feedback(
     session_id: str,
     limit: int = Query(default=50, ge=1, le=100),
@@ -262,19 +302,29 @@ def analyze_feedback_sentiment(payload: FeedbackSentimentRequest):
 def create_skill_prediction(
     payload: SkillPredictionCreate,
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_user(payload.user_id)
+    access.require_session(payload.session_id)
     return analytics_service.create_skill_prediction(db, payload)
 
 
 @router.get("/predictions/{prediction_id}", response_model=SkillPredictionRead)
-def get_skill_prediction(prediction_id: int, db: Session = Depends(get_db)):
+def get_skill_prediction(
+    prediction_id: int,
+    db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
+):
     prediction = analytics_service.get_skill_prediction(db, prediction_id)
-    if prediction is None:
-        raise HTTPException(status_code=404, detail="Skill prediction not found")
+    access.require_row(prediction, "Skill prediction not found")
     return prediction
 
 
-@router.get("/users/{user_id}/predictions", response_model=list[SkillPredictionRead])
+@router.get(
+    "/users/{user_id}/predictions",
+    response_model=list[SkillPredictionRead],
+    dependencies=_OWN_USER,
+)
 def list_user_predictions(
     user_id: str,
     limit: int = Query(default=50, ge=1, le=100),
@@ -283,7 +333,11 @@ def list_user_predictions(
     return analytics_service.list_predictions_by_user(db, user_id, limit)
 
 
-@router.get("/sessions/{session_id}/predictions", response_model=list[SkillPredictionRead])
+@router.get(
+    "/sessions/{session_id}/predictions",
+    response_model=list[SkillPredictionRead],
+    dependencies=_OWN_SESSION,
+)
 def list_session_predictions(
     session_id: str,
     limit: int = Query(default=50, ge=1, le=100),
@@ -295,6 +349,7 @@ def list_session_predictions(
 @router.get(
     "/sessions/{session_id}/aggregate",
     response_model=AnalyticsAggregateSummary,
+    dependencies=_OWN_SESSION,
 )
 def get_session_aggregate(session_id: str, db: Session = Depends(get_db)):
     return data_aggregation_service.get_session_aggregate(db, session_id)
@@ -303,6 +358,7 @@ def get_session_aggregate(session_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/sessions/{session_id}/report",
     response_model=PostSessionReportResult,
+    dependencies=_OWN_SESSION,
 )
 def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
     return post_session_report_service.generate_session_report(db, session_id)
@@ -311,6 +367,7 @@ def get_post_session_report(session_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/aggregate",
     response_model=AnalyticsAggregateSummary,
+    dependencies=_OWN_USER,
 )
 def get_user_aggregate(
     user_id: str,
@@ -335,6 +392,7 @@ def calculate_skill_scores(payload: SkillScoreRequest):
 @router.get(
     "/sessions/{session_id}/skill-scores",
     response_model=SkillScoreResult,
+    dependencies=_OWN_SESSION,
 )
 def get_session_skill_scores(session_id: str, db: Session = Depends(get_db)):
     return skill_scoring_service.calculate_session_skill_scores(db, session_id)
@@ -343,6 +401,7 @@ def get_session_skill_scores(session_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/sessions/{session_id}/feedback-analysis",
     response_model=FeedbackAnalysisResult,
+    dependencies=_OWN_SESSION,
 )
 def get_session_feedback_analysis(session_id: str, db: Session = Depends(get_db)):
     return feedback_analysis_service.analyze_session_feedback(db, session_id)
@@ -351,6 +410,7 @@ def get_session_feedback_analysis(session_id: str, db: Session = Depends(get_db)
 @router.get(
     "/users/{user_id}/feedback-analysis",
     response_model=FeedbackAnalysisResult,
+    dependencies=_OWN_USER,
 )
 def get_user_feedback_analysis(
     user_id: str,
@@ -367,6 +427,7 @@ def get_user_feedback_analysis(
 @router.get(
     "/sessions/{session_id}/blind-spots",
     response_model=BlindSpotDetectionResult,
+    dependencies=_OWN_SESSION,
 )
 def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
     return blind_spot_service.detect_session_blind_spots(db, session_id)
@@ -375,6 +436,7 @@ def get_session_blind_spots(session_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/blind-spots",
     response_model=BlindSpotDetectionResult,
+    dependencies=_OWN_USER,
 )
 def get_user_blind_spots(
     user_id: str,
@@ -391,56 +453,69 @@ def get_user_blind_spots(
 @router.get(
     "/users/{user_id}/progress-trends",
     response_model=ProgressTrendResult,
+    dependencies=_OWN_USER,
 )
 def get_user_progress_trends(
     user_id: str,
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_session(session_id)
     return progress_trend_service.analyze_user_progress_trends(db, user_id, session_id)
 
 
 @router.get(
     "/users/{user_id}/progress-trends/{skill_area}",
     response_model=SkillTrendItem,
+    dependencies=_OWN_USER,
 )
 def get_user_skill_progress_trend(
     user_id: str,
     skill_area: str,
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_session(session_id)
     return progress_trend_service.analyze_user_skill_trend(db, user_id, skill_area, session_id=session_id)
 
 
 @router.get(
     "/users/{user_id}/predicted-outcomes",
     response_model=PredictiveModelingResult,
+    dependencies=_OWN_USER,
 )
 def get_user_predicted_outcomes(
     user_id: str,
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_session(session_id)
     return predictive_modeling_service.predict_user_skill_outcomes(db, user_id, session_id)
 
 
 @router.get(
     "/users/{user_id}/predicted-outcomes/{skill_area}",
     response_model=PredictiveModelingItem,
+    dependencies=_OWN_USER,
 )
 def get_user_skill_predicted_outcome(
     user_id: str,
     skill_area: str,
     session_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    access: AnalyticsAccess = Depends(get_analytics_access),
 ):
+    access.require_session(session_id)
     return predictive_modeling_service.predict_user_skill_outcome(db, user_id, skill_area, session_id)
 
 
 @router.post(
     "/users/{user_id}/backfill-sessions",
     response_model=SessionBackfillResult,
+    dependencies=_OWN_USER,
 )
 def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
     """Pull every completed session that has no analytics into the module.
@@ -459,6 +534,7 @@ def backfill_user_sessions(user_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/skill-history",
     response_model=LearnerHistorySummary,
+    dependencies=_OWN_USER,
 )
 def get_learner_skill_history(user_id: str, db: Session = Depends(get_db)):
     """Every skill across the learner's whole history.
@@ -475,6 +551,7 @@ def get_learner_skill_history(user_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/recurring-blind-spots",
     response_model=RecurringBlindSpotResult,
+    dependencies=_OWN_USER,
 )
 def get_recurring_blind_spots(user_id: str, db: Session = Depends(get_db)):
     """Self-assessment gaps counted across sessions, not averaged over them.
@@ -490,6 +567,7 @@ def get_recurring_blind_spots(user_id: str, db: Session = Depends(get_db)):
 @router.post(
     "/sessions/{session_id}/integrate",
     response_model=SessionBackfillResult,
+    dependencies=_OWN_SESSION,
 )
 def integrate_session(session_id: str, db: Session = Depends(get_db)):
     """Fold one just-finished session into analytics, reading it from the database.
@@ -518,6 +596,7 @@ def integrate_session(session_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/sessions",
     response_model=LearnerSessionPage,
+    dependencies=_OWN_USER,
 )
 def list_learner_sessions(
     user_id: str,
@@ -626,6 +705,7 @@ def _every_tracked_skill_is_neutral(skill_scores) -> bool:
 @router.get(
     "/users/{user_id}/learner-profile-signal",
     response_model=AnalyticsFeedbackLoopResult,
+    dependencies=_OWN_USER,
 )
 def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
     """The longitudinal learner profile analytics hands to the pedagogy engine.
@@ -646,6 +726,7 @@ def get_learner_profile_signal(user_id: str, db: Session = Depends(get_db)):
 @router.get(
     "/users/{user_id}/gamification",
     response_model=GamificationProfileResult,
+    dependencies=_OWN_USER,
 )
 def get_user_gamification(user_id: str, db: Session = Depends(get_db)):
     """Current XP, level, streak and badge state. Read-only."""
@@ -655,6 +736,7 @@ def get_user_gamification(user_id: str, db: Session = Depends(get_db)):
 @router.post(
     "/users/{user_id}/gamification/sync",
     response_model=GamificationSyncResult,
+    dependencies=_OWN_USER,
 )
 def sync_user_gamification(user_id: str, db: Session = Depends(get_db)):
     """Award XP for any unscored sessions and re-check every badge rule.
@@ -721,6 +803,7 @@ def _cached_recommendations_are_stale(db: Session, user_id: str, generated_at) -
 @router.get(
     "/users/{user_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
+    dependencies=_OWN_USER,
 )
 def get_user_mentoring_recommendations(
     user_id: str,
@@ -803,6 +886,7 @@ def get_user_mentoring_recommendations(
 @router.get(
     "/sessions/{session_id}/reflection-support",
     response_model=SupportPath | None,
+    dependencies=_OWN_SESSION,
 )
 def get_session_reflection_support(session_id: str, db: Session = Depends(get_db)):
     """The offer of a way out for the reflection just written on this session.
@@ -828,6 +912,7 @@ def get_session_reflection_support(session_id: str, db: Session = Depends(get_db
 @router.get(
     "/sessions/{session_id}/mentoring-recommendations",
     response_model=MentoringRecommendationResult,
+    dependencies=_OWN_SESSION,
 )
 def get_session_mentoring_recommendations(
     session_id: str,

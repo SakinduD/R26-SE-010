@@ -15,11 +15,15 @@ services:
       - "${API_PORT:-8000}:8000"
     env_file:
       - .env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcloud-tts-key.json
     depends_on:
       db:
         condition: service_healthy
     restart: always
     volumes:
+      # Mount Google Cloud TTS credentials key
+      - ./gcloud-tts-key.json:/app/gcloud-tts-key.json:ro
       # Mount the heavy models from the VPS directly into the container paths
       - ./models/feedback_analytics:/training/feedback_analytics/models
       - ./models/affect_fusion:/app/app/models/affect_fusion
