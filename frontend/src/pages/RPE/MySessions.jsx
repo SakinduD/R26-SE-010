@@ -506,7 +506,7 @@ export default function MySessions() {
                         status={sessionStatus(session)}
                         scenarioInfo={scenarioMap[session.scenario_id]}
                         onOpenFeedback={(id) => navigate(`/roleplay/feedback/${id}`)}
-                        onResumeSession={(id) => navigate(`/roleplay/session/${id}`)}
+                        onResumeSession={(id) => navigate(`/roleplay/session-v2/${id}`)}
                         selectMode={selectMode}
                         selected={selectedIds.has(session.session_id)}
                         onToggleSelect={toggleSelect}

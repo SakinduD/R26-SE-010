@@ -138,23 +138,39 @@ function isCustomerFacing(npcRole, scenarioTitle) {
 // server-side per scenario_id rather than requiring per-scenario data.
 // npcRole/scenarioTitle are optional context so special-tagged avatars
 // (currently just the sunglasses one) only ever get auto-picked for a
-// scenario they actually fit — see NPC_AVATAR_OPTIONS' own comment.
-export function pickNpcAvatar(gender, npcRole, scenarioTitle) {
+function hashSeed(seed) {
+  if (!seed) return null
+  let hash = 0
+  const str = String(seed)
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+// Deterministic pick per session from the matching-gender pool when seed is given,
+// or random if no seed is provided. Locks avatar so page refresh or session resume
+// does not change the NPC character.
+export function pickNpcAvatar(gender, npcRole, scenarioTitle, seed = null) {
   const wantGender = gender === 'male' ? 'male' : 'female'
   const customerContext = isCustomerFacing(npcRole, scenarioTitle)
   const pool = NPC_AVATAR_OPTIONS.filter(
     (a) => a.gender === wantGender && (!a.special || (a.special === 'customer' && customerContext))
   )
-  const chosen = pool[Math.floor(Math.random() * pool.length)]
-  return chosen ?? NPC_AVATAR_OPTIONS[0]
+  if (pool.length === 0) return NPC_AVATAR_OPTIONS[0]
+
+  const seedNum = hashSeed(seed)
+  const index = seedNum !== null ? seedNum % pool.length : Math.floor(Math.random() * pool.length)
+  return pool[index] ?? NPC_AVATAR_OPTIONS[0]
 }
 
-// Same random-within-gender pick, but for the profile-photo pool directly
-// (kept independent of which 3D model is picked, e.g. for a plain scenario
-// card that has no avatar picker at all). No special-avatar concept here —
-// it's just a photo, not a rendered character choice.
-export function pickNpcProfileImage(gender) {
+// Same deterministic pick for the profile-photo pool directly using seed.
+export function pickNpcProfileImage(gender, seed = null) {
   const pool = gender === 'female' ? FEMALE_PROFILE_IMAGES : MALE_PROFILE_IMAGES
   if (pool.length === 0) return null
-  return pool[Math.floor(Math.random() * pool.length)]
+
+  const seedNum = hashSeed(seed)
+  const index = seedNum !== null ? seedNum % pool.length : Math.floor(Math.random() * pool.length)
+  return pool[index] ?? pool[0]
 }

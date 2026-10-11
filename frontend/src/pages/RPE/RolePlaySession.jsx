@@ -141,8 +141,8 @@ function RolePlaySessionInner({ navState, recoveredTurns, recoveredTrustHistory 
   // existed. Picked/resolved once per session mount, not re-rolled on
   // every render.
   const chosenAvatarOption = avatarId ? getAvatarOption(avatarId) : null
-  const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender))
-  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender, npcRole, scenarioTitle))
+  const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender, sessionId))
+  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender, npcRole, scenarioTitle, sessionId))
   // npcName is the backend's *effective* name (custom or scenario.npc_role,
   // already resolved server-side) — always display-ready, no local fallback
   // logic needed here beyond the pre-existing-session-state edge case.

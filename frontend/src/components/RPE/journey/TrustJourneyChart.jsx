@@ -27,17 +27,20 @@ export default function TrustJourneyChart({ sessions, selectedIndex, onSelect })
   const [hoverIndex, setHoverIndex] = useState(null)
 
   const { points, width, height, padX, padY, plotH, gridLines } = useMemo(() => {
+    const minWidth = 640
     const gap = 92
-    const padX = 44
+    const padX = 54
     const padY = 26
     const plotH = 150
     const height = plotH + padY * 2
-    const width = padX * 2 + gap * Math.max(0, sessions.length - 1)
+    const calculatedWidth = padX * 2 + gap * Math.max(0, sessions.length - 1)
+    const width = Math.max(minWidth, calculatedWidth)
     const valueToY = (v) => padY + plotH - (Math.max(0, Math.min(100, v)) / 100) * plotH
 
+    // If there's only 1 session, center it horizontally across the chart width
     const points = sessions.map((s, i) => ({
       ...s,
-      x: padX + i * gap,
+      x: sessions.length === 1 ? width / 2 : padX + i * ((width - padX * 2) / Math.max(1, sessions.length - 1)),
       y: valueToY(s.trust),
     }))
     const gridLines = [0, 25, 50, 75, 100].map((v) => ({ value: v, y: valueToY(v) }))
@@ -209,7 +212,7 @@ export default function TrustJourneyChart({ sessions, selectedIndex, onSelect })
         .tjc-wrap{ position:relative; }
         .tjc-scroll{ width:100%; overflow-x:auto; padding:4px 2px 6px; }
         .tjc-inner{ position:relative; }
-        .tjc-svg{ display:block; width:100%; height:auto; overflow:visible; }
+        .tjc-svg{ display:block; width:100%; max-height:220px; overflow:visible; }
         .tjc-grid{ stroke:var(--border); stroke-width:1; stroke-dasharray:3 4; opacity:.6; }
         .tjc-grid-label{ font-size:9px; fill:var(--text-low); }
         .tjc-line{ stroke:var(--accent); }
