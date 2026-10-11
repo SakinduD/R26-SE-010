@@ -4,6 +4,8 @@ import { Toaster } from 'sonner'
 
 // Auth infrastructure
 import { AuthProvider } from './lib/auth/context'
+import { ActiveSessionProvider } from './context/ActiveSessionContext'
+import FloatingSessionWidget from './components/RPE/v2/FloatingSessionWidget'
 
 // Layouts
 import AuthLayout from './pages/auth/AuthLayout'
@@ -69,101 +71,105 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster position="top-center" richColors closeButton />
+        <ActiveSessionProvider>
+          <Toaster position="top-center" richColors closeButton />
 
-        <div className="min-h-screen dark bg-background text-foreground antialiased">
-          <Routes>
-            {/* Public landing */}
-            <Route path="/" element={<Landing />} />
+          <div className="min-h-screen dark bg-background text-foreground antialiased">
+            <Routes>
+              {/* Public landing */}
+              <Route path="/" element={<Landing />} />
 
-            {/* Auth flow (shared AuthLayout: centered card + background gradient) */}
-            <Route element={<AuthLayout />}>
-              <Route path="/signup" element={<SignUp />} />
-              <Route path="/signin" element={<SignIn />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/verify-email" element={<VerifyEmail />} />
-            </Route>
+              {/* Auth flow (shared AuthLayout: centered card + background gradient) */}
+              <Route element={<AuthLayout />}>
+                <Route path="/signup" element={<SignUp />} />
+                <Route path="/signin" element={<SignIn />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/verify-email" element={<VerifyEmail />} />
+              </Route>
 
-            {/* Auth callback - no layout chrome */}
-            <Route path="/auth-callback" element={<AuthCallback />} />
+              {/* Auth callback - no layout chrome */}
+              <Route path="/auth-callback" element={<AuthCallback />} />
 
-            {/* Dev-only visual QA harness for SceneEnvironmentV2 — outside
-                AppLayout on purpose (no auth needed), and the whole Route
-                is omitted from the tree in a production build since
-                import.meta.env.DEV is statically false there. */}
-            {import.meta.env.DEV && (
-              <Route path="/dev/rpe-environment-preview" element={<EnvironmentPreviewDev />} />
-            )}
-            {import.meta.env.DEV && (
-              <Route path="/dev/session-complete-preview" element={<SessionCompletePreviewDev />} />
-            )}
-            {import.meta.env.DEV && (
-              <Route path="/dev/rpe-tts-test" element={<TtsTestDev />} />
-            )}
-            {import.meta.env.DEV && (
-              <Route path="/dev/rpe-llm-payload" element={<LlmPayloadInspectorDev />} />
-            )}
+              {/* Dev-only visual QA harness for SceneEnvironmentV2 — outside
+                  AppLayout on purpose (no auth needed), and the whole Route
+                  is omitted from the tree in a production build since
+                  import.meta.env.DEV is statically false there. */}
+              {import.meta.env.DEV && (
+                <Route path="/dev/rpe-environment-preview" element={<EnvironmentPreviewDev />} />
+              )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/session-complete-preview" element={<SessionCompletePreviewDev />} />
+              )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/rpe-tts-test" element={<TtsTestDev />} />
+              )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/rpe-llm-payload" element={<LlmPayloadInspectorDev />} />
+              )}
 
-            {/* Protected app routes (AppLayout checks auth + renders nav) */}
-            <Route element={<AppLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/survey" element={<Survey />} />
-              <Route path="/survey/results" element={<SurveyResults />} />
-              <Route path="/baseline/consent" element={<BaselineConsent />} />
-              <Route path="/baseline" element={<Baseline />} />
-              <Route path="/training-plan" element={<TrainingPlan />} />
-              <Route path="/training-plan/new" element={<TrainingPlanNew />} />
-              <Route path="/training-plan/:planId" element={<TrainingPlanDetail />} />
-              <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
-              <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
-              <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
-              <Route path="/analytics-feedback" element={<FeedbackForm />} />
-              <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
-              <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
-              <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
-              <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
-              <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
-              <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
-              <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
-              <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
-              <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
-              <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
-              <Route path="/analytics-journey" element={<GamifiedProgress />} />
-              <Route path="/analytics/users/:userId/journey" element={<GamifiedProgress />} />
-              <Route path="/analytics-session-report" element={<PostSessionReport />} />
-              <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
-              {/* Settings — Phase 6.10 */}
-              <Route path="/settings" element={<Settings />} />
-              {/* Styleguide — every component in every state, used during redesign */}
-              <Route path="/styleguide" element={<Styleguide />} />
+              {/* Protected app routes (AppLayout checks auth + renders nav) */}
+              <Route element={<AppLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/survey" element={<Survey />} />
+                <Route path="/survey/results" element={<SurveyResults />} />
+                <Route path="/baseline/consent" element={<BaselineConsent />} />
+                <Route path="/baseline" element={<Baseline />} />
+                <Route path="/training-plan" element={<TrainingPlan />} />
+                <Route path="/training-plan/new" element={<TrainingPlanNew />} />
+                <Route path="/training-plan/:planId" element={<TrainingPlanDetail />} />
+                <Route path="/analytics-dashboard" element={<AnalyticsDashboard />} />
+                <Route path="/analytics-recommendations" element={<AnalyticsRecommendations />} />
+                <Route path="/analytics/users/:userId/recommendations" element={<AnalyticsRecommendations />} />
+                <Route path="/analytics-feedback" element={<FeedbackForm />} />
+                <Route path="/analytics/sessions/:sessionId/feedback" element={<FeedbackForm />} />
+                <Route path="/analytics-skill-twin" element={<SkillTwinProfile />} />
+                <Route path="/analytics/users/:userId/skill-twin" element={<SkillTwinProfile />} />
+                <Route path="/analytics-predictions" element={<PredictiveAnalytics />} />
+                <Route path="/analytics/users/:userId/predictions" element={<PredictiveAnalytics />} />
+                <Route path="/analytics-blind-spots" element={<BlindSpotDetail />} />
+                <Route path="/analytics/users/:userId/blind-spots" element={<BlindSpotDetail />} />
+                <Route path="/analytics/sessions/:sessionId/blind-spots" element={<BlindSpotDetail />} />
+                <Route path="/analytics-progress-trends" element={<ProgressTrendsDetail />} />
+                <Route path="/analytics/users/:userId/progress" element={<ProgressTrendsDetail />} />
+                <Route path="/analytics-journey" element={<GamifiedProgress />} />
+                <Route path="/analytics/users/:userId/journey" element={<GamifiedProgress />} />
+                <Route path="/analytics-session-report" element={<PostSessionReport />} />
+                <Route path="/analytics/sessions/:sessionId/report" element={<PostSessionReport />} />
+                {/* Settings — Phase 6.10 */}
+                <Route path="/settings" element={<Settings />} />
+                {/* Styleguide — every component in every state, used during redesign */}
+                <Route path="/styleguide" element={<Styleguide />} />
 
-              {/* RPE — Practice section, lives inside the app shell with sidebar */}
-              <Route path="/roleplay" element={<ScenarioSelect />} />
-              <Route path="/roleplay/session/:sessionId" element={<RolePlaySession />} />
-              {/* Temporary comparison route for the V2 redesign — remove
-                  (or promote to replace the line above) once a decision is
-                  made; the original route/component are untouched either
-                  way. */}
-              <Route path="/roleplay/session-v2/:sessionId" element={<RolePlaySessionV2 />} />
-              <Route path="/roleplay/session/complete" element={<SessionComplete />} />
-              <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
-              <Route path="/roleplay/my-sessions" element={<MySessions />} />
-              <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
-            </Route>
+                {/* RPE — Practice section, lives inside the app shell with sidebar */}
+                <Route path="/roleplay" element={<ScenarioSelect />} />
+                <Route path="/roleplay/session/:sessionId" element={<RolePlaySession />} />
+                {/* Temporary comparison route for the V2 redesign — remove
+                    (or promote to replace the line above) once a decision is
+                    made; the original route/component are untouched either
+                    way. */}
+                <Route path="/roleplay/session-v2/:sessionId" element={<RolePlaySessionV2 />} />
+                <Route path="/roleplay/session/complete" element={<SessionComplete />} />
+                <Route path="/roleplay/feedback/:sessionId" element={<FeedbackDashboard />} />
+                <Route path="/roleplay/my-sessions" element={<MySessions />} />
+                <Route path="/multimodal-analysis" element={<MultimodalEngine />} />
+              </Route>
 
-            {/* Legacy / feature routes (unchanged) */}
-            <Route
-              path="/admin"
-              element={
-                <div className="dark bg-background text-foreground min-h-screen">
-                  <div className="bg-muted/30 p-6 min-h-screen">
-                    <AdminDashboard />
+              {/* Legacy / feature routes (unchanged) */}
+              <Route
+                path="/admin"
+                element={
+                  <div className="dark bg-background text-foreground min-h-screen">
+                    <div className="bg-muted/30 p-6 min-h-screen">
+                      <AdminDashboard />
+                    </div>
                   </div>
-                </div>
-              }
-            />
-          </Routes>
-        </div>
+                }
+              />
+            </Routes>
+
+            <FloatingSessionWidget />
+          </div>
+        </ActiveSessionProvider>
       </AuthProvider>
     </Router>
   )

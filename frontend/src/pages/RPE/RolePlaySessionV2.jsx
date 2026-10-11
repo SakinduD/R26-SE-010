@@ -5,6 +5,7 @@ import { rpeService } from '@/services/rpe/rpeService'
 import { analyticsService } from '@/services/analytics/analyticsService'
 import { integrateCompletedSession } from '@/pages/Analytics/analyticsIntegrationUtils'
 import { useAuth } from '@/lib/auth/context'
+import { useActiveSession } from '@/context/ActiveSessionContext'
 import { cn } from '@/lib/utils'
 import TalkingHeadAvatar from '@/components/RPE/TalkingHeadAvatar'
 import SessionLoadingScreen from '@/components/RPE/SessionLoadingScreen'
@@ -109,6 +110,7 @@ function formatDuration(totalSeconds) {
 function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistory }) {
   const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
+  const { setSessionData, clearSession } = useActiveSession()
   const {
     sessionId, openingNpcLine, scenarioTitle, difficulty,
     totalTurns, npcRole, npcGender, npcName, avatarId, failureEscalationThreshold,
@@ -133,8 +135,8 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
   const [devToolsOpen, setDevToolsOpen] = useState(false)
 
   const chosenAvatarOption = avatarId ? getAvatarOption(avatarId) : null
-  const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender))
-  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender, npcRole, scenarioTitle))
+  const [npcProfileImage] = useState(() => chosenAvatarOption?.photo ?? pickNpcProfileImage(npcGender, sessionId))
+  const [npcAvatar] = useState(() => chosenAvatarOption ?? pickNpcAvatar(npcGender, npcRole, scenarioTitle, sessionId))
   const npcDisplayName = npcName || npcRole || 'NPC'
 
   const headRef = useRef(null)
@@ -398,10 +400,18 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
     })
   }, [npcGender])
 
-  const speakOpeningLine = useCallback(() => {
+  // On fresh sessions, speaks the opening NPC line. On recovered/resumed sessions,
+  // speaks the latest NPC message that appears on screen and auto-starts the mic
+  // so conversation continues seamlessly without the avatar remaining silent.
+  const initialLineToSpeakRef = useRef(null)
+
+  const speakInitialLine = useCallback(() => {
     if (openingSpokenRef.current) return
     openingSpokenRef.current = true
-    speak(openingNpcLine).then(() => autoStartMic())
+    const target = initialLineToSpeakRef.current || { text: openingNpcLine }
+    if (!target.text) return
+    speak(target.text, { emotion: target.emotion, animation: target.animation })
+      .then(() => autoStartMic())
   }, [speak, openingNpcLine, autoStartMic])
 
   const handleSendWithText = useCallback(async (rawInput, deliverableLabel, turnKind) => {
@@ -484,6 +494,7 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         setOutcome(response.outcome)
         setEndReason(response.end_reason)
 
+        clearSession()
         completeTimeoutRef.current = setTimeout(() => {
           navigate('/roleplay/session/complete', { state: completeNavStateRef.current })
         }, 2000)
@@ -641,6 +652,8 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
       // session had it, same principle as user_behavior above. Absent on
       // an older session logged before this field existed — left alone,
       // same as a fresh session (null/empty, never guessed).
+      // Conversation Intelligence — persisted so the NEXT turn's
+      // prior_conversation_state and session recovery both have it.
       const recoveredState = lastRecoveredTurn.conversation_state
       if (recoveredState) {
         setIntelligence((prev) => ({
@@ -657,9 +670,15 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
           },
         }))
       }
-      openingSpokenRef.current = true
+      // On resume, the NPC should speak the latest dialogue shown on screen
+      // instead of remaining silent.
+      initialLineToSpeakRef.current = {
+        text: lastRecoveredTurn.npc_response,
+        emotion: lastRecoveredTurn.emotion,
+      }
     } else {
       setMessages([{ role: 'npc', message: openingNpcLine }])
+      initialLineToSpeakRef.current = { text: openingNpcLine }
     }
 
     if (!maxTurnsFromState) {
@@ -751,11 +770,27 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         ? null
         : voiceState
 
+  const handleBack = useCallback(() => {
+    // If the session is ongoing (not complete), save its active metadata
+    // so the floating ongoing session overlay widget renders across the app.
+    if (!sessionComplete && sessionId) {
+      setSessionData({
+        sessionId,
+        scenarioTitle,
+        npcName: npcDisplayName,
+        npcPhoto: npcProfileImage,
+        duration: formatDuration(elapsedSeconds),
+        currentTurn,
+      })
+    }
+    navigate('/roleplay')
+  }, [sessionComplete, sessionId, setSessionData, scenarioTitle, npcDisplayName, npcProfileImage, elapsedSeconds, currentTurn, navigate])
+
   return (
     <div className="rps2-root" data-voice-state={voiceState}>
       <SessionTopBar
         duration={formatDuration(elapsedSeconds)}
-        onBack={() => navigate('/roleplay')}
+        onBack={handleBack}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
       />
@@ -794,8 +829,8 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
 
         <div className={cn('rps2-avatar-layer', npcSpeaking && 'rps2-speaking')}>
           <TalkingHeadAvatar
-            onReady={(head) => { headRef.current = head; setAvatarReady(true); speakOpeningLine() }}
-            onError={() => { setAvatarReady(true); speakOpeningLine() }}
+            onReady={(head) => { headRef.current = head; setAvatarReady(true); speakInitialLine() }}
+            onError={() => { setAvatarReady(true); speakInitialLine() }}
             className="rps2-avatar-fill"
             avatarUrl={npcAvatar.url}
             avatarBody={npcAvatar.body}
