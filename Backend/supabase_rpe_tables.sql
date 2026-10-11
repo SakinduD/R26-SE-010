@@ -45,6 +45,9 @@ ALTER TABLE rpe_turns ADD COLUMN IF NOT EXISTS user_behavior TEXT;
 -- deletion is a real DELETE, which cascades to rpe_turns via the FK above.
 ALTER TABLE rpe_sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
+-- Learner-chosen NPC name for consistent roleplay identity
+ALTER TABLE rpe_sessions ADD COLUMN IF NOT EXISTS npc_name TEXT;
+
 -- Index for fast per-session turn lookups
 CREATE INDEX IF NOT EXISTS idx_rpe_turns_session_id ON rpe_turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_rpe_turns_session_turn ON rpe_turns(session_id, turn);

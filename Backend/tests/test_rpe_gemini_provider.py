@@ -11,6 +11,7 @@ against the live API during this experiment — see rpe_llm_service.py's
 GeminiNPCResponse docstring).
 """
 import json
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -63,9 +64,27 @@ def _valid_gemini_json() -> str:
 # ── Client initialization / missing key ─────────────────────────────────
 
 def test_get_gemini_client_returns_none_without_api_key(monkeypatch):
-    fake_settings = MagicMock(gemini_api_key="")
-    monkeypatch.setattr(rpe_llm_service, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(rpe_llm_service, "get_rpe_gemini_key", lambda: "")
     assert _get_gemini_client() is None
+
+
+def test_get_rpe_gemini_key_resolution(monkeypatch, caplog):
+    from app.config import get_rpe_gemini_key
+
+    # 1. RPE key preferred when set
+    fake_settings = MagicMock(rpe_gemini_api_key="rpe-dedicated-key", gemini_api_key="shared-key")
+    monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
+    assert get_rpe_gemini_key() == "rpe-dedicated-key"
+
+    # 2. Falls back to shared key with warning when RPE key is not set
+    fake_settings = MagicMock(rpe_gemini_api_key="", gemini_api_key="shared-key")
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        assert get_rpe_gemini_key() == "shared-key"
+    assert any("RPE_GEMINI_API_KEY not set" in r.getMessage() for r in caplog.records)
+
+    # 3. Returns empty string when neither key is set
+    fake_settings = MagicMock(rpe_gemini_api_key="", gemini_api_key="")
+    assert get_rpe_gemini_key() == ""
 
 
 def test_get_npc_response_gemini_returns_none_without_client(monkeypatch):

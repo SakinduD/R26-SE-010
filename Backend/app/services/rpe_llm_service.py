@@ -24,7 +24,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from app.config import get_settings
+from app.config import get_rpe_gemini_key, get_settings
 from app.services import rpe_llm_debug
 
 logger = logging.getLogger(__name__)
@@ -555,14 +555,15 @@ def _get_gemini_client():
     generate_json_from_contents() uses plain response_mime_type=
     'application/json' rather than a real response_schema, which is what
     section 6 of this task explicitly requires (schema-validated structured
-    output, not "please return JSON"). Returns None if GEMINI_API_KEY isn't
-    configured — callers must handle that (clean fail, no crash).
+    output, not "please return JSON"). Returns None if RPE_GEMINI_API_KEY (or
+    fallback GEMINI_API_KEY) isn't configured — callers must handle that
+    (clean fail, no crash).
     """
-    settings = get_settings()
-    if not settings.gemini_api_key:
+    api_key = get_rpe_gemini_key()
+    if not api_key:
         return None
     from google import genai
-    return genai.Client(api_key=settings.gemini_api_key)
+    return genai.Client(api_key=api_key)
 
 
 def _messages_to_gemini_contents(messages: list[dict]) -> list[dict]:
@@ -597,7 +598,7 @@ def _get_npc_response_gemini(
     """
     client = _get_gemini_client()
     if not client:
-        logger.warning("RPE Gemini: GEMINI_API_KEY not configured")
+        logger.warning("RPE Gemini: RPE_GEMINI_API_KEY not configured")
         return None
 
     from google.genai import types
