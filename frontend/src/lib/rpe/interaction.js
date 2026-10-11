@@ -58,20 +58,10 @@ export function looksLikePlaceholder(text) {
 const NORMAL = { type: 'normal' }
 
 export function resolveInteraction(response) {
-  if (!response) return NORMAL
-
-  const result = resolveInteractionInner(response)
-
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.debug('[RPE interaction]', {
-      interactionType: result.type,
-      contentType: result.contentType ?? null,
-      optionCount: result.options?.length ?? 0,
-    })
-  }
-
-  return result
+  // Always maintain natural, continuous conversational flow.
+  // Never disrupt the user with artificial choice cards, document upload forms,
+  // or arbitrary direct input requests that cannot be validated.
+  return NORMAL
 }
 
 function resolveInteractionInner(response) {

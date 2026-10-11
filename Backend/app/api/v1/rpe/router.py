@@ -441,14 +441,12 @@ def session_respond(
             session_complete=should_end,
             outcome=outcome,
             end_reason=end_reason if should_end else None,
-            # Never offer choice cards (or a content/direct input dock) on
-            # the turn that ends the session — there's no next turn for a
-            # submitted document/content to land on.
-            requests_deliverable=requests_deliverable and not should_end,
-            response_options=response_options if not should_end else None,
-            interaction_type=interaction_type if not should_end else "normal",
-            content_prompt=content_prompt if not should_end else None,
-            content_type=content_type if not should_end else None,
+            # Keep all turns as natural conversational speech without document or direct input blocks
+            requests_deliverable=False,
+            response_options=None,
+            interaction_type="normal",
+            content_prompt=None,
+            content_type=None,
             clarity_score=live_metrics["clarity_score"],
             response_quality=live_metrics["response_quality"],
             ml_escalation_label=ml_escalation["label"] if ml_escalation else None,

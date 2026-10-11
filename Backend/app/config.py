@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str
     gemini_api_key: str = ""
     gemini_api_key_apm: str | None = None
+    rpe_gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     groq_api_key: str = ""
     USE_OPENAI: bool = True   # RPE NPC dialogue: OpenAI when true, Groq fallback when false
@@ -139,6 +140,33 @@ def get_apm_gemini_key() -> str:
     if settings.gemini_api_key:
         logger.warning(
             "GEMINI_API_KEY_APM not set — APM falling back to shared GEMINI_API_KEY"
+        )
+        return settings.gemini_api_key
+
+    return ""
+
+
+def get_rpe_gemini_key() -> str:
+    """
+    Resolve the Gemini API key for the RPE module (NPC dialogue).
+    Never read GEMINI_API_KEY* inline anywhere else in RPE.
+
+    Resolution order:
+      1. RPE_GEMINI_API_KEY if set
+      2. else GEMINI_API_KEY, with a single WARNING logged
+      3. else "" — callers degrade cleanly without crashing.
+
+    Callers reach this through app.services.rpe_llm_service._get_gemini_client(),
+    which is lru_cached — so the fallback warning is emitted once per process.
+    """
+    settings = get_settings()
+
+    if settings.rpe_gemini_api_key:
+        return settings.rpe_gemini_api_key
+
+    if settings.gemini_api_key:
+        logger.warning(
+            "RPE_GEMINI_API_KEY not set — RPE falling back to shared GEMINI_API_KEY"
         )
         return settings.gemini_api_key
 
