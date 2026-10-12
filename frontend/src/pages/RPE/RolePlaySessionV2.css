@@ -381,22 +381,62 @@
 .rps2-nudge-stack {
   position: absolute; left: 28px; top: 52%; transform: translateY(-50%); z-index: 6;
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
-  max-width: 200px; pointer-events: none;
+  max-width: 230px; pointer-events: none;
 }
 .rps2-nudge {
   pointer-events: auto;
-  display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 550;
-  padding: 7px 13px; border-radius: 100px; color: rgba(255,255,255,0.88);
-  background: rgba(14,15,19,0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+  display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 550;
+  padding: 8px 14px; border-radius: 100px; color: #FFFFFF;
+  background: rgba(18, 20, 28, 0.88);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.55), 0 0 16px -4px rgba(155, 157, 255, 0.15);
   animation: rps2NudgeIn .35s var(--rps2-ease);
   cursor: default;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
 }
-.rps2-nudge-sparkle { color: var(--rps2-accent); flex-shrink: 0; }
+.rps2-nudge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px -4px rgba(0, 0, 0, 0.65);
+}
+
+/* Nudge severity variants matching RPE stage aesthetic */
+.rps2-nudge-info {
+  background: rgba(18, 20, 32, 0.90);
+  border-color: rgba(155, 157, 255, 0.28);
+  color: #F3F3F5;
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.55), 0 0 14px -4px rgba(155, 157, 255, 0.22);
+}
+.rps2-nudge-warning {
+  background: rgba(28, 22, 14, 0.92);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #FEF3C7;
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.55), 0 0 14px -4px rgba(245, 158, 11, 0.24);
+}
+.rps2-nudge-critical {
+  background: rgba(32, 14, 16, 0.94);
+  border-color: rgba(239, 68, 68, 0.42);
+  color: #FEE2E2;
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.55), 0 0 14px -4px rgba(239, 68, 68, 0.28);
+}
+
+.rps2-nudge-icon { flex-shrink: 0; }
+.rps2-nudge-icon-info { color: #A5B4FC; }
+.rps2-nudge-icon-warning { color: #FBBF24; }
+.rps2-nudge-icon-critical { color: #F87171; }
+
+.rps2-nudge-text {
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
 @keyframes rps2NudgeIn { from { opacity: 0; transform: translate(-6px, 4px); } to { opacity: 1; transform: none; } }
-.rps2-nudge-dismiss { background: none; border: none; color: rgba(255,255,255,0.45); cursor: pointer; padding: 0; display: flex; }
-.rps2-nudge-dismiss:hover { color: rgba(255,255,255,0.9); }
+.rps2-nudge-dismiss {
+  background: none; border: none; color: rgba(255, 255, 255, 0.45);
+  cursor: pointer; padding: 2px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; transition: color .15s ease, background .15s ease;
+}
+.rps2-nudge-dismiss:hover { color: #FFFFFF; background: rgba(255, 255, 255, 0.12); }
 
 /* ── Scene -> response transition group ───────────────────────────────── */
 
@@ -665,24 +705,25 @@
 
 .rps2-complete-overlay {
   position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
-  background: var(--rps2-scrim); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  background: var(--rps2-scrim); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   opacity: 0; pointer-events: none; transition: opacity .5s var(--rps2-ease);
 }
 .rps2-root[data-voice-state="complete"] .rps2-complete-overlay { opacity: 1; pointer-events: auto; }
-.rps2-complete-card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 320px; padding: 20px; }
+.rps2-complete-card {
+  text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 480px; padding: 32px 24px;
+  transform: scale(0.95); transition: transform .5s var(--rps2-ease);
+}
+.rps2-root[data-voice-state="complete"] .rps2-complete-card { transform: scale(1); }
 .rps2-complete-check {
-  width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  background: var(--rps2-success-soft); color: var(--rps2-success); margin-bottom: 6px;
+  width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--rps2-success-soft); color: var(--rps2-success); margin-bottom: 8px;
+  box-shadow: 0 0 32px rgba(34, 197, 94, 0.22);
 }
-.rps2-complete-title { font-size: 19px; font-weight: 750; color: var(--rps2-text-hi); margin: 0; }
-.rps2-complete-trust-num { font-size: 40px; font-weight: 800; color: var(--rps2-text-hi); font-variant-numeric: tabular-nums; margin: 4px 0 0; letter-spacing: -0.02em; }
-.rps2-complete-trust-label { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rps2-text-low); }
-.rps2-complete-sub { font-size: 13px; color: var(--rps2-text-med); margin: 4px 0 12px; }
-.rps2-complete-btn {
-  background: var(--rps2-accent); color: var(--rps2-bg); border: none; border-radius: 100px;
-  padding: 12px 28px; font-size: 13.5px; font-weight: 700; cursor: pointer; transition: filter .15s ease;
-}
-.rps2-complete-btn:hover { filter: brightness(1.1); }
+.rps2-complete-title { font-size: 28px; font-weight: 800; color: var(--rps2-text-hi); margin: 0; letter-spacing: -0.02em; }
+.rps2-complete-trust-num { font-size: 64px; font-weight: 850; color: var(--rps2-text-hi); font-variant-numeric: tabular-nums; margin: 4px 0 0; letter-spacing: -0.03em; line-height: 1; }
+.rps2-complete-trust-label { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--rps2-text-low); margin-top: 2px; }
+.rps2-complete-sub { font-size: 16px; font-weight: 500; line-height: 1.5; color: var(--rps2-text-med); margin: 6px 0 0; max-width: 420px; }
 
 /* ── End-session confirmation ─────────────────────────────────────────── */
 
