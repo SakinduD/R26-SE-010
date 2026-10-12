@@ -28,8 +28,11 @@ import httpx
 
 from app.config import get_settings
 from app.contracts.training_plan import ScenarioGenerationBrief
+from app.db.database import SessionLocal
+from app.models.rpe_custom_scenario import RpeCustomScenario
+from app.models.user import User
 from app.services import rpe_llm_service
-from app.services.rpe_scenario_service import SCENARIOS_DIR
+from app.services.rpe_scenario_service import SCENARIOS_DIR, infer_category
 
 logger = logging.getLogger(__name__)
 
@@ -286,9 +289,77 @@ async def generate_and_persist_scenario(plan_id: str) -> str:
     mapped["context"] = prose.context or mapped["context"]
 
     scenario_id = mapped["scenario_id"]
-    path = SCENARIOS_DIR / f"{scenario_id}.json"
-    path.write_text(json.dumps(mapped, indent=2))
-    logger.info("Generated RPE scenario %s from plan %s", scenario_id, plan_id)
+    
+    # 1. Persist to Database (PostgreSQL / Supabase)
+    user_id_str = mapped.get("apa_metadata", {}).get("recommended_for_profile")
+    category = mapped.get("category") or infer_category(
+        mapped.get("conflict_type", "general"),
+        mapped.get("apa_metadata", {}).get("target_skills", []),
+        mapped["title"],
+    )
+
+    db = SessionLocal()
+    try:
+        user_uuid = None
+        if user_id_str:
+            user_exists = db.query(User.id).filter_by(id=user_id_str).first()
+            if user_exists:
+                user_uuid = user_id_str
+
+        existing = db.query(RpeCustomScenario).filter_by(id=scenario_id).first()
+        if existing:
+            existing.user_id = user_uuid
+            existing.plan_id = brief.plan_id
+            existing.title = mapped["title"]
+            existing.difficulty = mapped["difficulty"]
+            existing.conflict_type = mapped["conflict_type"]
+            existing.category = category
+            existing.npc_role = mapped["npc_role"]
+            existing.npc_personality = mapped["npc_personality"]
+            existing.context = mapped["context"]
+            existing.opening_npc_line = mapped["opening_npc_line"]
+            existing.recommended_turns = mapped["recommended_turns"]
+            existing.max_turns = mapped["max_turns"]
+            existing.end_conditions = mapped["end_conditions"]
+            existing.success_criteria = mapped["success_criteria"]
+            existing.npc_behaviour = mapped["npc_behaviour"]
+            existing.apa_metadata = mapped["apa_metadata"]
+        else:
+            item = RpeCustomScenario(
+                id=scenario_id,
+                user_id=user_uuid,
+                plan_id=brief.plan_id,
+                title=mapped["title"],
+                difficulty=mapped["difficulty"],
+                conflict_type=mapped["conflict_type"],
+                category=category,
+                npc_role=mapped["npc_role"],
+                npc_personality=mapped["npc_personality"],
+                context=mapped["context"],
+                opening_npc_line=mapped["opening_npc_line"],
+                recommended_turns=mapped["recommended_turns"],
+                max_turns=mapped["max_turns"],
+                end_conditions=mapped["end_conditions"],
+                success_criteria=mapped["success_criteria"],
+                npc_behaviour=mapped["npc_behaviour"],
+                apa_metadata=mapped["apa_metadata"],
+            )
+            db.add(item)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Failed to save scenario %s to database: %s", scenario_id, exc)
+    finally:
+        db.close()
+
+    # 2. Local fallback / write cache
+    try:
+        path = SCENARIOS_DIR / f"{scenario_id}.json"
+        path.write_text(json.dumps(mapped, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Failed to write local backup JSON for scenario %s: %s", scenario_id, exc)
+
+    logger.info("Generated RPE scenario %s from plan %s (persisted to DB)", scenario_id, plan_id)
 
     await sync_plan_title(plan_id, mapped["title"])
 

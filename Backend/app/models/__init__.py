@@ -10,6 +10,7 @@ from app.models.session_result import SessionResult
 from app.models.user import User
 from app.models.personality_profile import PersonalityProfile
 from app.models.training_plan import TrainingPlan, AdjustmentHistory
+from app.models.rpe_custom_scenario import RpeCustomScenario
 
 __all__ = [
     "AnalyticsSessionMetric",
@@ -23,4 +24,5 @@ __all__ = [
     "PersonalityProfile",
     "TrainingPlan",
     "AdjustmentHistory",
+    "RpeCustomScenario",
 ]
