@@ -5,11 +5,11 @@ import { Check } from 'lucide-react'
 // data-voice-state="complete" CSS selector (RolePlaySessionV2.css) so the
 // fade timing matches the avatar finishing its last line, same moment V1
 // reveals its own completion card.
-export default function SessionCompleteOverlay({ trustScore, subtitle, onViewFeedback }) {
+export default function SessionCompleteOverlay({ trustScore, subtitle }) {
   return (
     <div className="rps2-complete-overlay">
       <div className="rps2-complete-card">
-        <div className="rps2-complete-check"><Check size={24} strokeWidth={2.4} /></div>
+        <div className="rps2-complete-check"><Check size={36} strokeWidth={2.6} /></div>
         <p className="rps2-complete-title">Session Complete</p>
         {trustScore != null && (
           <>
@@ -18,9 +18,6 @@ export default function SessionCompleteOverlay({ trustScore, subtitle, onViewFee
           </>
         )}
         {subtitle && <p className="rps2-complete-sub">{subtitle}</p>}
-        <button type="button" className="rps2-complete-btn" onClick={onViewFeedback}>
-          View feedback
-        </button>
       </div>
     </div>
   )

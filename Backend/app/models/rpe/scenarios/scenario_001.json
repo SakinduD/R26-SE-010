@@ -1,13 +1,13 @@
 {
   "scenario_id": "scenario_001",
-  "title": "Handling a Difficult Manager",
+  "title": "Pushback Under Pressure",
   "difficulty": "beginner",
   "conflict_type": "manager_pressure",
-  "npc_role": "Aggressive Manager",
-  "npc_personality": "impatient, demanding, dismissive",
-  "context": "You are a new employee. Your manager is pressuring you to submit a report by EOD even though you were given incomplete data.",
-  "opening_npc_line": "I need that report on my desk by 5pm. No excuses.",
-  "recommended_turns": 6,
+  "npc_role": "Demanding Engineering Lead",
+  "npc_personality": "high-strung, impatient, deadline-driven, direct communicator who respects clear rationale once grounded in facts",
+  "context": "You are an associate engineer who received an incomplete dataset for today's milestone audit. Your team lead is demanding the full validation report by 5:00 PM today. You must hold your ground respectfully, clarify the missing inputs, and negotiate a realistic interim delivery without folding under pressure.",
+  "opening_npc_line": "I need that full milestone audit on my desk by 5:00 PM. No excuses.",
+  "recommended_turns": 7,
   "max_turns": 15,
   "end_conditions": {
     "success_trust_threshold": 70,
@@ -15,7 +15,7 @@
     "failure_escalation_threshold": 4
   },
   "success_criteria": {
-    "min_trust_score": 40,
+    "min_trust_score": 42,
     "max_escalation_level": 2
   },
   "npc_behaviour": {

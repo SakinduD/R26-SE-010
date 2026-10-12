@@ -1,7 +1,13 @@
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.db.database import SessionLocal
+from app.models.rpe_custom_scenario import RpeCustomScenario
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = BASE_DIR / "models" / "rpe" / "scenarios"
@@ -94,38 +100,117 @@ class RpeScenarioService:
         self._scenarios: dict[str, Scenario] = {}
 
     def load_all(self) -> None:
+        """
+        Loads base file scenarios (e.g. scenario_001 to scenario_005) into memory,
+        then queries PostgreSQL (rpe_custom_scenarios) and merges all database scenarios.
+        """
+        # 1. Load from static JSON templates on disk
         for path in SCENARIOS_DIR.glob("*.json"):
-            data = json.loads(path.read_text())
-            # Support old files that only have "turns"
-            recommended_turns = data.get("recommended_turns", data.get("turns", 6))
-            max_turns         = data.get("max_turns", 15)
-            end_conditions    = data.get("end_conditions", _DEFAULT_END_CONDITIONS)
-            apa_metadata      = data.get("apa_metadata", _DEFAULT_APA)
-            category = data.get("category") or infer_category(
-                data.get("conflict_type", "general"),
-                apa_metadata.get("target_skills", []),
-                data["title"],
-            )
-            self._scenarios[data["scenario_id"]] = Scenario(
-                scenario_id=data["scenario_id"],
-                title=data["title"],
-                difficulty=data["difficulty"],
-                conflict_type=data.get("conflict_type", "general"),
-                npc_role=data["npc_role"],
-                npc_personality=data["npc_personality"],
-                context=data["context"],
-                opening_npc_line=data["opening_npc_line"],
-                recommended_turns=recommended_turns,
-                max_turns=max_turns,
-                end_conditions=end_conditions,
-                success_criteria=data["success_criteria"],
-                npc_behaviour=data.get("npc_behaviour", _DEFAULT_BEHAVIOUR),
-                apa_metadata=apa_metadata,
-                category=category,
-            )
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                recommended_turns = data.get("recommended_turns", data.get("turns", 6))
+                max_turns         = data.get("max_turns", 15)
+                end_conditions    = data.get("end_conditions", _DEFAULT_END_CONDITIONS)
+                apa_metadata      = data.get("apa_metadata", _DEFAULT_APA)
+                category = data.get("category") or infer_category(
+                    data.get("conflict_type", "general"),
+                    apa_metadata.get("target_skills", []),
+                    data["title"],
+                )
+                self._scenarios[data["scenario_id"]] = Scenario(
+                    scenario_id=data["scenario_id"],
+                    title=data["title"],
+                    difficulty=data["difficulty"],
+                    conflict_type=data.get("conflict_type", "general"),
+                    npc_role=data["npc_role"],
+                    npc_personality=data["npc_personality"],
+                    context=data["context"],
+                    opening_npc_line=data["opening_npc_line"],
+                    recommended_turns=recommended_turns,
+                    max_turns=max_turns,
+                    end_conditions=end_conditions,
+                    success_criteria=data["success_criteria"],
+                    npc_behaviour=data.get("npc_behaviour", _DEFAULT_BEHAVIOUR),
+                    apa_metadata=apa_metadata,
+                    category=category,
+                )
+            except Exception as exc:
+                logger.warning("Failed loading scenario file %s: %s", path, exc)
+
+        # 2. Merge from Database (rpe_custom_scenarios)
+        try:
+            db = SessionLocal()
+            try:
+                db_scenarios = db.query(RpeCustomScenario).all()
+                for s in db_scenarios:
+                    apa_meta = s.apa_metadata or _DEFAULT_APA
+                    self._scenarios[s.id] = Scenario(
+                        scenario_id=s.id,
+                        title=s.title,
+                        difficulty=s.difficulty,
+                        conflict_type=s.conflict_type or "general",
+                        npc_role=s.npc_role,
+                        npc_personality=s.npc_personality,
+                        context=s.context,
+                        opening_npc_line=s.opening_npc_line,
+                        recommended_turns=s.recommended_turns,
+                        max_turns=s.max_turns,
+                        end_conditions=s.end_conditions or _DEFAULT_END_CONDITIONS,
+                        success_criteria=s.success_criteria or {},
+                        npc_behaviour=s.npc_behaviour or _DEFAULT_BEHAVIOUR,
+                        apa_metadata=apa_meta,
+                        category=s.category or infer_category(
+                            s.conflict_type or "general",
+                            apa_meta.get("target_skills", []),
+                            s.title,
+                        ),
+                    )
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("Failed loading scenarios from database: %s", exc)
 
     def get_scenario(self, scenario_id: str) -> Scenario | None:
-        return self._scenarios.get(scenario_id)
+        scenario = self._scenarios.get(scenario_id)
+        if scenario:
+            return scenario
+
+        # If not present in memory, try a direct DB lookup (e.g. freshly created)
+        try:
+            db = SessionLocal()
+            try:
+                s = db.query(RpeCustomScenario).filter_by(id=scenario_id).first()
+                if s:
+                    apa_meta = s.apa_metadata or _DEFAULT_APA
+                    loaded = Scenario(
+                        scenario_id=s.id,
+                        title=s.title,
+                        difficulty=s.difficulty,
+                        conflict_type=s.conflict_type or "general",
+                        npc_role=s.npc_role,
+                        npc_personality=s.npc_personality,
+                        context=s.context,
+                        opening_npc_line=s.opening_npc_line,
+                        recommended_turns=s.recommended_turns,
+                        max_turns=s.max_turns,
+                        end_conditions=s.end_conditions or _DEFAULT_END_CONDITIONS,
+                        success_criteria=s.success_criteria or {},
+                        npc_behaviour=s.npc_behaviour or _DEFAULT_BEHAVIOUR,
+                        apa_metadata=apa_meta,
+                        category=s.category or infer_category(
+                            s.conflict_type or "general",
+                            apa_meta.get("target_skills", []),
+                            s.title,
+                        ),
+                    )
+                    self._scenarios[s.id] = loaded
+                    return loaded
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("Failed querying scenario %s from DB: %s", scenario_id, exc)
+
+        return None
 
     def list_all(self, current_user_id: str | None = None) -> list[dict]:
         """
@@ -133,10 +218,11 @@ class RpeScenarioService:
         them. Generated ones are tied to whoever's Training Plan produced
         them (apa_metadata.recommended_for_profile, set from the plan's
         user_id in rpe_plan_import_service.map_brief_to_scenario) and must
-        only show up for that same user, never for other users or guests —
-        otherwise every learner's "Personalized for you" tab fills up with
-        everyone else's generated scenarios too.
+        only show up for that same user, never for other users or guests.
         """
+        # Ensure fresh DB scenarios are loaded
+        self.load_all()
+
         return [
             {
                 "scenario_id":       s.scenario_id,

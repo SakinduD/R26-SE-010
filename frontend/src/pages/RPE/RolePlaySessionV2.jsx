@@ -485,6 +485,8 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
           endReason: response.end_reason,
           recommendedTurns, maxTurns, totalTurns, scenarioTitle, npcRole,
           npcName: npcDisplayName,
+          category: scenarioCategory,
+          conflictType,
           currentTurn: response.turn,
         }
 
@@ -497,7 +499,7 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
         clearSession()
         completeTimeoutRef.current = setTimeout(() => {
           navigate('/roleplay/session/complete', { state: completeNavStateRef.current })
-        }, 2000)
+        }, 2400)
       } else {
         await speak(response.npc_response, { emotion: response.emotion, animation: response.animation })
         const resolved = resolveInteraction(response)
@@ -873,7 +875,6 @@ function RolePlaySessionV2Inner({ navState, recoveredTurns, recoveredTrustHistor
           <SessionCompleteOverlay
             trustScore={liveTrust}
             subtitle={END_REASON_SUB[endReason] || ''}
-            onViewFeedback={handleViewFeedbackNow}
           />
         )}
       </div>

@@ -1,16 +1,16 @@
 {
   "scenario_id": "scenario_002",
-  "title": "The Credit Thief",
+  "title": "Reclaiming Ownership of Your Work",
   "difficulty": "beginner",
   "conflict_type": "peer_indirect",
-  "npc_role": "Passive-Aggressive Colleague",
-  "npc_personality": "sarcastic, credit-stealing, friendly on surface but undermining",
-  "context": "Your colleague presented your idea in a team meeting as their own. You need to address this without causing a public scene.",
-  "opening_npc_line": "Great meeting right? The team really loved my proposal.",
-  "recommended_turns": 6,
+  "npc_role": "Opportunistic Colleague",
+  "npc_personality": "polite on the surface, subtly evasive, defensive when cornered, protective of their standing with management",
+  "context": "During this morning's cross-functional sprint review, a close teammate presented your optimization framework as their own personal initiative. You have stepped into a private huddle room with them right after the meeting. You need to address the attribution directly, set firm boundaries for collaboration, and preserve working trust without escalating into an open feud.",
+  "opening_npc_line": "Great meeting, right? Leadership was clearly impressed by how that proposal came together.",
+  "recommended_turns": 7,
   "max_turns": 15,
   "end_conditions": {
-    "success_trust_threshold": 65,
+    "success_trust_threshold": 68,
     "success_consecutive_turns": 2,
     "failure_escalation_threshold": 4
   },
@@ -20,8 +20,8 @@
   },
   "npc_behaviour": {
     "trust_thresholds": {
-      "cooperative": 65,
-      "neutral": 35,
+      "cooperative": 68,
+      "neutral": 38,
       "hostile": 0
     },
     "escalation_thresholds": {
@@ -33,7 +33,8 @@
   "apa_metadata": {
     "target_skills": [
       "assertiveness",
-      "conflict_resolution"
+      "conflict_resolution",
+      "boundary_setting"
     ],
     "big_five_relevance": [
       "agreeableness",

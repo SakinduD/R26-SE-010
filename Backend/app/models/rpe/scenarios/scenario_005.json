@@ -1,12 +1,12 @@
 {
   "scenario_id": "scenario_005",
-  "title": "No Room to Breathe",
+  "title": "Setting Boundaries with a Micromanaging Lead",
   "difficulty": "advanced",
   "conflict_type": "autonomy_conflict",
-  "npc_role": "Micromanaging Boss",
-  "npc_personality": "controlling, anxious, distrusts delegation, needs constant updates",
-  "context": "Your manager checks in every 30 minutes, rewrites your work without explanation, and cc's themselves on all your emails. You need to professionally establish boundaries.",
-  "opening_npc_line": "I need you to send me a status update every 30 minutes today. No exceptions.",
+  "npc_role": "Hyper-Controlling Team Lead",
+  "npc_personality": "anxious, risk-averse, highly perfectionistic, struggles to delegate, interprets independence as lack of diligence",
+  "context": "Your team lead has begun requiring hourly message check-ins, rewriting code without discussion, and demanding inclusion on every internal thread. Your productivity and sense of autonomy are severely compromised. In this dedicated check-in, you must articulate the operational cost of continuous oversight, advocate for structured checkpoints, and agree on measurable accountability without making them feel that their standards are being dismissed.",
+  "opening_npc_line": "Given the risk profile of this release, I need you to send me written status updates every hour today, starting now.",
   "recommended_turns": 8,
   "max_turns": 20,
   "end_conditions": {

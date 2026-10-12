@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { Sparkles, Mic2, SmilePlus, Gauge, X } from 'lucide-react'
+import {
+  Sparkles, Mic2, SmilePlus, Gauge, X,
+  AlertTriangle, Info, Volume2, Smile,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // The whole "quiet coach" system in one place: the pill that replaces V1's
-// "Analyzing On" label, its explanatory popover, and the nudge stack itself
-// — rendered as understated pills near the conversation rather than
-// notification toasts. Same underlying sensing state and nudge data as V1
-// (useNudgeSensing) — this only changes presentation, never the sensing
-// logic or what triggers a nudge.
+// "Analyzing On" label, its explanatory popover, and the nudge stack itself.
 export function CoachingToggle({ active, onToggle }) {
   const [open, setOpen] = useState(false)
 
@@ -47,25 +46,52 @@ export function CoachingToggle({ active, onToggle }) {
   )
 }
 
+function renderNudgeIcon(nudge) {
+  if (nudge.severity === 'critical') {
+    return <AlertTriangle size={13} strokeWidth={2.2} className="rps2-nudge-icon rps2-nudge-icon-critical" aria-hidden />
+  }
+  if (nudge.category === 'volume') {
+    return <Volume2 size={13} strokeWidth={2} className="rps2-nudge-icon" aria-hidden />
+  }
+  if (nudge.category === 'pace') {
+    return <Gauge size={13} strokeWidth={2} className="rps2-nudge-icon" aria-hidden />
+  }
+  if (nudge.category === 'expression') {
+    return <Smile size={13} strokeWidth={2} className="rps2-nudge-icon" aria-hidden />
+  }
+  if (nudge.severity === 'warning') {
+    return <AlertTriangle size={13} strokeWidth={2} className="rps2-nudge-icon rps2-nudge-icon-warning" aria-hidden />
+  }
+  return <Sparkles size={13} strokeWidth={2} className="rps2-nudge-icon rps2-nudge-icon-info" aria-hidden />
+}
+
 export default function CoachingNudge({ nudges, onDismiss }) {
   if (!nudges || nudges.length === 0) return null
 
   return (
     <div className="rps2-nudge-stack">
-      {nudges.map((nudge) => (
-        <div key={nudge.id} className="rps2-nudge">
-          <Sparkles size={13} strokeWidth={2} className="rps2-nudge-sparkle" aria-hidden />
-          <span>{nudge.text}</span>
-          <button
-            type="button"
-            className="rps2-nudge-dismiss"
-            onClick={() => onDismiss(nudge.id)}
-            aria-label="Dismiss coaching note"
-          >
-            <X size={11} strokeWidth={2} />
-          </button>
-        </div>
-      ))}
+      {nudges.map((nudge) => {
+        const severityClass = nudge.severity === 'critical'
+          ? 'rps2-nudge-critical'
+          : nudge.severity === 'warning'
+            ? 'rps2-nudge-warning'
+            : 'rps2-nudge-info'
+
+        return (
+          <div key={nudge.id} className={cn('rps2-nudge', severityClass)}>
+            {renderNudgeIcon(nudge)}
+            <span className="rps2-nudge-text">{nudge.text}</span>
+            <button
+              type="button"
+              className="rps2-nudge-dismiss"
+              onClick={() => onDismiss(nudge.id)}
+              aria-label="Dismiss coaching note"
+            >
+              <X size={12} strokeWidth={2} />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }

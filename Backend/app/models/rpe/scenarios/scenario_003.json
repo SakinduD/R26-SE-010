@@ -1,16 +1,16 @@
 {
   "scenario_id": "scenario_003",
-  "title": "The Impossible Client",
+  "title": "De-escalating an Upset Enterprise Client",
   "difficulty": "intermediate",
   "conflict_type": "external_pressure",
-  "npc_role": "Dismissive Client",
-  "npc_personality": "impatient, condescending, always threatening to pull contract",
-  "context": "A key client is unhappy with a delayed deliverable. The delay was caused by their own late requirements, but they are blaming your team.",
-  "opening_npc_line": "This is unacceptable. We are paying you people a lot of money for nothing.",
-  "recommended_turns": 6,
-  "max_turns": 15,
+  "npc_role": "High-Stakes Client Director",
+  "npc_personality": "stern, skeptical, under heavy board pressure, impatient with corporate jargon, values candor and actionable solutions",
+  "context": "An enterprise client's platform launch has slipped by three weeks due to scope revisions that their executive team submitted past the cutoff date. The client director has joined an emergency sync furious, threatening to cancel the retainer and pin the financial delay squarely on your organization. You need to acknowledge their stress, tactfully clarify the root timeline dependencies, and rally them around a recovery plan.",
+  "opening_npc_line": "This delay is completely unacceptable. We are paying top-tier rates, and our executive board wants answers today.",
+  "recommended_turns": 8,
+  "max_turns": 16,
   "end_conditions": {
-    "success_trust_threshold": 70,
+    "success_trust_threshold": 72,
     "success_consecutive_turns": 2,
     "failure_escalation_threshold": 4
   },
@@ -20,7 +20,7 @@
   },
   "npc_behaviour": {
     "trust_thresholds": {
-      "cooperative": 70,
+      "cooperative": 72,
       "neutral": 45,
       "hostile": 0
     },

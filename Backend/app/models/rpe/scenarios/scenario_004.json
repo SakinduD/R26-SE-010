@@ -1,12 +1,12 @@
 {
   "scenario_id": "scenario_004",
-  "title": "Sabotaged from Within",
+  "title": "Navigating Workplace Politics & Exclusion",
   "difficulty": "intermediate",
   "conflict_type": "peer_sabotage",
-  "npc_role": "Undermining Colleague",
-  "npc_personality": "politically savvy, two-faced, smiles while blocking progress",
-  "context": "A senior peer has been consistently leaving you out of key meetings and feeding wrong information to your manager about your performance.",
-  "opening_npc_line": "Oh, I did not think you needed to be in that meeting. You have been so busy lately.",
+  "npc_role": "Strategically Evasive Peer",
+  "npc_personality": "smooth, politically calculated, guarded, uses plausible deniability to deflect accountability while quietly consolidating influence",
+  "context": "A senior peer on your delivery track has excluded you from architectural alignment sessions with the VP and quietly framed your project timeline as lagging during informal updates. You have scheduled a 1-on-1 coffee chat to address the communication blackout. You must navigate their subtle evasions, establish factual transparency, and assert your role in critical project decisions without sounding accusatory.",
+  "opening_npc_line": "Oh, I assumed you were completely swamped with the backend sprint and didn't want to drag you into another alignment sync.",
   "recommended_turns": 8,
   "max_turns": 18,
   "end_conditions": {

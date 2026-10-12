@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { Info, Search } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
+import { useActiveSession } from '@/context/ActiveSessionContext';
 import NotificationBell from '@/components/achievements/NotificationBell';
 import ActiveSessionNudge from '@/components/RPE/ActiveSessionNudge';
 
@@ -58,8 +59,11 @@ function getCrumbs(pathname) {
 export default function Topbar() {
   const { pathname } = useLocation();
   const { user } = useAuth();
+  const { activeSession } = useActiveSession();
   const parts = getCrumbs(pathname);
   const initial = (user?.display_name || user?.email || 'U').charAt(0).toUpperCase();
+
+  const isFeedbackPage = pathname.startsWith('/roleplay/feedback');
 
   return (
     <header className="topbar">
@@ -70,6 +74,46 @@ export default function Topbar() {
             <span className={i === parts.length - 1 ? 'crumb-cur' : undefined}>{p}</span>
           </React.Fragment>
         ))}
+
+        {isFeedbackPage && activeSession?.scenarioTitle && (
+          <>
+            <span className="crumb-sep">·</span>
+            <span className="crumb-scenario" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+              {activeSession.scenarioTitle}
+            </span>
+            {activeSession?.difficulty && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 650,
+                  padding: '2px 8px',
+                  borderRadius: '100px',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  color: '#10B981',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  textTransform: 'capitalize'
+                }}
+              >
+                {activeSession.difficulty}
+              </span>
+            )}
+            {activeSession?.badgeLabel && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 650,
+                  padding: '2px 8px',
+                  borderRadius: '100px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}
+              >
+                {activeSession.badgeLabel}
+              </span>
+            )}
+          </>
+        )}
       </div>
 
       <div style={{ flex: 1 }} />
