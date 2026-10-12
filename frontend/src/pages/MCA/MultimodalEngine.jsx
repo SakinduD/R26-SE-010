@@ -850,7 +850,7 @@ const LiveSensingSession = () => {
   const toggleMesh = () => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('mesh', (!showMesh).toString());
-    setSearchParams(newParams);
+    setSearchParams(newParams, { replace: true });
   };
 
   return (

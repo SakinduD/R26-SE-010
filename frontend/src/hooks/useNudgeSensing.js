@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import * as faceMesh from '@mediapipe/face_mesh'
 import * as cam from '@mediapipe/camera_utils'
-import * as draw from '@mediapipe/drawing_utils'
+import { drawFaceMesh } from '@/utils/mca/drawFaceMesh'
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
 import { mcaService } from '@/services/mca/mcaService'
 import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
@@ -110,15 +110,7 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
       chunkVisualRef.current.add(newMetrics)
       sessionVisualRef.current.add(newMetrics)
 
-      if (showMeshRef.current) {
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_TESSELATION, {
-          color: '#06B6D4',
-          lineWidth: 0.5,
-        })
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_RIGHT_EYE, { color: '#7C3AED' })
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LEFT_EYE, { color: '#7C3AED' })
-        draw.drawConnectors(canvasCtx, landmarks, faceMesh.FACEMESH_LIPS, { color: '#EC4899' })
-      }
+      if (showMeshRef.current) drawFaceMesh(canvasCtx, landmarks)
     }
     canvasCtx.restore()
 
@@ -278,8 +270,13 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
         const CameraCtor = cam.Camera || window.Camera || cam.default?.Camera || cam.default;
         cameraRef.current = new CameraCtor(webcamRef.current.video, {
           onFrame: async () => {
-            if (faceMeshModel) {
-              await faceMeshModel.send({ image: webcamRef.current.video })
+            // A rejected send stops MediaPipe's camera loop, so never let one escape.
+            if (faceMeshModel && webcamRef.current?.video) {
+              try {
+                await faceMeshModel.send({ image: webcamRef.current.video })
+              } catch (err) {
+                console.warn('[useNudgeSensing] frame skipped:', err)
+              }
             }
           },
           width: 1280,
