@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { RefreshCw, BarChart2, AlertTriangle, Target, TrendingUp } from 'lucide-react'
+import { RefreshCw, BarChart2, AlertTriangle, Target, TrendingUp, Trophy } from 'lucide-react'
 
 import { rpeService } from '@/services/rpe/rpeService'
 import { cn } from '@/lib/utils'
 import { FEEDBACK_THEME_VARS, FEEDBACK_COMPONENT_STYLES, scoreStatus } from '@/components/RPE/feedback/feedbackTheme'
-import { outcomeBadge, outcomeIcon, escalationStatus, turnsStatus } from '@/lib/rpe/sessionOutcome'
-import FeedbackHeader from '@/components/RPE/feedback/FeedbackHeader'
+import { outcomeBadge, escalationStatus, turnsStatus } from '@/lib/rpe/sessionOutcome'
+import { resolveEnvironmentId, getEnvironment } from '@/lib/rpe/sceneEnvironments'
+import { useActiveSession } from '@/context/ActiveSessionContext'
 import FeedbackProgress from '@/components/RPE/feedback/FeedbackProgress'
 import FeedbackNavigation from '@/components/RPE/feedback/FeedbackNavigation'
 import TrustJourney from '@/components/RPE/feedback/TrustJourney'
@@ -57,9 +58,10 @@ function JourneyScreen({ trustCurve, trustDeltas, outcomeTone, getTurnDetail }) 
 
   return (
     <div className="screen">
-      <p className="screen-eyebrow">Your Journey</p>
-      <h2 className="screen-title">How you got here</h2>
-      <p className="screen-sub">Every turn, tracked — select a point to see exactly what happened there.</p>
+      <div className="screen-header-compact">
+        <h2 className="screen-title" style={{ fontSize: '22px', margin: 0 }}>How you got here</h2>
+        <span className="screen-sub" style={{ margin: 0 }}>Select any turn point along the curve to inspect dialogue and metrics.</span>
+      </div>
       <TrustJourney
         trustCurve={trustCurve}
         trustDeltas={trustDeltas}
@@ -72,11 +74,12 @@ function JourneyScreen({ trustCurve, trustDeltas, outcomeTone, getTurnDetail }) 
   )
 }
 
-function ResultScreen({ fd, summary, badge, icon }) {
+function ResultScreen({ fd, summary, badge }) {
   return (
     <div className="screen">
       <p className="screen-eyebrow">Session Outcome</p>
-      <OutcomeHero finalTrust={fd.final_trust} interpretation={fd.coaching_advice?.summary} icon={icon} />
+      <h2 className="screen-title">Performance Summary</h2>
+      <OutcomeHero finalTrust={fd.final_trust} interpretation={fd.coaching_advice?.summary} />
       <div className="result-grid">
         <ScoreCard label="Final Trust" value={fd.final_trust} unit="/ 100" status={scoreStatus(fd.final_trust)} />
         <ScoreCard label="Escalation" value={fd.final_escalation} unit="/ 5" status={escalationStatus(fd.final_escalation)} />
@@ -85,7 +88,6 @@ function ResultScreen({ fd, summary, badge, icon }) {
           <ScoreCard label="Avg Quality" value={summary.avg_quality} unit="/ 10" status={scoreStatus(summary.avg_quality, { max: 10 })} />
         )}
       </div>
-      <span className={cn('pill', badge.tone)} style={{ marginTop: 18, alignSelf: 'flex-start' }}>{badge.label}</span>
     </div>
   )
 }
@@ -175,9 +177,11 @@ function DoneScreen({ fd, onTryAgain, onHarder, onOtherSkill }) {
 
   return (
     <div className="screen screen-done">
-      <p className="done-emoji">🏁</p>
-      <h2 className="screen-title">Session complete</h2>
-      <p className="screen-sub">Here's what to carry into your next round.</p>
+      <div className="done-icon-wrap">
+        <Trophy size={28} className="text-amber-400" />
+      </div>
+      <h2 className="screen-title">Session Complete</h2>
+      <p className="screen-sub">Here's what to carry into your next practice round.</p>
 
       <div className="done-takeaway">
         <SessionTakeaway
@@ -230,6 +234,8 @@ export default function FeedbackDashboard() {
   const [direction,    setDirection]    = useState(1)
   const prefersReduced = useReducedMotion()
 
+  const { setSessionData: setActiveSessionData } = useActiveSession()
+
   const load = useCallback(async () => {
     if (!sessionId) { navigate('/roleplay'); return }
     setIsLoading(true)
@@ -245,12 +251,21 @@ export default function FeedbackDashboard() {
       ])
       setFeedbackData(feedback)
       setSessionData(session)
+
+      const b = outcomeBadge(feedback.end_reason, feedback.outcome)
+      setActiveSessionData({
+        sessionId,
+        scenarioTitle: feedback.scenario_title,
+        difficulty: feedback.difficulty,
+        badgeLabel: b?.label,
+        badgeTone: b?.tone,
+      })
     } catch (err) {
       setError(err.message || 'Failed to load the session outcome.')
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, setActiveSessionData])
 
   useEffect(() => { load() }, [load])
 
@@ -333,7 +348,6 @@ export default function FeedbackDashboard() {
   const viz     = fd.viz_payload ?? {}
   const summary = viz.summary_scores ?? {}
   const badge   = outcomeBadge(fd.end_reason, fd.outcome)
-  const icon    = outcomeIcon(fd.end_reason, fd.outcome)
 
   const hasWatchFor = (fd.risk_flags?.length > 0) || (fd.blind_spots?.length > 0)
   const STEPS = [
@@ -370,18 +384,30 @@ export default function FeedbackDashboard() {
         exit:   (d) => ({ opacity: 0, x: d > 0 ? -40 : 40 }),
       }
 
+  const envId   = resolveEnvironmentId(fd.category, fd.conflict_type)
+  const env     = getEnvironment(envId)
+  const bgImage = env?.backgroundImage || '/rpe-background/rpe-env-manager-office.webp'
+
   return (
     <div className="rpe-cinema">
+      {/* Cinematic Office Environment Photo */}
+      <div className="fb-bg-photo-wrap">
+        <img
+          src={bgImage}
+          alt=""
+          className="fb-bg-photo"
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Darkening & vignette overlay */}
+      <div className="fb-bg-overlay" />
+
+      {/* Ambient glowing highlights */}
+      <div className="fb-bg-ambient" />
+
       <div className="fb-shell">
 
-        <FeedbackHeader
-          onBack={() => navigate(-1)}
-          title="Session Outcome"
-          scenarioTitle={fd.scenario_title}
-          difficulty={fd.difficulty}
-          difficultyTone={DIFFICULTY_TONE[fd.difficulty]}
-          badge={badge}
-        />
         <FeedbackProgress steps={STEPS} activeIndex={stepIndex} />
 
         <div className={cn('fb-stage', !isLastStep && 'fb-stage-with-nav')}>
@@ -406,7 +432,7 @@ export default function FeedbackDashboard() {
                   />
                 )}
                 {stepKey === 'result' && (
-                  <ResultScreen fd={fd} summary={summary} badge={badge} icon={icon} />
+                  <ResultScreen fd={fd} summary={summary} badge={badge} />
                 )}
                 {stepKey === 'coaching' && (
                   <CoachingScreen coachingAdvice={fd.coaching_advice} />
@@ -435,10 +461,13 @@ export default function FeedbackDashboard() {
 const FEEDBACK_STYLES = `
   .rpe-cinema{
     min-height:calc(100vh - 48px);
-    background:var(--bg); color:var(--text-hi);
+    background: #080B11;
+    color:var(--text-hi);
     font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
     -webkit-font-smoothing:antialiased;
     display:flex; flex-direction:column;
+    position: relative;
+    overflow: hidden;
   }
   @media (prefers-reduced-motion: reduce){
     .rpe-cinema *, .rpe-cinema *::before, .rpe-cinema *::after{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; }
@@ -446,20 +475,58 @@ const FEEDBACK_STYLES = `
   .rpe-cinema button{ font-family:inherit; }
   .rpe-cinema .cap{ text-transform:capitalize; }
 
-  .fb-shell{ position:relative; display:flex; flex-direction:column; flex:1; }
+  /* Office photo environment */
+  .fb-bg-photo-wrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .fb-bg-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 30%;
+    filter: blur(2.5px) brightness(0.68) saturate(0.92) contrast(1.02);
+    transform: scale(1.03);
+    opacity: 0.88;
+  }
+
+  /* Deep cinematic darkening & vignette overlay */
+  .fb-bg-overlay {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 35%, rgba(8, 10, 16, 0.48) 0%, rgba(4, 5, 10, 0.85) 100%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* Ambient Subtle Lighting */
+  .fb-bg-ambient {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 12%, rgba(255, 255, 255, 0.04) 0%, transparent 60%),
+      radial-gradient(circle at 85% 85%, rgba(20, 26, 40, 0.20) 0%, transparent 50%);
+    z-index: 2;
+  }
+
+  .fb-shell{ position:relative; display:flex; flex-direction:column; flex:1; z-index:10; }
 
   .fb-loading{ display:flex; flex-direction:column; align-items:center; padding:40px 16px; gap:12px; }
   .fb-loading-icon{ width:48px; height:48px; border-radius:12px; background:var(--accent-glow); border:1px solid rgba(124,58,237,0.3); display:flex; align-items:center; justify-content:center; color:var(--accent); }
   .fb-loading-text{ font-size:12.5px; color:var(--text-med); margin:0 0 8px; }
 
   .fb-error-wrap{ flex:1; display:flex; align-items:center; justify-content:center; padding:16px; }
-  .fb-error-card{ max-width:420px; width:100%; text-align:center; display:flex; flex-direction:column; gap:16px; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:32px 24px; }
+  .fb-error-card{ max-width:420px; width:100%; text-align:center; display:flex; flex-direction:column; gap:16px; background:rgba(18,22,34,0.85); backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:32px 24px; }
   .fb-error-emoji{ font-size:28px; margin:0; }
   .fb-error-title{ font-size:16px; font-weight:700; margin:0; }
   .fb-error-msg{ font-size:12.5px; color:var(--danger); margin:0; }
   .fb-error-actions{ display:flex; gap:12px; justify-content:center; }
 
-  .fb-stage{ flex:1; display:flex; padding:16px 24px 32px; }
+  .fb-stage{ flex:1; display:flex; padding:12px 24px 24px; }
   /* Reserve room so the floating side Back/Continue rails (fixed, ~88px
      from each edge) never sit on top of page content; on narrow screens
      FeedbackNavigation falls back to a bottom bar instead, so the side
@@ -469,10 +536,11 @@ const FEEDBACK_STYLES = `
   @media (max-width:768px){ .fb-stage-with-nav{ padding-bottom:162px; } }
   .fb-screen-wrap{ max-width:1200px; margin:0 auto; width:100%; }
 
-  .screen{ display:flex; flex-direction:column; gap:6px; padding-top:12px; }
+  .screen{ display:flex; flex-direction:column; gap:10px; padding-top:4px; }
+  .screen-header-compact{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding-bottom:4px; }
   .screen-eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0; }
-  .screen-title{ font-size:min(34px, 7vw); font-weight:800; letter-spacing:-0.01em; margin:2px 0 0; text-wrap:balance; }
-  .screen-sub{ font-size:14px; color:var(--text-med); margin:6px 0 0; max-width:560px; }
+  .screen-title{ font-size:24px; font-weight:800; letter-spacing:-0.01em; margin:0; text-wrap:balance; color:#FFFFFF; }
+  .screen-sub{ font-size:13.5px; color:var(--text-med); margin:0; max-width:680px; }
 
   .result-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin-top:28px; }
   @media (max-width:820px){ .result-grid{ grid-template-columns:repeat(2, 1fr); } }
@@ -486,7 +554,14 @@ const FEEDBACK_STYLES = `
   .watch-timeline{ margin-top:28px; padding-top:22px; border-top:1px solid var(--border); }
 
   .screen-done{ align-items:flex-start; padding-top:20px; }
-  .done-emoji{ font-size:34px; margin:0 0 4px; }
+  .done-icon-wrap{
+    width: 52px; height: 52px; border-radius: 16px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+  }
   .done-takeaway{ margin-top:22px; width:100%; max-width:640px; }
   .done-skills{ margin-top:26px; }
   .done-skills-label{ font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-low); margin:0 0 8px; }

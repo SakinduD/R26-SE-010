@@ -14,69 +14,99 @@
 // duplicated.
 export const FEEDBACK_THEME_VARS = `
   .rpe-cinema{
-    --bg:            #0D1117;
-    --surface:       #161B22;
-    --surface-hi:    #21262D;
-    --border:        #30363D;
-    --accent:        #7C3AED;
-    --accent-glow:   rgba(124,58,237,0.15);
-    --success:       #3FB950;
-    --success-glow:  rgba(63,185,80,0.15);
-    --warning:       #D29922;
-    --warning-glow:  rgba(210,153,34,0.15);
-    --danger:        #F85149;
-    --danger-glow:   rgba(248,81,73,0.15);
-    --text-hi:       #F0F6FC;
-    --text-med:      #8B949E;
-    --text-low:      #484F58;
-    --quote-text:      #C9D1D9;
-    --header-backdrop: rgba(13,17,23,0.92);
+    --bg:            #080B11;
+    --surface:       rgba(255, 255, 255, 0.035);
+    --surface-hi:    rgba(255, 255, 255, 0.07);
+    --border:        rgba(255, 255, 255, 0.09);
+    --accent:        #A855F7;
+    --accent-glow:   rgba(168, 85, 247, 0.16);
+    --success:       #34D399;
+    --success-glow:  rgba(16, 185, 129, 0.16);
+    --warning:       #FBBF24;
+    --warning-glow:  rgba(245, 158, 11, 0.16);
+    --danger:        #F87171;
+    --danger-glow:   rgba(239, 68, 68, 0.16);
+    --text-hi:       #F8FAFC;
+    --text-med:      #94A3B8;
+    --text-low:      #64748B;
+    --quote-text:    #E2E8F0;
+    --header-backdrop: rgba(10, 14, 23, 0.82);
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }
   :root[data-theme="light"] .rpe-cinema{
-    --bg:            #F5F3FD;
+    --bg:            #F8FAFC;
     --surface:       #FFFFFF;
-    --surface-hi:    #EFEAFB;
-    --border:        #D9CFF5;
-    --accent:        #6B3FD6;
-    --accent-glow:   rgba(107,63,214,0.12);
-    --success:       #1E8E4A;
-    --success-glow:  rgba(30,142,74,0.12);
-    --warning:       #B4790E;
-    --warning-glow:  rgba(180,121,14,0.14);
-    --danger:        #D93B32;
-    --danger-glow:   rgba(217,59,50,0.12);
-    --text-hi:       #241E38;
-    --text-med:      #5E5678;
-    --text-low:      #8D84A8;
-    --quote-text:      #3A3352;
-    --header-backdrop: rgba(245,243,253,0.92);
+    --surface-hi:    #F1F5F9;
+    --border:        #E2E8F0;
+    --accent:        #7C3AED;
+    --accent-glow:   rgba(124, 58, 237, 0.12);
+    --success:       #059669;
+    --success-glow:  rgba(5, 150, 105, 0.12);
+    --warning:       #D97706;
+    --warning-glow:  rgba(217, 119, 6, 0.14);
+    --danger:        #DC2626;
+    --danger-glow:   rgba(220, 38, 38, 0.12);
+    --text-hi:       #0F172A;
+    --text-med:      #475569;
+    --text-low:      #64748B;
+    --quote-text:    #1E293B;
+    --header-backdrop: rgba(255, 255, 255, 0.88);
   }
 `
 
 // .pill / .btn-c — shared across FeedbackDashboard and SessionComplete
-// (previously each page hand-copied its own near-identical version of
-// these; a color or padding tweak in one didn't apply to the other). Both
-// pages embed this alongside FEEDBACK_THEME_VARS, same pattern.
 export const FEEDBACK_COMPONENT_STYLES = `
-  .rpe-cinema .pill{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; padding:4px 11px; border-radius:100px; text-transform:capitalize; flex-shrink:0; }
-  .rpe-cinema .pill.success{ color:var(--success); background:var(--success-glow); }
-  .rpe-cinema .pill.warning{ color:var(--warning); background:var(--warning-glow); }
-  .rpe-cinema .pill.danger{  color:var(--danger);  background:var(--danger-glow); }
-  .rpe-cinema .pill.accent{  color:var(--accent);  background:var(--accent-glow); }
-  .rpe-cinema .pill.neutral{ color:var(--text-med); background:var(--surface-hi); }
+  .rpe-cinema .pill{
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 700; padding: 5px 12px;
+    border-radius: 100px; text-transform: capitalize; flex-shrink: 0;
+    border: 1px solid transparent;
+  }
+  .rpe-cinema .pill.success{ color: var(--success); background: var(--success-glow); border-color: rgba(16, 185, 129, 0.3); }
+  .rpe-cinema .pill.warning{ color: var(--warning); background: var(--warning-glow); border-color: rgba(245, 158, 11, 0.3); }
+  .rpe-cinema .pill.danger{  color: var(--danger);  background: var(--danger-glow);  border-color: rgba(239, 68, 68, 0.3); }
+  .rpe-cinema .pill.accent{  color: var(--accent);  background: var(--accent-glow);  border-color: rgba(168, 85, 247, 0.3); }
+  .rpe-cinema .pill.neutral{ color: var(--text-med); background: var(--surface-hi);   border-color: var(--border); }
 
-  .rpe-cinema .chip{ font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:100px; text-transform:capitalize; }
-  .rpe-cinema .chip.accent{ color:var(--accent); background:var(--accent-glow); }
+  .rpe-cinema .chip{
+    font-size: 11.5px; font-weight: 650; padding: 5px 14px;
+    border-radius: 100px; text-transform: capitalize;
+    border: 1px solid transparent;
+  }
+  .rpe-cinema .chip.accent{ color: var(--accent); background: var(--accent-glow); border-color: rgba(168, 85, 247, 0.3); }
 
-  .rpe-cinema .btn-c{ display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:650; padding:10px 18px; border-radius:10px; cursor:pointer; border:1px solid transparent; font-family:inherit; transition:filter .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease), transform .15s var(--ease); }
-  .rpe-cinema .btn-c.primary{ background:linear-gradient(135deg, var(--accent), #9B6BFF); color:#fff; box-shadow:0 8px 22px var(--accent-glow); }
-  .rpe-cinema .btn-c.primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
-  .rpe-cinema .btn-c.secondary{ background:var(--surface-hi); border-color:var(--border); color:var(--text-hi); }
-  .rpe-cinema .btn-c.secondary:hover{ border-color:var(--text-med); }
-  .rpe-cinema .btn-c.secondary:disabled{ opacity:.4; cursor:default; }
-  .rpe-cinema .btn-c.ghost{ background:transparent; color:var(--text-med); }
-  .rpe-cinema .btn-c.ghost:hover{ color:var(--text-hi); background:var(--surface-hi); }
+  .rpe-cinema .btn-c{
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 700; padding: 11px 20px;
+    border-radius: 12px; cursor: pointer; border: 1px solid transparent;
+    font-family: inherit;
+    transition: all .2s var(--ease);
+  }
+  .rpe-cinema .btn-c.primary{
+    background: linear-gradient(135deg, #7C3AED 0%, #A855F7 100%);
+    color: #FFFFFF;
+    box-shadow: 0 8px 24px -4px rgba(124, 58, 237, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .rpe-cinema .btn-c.primary:hover{
+    filter: brightness(1.1);
+    transform: translateY(-1.5px);
+    box-shadow: 0 12px 28px -4px rgba(124, 58, 237, 0.6);
+  }
+  .rpe-cinema .btn-c.secondary{
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #F8FAFC;
+    backdrop-filter: blur(12px);
+  }
+  .rpe-cinema .btn-c.secondary:hover{
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+  }
+  .rpe-cinema .btn-c.secondary:disabled{ opacity: .35; cursor: default; transform: none; }
+  .rpe-cinema .btn-c.ghost{ background: transparent; color: var(--text-med); }
+  .rpe-cinema .btn-c.ghost:hover{ color: var(--text-hi); background: var(--surface-hi); }
 `
 
 // Semantic status tone for a 0-100 trust-style score — used anywhere a

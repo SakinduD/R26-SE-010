@@ -33,22 +33,34 @@ export default function ScoreCard({ label, value, unit, status }) {
 
       <style>{`
         .sc-card{
-          background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px;
-          box-shadow:0 8px 22px rgba(17,12,34,0.05);
-          display:flex; flex-direction:column; gap:8px;
-          transition:transform .15s var(--ease), border-color .15s var(--ease), box-shadow .15s var(--ease);
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-top: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 18px; padding: 20px 22px;
+          backdrop-filter: blur(14px);
+          box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
+          display: flex; flex-direction: column; gap: 10px;
+          transition: transform .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease);
         }
-        .sc-card:hover{ transform:translateY(-2px); border-color:var(--text-low); box-shadow:0 12px 28px rgba(17,12,34,0.08); }
-        .sc-label{ font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-low); }
-        .sc-value-row{ display:flex; align-items:baseline; gap:3px; }
-        .sc-value{ font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--text-hi); line-height:1; }
-        .sc-unit{ font-size:12px; font-weight:600; color:var(--text-med); }
-        .sc-status{ font-size:11px; font-weight:650; }
-        .sc-status.success{ color:var(--success); }
-        .sc-status.accent{  color:var(--accent); }
-        .sc-status.warning{ color:var(--warning); }
-        .sc-status.danger{  color:var(--danger); }
-        .sc-status.neutral{ color:var(--text-med); }
+        .sc-card:hover{
+          transform: translateY(-2px);
+          border-color: rgba(168, 85, 247, 0.4);
+          box-shadow: 0 16px 36px -10px rgba(124, 58, 237, 0.2);
+        }
+        .sc-label{ font-size: 10.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; color: #94A3B8; }
+        .sc-value-row{ display: flex; align-items: baseline; gap: 4px; }
+        .sc-value{ font-size: 32px; font-weight: 850; font-variant-numeric: tabular-nums; color: #FFFFFF; line-height: 1; }
+        .sc-unit{ font-size: 12.5px; font-weight: 600; color: #64748B; }
+        .sc-status{
+          align-self: flex-start;
+          font-size: 11px; font-weight: 700;
+          padding: 2px 9px; border-radius: 100px;
+        }
+        .sc-status.success{ color: #34D399; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.25); }
+        .sc-status.accent{  color: #C084FC; background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.25); }
+        .sc-status.warning{ color: #FBBF24; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.25); }
+        .sc-status.danger{  color: #F87171; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.25); }
+        .sc-status.neutral{ color: #94A3B8; background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.2); }
       `}</style>
     </div>
   )
