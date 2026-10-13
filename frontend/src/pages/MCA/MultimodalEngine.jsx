@@ -817,7 +817,7 @@ const LiveSensingSession = () => {
           integrateCompletedSession(analyticsService, sid);
 
           const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
-          setTimeout(() => navigate(redirectUrl), 1500);
+          navigate(redirectUrl);
         } else {
           toast.error("Session closed but data persistence may be incomplete.");
         }

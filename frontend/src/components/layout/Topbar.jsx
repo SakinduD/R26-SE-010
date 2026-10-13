@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { Info, Search } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import { useActiveSession } from '@/context/ActiveSessionContext';
 import NotificationBell from '@/components/achievements/NotificationBell';
@@ -119,12 +119,6 @@ export default function Topbar() {
       <div style={{ flex: 1 }} />
 
       <div className="topbar-actions">
-        <button className="topbar-search" type="button">
-          <Search size={13} strokeWidth={1.8} />
-          <span className="t-cap">Search</span>
-          <kbd>⌘K</kbd>
-        </button>
-
         <ActiveSessionNudge />
 
         <div className="topbar-icons">

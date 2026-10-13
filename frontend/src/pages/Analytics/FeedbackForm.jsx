@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CheckCircle2,
@@ -37,6 +37,7 @@ const SKILL_OPTIONS = [
 export default function FeedbackForm() {
   const params = useParams()
   const navigate = useNavigate()
+  const bottomRef = useRef(null)
   const [searchParams] = useSearchParams()
   const friendlyId = searchParams.get('friendlyId')
   const {
@@ -219,6 +220,16 @@ export default function FeedbackForm() {
   useEffect(() => {
     setForm((current) => ({ ...current, user_id: connectedUserId }))
   }, [connectedUserId])
+
+  // The sentiment reading and support cards render above the dashboard button
+  // on save, pushing it below the fold — bring it into view once they've laid out.
+  useEffect(() => {
+    if (status !== 'success') return
+    const id = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [status])
 
   useEffect(() => {
     let cancelled = false
@@ -457,6 +468,7 @@ export default function FeedbackForm() {
                 </span>
               </Button>
             )}
+            <div ref={bottomRef} aria-hidden="true" />
           </div>
         </form>
 
