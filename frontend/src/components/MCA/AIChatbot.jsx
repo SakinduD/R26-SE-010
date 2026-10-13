@@ -275,7 +275,7 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           }
           // Redirect to self-rating feedback form (same as live session)
           const redirectUrl = `/analytics/sessions/${sessionId}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
-          setTimeout(() => navigate(redirectUrl), 1500);
+          navigate(redirectUrl);
         } else {
           toast.error("Session ended but data persistence may be incomplete.");
         }
