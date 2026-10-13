@@ -112,22 +112,21 @@ function MoreLink({ to, onOpen }) {
   )
 }
 
-// Shown instead of the dashboard when there is too little history to fill it.
-// A grid of empty boxes reads as broken rather than as empty.
-function GettingStarted({ sessionCount, onStart }) {
-  const early = sessionCount > 0
+// The trend line and the forecast need at least two sessions to show a direction.
+const MIN_TREND_SESSIONS = 2
 
+// Shown instead of the dashboard before the first session.
+// A grid of empty boxes reads as broken rather than as empty.
+function GettingStarted({ onStart }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-8">
       <div className="max-w-xl mx-auto text-center">
         <span className="text-4xl">🎯</span>
         <h2 className="text-lg font-bold mt-3 mb-2">
-          {early ? 'Your results are starting to build' : 'Nothing to show yet — and that is expected'}
+          Nothing to show yet — and that is expected
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {early
-            ? `You have completed ${sessionCount} session${sessionCount === 1 ? '' : 's'}. Scores appear straight away, but the trend line and the forecast need at least three before they mean anything — two points can only ever draw a straight line.`
-            : 'This page fills in from your practice sessions. Complete one and your scores appear here immediately.'}
+          This page fills in from your practice sessions. Complete one and your scores appear here immediately.
         </p>
       </div>
 
@@ -153,6 +152,21 @@ function GettingStarted({ sessionCount, onStart }) {
           Start a practice session
         </button>
       </div>
+    </div>
+  )
+}
+
+// Stands in for the trend and forecast panels until there are enough sessions.
+function NeedsMoreSessions({ sessionCount }) {
+  const remaining = Math.max(1, MIN_TREND_SESSIONS - sessionCount)
+  return (
+    <div className="flex flex-col items-center py-8 text-center">
+      <span className="text-4xl mb-3">⏳</span>
+      <p className="font-semibold fg">Available after {MIN_TREND_SESSIONS} completed sessions</p>
+      <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+        Complete {remaining} more session{remaining === 1 ? '' : 's'} to see how your skills
+        are changing — one session is a single point, not a direction.
+      </p>
     </div>
   )
 }
@@ -239,7 +253,19 @@ export default function AnalyticsDashboard() {
 
   // The learner's whole history, not the selected session's row count.
   const sessionCount = data?.lifetimeSessions ?? data?.aggregate?.scores?.metric_count ?? 0
-  const showGettingStarted = status === 'live' && sessionCount < 3
+  const showGettingStarted = status === 'live' && sessionCount < 1
+
+  // Sessions the trend data actually covers. Not sessionCount: that counts every
+  // analytics row, while trends stop at the selected session and skip sessions
+  // with no scores, so it can read 2+ while the chart and forecast have one point.
+  const trendSessionCount = useMemo(() => {
+    const ids = new Set()
+    for (const item of data?.trends?.trends || []) {
+      for (const point of item.points || []) ids.add(point.session_id)
+    }
+    return ids.size
+  }, [data])
+  const hasTrendHistory = trendSessionCount >= MIN_TREND_SESSIONS
 
   // The one thing worth acting on, with the reason under it. One item, not a
   // list: a page reporting four problems at once is acted on as none.
@@ -249,7 +275,7 @@ export default function AnalyticsDashboard() {
     // Across sessions the useful thing is a direction of travel; within one
     // session it is what happened in it. Neither can be read from the other.
     if (isAllSessions) {
-      if (sessionCount < 3) return null
+      if (!hasTrendHistory) return null
 
       const falling = (data?.history?.skills || [])
         .filter((item) => item.trend_label === 'declining' && item.latest_score != null)
@@ -326,7 +352,7 @@ export default function AnalyticsDashboard() {
       cta: 'Start another session',
       to: '/multimodal-analysis',
     }
-  }, [data, scoresShown, isAllSessions, sessionCount])
+  }, [data, scoresShown, isAllSessions, hasTrendHistory])
 
   // A gap needs a measurement to compare against, not just a self-rating.
   const hasObserved = useMemo(() => scoresShown.some((s) => s.value !== null), [scoresShown])
@@ -470,7 +496,9 @@ export default function AnalyticsDashboard() {
     load(cid, sessionId)
   }, [cid, isAuthLoading, isAuthenticated, sessionId, sessReady])
 
-  const preds = Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : []
+  // A forecast from a single point is the current score with a guess attached.
+  const preds = (Array.isArray(data?.predictions?.predictions) ? data.predictions.predictions : [])
+    .filter((p) => (p.evidence_points ?? 0) >= MIN_TREND_SESSIONS)
   const gaps = Array.isArray(data?.blindSpots?.blind_spots) ? data.blindSpots.blind_spots : []
   const trends = Array.isArray(data?.trends?.trends) ? data.trends.trends : []
   const overallHistory = data?.history?.overall || null
@@ -589,10 +617,10 @@ export default function AnalyticsDashboard() {
           </div>
         )}
 
-        {/* Below three sessions the panels would be empty boxes and a two-point
-            trend line, so the page explains itself instead. */}
+        {/* Before the first session every panel would be an empty box, so the
+            page explains itself instead. */}
         {showGettingStarted ? (
-          <GettingStarted sessionCount={sessionCount} onStart={() => navigate('/multimodal-analysis')} />
+          <GettingStarted onStart={() => navigate('/multimodal-analysis')} />
         ) : (
         <>
 
@@ -819,7 +847,7 @@ export default function AnalyticsDashboard() {
                           <p className="text-2xl font-bold text-warning">{fmtScore(selfVal)}</p>
                         </div>
                         <div className="flex-1 rounded-lg p-3 text-center border border-border bg-background/50">
-                          <p className="text-[10px] text-muted-foreground uppercase mb-1">AI Observed</p>
+                          <p className="text-[10px] text-muted-foreground uppercase mb-1">System Observed</p>
                           <p className="text-2xl font-bold text-info">{fmtScore(b.comparison_score)}</p>
                         </div>
                       </div>
@@ -839,9 +867,13 @@ export default function AnalyticsDashboard() {
               <MoreLink to="/analytics-progress-trends" onOpen={(path) => navigate(path)} />
             </div>
           <p className="text-xs text-muted-foreground mb-4">Every session, oldest first. Up is better.</p>
-          <div className="min-h-[280px]">
-            <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
-          </div>
+          {hasTrendHistory ? (
+            <div className="min-h-[280px]">
+              <ProgressTrendVisualization trends={trends} labelFor={labelFor} />
+            </div>
+          ) : (
+            <NeedsMoreSessions sessionCount={trendSessionCount} />
+          )}
         </div>
 
         {/* Predictions */}
@@ -851,7 +883,9 @@ export default function AnalyticsDashboard() {
               <MoreLink to="/analytics-predictions" onOpen={(path) => navigate(path)} />
             </div>
           <p className="text-xs text-muted-foreground mb-4">Where each skill lands if nothing changes.</p>
-          {preds.length === 0 ? (
+          {!hasTrendHistory ? (
+            <NeedsMoreSessions sessionCount={trendSessionCount} />
+          ) : preds.length === 0 ? (
             <div className="text-center py-8">
               <span className="text-4xl block mb-2">🤖</span>
               <p className="text-muted-foreground text-sm">Complete more sessions to get predictions</p>
