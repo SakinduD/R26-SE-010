@@ -285,7 +285,9 @@ def session_respond(
         emotion: str = "frustrated" if is_profane else result["detected_emotion"]
 
         # 4. Trust / escalation update
-        new_trust = rpe_emotion_service.update_trust(current_trust, emotion, payload.user_input)
+        new_trust = rpe_emotion_service.update_trust(
+            current_trust, emotion, payload.user_input, user_behavior=user_behavior
+        )
         new_esc   = rpe_emotion_service.update_escalation(current_esc, emotion)
 
         # Advisory-only ML escalation read — never feeds into new_trust/new_esc

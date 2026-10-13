@@ -249,10 +249,6 @@ class RpeSessionService:
         different case — abusive language, not a hard conversation — and
         still ends the session immediately.
         """
-        # Immediate NPC exit on repeated profanity
-        if profanity_count >= 3:
-            return True, "npc_exit"
-
         if current_turn >= max_turns:
             return True, "max_turns_reached"
 

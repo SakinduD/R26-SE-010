@@ -650,16 +650,12 @@ Do not include any text outside the JSON object."""
     ) -> tuple[bool, str]:
         """
         Asks the LLM to judge if the conversation has reached a natural
-        conclusion based on the full context.
+        conclusion based on the full context (only after at least 4 turns).
 
         Returns (should_end, reason) where reason is one of:
           "natural_resolution"  - conversation reached a clear conclusion
-          "user_exit_intent"    - user signalled they want to end
           "conversation_active" - conversation should continue
         """
-        if _matches_exit_phrase(user_input):
-            return True, "user_exit_intent"
-
         if len(session_turns) < 4:
             return False, "conversation_active"
 

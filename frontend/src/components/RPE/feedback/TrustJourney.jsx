@@ -54,17 +54,20 @@ export default function TrustJourney({
   const trackRef = useRef(null)
 
   const { points, width, height, padX, padY, plotH, gridLines } = useMemo(() => {
-    const gap    = 96
-    const padX   = 50
-    const padY   = 28
-    const plotH  = 130
-    const height = plotH + padY * 2
-    const width  = padX * 2 + gap * Math.max(0, trustCurve.length - 1)
+    const gap      = 96
+    const padX     = 50
+    const padY     = 28
+    const plotH    = 130
+    const height   = plotH + padY * 2
+    const minWidth = 820
+    const rawWidth = padX * 2 + gap * Math.max(0, trustCurve.length - 1)
+    const width    = Math.max(minWidth, rawWidth)
+    const stepX    = trustCurve.length > 1 ? (width - padX * 2) / (trustCurve.length - 1) : 0
     const valueToY = (v) => padY + plotH - (Math.max(0, Math.min(100, v)) / 100) * plotH
 
     const points = trustCurve.map((pt, i) => ({
       ...pt,
-      x: padX + i * gap,
+      x: trustCurve.length === 1 ? width / 2 : padX + i * stepX,
       y: valueToY(pt.value),
     }))
 
@@ -198,7 +201,7 @@ export default function TrustJourney({
       <style>{`
         .tj-wrap{ display:flex; flex-direction:column; gap:4px; }
         .tj-scroll{ width:100%; overflow-x:auto; padding:6px 2px 4px; }
-        .tj-svg{ display:block; min-width:100%; overflow:visible; }
+        .tj-svg{ display:block; width:100%; height:auto; overflow:visible; }
         .tj-grid{ stroke:var(--border); stroke-width:1; stroke-dasharray:3 4; opacity:.6; }
         .tj-grid-label{ font-size:8.5px; fill:var(--text-low); }
         .tj-line{ stroke:var(--accent); }

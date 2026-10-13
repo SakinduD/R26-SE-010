@@ -59,7 +59,7 @@ function getCrumbs(pathname) {
 export default function Topbar() {
   const { pathname } = useLocation();
   const { user } = useAuth();
-  const { activeSession } = useActiveSession();
+  const { feedbackHeaderMeta } = useActiveSession();
   const parts = getCrumbs(pathname);
   const initial = (user?.display_name || user?.email || 'U').charAt(0).toUpperCase();
 
@@ -75,13 +75,13 @@ export default function Topbar() {
           </React.Fragment>
         ))}
 
-        {isFeedbackPage && activeSession?.scenarioTitle && (
+        {isFeedbackPage && feedbackHeaderMeta?.scenarioTitle && (
           <>
             <span className="crumb-sep">·</span>
             <span className="crumb-scenario" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
-              {activeSession.scenarioTitle}
+              {feedbackHeaderMeta.scenarioTitle}
             </span>
-            {activeSession?.difficulty && (
+            {feedbackHeaderMeta?.difficulty && (
               <span
                 style={{
                   fontSize: '11px',
@@ -94,10 +94,10 @@ export default function Topbar() {
                   textTransform: 'capitalize'
                 }}
               >
-                {activeSession.difficulty}
+                {feedbackHeaderMeta.difficulty}
               </span>
             )}
-            {activeSession?.badgeLabel && (
+            {feedbackHeaderMeta?.badgeLabel && (
               <span
                 style={{
                   fontSize: '11px',
@@ -109,7 +109,7 @@ export default function Topbar() {
                   border: '1px solid rgba(255, 255, 255, 0.1)'
                 }}
               >
-                {activeSession.badgeLabel}
+                {feedbackHeaderMeta.badgeLabel}
               </span>
             )}
           </>

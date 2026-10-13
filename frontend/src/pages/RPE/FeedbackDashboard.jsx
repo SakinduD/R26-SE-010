@@ -234,7 +234,7 @@ export default function FeedbackDashboard() {
   const [direction,    setDirection]    = useState(1)
   const prefersReduced = useReducedMotion()
 
-  const { setSessionData: setActiveSessionData } = useActiveSession()
+  const { setFeedbackMeta, clearFeedbackMeta, clearSession } = useActiveSession()
 
   const load = useCallback(async () => {
     if (!sessionId) { navigate('/roleplay'); return }
@@ -252,8 +252,11 @@ export default function FeedbackDashboard() {
       setFeedbackData(feedback)
       setSessionData(session)
 
+      // Ensure no ongoing session widget stays visible once viewing feedback
+      clearSession()
+
       const b = outcomeBadge(feedback.end_reason, feedback.outcome)
-      setActiveSessionData({
+      setFeedbackMeta({
         sessionId,
         scenarioTitle: feedback.scenario_title,
         difficulty: feedback.difficulty,
@@ -265,9 +268,12 @@ export default function FeedbackDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId, setActiveSessionData])
+  }, [sessionId, setFeedbackMeta, clearSession, navigate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    return () => clearFeedbackMeta()
+  }, [load, clearFeedbackMeta])
 
   // Joins viz_payload.trust_curve (index 0 = "Start", index N = turn N) with
   // the raw session's turns[] (real transcript text) and turn_metrics (real
