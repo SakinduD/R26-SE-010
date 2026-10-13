@@ -1,11 +1,25 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Play, X, User } from 'lucide-react'
 import { useActiveSession } from '@/context/ActiveSessionContext'
+import { rpeService } from '@/services/rpe/rpeService'
 
 export default function FloatingSessionWidget() {
   const { activeSession, dismissSession } = useActiveSession()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!activeSession?.sessionId) return
+    let cancelled = false
+    rpeService.getSessionSummary(activeSession.sessionId)
+      .then((s) => {
+        if (!cancelled && s?.ended_at) {
+          dismissSession()
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [activeSession?.sessionId, dismissSession])
 
   if (!activeSession) return null
 

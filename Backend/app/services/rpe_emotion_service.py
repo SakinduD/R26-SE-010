@@ -36,36 +36,56 @@ class RpeEmotionService:
 
     # emotion -> trust delta. Higher = the user is building trust with the NPC.
     _TRUST_DELTAS: dict[str, int] = {
-        "happy":      2,
-        "neutral":    0,
-        "thinking":   0,
-        "surprised": -1,
-        "sad":       -1,
-        "skeptical": -2,
+        "happy":       6,
+        "neutral":     3,
+        "thinking":    2,
+        "surprised":   2,
+        "sad":        -1,
+        "skeptical":  -2,
         "frustrated": -3,
-        "angry":      -4,
+        "angry":      -5,
+    }
+
+    # Constructive user behaviors classified by the LLM earn extra trust
+    _BEHAVIOR_TRUST_BONUS: dict[str, int] = {
+        "proposal":            3,
+        "de_escalation":       3,
+        "acknowledgment":      2,
+        "assertive_statement": 2,
+        "clarifying_question": 1,
+        "concession":          1,
+        "deflection":         -2,
+        "escalation":         -3,
     }
 
     # emotion -> escalation delta. Negative = de-escalating, positive = tension rising.
     _ESCALATION_DELTAS: dict[str, int] = {
         "neutral":   -1,
         "happy":     -2,
-        "thinking":   0,
-        "surprised":  1,
+        "thinking":  -1,
+        "surprised":  0,
         "sad":        1,
-        "skeptical":  2,
-        "frustrated": 3,
-        "angry":      4,
+        "skeptical":  1,
+        "frustrated": 2,
+        "angry":      3,
     }
 
     def update_trust(
-        self, current_score: int, emotion: str, user_input: str = ""
+        self,
+        current_score: int,
+        emotion: str,
+        user_input: str = "",
+        user_behavior: str | None = None,
     ) -> int:
         # Profanity always penalises trust regardless of the emotion label
         if user_input and self._is_profanity(user_input.lower()):
-            return max(0, min(100, current_score - 2))
+            return max(0, min(100, current_score - 5))
 
-        return max(0, min(100, current_score + self._TRUST_DELTAS.get(emotion, 0)))
+        delta = self._TRUST_DELTAS.get(emotion, 0)
+        if user_behavior:
+            delta += self._BEHAVIOR_TRUST_BONUS.get(user_behavior, 0)
+
+        return max(0, min(100, current_score + delta))
 
     def update_escalation(self, current_level: int, emotion: str) -> int:
         return max(0, min(5, current_level + self._ESCALATION_DELTAS.get(emotion, 0)))
