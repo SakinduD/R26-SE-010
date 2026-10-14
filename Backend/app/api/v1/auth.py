@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.config import get_settings
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_admin_client, get_supabase_client
 from app.models.user import User
@@ -180,8 +181,11 @@ def signout(
 @router.post("/password-reset", status_code=status.HTTP_200_OK)
 def password_reset(body: PasswordResetRequest) -> dict[str, str]:
     """Send a password-reset email. Always returns 200 to avoid email enumeration."""
+    redirect_to = f"{get_settings().frontend_url.rstrip('/')}/auth-callback"
     try:
-        get_supabase_client().auth.reset_password_email(body.email)
+        get_supabase_client().auth.reset_password_email(
+            body.email, {"redirect_to": redirect_to}
+        )
     except Exception as exc:
         # Log but don't reveal whether the email exists
         logger.warning("Password reset request error (suppressed): %s", exc)

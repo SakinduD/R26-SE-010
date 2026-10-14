@@ -770,6 +770,26 @@ const LiveSensingSession = () => {
     }
   };
 
+  const goToFeedback = (sid) => {
+    toast.success("Live session ended and data saved.");
+
+    // Send the session to analytics (fire-and-forget).
+    integrateCompletedSession(analyticsService, sid);
+
+    navigate(`/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`);
+  };
+
+  // Polls until the server has finished ending the session (status leaves
+  // 'active'). Returns the saved session, or null after ~5 minutes.
+  const waitForSessionSaved = async (sid) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const session = await mcaService.getSession(sid).catch(() => null);
+      if (session && session.status !== 'active') return session;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    return null;
+  };
+
   const realEndLiveSession = async () => {
     const sid = liveSessionIdRef.current;
     if (isLiveEnding) return;
@@ -794,30 +814,32 @@ const LiveSensingSession = () => {
           });
         }
 
-        const res = await mcaService.endSession(
-          sid,
-          liveNudgeLogRef.current,
-          {
-            total_nudges: liveNudgeLogRef.current.length,
-            final_emotion: metrics.emotion
-          },
-          null,
-          distribution,
-          getVisualAverages(),
-          liveUserTranscriptRef.current,
-          liveMeetingTranscriptRef.current,
-          liveEmotionTimelineRef.current,
-          liveBehaviorLogRef.current,
-          liveObservationLogRef.current
-        );
+        let res;
+        try {
+          res = await mcaService.endSession(
+            sid,
+            liveNudgeLogRef.current,
+            {
+              total_nudges: liveNudgeLogRef.current.length,
+              final_emotion: metrics.emotion
+            },
+            null,
+            distribution,
+            getVisualAverages(),
+            liveUserTranscriptRef.current,
+            liveMeetingTranscriptRef.current,
+            liveEmotionTimelineRef.current,
+            liveBehaviorLogRef.current,
+            liveObservationLogRef.current
+          );
+        } catch (err) {
+          // The connection can drop (e.g. a proxy timeout) while the server
+          // is still scoring; wait for it to finish saving instead.
+          res = await waitForSessionSaved(sid);
+          if (!res) throw err;
+        }
         if (res.id && res.status === 'completed') {
-          toast.success("Live session ended and data saved.");
-
-          // Send the session to analytics (fire-and-forget).
-          integrateCompletedSession(analyticsService, sid);
-
-          const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
-          navigate(redirectUrl);
+          goToFeedback(sid);
         } else if (res.status === 'no_speech') {
           // Saved, but nothing was measured — no feedback form, no analytics.
           toast.error("We didn't detect your voice.", {
@@ -861,6 +883,35 @@ const LiveSensingSession = () => {
 
   return (
     <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">
+      {/* Shown while the session is saved and scored, until the feedback page opens. */}
+      {isLiveEnding && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-300"
+          // bg-background/90 isn't generated: the token is a plain CSS var, so mix the alpha here.
+          style={{ background: 'color-mix(in oklch, var(--background) 92%, transparent)' }}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-full max-w-md flex flex-col items-center gap-6 px-8 py-10 bg-surface border border-border-default rounded-2xl shadow-2xl text-center">
+            <div
+              className="w-14 h-14 border-4 rounded-full animate-spin"
+              style={{
+                borderColor: 'color-mix(in oklch, var(--primary) 20%, transparent)',
+                borderTopColor: 'var(--primary)',
+              }}
+            />
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold text-t-primary">Analyzing your session</h2>
+              <p className="text-sm leading-relaxed text-t-secondary">
+                We're scoring your voice, expressions and conversation. This usually takes under a minute.
+              </p>
+            </div>
+            <p className="text-xs font-medium text-t-secondary">
+              Please keep this tab open. Your feedback will open automatically.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
         {nudges.map((nudge, index) => (
           <div
