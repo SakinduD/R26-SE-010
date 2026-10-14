@@ -53,7 +53,7 @@ class TestChatPositive:
         api(user, "post", "/mca/chat/", json={"message": "two", "session_id": sid})
 
         ended = api(user, "post", f"/mca/sessions/{sid}/end", json={}).json()
-        assert ended["status"] == "completed"
+        assert ended["status"] == "no_speech"  # ended; no audio was analysed, so nothing to score
         assert ended["chat_turns"] == 2  # counted server-side, not sent by the client
 
 

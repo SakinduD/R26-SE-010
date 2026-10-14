@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
-import { mcaService } from '../../services/mca/mcaService';
+import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { toMechanicalAverages, toObservation } from '../../utils/mca/realtimeSensing';
 import clsx from 'clsx';
 
@@ -276,6 +276,12 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           // Redirect to self-rating feedback form (same as live session)
           const redirectUrl = `/analytics/sessions/${sessionId}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           navigate(redirectUrl);
+        } else if (res.status === 'no_speech') {
+          // Saved, but nothing was measured — not used as a baseline, no feedback form.
+          toast.error("We didn't detect your voice.", {
+            description: NO_SPEECH_HINT,
+            duration: 8000,
+          });
         } else {
           toast.error("Session ended but data persistence may be incomplete.");
         }

@@ -5,7 +5,7 @@ import Webcam from 'react-webcam';
 import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
 import { useNudgeSensing } from '../../hooks/useNudgeSensing';
 import { toObservation } from '../../utils/mca/realtimeSensing';
-import { mcaService } from '../../services/mca/mcaService';
+import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
 import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
@@ -818,6 +818,12 @@ const LiveSensingSession = () => {
 
           const redirectUrl = `/analytics/sessions/${sid}/feedback?friendlyId=${encodeURIComponent(friendlyId)}`;
           navigate(redirectUrl);
+        } else if (res.status === 'no_speech') {
+          // Saved, but nothing was measured — no feedback form, no analytics.
+          toast.error("We didn't detect your voice.", {
+            description: NO_SPEECH_HINT,
+            duration: 8000,
+          });
         } else {
           toast.error("Session closed but data persistence may be incomplete.");
         }

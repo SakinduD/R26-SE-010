@@ -218,6 +218,9 @@ class TestEndSessionNegative:
         assert data["overall_score"] == 50
         assert data["dominant_emotion"] is None
         assert data["nudge_summary"] == {"Critical": 0, "Warning": 0, "Info": 0}
+        # ...and it is not "completed", so it never reaches feedback or analytics.
+        assert data["status"] == "no_speech"
+        assert data["ended_at"] is not None
 
 
 # Discard

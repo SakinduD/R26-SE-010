@@ -172,4 +172,5 @@ class TestPedagogyReadsMcaBaseline:
 
     def test_session_that_observed_nothing_is_rejected(self, api, learner, finish_mca_session):
         session = finish_mca_session(learner, [])  # nothing observed: every skill is 50
-        assert api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]}).status_code == 422
+        assert session["status"] == "no_speech"   # ended, but never "completed"
+        assert api(learner, "post", _BASELINE, json={"mca_session_id": session["id"]}).status_code == 400
