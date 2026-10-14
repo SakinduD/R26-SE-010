@@ -38,11 +38,13 @@ authClient.interceptors.response.use(
   async (error) => {
     const original = error.config;
 
-    // Do not intercept 401s on the signin or signup endpoints themselves!
-    // Otherwise, a wrong password causes a forced page reload to /signin, erasing the error message.
+    // Do not intercept 401s on the signin, signup or password-update endpoints themselves!
+    // Otherwise, a wrong password (or expired reset link) causes a forced page reload to
+    // /signin, erasing the error message.
     if (
       original.url?.includes('/signin') ||
-      original.url?.includes('/signup')
+      original.url?.includes('/signup') ||
+      original.url?.includes('/password-update')
     ) {
       return Promise.reject(error);
     }

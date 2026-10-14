@@ -23,6 +23,13 @@ export const refreshToken = (refreshToken) =>
 export const requestPasswordReset = (email) =>
   authClient.post(`${BASE}/password-reset`, { email }).then((r) => r.data);
 
+/**
+ * Set a new password using the recovery access token from the reset-email link.
+ * @param {{ access_token: string, password: string }} data
+ */
+export const updatePassword = (data) =>
+  authClient.post(`${BASE}/password-update`, data).then((r) => r.data);
+
 export const getCurrentUser = () =>
   authClient.get(`${BASE}/me`).then((r) => r.data);
 

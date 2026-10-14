@@ -16,6 +16,7 @@ import Landing from './pages/Landing'
 import SignUp from './pages/auth/SignUp'
 import SignIn from './pages/auth/SignIn'
 import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
 import AuthCallback from './pages/auth/AuthCallback'
 
@@ -84,6 +85,7 @@ export default function App() {
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/verify-email" element={<VerifyEmail />} />
               </Route>
 

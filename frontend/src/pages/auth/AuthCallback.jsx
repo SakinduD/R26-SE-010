@@ -5,13 +5,25 @@ import { toast } from 'sonner';
 
 /**
  * Landing page for Supabase email links (confirmation, password reset, magic link).
- * Supabase appends type + token_hash as query params — parse and redirect.
+ * Supabase appends type + tokens either as query params or in the URL hash
+ * (#access_token=...&type=recovery) — read both, then redirect.
  */
 export default function AuthCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    hashParams.forEach((value, key) => params.set(key, value));
+
+    // Expired / already-used links come back as #error=...&error_description=...
+    const error = params.get('error_description') || params.get('error');
+    if (error) {
+      toast.error(error.replace(/\+/g, ' '));
+      navigate('/signin', { replace: true });
+      return;
+    }
+
     const type = params.get('type');
 
     switch (type) {
@@ -21,8 +33,12 @@ export default function AuthCallback() {
         navigate('/verify-email', { replace: true });
         break;
       case 'recovery':
-        // Password reset — redirect to a new-password page when built
-        navigate('/signin', { replace: true });
+        // Hand the recovery token to the reset page via router state so it never
+        // lingers in the address bar or browser history.
+        navigate('/reset-password', {
+          replace: true,
+          state: { accessToken: params.get('access_token') },
+        });
         break;
       default:
         navigate('/signin', { replace: true });
