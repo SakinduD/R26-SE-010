@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.config import get_settings
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, verify_jwt
 from app.core.supabase_client import get_supabase_admin_client, get_supabase_client
 from app.models.user import User
 from app.schemas.auth import (
     AuthResponse,
     PasswordResetRequest,
+    PasswordUpdateRequest,
     RefreshTokenRequest,
     SignInRequest,
     SignUpRequest,
@@ -190,6 +191,23 @@ def password_reset(body: PasswordResetRequest) -> dict[str, str]:
         # Log but don't reveal whether the email exists
         logger.warning("Password reset request error (suppressed): %s", exc)
     return {"message": "If that email is registered, a password-reset link has been sent."}
+
+
+@router.post("/password-update", status_code=status.HTTP_200_OK)
+def password_update(body: PasswordUpdateRequest) -> dict[str, str]:
+    """Set a new password using the access token from a password-reset email link."""
+    payload = verify_jwt(body.access_token)
+    try:
+        get_supabase_admin_client().auth.admin.update_user_by_id(
+            payload.sub, {"password": body.password}
+        )
+    except Exception as exc:
+        logger.warning("Password update failed for %s: %s", payload.sub, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=getattr(exc, "message", None) or "Could not update password",
+        )
+    return {"message": "Password updated. You can now sign in."}
 
 
 @router.get("/me", status_code=status.HTTP_200_OK, response_model=UserResponse)
