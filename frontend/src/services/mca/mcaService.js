@@ -102,7 +102,9 @@ export const mcaService = {
         ...(behaviorLog && behaviorLog.length ? { behavior_log: behaviorLog } : {}),
         ...(observationLog && observationLog.length ? { observation_log: observationLog } : {}),
       };
-      const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body);
+      // Live sessions are scored by an LLM before this returns, which can take
+      // a while, so don't apply the client's default timeout.
+      const response = await authClient.post(`${BASE}/sessions/${sessionId}/end`, body, { timeout: 0 });
       return response.data;
     } catch (error) {
       throw new Error(handleApiError(error, 'endSession'));

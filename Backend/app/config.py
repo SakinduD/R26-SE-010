@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     supabase_anon_key: str
     supabase_service_role_key: str
     supabase_jwt_secret: str = ""
+    # Public frontend origin — used as the redirect target in Supabase auth
+    # emails (password reset). Must also be in Supabase's Redirect URLs allow-list.
+    frontend_url: str = "http://localhost:5173"
 
     # APM — Adaptive Pedagogical Module integration
     rpe_base_url: str = "http://localhost:8000"
