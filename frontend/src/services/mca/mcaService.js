@@ -3,6 +3,10 @@ import { getTokens } from '../../lib/auth/storage';
 
 const BASE = '/api/v1/mca';
 
+// Shown when a session ends with status "no_speech" (nothing was measured).
+export const NO_SPEECH_HINT =
+  'Nothing was measured, so this session won\'t be scored. Check your microphone is on and selected in the browser, then try again and speak for at least a couple of minutes.';
+
 /**
  * Helper to extract descriptive error messages from backend responses.
  */

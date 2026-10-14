@@ -20,9 +20,13 @@ from app.core.auth import get_current_user
 from app.models.session_result import SessionResult
 from app.models.user import User
 from app.api.v1.mca.scoring import calculate_session_metrics
+from app.services import mca_session_quality_service
 from app.services.mca_live_scorer import mca_live_scorer
 
 router = APIRouter()
+
+# Ended normally but nothing was measured - usually the mic picked up no speech.
+NO_SPEECH_STATUS = "no_speech"
 
 def generate_friendly_id(mode: str) -> str:
     """Generate a human-readable session ID: MCA-MODE-YYYYMMDD-XXXX"""
@@ -256,6 +260,12 @@ def end_session(
 
     if body.chat_turns is not None:
         session.chat_turns = body.chat_turns
+
+    # Nothing was measured (no speech, nudges or emotion; every skill on the
+    # neutral default), so there is no result to record. A non-"completed"
+    # status keeps it out of the feedback form, analytics and the baseline.
+    if mca_session_quality_service.is_unscored(session):
+        session.status = NO_SPEECH_STATUS
 
     try:
         db.commit()
