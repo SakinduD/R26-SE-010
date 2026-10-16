@@ -358,8 +358,8 @@ const MODERN_SESSION_COMPLETE_STYLES = `
   .rpe-cinema {
     position: relative;
     min-height: calc(100vh - 48px);
-    background: #090C13;
-    color: #F1F5F9;
+    background: var(--bg);
+    color: var(--text-hi);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, sans-serif;
     -webkit-font-smoothing: antialiased;
     display: flex;
@@ -386,6 +386,10 @@ const MODERN_SESSION_COMPLETE_STYLES = `
     transform: scale(1.03);
     opacity: 0.88;
   }
+  :root[data-theme="light"] .sc-bg-photo {
+    filter: blur(3px) brightness(1.05) saturate(0.85);
+    opacity: 0.22;
+  }
 
   /* Deep cinematic darkening & vignette overlay */
   .sc-bg-overlay {
@@ -394,6 +398,9 @@ const MODERN_SESSION_COMPLETE_STYLES = `
     background: radial-gradient(circle at 50% 42%, rgba(8, 10, 16, 0.45) 0%, rgba(4, 5, 10, 0.82) 100%);
     z-index: 1;
     pointer-events: none;
+  }
+  :root[data-theme="light"] .sc-bg-overlay {
+    background: radial-gradient(circle at 50% 30%, rgba(248, 250, 252, 0.82) 0%, rgba(241, 245, 249, 0.95) 100%);
   }
 
   /* Ambient Subtle Lighting */
@@ -405,6 +412,11 @@ const MODERN_SESSION_COMPLETE_STYLES = `
       radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.04) 0%, transparent 60%),
       radial-gradient(circle at 85% 80%, rgba(20, 26, 40, 0.20) 0%, transparent 50%);
     z-index: 2;
+  }
+  :root[data-theme="light"] .sc-bg-ambient {
+    background:
+      radial-gradient(circle at 50% 10%, rgba(124, 58, 237, 0.04) 0%, transparent 60%),
+      radial-gradient(circle at 85% 85%, rgba(124, 58, 237, 0.03) 0%, transparent 50%);
   }
 
   .sc-page {
@@ -418,20 +430,81 @@ const MODERN_SESSION_COMPLETE_STYLES = `
   /* Main Glass Terminal */
   .sc-hero-card {
     position: relative;
-    background: rgba(15, 20, 32, 0.82);
+    background: var(--surface);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-top: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid var(--border);
     border-radius: 26px;
     padding: 34px 34px 30px;
-    box-shadow:
-      0 32px 80px -16px rgba(0, 0, 0, 0.85),
-      0 0 50px -12px rgba(124, 58, 237, 0.16);
+    box-shadow: var(--card-shadow, 0 32px 80px -16px rgba(0, 0, 0, 0.85));
     display: flex;
     flex-direction: column;
     gap: 24px;
     transition: border-color .3s ease;
+  }
+  :root[data-theme="light"] .sc-hero-card {
+    background: #FFFFFF;
+    border-color: #E2E8F0;
+    box-shadow: 0 20px 45px -15px rgba(0, 0, 0, 0.08);
+  }
+  :root[data-theme="light"] .sc-scenario-pill {
+    background: #F1F5F9;
+    border-color: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-scenario-title {
+    color: #334155;
+  }
+  :root[data-theme="light"] .sc-gauge-track {
+    stroke: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-gauge-num {
+    color: #0F172A;
+  }
+  :root[data-theme="light"] .sc-gauge-unit {
+    color: #64748B;
+  }
+  :root[data-theme="light"] .sc-hero-headline {
+    color: #0F172A;
+  }
+  :root[data-theme="light"] .sc-explanation-box {
+    background: #F8FAFC;
+    border-color: #E2E8F0;
+    border-left: 3px solid #7C3AED;
+  }
+  :root[data-theme="light"] .sc-explanation-text {
+    color: #334155;
+  }
+  :root[data-theme="light"] .sc-pill-label {
+    color: #64748B;
+  }
+  :root[data-theme="light"] .sc-pill-val {
+    color: #0F172A;
+  }
+  :root[data-theme="light"] .sc-pill-divider {
+    background: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-stat-card {
+    background: #F8FAFC;
+    border-color: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-card-number {
+    color: #0F172A;
+  }
+  :root[data-theme="light"] .sc-card-label {
+    color: #64748B;
+  }
+  :root[data-theme="light"] .sc-card-sub {
+    color: #64748B;
+  }
+  :root[data-theme="light"] .sc-progress-track {
+    background: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-final-quote {
+    background: #F8FAFC;
+    border-color: #E2E8F0;
+  }
+  :root[data-theme="light"] .sc-quote-body {
+    color: #1E293B;
   }
   .sc-hero-card.success {
     box-shadow:

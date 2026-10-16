@@ -26,10 +26,10 @@ export default function FeedbackProgress({ steps, activeIndex }) {
 
       <style>{`
         .fp-wrap{
-          background: rgba(10, 14, 23, 0.72);
+          background: var(--header-backdrop);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+          border-bottom: 1px solid var(--border);
           padding: 8px 24px;
         }
         .fp-steps{ max-width:1200px; margin:0 auto; list-style:none; padding:0; display:flex; align-items:center; }

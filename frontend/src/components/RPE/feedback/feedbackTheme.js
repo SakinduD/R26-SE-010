@@ -31,6 +31,7 @@ export const FEEDBACK_THEME_VARS = `
     --text-low:      #64748B;
     --quote-text:    #E2E8F0;
     --header-backdrop: rgba(10, 14, 23, 0.82);
+    --card-shadow:   0 16px 40px -12px rgba(0, 0, 0, 0.5);
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }
   :root[data-theme="light"] .rpe-cinema{
@@ -47,10 +48,11 @@ export const FEEDBACK_THEME_VARS = `
     --danger:        #DC2626;
     --danger-glow:   rgba(220, 38, 38, 0.12);
     --text-hi:       #0F172A;
-    --text-med:      #475569;
+    --text-med:      #334155;
     --text-low:      #64748B;
     --quote-text:    #1E293B;
-    --header-backdrop: rgba(255, 255, 255, 0.88);
+    --header-backdrop: rgba(255, 255, 255, 0.94);
+    --card-shadow:   0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
   }
 `
 
@@ -103,6 +105,17 @@ export const FEEDBACK_COMPONENT_STYLES = `
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.2);
     transform: translateY(-1px);
+  }
+  :root[data-theme="light"] .rpe-cinema .btn-c.secondary{
+    background: #FFFFFF;
+    border-color: #CBD5E1;
+    color: #0F172A;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  }
+  :root[data-theme="light"] .rpe-cinema .btn-c.secondary:hover{
+    background: #F8FAFC;
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .rpe-cinema .btn-c.secondary:disabled{ opacity: .35; cursor: default; transform: none; }
   .rpe-cinema .btn-c.ghost{ background: transparent; color: var(--text-med); }
