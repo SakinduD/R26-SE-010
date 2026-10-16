@@ -3,7 +3,6 @@ import { toast } from 'sonner';
 import { Navigate, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
-import * as cam from '@mediapipe/camera_utils';
 import { drawFaceMesh } from '@/utils/mca/drawFaceMesh';
 import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
@@ -11,6 +10,7 @@ import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, u
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
 import { hasCaptureConsent } from '@/components/MCA/CaptureConsent';
+import CameraErrorDialog from '@/components/MCA/CameraErrorDialog';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -53,7 +53,6 @@ export default function Baseline() {
   });
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
-  const cameraRef = useRef(null);
   // Face metrics averaged per audio chunk and per session (read by AIChatbot).
   const visualStatsRef = useRef({ chunk: createVisualAccumulator(), session: createVisualAccumulator() });
   const eyeClosureRef = useRef(createEyeClosureFilter());
@@ -176,8 +175,12 @@ export default function Baseline() {
     canvasCtx.restore();
   }, []);
 
+  // Frames are read from react-webcam's <video>, so the camera is opened only
+  // once (MediaPipe's Camera helper would open it a second time at 1280x720).
   useEffect(() => {
     let faceMeshModel = null;
+    let rafId = null;
+    let stopped = false;
 
     if (isCameraActive) {
       const FaceMeshCtor = faceMesh.FaceMesh || window.FaceMesh || faceMesh.default?.FaceMesh || faceMesh.default;
@@ -197,31 +200,25 @@ export default function Baseline() {
 
       faceMeshModel.onResults(onResults);
 
-      if (webcamRef.current && webcamRef.current.video) {
-        const CameraCtor = cam.Camera || window.Camera || cam.default?.Camera || cam.default;
-        cameraRef.current = new CameraCtor(webcamRef.current.video, {
-          onFrame: async () => {
-            // A rejected send stops MediaPipe's camera loop, so never let one escape.
-            if (faceMeshModel && webcamRef.current?.video) {
-              try {
-                await faceMeshModel.send({ image: webcamRef.current.video });
-              } catch (err) {
-                console.warn('[Baseline] frame skipped:', err);
-              }
-            }
-          },
-          width: 1280,
-          height: 720,
-        });
-        cameraRef.current.start();
-      }
+      const loop = async () => {
+        if (stopped) return;
+        const video = webcamRef.current?.video;
+        // readyState >= 2: the stream is live and has a decodable frame.
+        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+          try {
+            await faceMeshModel.send({ image: video });
+          } catch (err) {
+            console.warn('[Baseline] frame skipped:', err);
+          }
+        }
+        if (!stopped) rafId = requestAnimationFrame(loop);
+      };
+      rafId = requestAnimationFrame(loop);
     }
 
     return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-        cameraRef.current = null;
-      }
+      stopped = true;
+      if (rafId) cancelAnimationFrame(rafId);
       if (faceMeshModel) {
         faceMeshModel.close();
       }
@@ -232,6 +229,30 @@ export default function Baseline() {
     setIsCameraActive(prev => !prev);
   };
 
+  // After a failed open, ask for the camera with no size/aspect constraints.
+  // A camera another app (e.g. Teams) is already streaming can usually only be
+  // shared at the format that app picked, so a specific request fails.
+  const [relaxCameraConstraints, setRelaxCameraConstraints] = useState(false);
+  // { kind, name } after a failed start, for CameraErrorDialog.
+  const [cameraError, setCameraError] = useState(null);
+
+  // Passed to <Webcam onUserMediaError>. Retries once unconstrained, then gives up.
+  const onCameraError = useCallback((err) => {
+    const name = err?.name;
+    const retryable = name === 'NotReadableError' || name === 'OverconstrainedError' || name === 'AbortError' || name === 'TrackStartError';
+    if (retryable && !relaxCameraConstraints) {
+      setRelaxCameraConstraints(true);
+      return;
+    }
+    console.warn('[Baseline] camera unavailable:', err);
+    setIsCameraActive(false);
+    setRelaxCameraConstraints(false);
+    const kind = name === 'NotAllowedError' || name === 'SecurityError' ? 'blocked'
+      : retryable ? 'in_use'
+      : 'unknown';
+    setCameraError({ kind, name });
+  }, [relaxCameraConstraints]);
+
   if (authLoading) return null;
 
   // No sensing without consent — send direct visits to the consent screen first.
@@ -239,6 +260,11 @@ export default function Baseline() {
 
   return (
     <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">
+      <CameraErrorDialog
+        error={cameraError}
+        onClose={() => setCameraError(null)}
+        onRetry={() => { setCameraError(null); if (!isCameraActive) toggleCamera(); }}
+      />
       {/* Global Nudge Stack (Floating - Page Top Right) */}
       <div className="absolute top-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none items-end">
         {nudges.map((nudge, index) => (
@@ -347,10 +373,11 @@ export default function Baseline() {
                       ref={webcamRef}
                       screenshotFormat="image/jpeg"
                       className="hidden"
-                      videoConstraints={{
+                      videoConstraints={relaxCameraConstraints ? {} : {
                         facingMode: "user",
                         aspectRatio: 1.777777778
                       }}
+                      onUserMediaError={onCameraError}
                     />
                     <canvas
                       ref={canvasRef}
