@@ -10,7 +10,7 @@ import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
 import { analyticsService } from '../../services/analytics/analyticsService';
 import { integrateCompletedSession } from '../Analytics/analyticsIntegrationUtils';
-import CaptureConsent, { hasCaptureConsent, saveCaptureConsent } from '../../components/MCA/CaptureConsent';
+import CaptureConsent from '../../components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -41,20 +41,17 @@ function wrapCanvasText(ctx, text, maxWidth) {
   return lines;
 }
 
-// Live mode is gated behind the capture consent screen; the sensing page
-// (and its camera/mic hooks) only mounts once the user has agreed.
+// Live mode is gated behind the capture consent screen, shown on every visit;
+// the sensing page (and its camera/mic hooks) only mounts once the user agrees.
 const MultimodalEngine = () => {
   const navigate = useNavigate();
-  const [consented, setConsented] = useState(() => hasCaptureConsent('live'));
+  const [consented, setConsented] = useState(false);
 
   if (!consented) {
     return (
       <CaptureConsent
         mode="live"
-        onAccept={() => {
-          saveCaptureConsent('live');
-          setConsented(true);
-        }}
+        onAccept={() => setConsented(true)}
         onDecline={() => navigate('/dashboard')}
       />
     );
@@ -125,6 +122,8 @@ const LiveSensingSession = () => {
   const liveEmotionTimelineRef = useRef([]);
   const currentEmotionRef = useRef(null); // { emotion, since: ms timestamp }
   const [isStopAlertOpen, setIsStopAlertOpen] = useState(false);
+  // Confidentiality warning shown before every live session starts.
+  const [isPrivacyAlertOpen, setIsPrivacyAlertOpen] = useState(false);
   const [navAlertTarget, setNavAlertTarget] = useState(null);
   const [isLiveEnding, setIsLiveEnding] = useState(false);
   const [friendlyId, setFriendlyId] = useState(null);
@@ -736,6 +735,14 @@ const LiveSensingSession = () => {
       return;
     }
 
+    // The transcript goes to an LLM for scoring, so warn about confidential
+    // meetings first; the session starts from the dialog's confirm button.
+    setIsPrivacyAlertOpen(true);
+  };
+
+  const beginLiveSession = async () => {
+    if (liveSessionId || sessionTimerRef.current || isLiveStarting) return;
+
     setIsLiveStarting(true);
     liveNudgeLogRef.current = [];
     // Nudges already on screen fired before the session, so don't log them.
@@ -969,6 +976,28 @@ const LiveSensingSession = () => {
             </div>
           )}
         </div>
+
+        <AlertDialog open={isPrivacyAlertOpen} onOpenChange={setIsPrivacyAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confidential meeting?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This meeting will be transcribed and sent to an AI for scoring. Don't use Live mode for confidential discussions.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsPrivacyAlertOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setIsPrivacyAlertOpen(false);
+                  beginLiveSession();
+                }}
+              >
+                Start session
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <AlertDialog open={isStopAlertOpen} onOpenChange={setIsStopAlertOpen}>
           <AlertDialogContent>

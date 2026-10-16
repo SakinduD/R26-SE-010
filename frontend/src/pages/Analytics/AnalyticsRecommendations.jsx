@@ -145,7 +145,7 @@ export default function AnalyticsRecommendationsNew() {
   return (
     <main className="min-h-screen">
       {/* Header */}
-      <header className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-40">
+      <header className="border-b border-border bg-background">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-end justify-between gap-4 flex-wrap">
           <div>
             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Feedback & Recommendations</p>

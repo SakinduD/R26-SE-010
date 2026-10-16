@@ -93,9 +93,8 @@ export default function SurveyResults() {
 
   function handleStartBaseline() {
     const decision = localStorage.getItem(DECISION_KEY)
-    if (decision === 'consented') navigate('/baseline')
-    else if (decision === 'skipped') navigate('/training-plan')
-    else navigate('/baseline/consent')
+    if (decision === 'skipped') navigate('/training-plan')
+    else navigate('/baseline')
   }
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);

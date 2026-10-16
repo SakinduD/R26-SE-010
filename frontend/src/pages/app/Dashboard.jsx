@@ -133,7 +133,7 @@ function BaselineStatusRow({ baseline, locked = false }) {
   if (!baseline) {
     return (
       <Link
-        to="/baseline/consent"
+        to="/baseline"
         style={{ fontSize: 12, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
       >
         <Mic size={10} strokeWidth={2} />

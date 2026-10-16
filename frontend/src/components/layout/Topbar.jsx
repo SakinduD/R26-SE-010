@@ -12,6 +12,7 @@ const CRUMB_MAP = {
   '/survey/results': ['Learn', 'Assessment', 'Results'],
   '/baseline': ['Learn', 'Voice Baseline'],
   '/training-plan': ['Learn', 'Training Plan'],
+  '/training-plan/new': ['Learn', 'Training Plan', 'New Plan'],
   '/roleplay': ['Practice', 'Role Play'],
   '/roleplay/session': ['Practice', 'Role Play', 'Session'],
   '/roleplay/session/complete': ['Practice', 'Role Play', 'Session Complete'],
@@ -35,6 +36,7 @@ function getCrumbs(pathname) {
   if (CRUMB_MAP[pathname]) return CRUMB_MAP[pathname];
 
   // Parameterised routes: try the longest matching prefix
+  if (pathname.startsWith('/training-plan/')) return ['Learn', 'Training Plan', 'Plan Details'];
   if (pathname.startsWith('/roleplay/session/')) return ['Practice', 'Role Play', 'Session'];
   if (pathname.startsWith('/roleplay/feedback')) return ['Practice', 'Role Play', 'Feedback'];
   if (pathname.startsWith('/analytics/users/')) {

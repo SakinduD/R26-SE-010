@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send } from 'lucide-react';
+import { Mic, Bot, User, Volume2, Activity, X, Play, Square, Send, AlertTriangle } from 'lucide-react';
 import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { toMechanicalAverages, toObservation } from '../../utils/mca/realtimeSensing';
 import clsx from 'clsx';
@@ -148,10 +148,11 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
     if (!sessionActive) return;
     const remaining = SESSION_DURATION_SECONDS - sessionDuration;
 
-    if (remaining === 60 && !warningShownRef.current) {
+    if (remaining === 180 && !warningShownRef.current) {
       warningShownRef.current = true;
-      toast.warning("1 minute remaining in your baseline session.", {
-        description: "Wrap up any final thoughts you'd like to share."
+      toast.warning("3 minutes left. The session will end automatically.", {
+        description: "Wrap up any final thoughts you'd like to share.",
+        duration: 10000,
       });
     }
 
@@ -780,6 +781,22 @@ const AIChatbot = ({ isListening, setIsListening, hasPermission, setHasPermissio
           </div>
         </div>
       </div>
+
+      {/* Last-3-minutes banner, stays up until the session auto-ends */}
+      {sessionActive && SESSION_DURATION_SECONDS - sessionDuration <= 180 && (() => {
+        const remaining = Math.max(0, SESSION_DURATION_SECONDS - sessionDuration);
+        return (
+          <div
+            role="alert"
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-destructive text-white animate-in fade-in slide-in-from-top-2 duration-500"
+          >
+            <AlertTriangle size={18} className="shrink-0 animate-pulse" />
+            <span className="text-sm font-semibold">
+              {Math.floor(remaining / 60)}:{(remaining % 60).toString().padStart(2, '0')} left. The session will end automatically.
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-gradient-to-b from-transparent to-muted/5 custom-scrollbar w-full">
