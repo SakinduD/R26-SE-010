@@ -18,10 +18,14 @@ logger = logging.getLogger("uvicorn")
 _settings = get_settings()
 
 # Local debug log of LLM prompts and responses (safe to delete).
+# Off by default — prompts contain user transcripts. Set True only while debugging. ( True, False)
+_TEMP_LOG_ENABLED = False
 _TEMP_LOG_PATH = Path(__file__).resolve().parents[2] / "scratch" / "mca_live_llm_log.txt"
 
 
 def _append_temp_log(label: str, content: str) -> None:
+    if not _TEMP_LOG_ENABLED:
+        return
     try:
         _TEMP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _TEMP_LOG_PATH.open("a", encoding="utf-8") as f:
