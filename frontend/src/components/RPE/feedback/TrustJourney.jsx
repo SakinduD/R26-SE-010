@@ -202,15 +202,15 @@ export default function TrustJourney({
         .tj-wrap{ display:flex; flex-direction:column; gap:4px; }
         .tj-scroll{ width:100%; overflow-x:auto; padding:6px 2px 4px; }
         .tj-svg{ display:block; width:100%; height:auto; overflow:visible; }
-        .tj-grid{ stroke:var(--border); stroke-width:1; stroke-dasharray:3 4; opacity:.6; }
-        .tj-grid-label{ font-size:8.5px; fill:var(--text-low); }
+        .tj-grid{ stroke:var(--border); stroke-width:1; stroke-dasharray:3 4; opacity:.75; }
+        .tj-grid-label{ font-size:8.5px; font-weight:600; fill:var(--text-med); }
         .tj-line{ stroke:var(--accent); }
         .tj-node{ cursor:pointer; outline:none; }
         .tj-node:focus-visible circle:nth-child(2){ stroke:var(--accent); stroke-width:3; filter:drop-shadow(0 0 0 3px var(--accent-glow)); }
         .tj-node-circle{ transition:stroke .2s var(--ease), stroke-width .2s var(--ease), filter .2s var(--ease); }
         .tj-node-selected{ stroke:var(--accent) !important; stroke-width:4.5 !important; filter:drop-shadow(0 0 5px var(--accent-glow)); }
-        .tj-value{ font-size:10.5px; font-weight:700; fill:var(--text-hi); font-variant-numeric:tabular-nums; }
-        .tj-turn-label{ font-size:9px; fill:var(--text-low); text-transform:uppercase; letter-spacing:.04em; }
+        .tj-value{ font-size:10.5px; font-weight:750; fill:var(--text-hi); font-variant-numeric:tabular-nums; }
+        .tj-turn-label{ font-size:9px; font-weight:700; fill:var(--text-med); text-transform:uppercase; letter-spacing:.04em; }
         .tj-empty{ font-size:13px; color:var(--text-med); padding:24px; text-align:center; }
 
         .sr-only-table{

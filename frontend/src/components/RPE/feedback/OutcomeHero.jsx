@@ -57,47 +57,47 @@ export default function OutcomeHero({ finalTrust, interpretation, icon }) {
         .oh-wrap{ display:flex; flex-direction:column; align-items:stretch; gap:16px; margin-top:14px; width:100%; max-width:840px; }
         .oh-hero-card{
           display:flex; align-items:center; justify-content:space-between;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-top: 1px solid rgba(255, 255, 255, 0.16);
+          background: var(--surface);
+          border: 1px solid var(--border);
           border-radius: 20px;
           padding: 24px 28px;
           backdrop-filter: blur(16px);
-          box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--card-shadow, 0 16px 40px -12px rgba(0, 0, 0, 0.5));
         }
         .oh-left{ display:flex; flex-direction:column; gap:6px; }
         .oh-metric-header{ display:flex; align-items:center; gap:10px; }
-        .oh-label{ font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; color:#94A3B8; }
+        .oh-label{ font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; color:var(--text-med); }
         .oh-status{ font-size:11.5px; font-weight:700; padding:2px 10px; border-radius:100px; text-transform:capitalize; }
-        .oh-status.success{ color:#34D399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); }
-        .oh-status.accent{  color:#C084FC; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.25); }
-        .oh-status.warning{ color:#FBBF24; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); }
-        .oh-status.danger{  color:#F87171; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.25); }
-        .oh-status.neutral{ color:#94A3B8; background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.2); }
+        .oh-status.success{ color:var(--success); background:var(--success-glow); border:1px solid rgba(16,185,129,0.25); }
+        .oh-status.accent{  color:var(--accent); background:var(--accent-glow); border:1px solid rgba(168,85,247,0.25); }
+        .oh-status.warning{ color:var(--warning); background:var(--warning-glow); border:1px solid rgba(245,158,11,0.25); }
+        .oh-status.danger{  color:var(--danger); background:var(--danger-glow); border:1px solid rgba(239,68,68,0.25); }
+        .oh-status.neutral{ color:var(--text-med); background:var(--surface-hi); border:1px solid var(--border); }
 
         .oh-hero{ display:flex; align-items:baseline; gap:8px; margin-top:2px; }
-        .oh-num{ font-size:58px; font-weight:850; letter-spacing:-0.03em; color:#FFFFFF; font-variant-numeric:tabular-nums; line-height:1; }
-        .oh-unit{ font-size:18px; font-weight:600; color:#64748B; }
+        .oh-num{ font-size:58px; font-weight:850; letter-spacing:-0.03em; color:var(--text-hi); font-variant-numeric:tabular-nums; line-height:1; }
+        .oh-unit{ font-size:18px; font-weight:600; color:var(--text-low); }
 
         .oh-shield-wrap{
           width: 64px; height: 64px; border-radius: 18px;
-          background: rgba(124, 58, 237, 0.1);
+          background: var(--accent-glow);
           border: 1px solid rgba(168, 85, 247, 0.25);
           display: flex; align-items: center; justify-content: center;
-          box-shadow: 0 0 24px rgba(124, 58, 237, 0.18);
+          box-shadow: 0 0 24px var(--accent-glow);
         }
 
         .oh-interp-card{
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-left: 3px solid #8B5CF6;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-left: 3px solid var(--accent);
           border-radius: 0 14px 14px 0;
           padding: 16px 20px;
           display: flex; flex-direction: column; gap: 6px;
+          box-shadow: var(--card-shadow, 0 8px 24px -8px rgba(0,0,0,0.2));
         }
         .oh-interp-header{ display:flex; align-items:center; gap:7px; }
-        .oh-interp-title{ font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; color:#A855F7; }
-        .oh-interp{ font-size:13.5px; line-height:1.6; color:#CBD5E1; margin:0; }
+        .oh-interp-title{ font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+        .oh-interp{ font-size:13.5px; line-height:1.6; color:var(--text-hi); margin:0; }
       `}</style>
     </div>
   )
