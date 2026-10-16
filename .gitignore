@@ -70,3 +70,4 @@ MCA_Scoring_Methodology.docx
 !Backend/tests/pedagogy/_trace/*.md
 Backend/.env.example
 Backend/.env.example
+.vscode/
