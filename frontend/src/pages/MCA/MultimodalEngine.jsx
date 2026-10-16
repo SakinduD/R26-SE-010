@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
 import { useNudgeSensing } from '../../hooks/useNudgeSensing';
+import CameraErrorDialog from '../../components/MCA/CameraErrorDialog';
 import { toObservation } from '../../utils/mca/realtimeSensing';
 import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
@@ -96,6 +97,7 @@ const LiveSensingSession = () => {
     webcamRef, canvasRef, metrics,
     isCameraActive, isMicActive: liveMicActive,
     toggleCamera, toggleMic: rawToggleMic, dismissNudge,
+    onCameraError, relaxCameraConstraints, cameraError, clearCameraError,
     nudges: sensedNudges,
     resetVisualAverages, getVisualAverages,
   } = useNudgeSensing({ frameOverlayRef, showMesh, onDetections: logDetections, onChunk: logChunk });
@@ -943,6 +945,11 @@ const LiveSensingSession = () => {
           </div>
         ))}
       </div>
+      <CameraErrorDialog
+        error={cameraError}
+        onClose={clearCameraError}
+        onRetry={() => { clearCameraError(); if (!isCameraActive) toggleCamera(); }}
+      />
       <div className="w-full flex-1 min-h-0 flex flex-col gap-6 transition-all duration-700 ease-in-out max-w-[1600px] h-full">
         <div className="text-center space-y-1">
           <h1 className="t-h1" style={{ fontSize: 28 }}>
@@ -1025,10 +1032,11 @@ const LiveSensingSession = () => {
                       ref={webcamRef}
                       screenshotFormat="image/jpeg"
                       className="hidden"
-                      videoConstraints={{
+                      videoConstraints={relaxCameraConstraints ? {} : {
                         facingMode: "user",
                         aspectRatio: 1.777777778
                       }}
+                      onUserMediaError={onCameraError}
                     />
                     <canvas
                       ref={canvasRef}
