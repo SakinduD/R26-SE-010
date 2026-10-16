@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
 // Auth infrastructure
@@ -22,7 +22,6 @@ import AuthCallback from './pages/auth/AuthCallback'
 
 // Protected app pages
 import Baseline from './pages/app/Baseline'
-import BaselineConsent from './pages/app/BaselineConsent'
 import Dashboard from './pages/app/Dashboard'
 import Survey from './pages/app/Survey'
 import SurveyResults from './pages/app/survey/SurveyResults'
@@ -114,7 +113,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/survey" element={<Survey />} />
                 <Route path="/survey/results" element={<SurveyResults />} />
-                <Route path="/baseline/consent" element={<BaselineConsent />} />
+                <Route path="/baseline/consent" element={<Navigate to="/baseline" replace />} />
                 <Route path="/baseline" element={<Baseline />} />
                 <Route path="/training-plan" element={<TrainingPlan />} />
                 <Route path="/training-plan/new" element={<TrainingPlanNew />} />

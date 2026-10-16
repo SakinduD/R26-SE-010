@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import * as faceMesh from '@mediapipe/face_mesh';
 import { drawFaceMesh } from '@/utils/mca/drawFaceMesh';
@@ -9,8 +9,8 @@ import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuris
 import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
-import { hasCaptureConsent } from '@/components/MCA/CaptureConsent';
 import CameraErrorDialog from '@/components/MCA/CameraErrorDialog';
+import CaptureConsent from '@/components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
   AlertDialog,
@@ -25,7 +25,41 @@ import {
 import { useProtectedRoute } from '@/lib/auth/useProtectedRoute';
 import { completeBaseline } from '@/lib/api/baseline';
 
+const DECISION_KEY = 'empowerz:baseline:decision';
+
+// Baseline is gated behind the capture consent screen, shown on every visit
+// (same as Live mode); the session and its camera/mic only mount once the
+// user agrees.
 export default function Baseline() {
+  const { isLoading: authLoading } = useProtectedRoute();
+  const navigate = useNavigate();
+  const [consented, setConsented] = useState(false);
+  const [skipping, setSkipping] = useState(false);
+
+  if (authLoading) return null;
+
+  if (!consented) {
+    return (
+      <CaptureConsent
+        mode="baseline"
+        onAccept={() => {
+          try { localStorage.setItem(DECISION_KEY, 'consented'); } catch { }
+          setConsented(true);
+        }}
+        onDecline={() => {
+          setSkipping(true);
+          try { localStorage.setItem(DECISION_KEY, 'skipped'); } catch { }
+          navigate('/training-plan');
+        }}
+        declining={skipping}
+      />
+    );
+  }
+
+  return <BaselineSession />;
+}
+
+function BaselineSession() {
   const { isLoading: authLoading } = useProtectedRoute();
   const navigate = useNavigate();
   const [showMesh, setShowMesh] = useState(false);
@@ -254,9 +288,6 @@ export default function Baseline() {
   }, [relaxCameraConstraints]);
 
   if (authLoading) return null;
-
-  // No sensing without consent — send direct visits to the consent screen first.
-  if (!hasCaptureConsent('baseline')) return <Navigate to="/baseline/consent" replace />;
 
   return (
     <div className="w-full flex flex-col items-center p-4 md:p-8 font-sans antialiased relative h-[calc(100vh-48px)] overflow-hidden">

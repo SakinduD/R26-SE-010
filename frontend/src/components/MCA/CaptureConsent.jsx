@@ -4,26 +4,6 @@ import { ArrowRight, Loader2, Mic, ScanFace, ShieldCheck, X } from 'lucide-react
 import { fadeInUp, staggerContainer } from '@/lib/animations'
 import Card from '@/components/ui/Card'
 
-// Bump the version suffix when what we capture changes, so users re-consent.
-const CONSENT_KEYS = {
-  baseline: 'empowerz:baseline:consent:v1',
-  live: 'empowerz:live:consent:v1',
-}
-
-export function hasCaptureConsent(mode) {
-  try {
-    return localStorage.getItem(CONSENT_KEYS[mode]) === 'true'
-  } catch {
-    return false
-  }
-}
-
-export function saveCaptureConsent(mode) {
-  try {
-    localStorage.setItem(CONSENT_KEYS[mode], 'true')
-  } catch { }
-}
-
 const SIGNALS = [
   { Icon: Mic, label: 'Voice', tags: ['Tone', 'Pace', 'Fluency'] },
   { Icon: ScanFace, label: 'Face', tags: ['Eye contact', 'Head pose', 'Engagement'] },
