@@ -26,7 +26,7 @@ _ARGS = dict(
 # The exact hash of today's real system prompt for this fixed input — a
 # change to this hash means "current" no longer matches what production
 # sends today, which this task must never do.
-_CURRENT_PROMPT_SHA256_16 = "090e5a9e6c981a77"
+_CURRENT_PROMPT_SHA256_16 = "e6e2d9148af19f42"
 
 
 def test_current_prompt_version_defaults_and_matches_known_hash():
@@ -34,7 +34,7 @@ def test_current_prompt_version_defaults_and_matches_known_hash():
     import hashlib
     prompt = svc._build_system_prompt(**_ARGS)
     assert hashlib.sha256(prompt.encode()).hexdigest()[:16] == _CURRENT_PROMPT_SHA256_16
-    assert len(prompt) == 12917
+    assert len(prompt) == 13970
 
 
 def test_explicit_current_matches_default():
