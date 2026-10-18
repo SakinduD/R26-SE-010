@@ -1,10 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import Webcam from 'react-webcam';
 import { Video, Activity, Mic, X, Play, Square, PictureInPicture2, MonitorUp } from 'lucide-react';
 import { useNudgeSensing } from '../../hooks/useNudgeSensing';
 import CameraErrorDialog from '../../components/MCA/CameraErrorDialog';
+import CameraVideo from '../../components/MCA/CameraVideo';
 import { toObservation } from '../../utils/mca/realtimeSensing';
 import { mcaService, NO_SPEECH_HINT } from '../../services/mca/mcaService';
 import { API_URL } from '../../lib/config';
@@ -1056,10 +1056,8 @@ const LiveSensingSession = () => {
 
                 {isCameraActive ? (
                   <>
-                    <Webcam
-                      audio={false}
+                    <CameraVideo
                       ref={webcamRef}
-                      screenshotFormat="image/jpeg"
                       className="hidden"
                       videoConstraints={relaxCameraConstraints ? {} : {
                         facingMode: "user",
