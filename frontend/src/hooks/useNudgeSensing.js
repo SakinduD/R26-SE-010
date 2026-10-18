@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import * as faceMesh from '@mediapipe/face_mesh'
 import { drawFaceMesh } from '@/utils/mca/drawFaceMesh'
+import { drawMirroredFrame, preloadFaceMesh, startFaceMeshLoop } from '@/utils/mca/faceMeshRunner'
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics'
 import { mcaService } from '@/services/mca/mcaService'
 import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, toMechanicalAverages, upsertNudge } from '@/utils/mca/realtimeSensing'
@@ -269,56 +269,34 @@ export function useNudgeSensing({ frameOverlayRef, showMesh = true, persistMicCo
 
   const clearCameraError = useCallback(() => setCameraError(null), [])
 
-  // Camera + FaceMesh lifecycle, tied to isCameraActive. Frames are read from
+  // Start downloading the face model as soon as the screen opens, so it's
+  // usually ready by the time the camera is turned on.
+  useEffect(() => {
+    preloadFaceMesh().catch(() => {})
+  }, [])
+
+  // Shows the plain camera feed while the face model is still loading.
+  const onPreview = useCallback((video) => {
+    const canvasElement = canvasRef.current
+    if (!canvasElement) return
+    const canvasCtx = drawMirroredFrame(canvasElement, video, video.videoWidth, video.videoHeight)
+    if (frameOverlayRef?.current) {
+      frameOverlayRef.current(canvasCtx, canvasElement)
+    }
+  }, [frameOverlayRef])
+
+  // Camera + FaceMesh loop, tied to isCameraActive. Frames are read from
   // react-webcam's <video>, so the camera is opened only once (MediaPipe's
   // Camera helper would open it a second time at 1280x720).
   useEffect(() => {
-    let faceMeshModel = null
-    let rafId = null
-    let stopped = false
-
-    if (isCameraActive) {
-      const FaceMeshCtor = faceMesh.FaceMesh || window.FaceMesh || faceMesh.default?.FaceMesh || faceMesh.default;
-      faceMeshModel = new FaceMeshCtor({
-        locateFile: (file) => {
-          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh'
-          return `${baseUrl}/${file}`
-        },
-      })
-
-      faceMeshModel.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      })
-
-      faceMeshModel.onResults(onResults)
-
-      const loop = async () => {
-        if (stopped) return
-        const video = webcamRef.current?.video
-        // readyState >= 2: the stream is live and has a decodable frame.
-        if (video && video.readyState >= 2 && video.videoWidth > 0) {
-          try {
-            await faceMeshModel.send({ image: video })
-          } catch (err) {
-            console.warn('[useNudgeSensing] frame skipped:', err)
-          }
-        }
-        if (!stopped) rafId = requestAnimationFrame(loop)
-      }
-      rafId = requestAnimationFrame(loop)
-    }
-
-    return () => {
-      stopped = true
-      if (rafId) cancelAnimationFrame(rafId)
-      if (faceMeshModel) {
-        faceMeshModel.close()
-      }
-    }
-  }, [isCameraActive, onResults])
+    if (!isCameraActive) return undefined
+    return startFaceMeshLoop({
+      getVideo: () => webcamRef.current?.video,
+      onResults,
+      onPreview,
+      logTag: 'useNudgeSensing',
+    })
+  }, [isCameraActive, onResults, onPreview])
 
   // Tear everything down on unmount, including a kept-alive socket.
   useEffect(() => {

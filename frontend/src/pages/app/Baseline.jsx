@@ -2,8 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import * as faceMesh from '@mediapipe/face_mesh';
 import { drawFaceMesh } from '@/utils/mca/drawFaceMesh';
+import { drawMirroredFrame, preloadFaceMesh, startFaceMeshLoop } from '@/utils/mca/faceMeshRunner';
 import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
 import { calculateEAR, calculateMAR, estimateHeadPose } from '@/utils/mca/heuristics';
 import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, upsertNudge } from '@/utils/mca/realtimeSensing';
@@ -209,55 +209,29 @@ function BaselineSession() {
     canvasCtx.restore();
   }, []);
 
+  // Start downloading the face model as soon as the screen opens, so it's
+  // usually ready by the time the camera is turned on.
+  useEffect(() => {
+    preloadFaceMesh().catch(() => { });
+  }, []);
+
+  // Shows the plain camera feed while the face model is still loading.
+  const onPreview = useCallback((video) => {
+    if (!canvasRef.current) return;
+    drawMirroredFrame(canvasRef.current, video, video.videoWidth, video.videoHeight);
+  }, []);
+
   // Frames are read from react-webcam's <video>, so the camera is opened only
   // once (MediaPipe's Camera helper would open it a second time at 1280x720).
   useEffect(() => {
-    let faceMeshModel = null;
-    let rafId = null;
-    let stopped = false;
-
-    if (isCameraActive) {
-      const FaceMeshCtor = faceMesh.FaceMesh || window.FaceMesh || faceMesh.default?.FaceMesh || faceMesh.default;
-      faceMeshModel = new FaceMeshCtor({
-        locateFile: (file) => {
-          const baseUrl = import.meta.env.VITE_MEDIAPIPE_FACE_MESH_URL || 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
-          return `${baseUrl}/${file}`;
-        },
-      });
-
-      faceMeshModel.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      faceMeshModel.onResults(onResults);
-
-      const loop = async () => {
-        if (stopped) return;
-        const video = webcamRef.current?.video;
-        // readyState >= 2: the stream is live and has a decodable frame.
-        if (video && video.readyState >= 2 && video.videoWidth > 0) {
-          try {
-            await faceMeshModel.send({ image: video });
-          } catch (err) {
-            console.warn('[Baseline] frame skipped:', err);
-          }
-        }
-        if (!stopped) rafId = requestAnimationFrame(loop);
-      };
-      rafId = requestAnimationFrame(loop);
-    }
-
-    return () => {
-      stopped = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      if (faceMeshModel) {
-        faceMeshModel.close();
-      }
-    };
-  }, [isCameraActive, onResults]);
+    if (!isCameraActive) return undefined;
+    return startFaceMeshLoop({
+      getVideo: () => webcamRef.current?.video,
+      onResults,
+      onPreview,
+      logTag: 'Baseline',
+    });
+  }, [isCameraActive, onResults, onPreview]);
 
   const toggleCamera = () => {
     setIsCameraActive(prev => !prev);
