@@ -1,7 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-import Webcam from 'react-webcam';
 import { drawFaceMesh } from '@/utils/mca/drawFaceMesh';
 import { drawMirroredFrame, preloadFaceMesh, startFaceMeshLoop } from '@/utils/mca/faceMeshRunner';
 import { Video, Activity, Mic, X, Play, Square } from 'lucide-react';
@@ -10,6 +9,7 @@ import { createEyeClosureFilter, createVisualAccumulator, pruneResolvedNudges, u
 import { mcaService } from '@/services/mca/mcaService';
 import AIChatbot from '@/components/MCA/AIChatbot';
 import CameraErrorDialog from '@/components/MCA/CameraErrorDialog';
+import CameraVideo from '@/components/MCA/CameraVideo';
 import CaptureConsent from '@/components/MCA/CaptureConsent';
 import clsx from 'clsx';
 import {
@@ -373,10 +373,8 @@ function BaselineSession() {
               <div className="w-full aspect-video relative overflow-hidden bg-muted/50 rounded-xl border flex flex-col items-center justify-center group/window transition-all duration-500 border-primary/20 hover:border-primary/40">
                 {isCameraActive ? (
                   <>
-                    <Webcam
-                      audio={false}
+                    <CameraVideo
                       ref={webcamRef}
-                      screenshotFormat="image/jpeg"
                       className="hidden"
                       videoConstraints={relaxCameraConstraints ? {} : {
                         facingMode: "user",
