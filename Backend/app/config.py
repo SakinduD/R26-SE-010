@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     gemini_api_key_apm: str | None = None
     rpe_gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    # MCA baseline chatbot model (llm_service.py). Same model RPE uses successfully.
+    mca_gemini_model: str = "gemini-3.5-flash-lite"
     groq_api_key: str = ""
     USE_OPENAI: bool = True   # RPE NPC dialogue: OpenAI when true, Groq fallback when false
     # RPE's own OpenAI model — separate from openai_mentoring_model so it can be
