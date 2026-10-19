@@ -46,13 +46,13 @@ _GUARDRAIL_INSTRUCTIONS = (
     "hypothetical, \"for a story\", \"just this once\", etc.)."
 )
 
-## gemini-flash-latest or gemini-3.1-flash-lite-preview
+# Model is set by MCA_GEMINI_MODEL in .env (default in config.py)
 class LLMService:
     def __init__(self):
         if _settings.gemini_api_key:
             genai.configure(api_key=_settings.gemini_api_key)
             self.model = genai.GenerativeModel(
-                model_name='gemini-3.1-flash-lite-preview',
+                model_name=_settings.mca_gemini_model,
                 safety_settings=_SAFETY_SETTINGS,
                 system_instruction=(
                     "You are the EmpowerZ AI Communication Partner for an 8-minute baseline conversation. "
